@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 from pydantic import EmailStr
 from sqlalchemy import DateTime
@@ -178,8 +179,8 @@ class SolutionComponent(SolutionComponentBase, table=True):
     solution_id: uuid.UUID = Field(
         foreign_key="solution.id", nullable=False, ondelete="CASCADE"
     )
-    solution: "Solution | None" = Relationship(back_populates="components")
-    material: Material | None = Relationship(back_populates="solution_components")
+    solution: Optional["Solution"] = Relationship(back_populates="components")
+    material: Optional[Material] = Relationship(back_populates="solution_components")
 
 
 class SolutionComponentPublic(SolutionComponentBase):
@@ -241,7 +242,7 @@ class Substrate(SubstrateBase, table=True):
     experiment_id: uuid.UUID = Field(
         foreign_key="experiment.id", nullable=False, ondelete="CASCADE"
     )
-    experiment: "Experiment | None" = Relationship(back_populates="substrates")
+    experiment: Optional["Experiment"] = Relationship(back_populates="substrates")
 
 
 class SubstratePublic(SubstrateBase):
@@ -268,7 +269,7 @@ class ExperimentLayer(ExperimentLayerBase, table=True):
     experiment_id: uuid.UUID = Field(
         foreign_key="experiment.id", nullable=False, ondelete="CASCADE"
     )
-    experiment: "Experiment | None" = Relationship(back_populates="layers")
+    experiment: Optional["Experiment"] = Relationship(back_populates="layers")
 
 
 class ExperimentLayerPublic(ExperimentLayerBase):
@@ -340,7 +341,7 @@ class MeasurementFile(MeasurementFileBase, table=True):
     results_id: uuid.UUID = Field(
         foreign_key="experimentresults.id", nullable=False, ondelete="CASCADE"
     )
-    results: "ExperimentResults | None" = Relationship(back_populates="measurement_files")
+    results: Optional["ExperimentResults"] = Relationship(back_populates="measurement_files")
 
 
 class MeasurementFilePublic(MeasurementFileBase):
@@ -361,7 +362,7 @@ class DeviceGroup(DeviceGroupBase, table=True):
     results_id: uuid.UUID = Field(
         foreign_key="experimentresults.id", nullable=False, ondelete="CASCADE"
     )
-    results: "ExperimentResults | None" = Relationship(back_populates="device_groups")
+    results: Optional["ExperimentResults"] = Relationship(back_populates="device_groups")
 
 
 class DeviceGroupPublic(DeviceGroupBase):
@@ -440,7 +441,7 @@ class CanvasElement(CanvasElementBase, table=True):
     plane_id: uuid.UUID = Field(
         foreign_key="plane.id", nullable=False, ondelete="CASCADE"
     )
-    plane: "Plane | None" = Relationship(back_populates="elements")
+    plane: Optional["Plane"] = Relationship(back_populates="elements")
 
 
 class CanvasElementPublic(CanvasElementBase):
