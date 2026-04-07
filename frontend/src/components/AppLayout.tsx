@@ -57,6 +57,7 @@ export function AppLayout() {
     materials,
     solutions,
     activeEntity,
+    flushSave,
   } = useAppContext()
 
   const currentPage =
@@ -336,7 +337,10 @@ export function AppLayout() {
                 <Menu.Item
                   color="red"
                   leftSection={<IconLogout size={14} />}
-                  onClick={logout}
+                  onClick={async () => {
+                    await flushSave()
+                    logout()
+                  }}
                 >
                   Log out
                 </Menu.Item>

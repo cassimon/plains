@@ -929,7 +929,6 @@ function SubstratesTab({
       <Paper withBorder p="md" radius="md">
         <NumberInput
           label="Number of Substrates"
-          description="Required to reach Ready status"
           value={experiment.numSubstrates}
           onChange={(v) => {
             const newCount = Math.max(1, Number(v) || 1)
@@ -1235,7 +1234,7 @@ function ExperimentDetail({
                 Parameter Variation
               </Tabs.Tab>
             )}
-            {experiment.buildDevices && (
+            {experiment.deviceType !== "film" && (
               <Tabs.Tab
                 value="devicelayout"
                 leftSection={<IconStack2 size={14} />}
@@ -1254,7 +1253,6 @@ function ExperimentDetail({
 
                 <BufferedTextInput
                   label="Experiment Name"
-                  description="Required to reach Ready status"
                   value={experiment.name}
                   onCommit={(v) => onUpdate({ ...experiment, name: v })}
                   mb="sm"
@@ -1284,7 +1282,6 @@ function ExperimentDetail({
                   <TextInput
                     label="Fabrication Date"
                     type="date"
-                    description="Required to reach Ready status"
                     value={experiment.date}
                     onChange={(e) =>
                       onUpdate({ ...experiment, date: e.currentTarget.value })
@@ -1368,82 +1365,166 @@ function ExperimentDetail({
           </Tabs.Panel>
 
           <Tabs.Panel value="layerstack">
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
-              {/* Left column: Device config */}
-              <Stack gap="md">
-                <Paper withBorder p="md" radius="md">
-                  <Text size="sm" fw={600} mb="sm">
-                    Architecture & Substrate
+            <Paper withBorder p="md" radius="md">
+              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg">
+                {/* Left: settings + layer editor */}
+                <Stack gap="md">
+                  <Box>
+                    <Text size="sm" fw={600} mb="sm">
+                      Architecture & Substrate
+                    </Text>
+                    <Select
+                      label="Architecture"
+                      size="sm"
+                      data={[
+                        { value: "n-i-p", label: "n-i-p (Regular)" },
+                        { value: "p-i-n", label: "p-i-n (Inverted)" },
+                        { value: "n-i-p-n", label: "n-i-p-n (Tandem)" },
+                        { value: "p-i-n-p", label: "p-i-n-p (Tandem)" },
+                        { value: "custom", label: "Custom" },
+                      ]}
+                      value={experiment.architecture}
+                      onChange={(v) =>
+                        onUpdate({
+                          ...experiment,
+                          architecture: (v as DeviceArchitecture) ?? "n-i-p",
+                        })
+                      }
+                      mb="sm"
+                    />
+                    <BufferedTextInput
+                      label="Substrate Material"
+                      size="sm"
+                      value={experiment.substrateMaterial}
+                      onCommit={(v) =>
+                        onUpdate({ ...experiment, substrateMaterial: v })
+                      }
+                      mb="md"
+                    />
+                  </Box>
+
+                  <Box>
+                    <Text size="sm" fw={600} mb="xs">
+                      Device Type
+                    </Text>
+                    <SegmentedControl
+                      fullWidth
+                      value={experiment.deviceType}
+                      onChange={(v) =>
+                        onUpdate({
+                          ...experiment,
+                          deviceType: v as "film" | "half" | "full",
+                        })
+                      }
+                      data={[
+                        { label: "Test (Film)", value: "film" },
+                        { label: "Half Device", value: "half" },
+                        { label: "Full Device", value: "full" },
+                      ]}
+                    />
+                  </Box>
+
+                  <Divider />
+
+                  <Box>
+                    <Group justify="space-between" mb="sm">
+                      <Text size="sm" fw={600}>
+                        Layers
+                      </Text>
+                      <Button
+                        size="xs"
+                        variant="light"
+                        leftSection={<IconPlus size={14} />}
+                        onClick={addLayer}
+                      >
+                        Add
+                      </Button>
+                    </Group>
+                    <Stack gap="xs">
+                      {experiment.layers.length === 0 ? (
+                        <Text size="xs" c="dimmed" ta="center" py="sm">
+                          No layers yet
+                        </Text>
+                      ) : (
+                        experiment.layers.map((layer, idx) => (
+                          <Group
+                            key={layer.id}
+                            gap="sm"
+                            p="xs"
+                            style={{
+                              background: `${layer.color}18`,
+                              borderLeft: `3px solid ${layer.color}`,
+                              borderRadius: 4,
+                            }}
+                          >
+                            <TextInput
+                              size="xs"
+                              value={layer.name}
+                              onChange={(e) =>
+                                updateLayer(idx, {
+                                  ...layer,
+                                  name: e.currentTarget.value,
+                                })
+                              }
+                              placeholder={`Layer ${idx + 1}`}
+                              style={{ flex: 1 }}
+                            />
+                            <TextInput
+                              size="xs"
+                              type="color"
+                              value={layer.color}
+                              onChange={(e) =>
+                                updateLayer(idx, {
+                                  ...layer,
+                                  color: e.currentTarget.value,
+                                })
+                              }
+                              style={{ width: 52 }}
+                            />
+                            <ActionIcon
+                              size="sm"
+                              variant="subtle"
+                              color="red"
+                              onClick={() => deleteLayer(idx)}
+                            >
+                              <IconTrash size={14} />
+                            </ActionIcon>
+                          </Group>
+                        ))
+                      )}
+                    </Stack>
+                  </Box>
+                </Stack>
+
+                {/* Right: Overview */}
+                <Stack gap="md">
+                  <Text size="sm" fw={600}>
+                    Overview
                   </Text>
-
-                  <Select
-                    label="Architecture"
-                    data={[
-                      { value: "n-i-p", label: "n-i-p (Regular)" },
-                      { value: "p-i-n", label: "p-i-n (Inverted)" },
-                      { value: "n-i-p-n", label: "n-i-p-n (Tandem)" },
-                      { value: "p-i-n-p", label: "p-i-n-p (Tandem)" },
-                      { value: "custom", label: "Custom" },
-                    ]}
-                    value={experiment.architecture}
-                    onChange={(v) =>
-                      onUpdate({
-                        ...experiment,
-                        architecture: (v as DeviceArchitecture) ?? "n-i-p",
-                      })
-                    }
-                    mb="sm"
+                  <DeviceStackPreview
+                    substrateMaterial={experiment.substrateMaterial}
+                    layers={experiment.layers}
+                    architecture={experiment.architecture}
                   />
-
-                  <BufferedTextInput
-                    label="Substrate Material"
-                    value={experiment.substrateMaterial}
-                    onCommit={(v) =>
-                      onUpdate({ ...experiment, substrateMaterial: v })
-                    }
-                    mb="sm"
-                  />
-
-                  <Checkbox
-                    label="Build devices"
-                    checked={experiment.buildDevices}
-                    onChange={(e) =>
-                      onUpdate({
-                        ...experiment,
-                        buildDevices: e.currentTarget.checked,
-                      })
-                    }
-                    mt="sm"
-                  />
-                </Paper>
-              </Stack>
-
-              {/* Right column: Device stack preview */}
-              <Stack gap="md">
-                <DeviceStackPreview
-                  substrateMaterial={experiment.substrateMaterial}
-                  layers={experiment.layers}
-                  architecture={experiment.architecture}
-                />
-
-                <Paper withBorder p="md" radius="md">
-                  <Text size="sm" fw={600} mb="sm">
-                    Stack Configuration
-                  </Text>
-                  <Text
-                    size="xs"
-                    c="dimmed"
-                    style={{ fontFamily: "monospace" }}
+                  <Box
+                    p="xs"
+                    style={{
+                      background: "var(--mantine-color-gray-0)",
+                      borderRadius: 4,
+                      fontFamily: "monospace",
+                    }}
                   >
-                    {experiment.substrateMaterial}
-                    {experiment.layers.length > 0 && " / "}
-                    {experiment.layers.map((l) => l.name).join(" / ")}
-                    {experiment.architecture !== "custom" &&
-                      ` : ${experiment.architecture}`}
-                  </Text>
-                </Paper>
-              </Stack>
-            </SimpleGrid>
+                    <Text size="xs" c="dimmed">
+                      {experiment.substrateMaterial}
+                      {experiment.layers.length > 0 && " / "}
+                      {experiment.layers.map((l) => l.name).join(" / ")}
+                      {experiment.architecture !== "custom" &&
+                        ` : ${experiment.architecture}`}
+                    </Text>
+                  </Box>
+                </Stack>
+              </SimpleGrid>
+            </Paper>
           </Tabs.Panel>
 
           <Tabs.Panel value="layers">

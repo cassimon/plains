@@ -105,7 +105,7 @@ export type Experiment = {
   numSubstrates: number
   devicesPerSubstrate: number
   deviceArea: number // cm²
-  buildDevices: boolean // whether to build the device layout
+  deviceType: "film" | "half" | "full" // test film, half device, or full device
   deviceLayoutImage?: string // base64 encoded image (jpg/png)
   // Layer stack (ordered from substrate up)
   layers: ExperimentLayer[]
@@ -309,7 +309,7 @@ export function newExperiment(): Experiment {
     numSubstrates: 1,
     devicesPerSubstrate: 4,
     deviceArea: 0.09,
-    buildDevices: false,
+    deviceType: "film",
     layers: [newLayer(0)],
     substrates: generateSubstrates(1),
     hasResults: false,
@@ -634,6 +634,9 @@ type AppContextValue = {
   setActiveEntity: (
     e: { kind: "experiment" | "material" | "solution"; id: string } | null,
   ) => void
+
+  /** Immediately persist the current state (call before logout). */
+  flushSave: () => Promise<void>
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -887,6 +890,7 @@ export function AppProvider({
         setPendingCollectionLink,
         activeEntity,
         setActiveEntity,
+        flushSave: () => backend.save(stateRef.current),
       }}
     >
       {children}
