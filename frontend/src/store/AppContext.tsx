@@ -320,7 +320,10 @@ export function newExperiment(): Experiment {
 
 export type SolutionComponent = {
   id: string
-  materialId: string
+  /** Reference to a material (either materialId or solutionId must be set) */
+  materialId?: string
+  /** Reference to another solution used as a mixture component */
+  solutionId?: string
   amount: string
   unit: "mg" | "ml"
 }
@@ -555,6 +558,95 @@ export {
   newPlainTextElement,
   newLineElement,
   newCollectionElement,
+}
+
+// ── Dependency tracking ───────────────────────────────────────────────────────
+
+export type DependencyLocation = {
+  planeName: string
+  collectionName: string
+  itemKind: "solution" | "experiment" | "result"
+  itemName: string
+  itemId: string
+}
+
+/**
+ * Returns all items that depend on a given entity. Used for delete protection UI:
+ * show the user where an item is still used before allowing deletion.
+ *
+ * Dependency graph:
+ *   material  ← solution.components[].materialId, experiment.layers[].materialId
+ *   solution  ← solution.components[].solutionId, experiment.layers[].solutionId
+ *   experiment ← result.experimentId
+ */
+export function getDependentLocations(
+  kind: "material" | "solution" | "experiment",
+  id: string,
+  data: {
+    solutions: Solution[]
+    experiments: Experiment[]
+    results: ExperimentResults[]
+    planes: Plane[]
+  },
+): DependencyLocation[] {
+  const locations: DependencyLocation[] = []
+
+  /** Find which (plane, collection) hosts a given item ref */
+  function findHost(
+    refKind: CollectionRef["kind"],
+    refId: string,
+  ): { planeName: string; collectionName: string } {
+    for (const plane of data.planes) {
+      for (const el of plane.elements) {
+        if (
+          el.type === "collection" &&
+          (el as CanvasCollectionElement).refs.some(
+            (r) => r.kind === refKind && r.id === refId,
+          )
+        ) {
+          return { planeName: plane.name, collectionName: (el as CanvasCollectionElement).name }
+        }
+      }
+    }
+    return { planeName: "(No plane)", collectionName: "(No collection)" }
+  }
+
+  if (kind === "material") {
+    for (const sol of data.solutions) {
+      if (sol.components.some((c) => c.materialId === id)) {
+        const host = findHost("solution", sol.id)
+        locations.push({ ...host, itemKind: "solution", itemName: sol.name, itemId: sol.id })
+      }
+    }
+    for (const exp of data.experiments) {
+      if (exp.layers.some((l) => l.materialId === id)) {
+        const host = findHost("experiment", exp.id)
+        locations.push({ ...host, itemKind: "experiment", itemName: exp.name, itemId: exp.id })
+      }
+    }
+  } else if (kind === "solution") {
+    for (const sol of data.solutions) {
+      if (sol.components.some((c) => c.solutionId === id)) {
+        const host = findHost("solution", sol.id)
+        locations.push({ ...host, itemKind: "solution", itemName: sol.name, itemId: sol.id })
+      }
+    }
+    for (const exp of data.experiments) {
+      if (exp.layers.some((l) => l.solutionId === id)) {
+        const host = findHost("experiment", exp.id)
+        locations.push({ ...host, itemKind: "experiment", itemName: exp.name, itemId: exp.id })
+      }
+    }
+  } else if (kind === "experiment") {
+    for (const res of data.results) {
+      if (res.experimentId === id) {
+        const host = findHost("result", res.id)
+        locations.push({ ...host, itemKind: "result", itemName: `Result ${res.id.slice(0, 6)}`, itemId: res.id })
+      }
+    }
+  }
+
+  return locations
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────

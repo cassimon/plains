@@ -24,6 +24,7 @@ import {
   Title,
   Tooltip,
 } from "@mantine/core"
+import { modals } from "@mantine/modals"
 import {
   IconChevronDown,
   IconChevronRight,
@@ -42,6 +43,7 @@ import {
   type Experiment,
   type ExperimentLayer,
   generateSubstrates,
+  getDependentLocations,
   getExperimentMissingFields,
   getExperimentStatus,
   getVariedParameters,
@@ -54,6 +56,7 @@ import {
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
+import { DependencyBlockModal } from "../components/DependencyBlockModal"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Buffered inputs — keep a local draft so parent only re-renders on commit
@@ -1769,6 +1772,7 @@ export function ExperimentsPage() {
     setExperiments,
     materials,
     solutions,
+    results,
     planes,
     updateElement,
     pendingCollectionLink,
@@ -1828,6 +1832,20 @@ export function ExperimentsPage() {
   }
 
   const deleteExperiment = (id: string) => {
+    const exp = experiments.find((e) => e.id === id)
+    const dependents = getDependentLocations("experiment", id, { solutions, experiments, results, planes })
+    if (dependents.length > 0) {
+      modals.open({
+        title: "Cannot delete experiment",
+        children: (
+          <DependencyBlockModal
+            itemName={exp?.name ?? id}
+            dependents={dependents}
+          />
+        ),
+      })
+      return
+    }
     setExperiments((prev) => prev.filter((e) => e.id !== id))
     if (selectedId === id) {
       selectExperiment(null)

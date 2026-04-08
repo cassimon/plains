@@ -30,9 +30,11 @@ import { useEffect, useState } from "react"
 import {
   type Material,
   newMaterial,
+  getDependentLocations,
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
+import { DependencyBlockModal } from "../components/DependencyBlockModal"
 
 type Column = {
   key: keyof Material
@@ -73,6 +75,9 @@ export function MaterialsPage() {
   const {
     materials,
     setMaterials,
+    solutions,
+    experiments,
+    results,
     planes,
     updateElement,
     pendingCollectionLink,
@@ -189,6 +194,33 @@ export function MaterialsPage() {
   }
 
   const confirmDelete = () => {
+    // Build dependency report for all selected materials
+    const depReport: { materialName: string; count: number }[] = []
+    for (const id of selected) {
+      const mat = materials.find((m) => m.id === id)
+      const dependents = getDependentLocations("material", id, { solutions, experiments, results, planes })
+      if (dependents.length > 0) {
+        depReport.push({ materialName: mat?.name || id, count: dependents.length })
+      }
+    }
+    if (depReport.length > 0) {
+      // Collect all dependents for the first blocked material and show a blocking modal
+      const firstBlockedId = [...selected].find((id) =>
+        getDependentLocations("material", id, { solutions, experiments, results, planes }).length > 0
+      )!
+      const firstMat = materials.find((m) => m.id === firstBlockedId)
+      const firstDeps = getDependentLocations("material", firstBlockedId, { solutions, experiments, results, planes })
+      modals.open({
+        title: "Cannot delete material",
+        children: (
+          <DependencyBlockModal
+            itemName={firstMat?.name ?? firstBlockedId}
+            dependents={firstDeps}
+          />
+        ),
+      })
+      return
+    }
     modals.openConfirmModal({
       title: "Delete materials",
       children: (

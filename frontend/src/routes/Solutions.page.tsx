@@ -13,6 +13,7 @@ import {
   Paper,
   rem,
   ScrollArea,
+  SegmentedControl,
   Stack,
   Table,
   Text,
@@ -33,6 +34,7 @@ import {
 } from "@tabler/icons-react"
 import { useEffect, useState } from "react"
 import {
+  getDependentLocations,
   newComponent,
   newSolution,
   type Solution,
@@ -40,14 +42,16 @@ import {
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
+import { DependencyBlockModal } from "../components/DependencyBlockModal"
 
-// ── Component row (material + amount + unit) ──────────────────────────────────
+// ── Component row (material/solution + amount + unit) ─────────────────────────
 
 type ComponentRowProps = {
   component: SolutionComponent
   onChange: (updated: SolutionComponent) => void
   onDelete: () => void
-  materialName: string
+  /** Pre-computed display name for the referenced material or solution */
+  componentName: string
   editing: boolean
   onStartEdit: () => void
   onCommit: () => void
@@ -55,12 +59,14 @@ type ComponentRowProps = {
   buffer: SolutionComponent | null
   onBufferChange: (b: SolutionComponent) => void
   materialOptions: { value: string; label: string }[]
+  /** Solution options (already filtered to exclude self-reference) */
+  solutionOptions: { value: string; label: string }[]
 }
 
 function ComponentRow({
   component,
   onDelete,
-  materialName,
+  componentName,
   editing,
   onStartEdit,
   onCommit,
@@ -68,25 +74,61 @@ function ComponentRow({
   buffer,
   onBufferChange,
   materialOptions,
+  solutionOptions,
 }: ComponentRowProps) {
+  // Derive which type is being edited from the buffer state
+  const editType: "material" | "solution" =
+    editing && buffer && buffer.solutionId !== undefined ? "solution" : "material"
+
   return (
     <Table.Tr>
       <Table.Td>
         {editing && buffer ? (
-          <NativeSelect
-            size="xs"
-            value={buffer.materialId}
-            onChange={(e) =>
-              onBufferChange({ ...buffer, materialId: e.currentTarget.value })
-            }
-            data={[
-              { value: "", label: "— select material —" },
-              ...materialOptions,
-            ]}
-          />
+          <Stack gap={4}>
+            <SegmentedControl
+              size="xs"
+              value={editType}
+              onChange={(t) => {
+                if (t === "material") {
+                  onBufferChange({ ...buffer, materialId: buffer.materialId ?? "", solutionId: undefined })
+                } else {
+                  onBufferChange({ ...buffer, solutionId: buffer.solutionId ?? "", materialId: undefined })
+                }
+              }}
+              data={[
+                { label: "Material", value: "material" },
+                { label: "Solution ↰", value: "solution" },
+              ]}
+            />
+            {editType === "material" ? (
+              <NativeSelect
+                size="xs"
+                value={buffer.materialId ?? ""}
+                onChange={(e) =>
+                  onBufferChange({ ...buffer, materialId: e.currentTarget.value, solutionId: undefined })
+                }
+                data={[
+                  { value: "", label: "— select material —" },
+                  ...materialOptions,
+                ]}
+              />
+            ) : (
+              <NativeSelect
+                size="xs"
+                value={buffer.solutionId ?? ""}
+                onChange={(e) =>
+                  onBufferChange({ ...buffer, solutionId: e.currentTarget.value, materialId: undefined })
+                }
+                data={[
+                  { value: "", label: "— select solution —" },
+                  ...solutionOptions,
+                ]}
+              />
+            )}
+          </Stack>
         ) : (
           <Text size="sm">
-            {materialName || (
+            {componentName || (
               <Text span c="dimmed" size="sm">
                 —
               </Text>
@@ -196,6 +238,9 @@ type SolutionCardProps = {
   onDelete: () => void
   materialOptions: { value: string; label: string }[]
   getMaterialName: (id: string) => string
+  /** All solutions (used to build solution-as-component options) */
+  allSolutionOptions: { value: string; label: string }[]
+  getSolutionName: (id: string) => string
   collectionColor?: string
   isSelected?: boolean
   onSelect?: (id: string) => void
@@ -207,6 +252,8 @@ function SolutionCard({
   onDelete,
   materialOptions,
   getMaterialName,
+  allSolutionOptions,
+  getSolutionName,
   collectionColor,
   isSelected: _isSelected,
   onSelect,
@@ -256,7 +303,7 @@ function SolutionCard({
 
   const cancelComponent = (id: string) => {
     const original = solution.components.find((c) => c.id === id)
-    if (original && !original.materialId && !original.amount) {
+    if (original && !original.materialId && !original.solutionId && !original.amount) {
       onUpdate({
         ...solution,
         components: solution.components.filter((c) => c.id !== id),
@@ -378,7 +425,7 @@ function SolutionCard({
           <Table withColumnBorders withTableBorder>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Material</Table.Th>
+                <Table.Th>Component</Table.Th>
                 <Table.Th>Amount</Table.Th>
                 <Table.Th>Unit</Table.Th>
                 <Table.Th style={{ width: rem(80) }} />
@@ -394,27 +441,37 @@ function SolutionCard({
                   </Table.Td>
                 </Table.Tr>
               )}
-              {solution.components.map((comp) => (
-                <ComponentRow
-                  key={comp.id}
-                  component={comp}
-                  onChange={() => {}}
-                  onDelete={() => deleteComponent(comp.id)}
-                  materialName={getMaterialName(comp.materialId)}
-                  editing={editingComponentId === comp.id}
-                  onStartEdit={() => {
-                    setEditingComponentId(comp.id)
-                    setComponentBuffer({ ...comp })
-                  }}
-                  onCommit={commitComponent}
-                  onCancel={() => cancelComponent(comp.id)}
-                  buffer={
-                    editingComponentId === comp.id ? componentBuffer : null
-                  }
-                  onBufferChange={setComponentBuffer}
-                  materialOptions={materialOptions}
-                />
-              ))}
+              {solution.components.map((comp) => {
+                const compName = comp.solutionId
+                  ? `↰ ${getSolutionName(comp.solutionId)}`
+                  : getMaterialName(comp.materialId ?? "")
+                // Exclude self to prevent circular references
+                const filteredSolutionOptions = allSolutionOptions.filter(
+                  (opt) => opt.value !== solution.id,
+                )
+                return (
+                  <ComponentRow
+                    key={comp.id}
+                    component={comp}
+                    onChange={() => {}}
+                    onDelete={() => deleteComponent(comp.id)}
+                    componentName={compName}
+                    editing={editingComponentId === comp.id}
+                    onStartEdit={() => {
+                      setEditingComponentId(comp.id)
+                      setComponentBuffer({ ...comp })
+                    }}
+                    onCommit={commitComponent}
+                    onCancel={() => cancelComponent(comp.id)}
+                    buffer={
+                      editingComponentId === comp.id ? componentBuffer : null
+                    }
+                    onBufferChange={setComponentBuffer}
+                    materialOptions={materialOptions}
+                    solutionOptions={filteredSolutionOptions}
+                  />
+                )
+              })}
             </Table.Tbody>
           </Table>
         </ScrollArea>
@@ -440,6 +497,8 @@ export function SolutionsPage() {
     materials,
     solutions,
     setSolutions,
+    experiments,
+    results,
     planes,
     updateElement,
     pendingCollectionLink,
@@ -466,6 +525,16 @@ export function SolutionsPage() {
   const getMaterialName = (id: string) => {
     const m = materials.find((mat) => mat.id === id)
     return m ? m.name || m.inventoryLabel || m.casNumber || id : id
+  }
+
+  const allSolutionOptions = solutions.map((s) => ({
+    value: s.id,
+    label: s.name || s.id,
+  }))
+
+  const getSolutionName = (id: string) => {
+    const s = solutions.find((sol) => sol.id === id)
+    return s ? s.name || id : id
   }
 
   const visibleSolutions = solutions.filter((s) =>
@@ -525,6 +594,20 @@ export function SolutionsPage() {
   }
 
   const deleteSolution = (id: string) => {
+    const sol = solutions.find((s) => s.id === id)
+    const dependents = getDependentLocations("solution", id, { solutions, experiments, results, planes })
+    if (dependents.length > 0) {
+      modals.open({
+        title: "Cannot delete solution",
+        children: (
+          <DependencyBlockModal
+            itemName={sol?.name ?? id}
+            dependents={dependents}
+          />
+        ),
+      })
+      return
+    }
     modals.openConfirmModal({
       title: "Delete solution",
       children: (
@@ -605,6 +688,8 @@ export function SolutionsPage() {
                   onDelete={() => deleteSolution(solution.id)}
                   materialOptions={materialOptions}
                   getMaterialName={getMaterialName}
+                  allSolutionOptions={allSolutionOptions}
+                  getSolutionName={getSolutionName}
                   collectionColor={getEntityColor("solution", solution.id) ?? undefined}
                   isSelected={selectedSolutionId === solution.id}
                   onSelect={selectSolution}
@@ -625,6 +710,8 @@ export function SolutionsPage() {
                   onDelete={() => deleteSolution(solution.id)}
                   materialOptions={materialOptions}
                   getMaterialName={getMaterialName}
+                  allSolutionOptions={allSolutionOptions}
+                  getSolutionName={getSolutionName}
                   collectionColor={getEntityColor("solution", solution.id) ?? undefined}
                   isSelected={selectedSolutionId === solution.id}
                   onSelect={selectSolution}
@@ -641,6 +728,8 @@ export function SolutionsPage() {
               onDelete={() => deleteSolution(solution.id)}
               materialOptions={materialOptions}
               getMaterialName={getMaterialName}
+              allSolutionOptions={allSolutionOptions}
+              getSolutionName={getSolutionName}
               collectionColor={getEntityColor("solution", solution.id) ?? undefined}
               isSelected={selectedSolutionId === solution.id}
               onSelect={selectSolution}

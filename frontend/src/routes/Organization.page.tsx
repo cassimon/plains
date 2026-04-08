@@ -812,6 +812,7 @@ function CollectionEl({
   onDragPositionUpdate,
   onDropped,
   onStartDivide,
+  onHoveredPlaneTabChange,
 }: {
   el: CanvasCollectionElement
   planeId: string
@@ -828,6 +829,7 @@ function CollectionEl({
     droppedOnPlaneId?: string,
   ) => void
   onStartDivide: () => void
+  onHoveredPlaneTabChange?: (planeId: string | null) => void
 }) {
   const { activeCollectionId, setPendingCollectionLink } = useAppContext()
   const navigate = useNavigate()
@@ -871,20 +873,40 @@ function CollectionEl({
     setDragScreenPos({ x: ev.clientX - 70, y: ev.clientY - 20 })
     onDragPositionUpdate(newPos)
     onUpdate({ ...el, position: newPos })
+    // Detect hovered plane tab for animation.
+    // elementsFromPoint (plural) is needed because the dragged card itself
+    // sits on top at z-index 10000 and would be the only hit for the
+    // single-element variant.
+    if (onHoveredPlaneTabChange) {
+      const hits = document.elementsFromPoint(ev.clientX, ev.clientY)
+      let foundTabId: string | null = null
+      for (const hit of hits) {
+        const tabEl = (hit as HTMLElement).closest?.("[data-plane-tab-id]") as HTMLElement | null
+        if (tabEl) {
+          foundTabId = tabEl.dataset.planeTabId ?? null
+          break
+        }
+      }
+      onHoveredPlaneTabChange(foundTabId)
+    }
   }
 
   const stopDrag = () => {
     const origin = dragStart.current?.origin ?? el.position
-    // Detect if dropped on a plane tab
+    // Detect if dropped on a plane tab.
+    // Use elementsFromPoint (plural) to see through the dragged card overlay.
     let droppedOnPlaneId: string | undefined
     if (lastPointerEvent.current) {
-      const tabEl = document.elementFromPoint(
+      const hits = document.elementsFromPoint(
         lastPointerEvent.current.clientX,
         lastPointerEvent.current.clientY,
       )
-      const planeTab = tabEl?.closest("[data-plane-tab-id]") as HTMLElement | null
-      if (planeTab) {
-        droppedOnPlaneId = planeTab.dataset.planeTabId
+      for (const hit of hits) {
+        const planeTab = (hit as HTMLElement).closest?.("[data-plane-tab-id]") as HTMLElement | null
+        if (planeTab) {
+          droppedOnPlaneId = planeTab.dataset.planeTabId
+          break
+        }
       }
     }
     onDropped(el.id, finalPosRef.current, origin, didMove.current, droppedOnPlaneId)
@@ -892,6 +914,7 @@ function CollectionEl({
     setDragScreenPos(null)
     dragStart.current = null
     lastPointerEvent.current = null
+    onHoveredPlaneTabChange?.(null)
   }
 
   const commitName = () => {
@@ -1792,7 +1815,7 @@ function DivisionOverlay({
 
 type CanvasTool = "select" | "text" | "plaintext" | "line" | "collection"
 
-function PlaneCanvas({ plane }: { plane: Plane }) {
+function PlaneCanvas({ plane, onHoveredPlaneTabChange }: { plane: Plane; onHoveredPlaneTabChange?: (id: string | null) => void }) {
   const {
     updateElement,
     deleteElement,
@@ -2583,6 +2606,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                   onStartDivide={() => {
                     handleStartDivide(el as CanvasCollectionElement)
                   }}
+                  onHoveredPlaneTabChange={onHoveredPlaneTabChange}
                 />
               )
             }
@@ -2994,6 +3018,8 @@ export function OrganizationPage() {
     setActivePlaneId,
   } = useAppContext()
 
+  const [hoveredPlaneTabId, setHoveredPlaneTabId] = useState<string | null>(null)
+
   // Do NOT auto-select a plane — null means "General" view
   // Only reset if the *selected* plane was deleted
   useEffect(() => {
@@ -3063,7 +3089,18 @@ export function OrganizationPage() {
                 <Text size="sm">General</Text>
               </Tabs.Tab>
               {planes.map((p) => (
-                <Tabs.Tab value={p.id} key={p.id} data-plane-tab-id={p.id}>
+                <Tabs.Tab
+                  value={p.id}
+                  key={p.id}
+                  data-plane-tab-id={p.id}
+                  style={hoveredPlaneTabId === p.id ? {
+                    background: "var(--mantine-color-blue-1)",
+                    outline: "2px solid var(--mantine-color-blue-4)",
+                    outlineOffset: -2,
+                    borderRadius: "var(--mantine-radius-sm)",
+                    transition: "background 0.15s ease, outline 0.15s ease",
+                  } : { transition: "background 0.15s ease, outline 0.15s ease" }}
+                >
                   <PlaneTabLabel
                     plane={p}
                     onRename={(name) => updatePlane({ ...p, name })}
@@ -3100,7 +3137,7 @@ export function OrganizationPage() {
           </Tabs.Panel>
           {planes.map((p) => (
             <Tabs.Panel key={p.id} value={p.id} style={{ height: "100%" }}>
-              <PlaneCanvas plane={p} />
+              <PlaneCanvas plane={p} onHoveredPlaneTabChange={setHoveredPlaneTabId} />
             </Tabs.Panel>
           ))}
         </Box>
