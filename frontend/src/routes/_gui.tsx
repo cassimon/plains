@@ -3,6 +3,7 @@ import { ModalsProvider } from "@mantine/modals"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { useMemo } from "react"
 import { AppLayout } from "@/components/AppLayout"
+import { ChatWidgetComponent } from "@/components/ChatWidget"
 import { OpenAPI } from "@/client"
 import { theme } from "@/gui/theme"
 import { isLoggedIn } from "@/hooks/useAuth"
@@ -29,6 +30,7 @@ function GuiLayout() {
       <ModalsProvider>
         <AppProvider backend={backend}>
           <AppLayout />
+          <ChatWidgetComponent />
         </AppProvider>
       </ModalsProvider>
     </MantineProvider>
