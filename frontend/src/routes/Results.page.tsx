@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  Alert,
   Badge,
   Box,
   Button,
@@ -16,18 +17,21 @@ import {
   Tooltip,
   useMantineTheme,
 } from "@mantine/core"
+import { modals } from "@mantine/modals"
 import { Dropzone, MIME_TYPES } from "@mantine/dropzone"
 import {
   IconCheck,
   IconChevronDown,
   IconChevronRight,
+  IconCloudUpload,
   IconFile,
   IconFlask,
+  IconArrowBackUp,
   IconTrash,
   IconUpload,
   IconX,
 } from "@tabler/icons-react"
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   type DeviceGroup,
   type Experiment,
@@ -355,12 +359,14 @@ function DeviceGroupCard({
   group,
   substrates,
   onAssign,
+  onDeleteFile,
   expanded,
   onToggleExpand,
 }: {
   group: DeviceGroup
   substrates: { id: string; name: string }[]
   onAssign: (substrateId: string | null) => void
+  onDeleteFile: (fileId: string) => void
   expanded: boolean
   onToggleExpand: () => void
 }) {
@@ -428,18 +434,30 @@ function DeviceGroupCard({
                 <Table.Th>Cell</Table.Th>
                 <Table.Th>Pixel</Table.Th>
                 <Table.Th>Value</Table.Th>
+                <Table.Th style={{ width: 40 }} />
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {group.files.map((file) => (
                 <Table.Tr key={file.id}>
-                  <Table.Td>
-                    <Group gap="xs">
-                      <IconFile size={14} />
-                      <Text size="xs" truncate style={{ maxWidth: 200 }}>
-                        {file.fileName}
-                      </Text>
-                    </Group>
+                  <Table.Td style={{ maxWidth: 260 }}>
+                    <Tooltip label={file.fileName} position="top-start" withArrow openDelay={300}>
+                      <Group gap={4} wrap="nowrap" style={{ overflow: "hidden" }}>
+                        <IconFile size={14} style={{ flexShrink: 0 }} />
+                        <Text
+                          size="xs"
+                          style={{
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            maxWidth: 220,
+                            cursor: "default",
+                          }}
+                        >
+                          {file.fileName}
+                        </Text>
+                      </Group>
+                    </Tooltip>
                   </Table.Td>
                   <Table.Td>
                     <FileTypeBadge type={file.fileType} />
@@ -456,6 +474,18 @@ function DeviceGroupCard({
                         ? `${file.value.toFixed(2)}%`
                         : "—"}
                     </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Tooltip label="Delete file" withArrow>
+                      <ActionIcon
+                        size="xs"
+                        variant="subtle"
+                        color="red"
+                        onClick={() => onDeleteFile(file.id)}
+                      >
+                        <IconX size={12} />
+                      </ActionIcon>
+                    </Tooltip>
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -482,6 +512,11 @@ function ResultsDetail({
 }) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const theme = useMantineTheme()
+
+  // Undo-delete state: keeps recently deleted files for a short window
+  type DeletedEntry = { file: MeasurementFile; groupId: string; groupDeviceName: string; deletedAt: number }
+  const [deletedFiles, setDeletedFiles] = useState<DeletedEntry[]>([])
+  const undoTimerRef = useRef<number | null>(null)
 
   const results = experimentResults ?? newExperimentResults(experiment.id)
 
@@ -736,6 +771,94 @@ function ResultsDetail({
     })
   }
 
+  // ── Per-file delete with undo ──────────────────────────────────────────────
+  const UNDO_WINDOW_MS = 7000
+
+  const handleDeleteFile = useCallback(
+    (fileId: string) => {
+      // Find which group owns this file
+      const owningGroup = results.deviceGroups.find((g) =>
+        g.files.some((f) => f.id === fileId),
+      )
+      const file = owningGroup?.files.find((f) => f.id === fileId)
+      if (!owningGroup || !file) return
+
+      // Push to undo stack
+      const entry: DeletedEntry = {
+        file,
+        groupId: owningGroup.id,
+        groupDeviceName: owningGroup.deviceName,
+        deletedAt: Date.now(),
+      }
+      setDeletedFiles((prev) => [entry, ...prev.slice(0, 4)])
+
+      // Reset auto-dismiss timer
+      if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current)
+      undoTimerRef.current = window.setTimeout(() => {
+        setDeletedFiles([])
+      }, UNDO_WINDOW_MS)
+
+      // Remove from flat files list
+      const newFiles = results.files.filter((f) => f.id !== fileId)
+
+      // Remove from groups; drop group entirely if it becomes empty
+      const newGroups = results.deviceGroups
+        .map((g) =>
+          g.id === owningGroup.id
+            ? { ...g, files: g.files.filter((f) => f.id !== fileId) }
+            : g,
+        )
+        .filter((g) => g.files.length > 0)
+
+      onUpdateResults({
+        ...results,
+        files: newFiles,
+        deviceGroups: newGroups,
+        updatedAt: new Date().toISOString(),
+      })
+    },
+    [results, onUpdateResults],
+  )
+
+  const handleUndoDelete = useCallback(() => {
+    if (deletedFiles.length === 0) return
+    const [entry, ...remaining] = deletedFiles
+    setDeletedFiles(remaining)
+
+    // Re-insert file into flat list
+    const newFiles = [...results.files, entry.file]
+
+    // Re-insert into group (or create the group if it was removed)
+    const groupExists = results.deviceGroups.some((g) => g.id === entry.groupId)
+    const newGroups = groupExists
+      ? results.deviceGroups.map((g) =>
+          g.id === entry.groupId
+            ? { ...g, files: [...g.files, entry.file] }
+            : g,
+        )
+      : [
+          ...results.deviceGroups,
+          {
+            id: entry.groupId,
+            deviceName: entry.groupDeviceName,
+            files: [entry.file],
+            assignedSubstrateId: null,
+          },
+        ]
+
+    onUpdateResults({
+      ...results,
+      files: newFiles,
+      deviceGroups: newGroups,
+      updatedAt: new Date().toISOString(),
+    })
+  }, [deletedFiles, results, onUpdateResults])
+
+  // Clean up timer on unmount
+  useEffect(() => () => {
+    if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current)
+  }, [])
+
   const handleClearAll = () => {
     onUpdateResults({
       ...results,
@@ -753,6 +876,7 @@ function ResultsDetail({
     (g) => g.assignedSubstrateId,
   ).length
   const totalGroups = results.deviceGroups.length
+  const allAssigned = totalGroups > 0 && matchedCount === totalGroups
 
   return (
     <Box style={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -938,6 +1062,82 @@ function ResultsDetail({
                 </Group>
               </Paper>
 
+              {/* Undo-delete notification */}
+              {deletedFiles.length > 0 && (
+                <Alert
+                  icon={<IconArrowBackUp size={16} />}
+                  color="orange"
+                  radius="md"
+                  withCloseButton
+                  onClose={() => setDeletedFiles([])}
+                >
+                  <Group justify="space-between" wrap="nowrap">
+                    <Text size="sm">
+                      <Text span fw={600}>{deletedFiles[0].file.fileName}</Text> deleted
+                      {deletedFiles.length > 1 && ` (+${deletedFiles.length - 1} more)`}
+                    </Text>
+                    <Button
+                      size="xs"
+                      variant="subtle"
+                      color="orange"
+                      leftSection={<IconArrowBackUp size={14} />}
+                      onClick={handleUndoDelete}
+                    >
+                      Undo
+                    </Button>
+                  </Group>
+                </Alert>
+              )}
+
+              {/* All-assigned completion banner */}
+              {allAssigned && (
+                <Alert
+                  icon={<IconCheck size={18} />}
+                  color="green"
+                  radius="md"
+                  title="All device groups assigned!"
+                >
+                  <Group justify="space-between" align="center">
+                    <Text size="sm">
+                      All {totalGroups} device group{totalGroups !== 1 ? "s are" : " is"} matched to a substrate.
+                    </Text>
+                    <Button
+                      size="sm"
+                      color="green"
+                      leftSection={<IconCloudUpload size={16} />}
+                      onClick={() =>
+                        modals.openConfirmModal({
+                          title: "Save to NOMAD",
+                          children: (
+                            <Text size="sm">
+                              This will export all {results.files.length} file
+                              {results.files.length !== 1 ? "s" : ""} with their substrate
+                              assignments to NOMAD. Continue?
+                            </Text>
+                          ),
+                          labels: { confirm: "Save to NOMAD", cancel: "Cancel" },
+                          confirmProps: { color: "green", leftSection: <IconCloudUpload size={14} /> },
+                          onConfirm: () => {
+                            // TODO: implement NOMAD upload API call
+                            modals.open({
+                              title: "NOMAD Upload",
+                              children: (
+                                <Text size="sm" c="dimmed">
+                                  NOMAD integration is not yet configured.
+                                  Please contact your administrator.
+                                </Text>
+                              ),
+                            })
+                          },
+                        })
+                      }
+                    >
+                      Save to NOMAD
+                    </Button>
+                  </Group>
+                </Alert>
+              )}
+
               <Divider label="Device Groups" labelPosition="center" />
 
               {/* Device Groups */}
@@ -955,6 +1155,7 @@ function ResultsDetail({
                       onAssign={(substrateId) =>
                         handleAssignSubstrate(group.id, substrateId)
                       }
+                      onDeleteFile={handleDeleteFile}
                       expanded={expandedGroups.has(group.id)}
                       onToggleExpand={() => toggleGroupExpand(group.id)}
                     />
@@ -974,7 +1175,7 @@ function ResultsDetail({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function ResultsPage() {
-  const { experiments, results, setResults, setActiveEntity } = useAppContext()
+  const { experiments, setExperiments, results, setResults, setActiveEntity } = useAppContext()
   const { getEntityColor, isEntityVisible } = useEntityCollection()
   const [selectedExperimentId, setSelectedExperimentId] = useState<
     string | null
@@ -1003,6 +1204,15 @@ export function ResultsPage() {
       }
       return [...prev, updatedResults]
     })
+    // Keep experiment.hasResults in sync so the status propagates everywhere
+    const hasFiles = updatedResults.files.length > 0
+    setExperiments((prev) =>
+      prev.map((e) =>
+        e.id === updatedResults.experimentId
+          ? { ...e, hasResults: hasFiles }
+          : e,
+      ),
+    )
   }
 
   // Filter experiments that are at least "ready" status

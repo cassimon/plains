@@ -2870,6 +2870,7 @@ function PlaneTabLabel({
       </Text>
       {canClose && (
         <ActionIcon
+          component="span"
           size="xs"
           variant="subtle"
           color="gray"
