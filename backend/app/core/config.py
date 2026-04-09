@@ -37,20 +37,6 @@ class Settings(BaseSettings):
     FRONTEND_HOST: str = "http://localhost:5173"
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
 
-    # ── NOMAD integration ───────────────────────────────────────────────
-    # AUTH_MODE controls authentication strategy:
-    #   "standalone" – planes' own JWT auth (default)
-    #   "nomad"      – validate tokens from NOMAD's Keycloak instance
-    AUTH_MODE: Literal["standalone", "nomad"] = "standalone"
-
-    # Required when AUTH_MODE=nomad
-    NOMAD_KEYCLOAK_URL: str = "http://keycloak:8080/auth"
-    NOMAD_KEYCLOAK_REALM: str = "fairdi_nomad_test"
-    NOMAD_KEYCLOAK_CLIENT_ID: str = "nomad_public"
-    # Base URL of the NOMAD API (used by the planes backend if it needs to
-    # call NOMAD endpoints, e.g. to resolve users or schemas)
-    NOMAD_API_URL: str = "http://nomad_app:8000/nomad-oasis/api/v1"
-
     BACKEND_CORS_ORIGINS: Annotated[
         list[AnyUrl] | str, BeforeValidator(parse_cors)
     ] = []
