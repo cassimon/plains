@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  Alert,
   Badge,
   Box,
   Button,
@@ -1903,10 +1904,17 @@ export function ExperimentsPage() {
             size="xs"
             leftSection={<IconPlus size={14} />}
             onClick={createExperiment}
+            disabled={!activeCollectionId}
           >
             New
           </Button>
         </Group>
+
+        {!activeCollectionId && (
+          <Alert icon={<IconInfoCircle size={16} />} color="blue" radius={0} p="sm" style={{ borderRadius: 0, borderLeft: 0, borderRight: 0 }}>
+            Select a collection in the Organization tab to add experiments.
+          </Alert>
+        )}
 
         <ScrollArea style={{ flex: 1 }} p="sm">
           <Stack gap="sm">
@@ -2018,7 +2026,7 @@ export function ExperimentsPage() {
             <Text size="lg" c="dimmed" mt="md">
               Select an experiment to view details
             </Text>
-            <Button mt="lg" onClick={createExperiment}>
+            <Button mt="lg" onClick={createExperiment} disabled={!activeCollectionId}>
               Create Experiment
             </Button>
           </Box>

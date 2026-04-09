@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Collapse,
+  ColorSwatch,
   Container,
   Divider,
   Group,
@@ -14,6 +15,7 @@ import {
   rem,
   ScrollArea,
   SegmentedControl,
+  Select,
   Stack,
   Table,
   Text,
@@ -32,7 +34,7 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   getDependentLocations,
   newComponent,
@@ -61,6 +63,8 @@ type ComponentRowProps = {
   materialOptions: { value: string; label: string }[]
   /** Solution options (already filtered to exclude self-reference) */
   solutionOptions: { value: string; label: string }[]
+  materialColorMap?: Map<string, string>
+  solutionColorMap?: Map<string, string>
 }
 
 function ComponentRow({
@@ -75,6 +79,8 @@ function ComponentRow({
   onBufferChange,
   materialOptions,
   solutionOptions,
+  materialColorMap,
+  solutionColorMap,
 }: ComponentRowProps) {
   // Derive which type is being edited from the buffer state
   const editType: "material" | "solution" =
@@ -101,28 +107,56 @@ function ComponentRow({
               ]}
             />
             {editType === "material" ? (
-              <NativeSelect
+              <Select
                 size="xs"
-                value={buffer.materialId ?? ""}
-                onChange={(e) =>
-                  onBufferChange({ ...buffer, materialId: e.currentTarget.value, solutionId: undefined })
+                value={buffer.materialId || null}
+                onChange={(v) =>
+                  onBufferChange({ ...buffer, materialId: v ?? "", solutionId: undefined })
                 }
-                data={[
-                  { value: "", label: "— select material —" },
-                  ...materialOptions,
-                ]}
+                data={materialOptions}
+                placeholder="— select material —"
+                clearable
+                searchable
+                renderOption={({ option }) => {
+                  const color = materialColorMap?.get(option.value)
+                  return (
+                    <Group gap={6} wrap="nowrap">
+                      <ColorSwatch
+                        color={color ?? "transparent"}
+                        size={12}
+                        withShadow={false}
+                        style={{ opacity: color ? 1 : 0, flexShrink: 0 }}
+                      />
+                      <Text size="xs">{option.label}</Text>
+                    </Group>
+                  )
+                }}
               />
             ) : (
-              <NativeSelect
+              <Select
                 size="xs"
-                value={buffer.solutionId ?? ""}
-                onChange={(e) =>
-                  onBufferChange({ ...buffer, solutionId: e.currentTarget.value, materialId: undefined })
+                value={buffer.solutionId || null}
+                onChange={(v) =>
+                  onBufferChange({ ...buffer, solutionId: v ?? "", materialId: undefined })
                 }
-                data={[
-                  { value: "", label: "— select solution —" },
-                  ...solutionOptions,
-                ]}
+                data={solutionOptions}
+                placeholder="— select solution —"
+                clearable
+                searchable
+                renderOption={({ option }) => {
+                  const color = solutionColorMap?.get(option.value)
+                  return (
+                    <Group gap={6} wrap="nowrap">
+                      <ColorSwatch
+                        color={color ?? "transparent"}
+                        size={12}
+                        withShadow={false}
+                        style={{ opacity: color ? 1 : 0, flexShrink: 0 }}
+                      />
+                      <Text size="xs">{option.label}</Text>
+                    </Group>
+                  )
+                }}
               />
             )}
           </Stack>
@@ -241,6 +275,8 @@ type SolutionCardProps = {
   /** All solutions (used to build solution-as-component options) */
   allSolutionOptions: { value: string; label: string }[]
   getSolutionName: (id: string) => string
+  materialColorMap?: Map<string, string>
+  solutionColorMap?: Map<string, string>
   collectionColor?: string
   isSelected?: boolean
   onSelect?: (id: string) => void
@@ -254,6 +290,8 @@ function SolutionCard({
   getMaterialName,
   allSolutionOptions,
   getSolutionName,
+  materialColorMap,
+  solutionColorMap,
   collectionColor,
   isSelected: _isSelected,
   onSelect,
@@ -469,6 +507,8 @@ function SolutionCard({
                     onBufferChange={setComponentBuffer}
                     materialOptions={materialOptions}
                     solutionOptions={filteredSolutionOptions}
+                    materialColorMap={materialColorMap}
+                    solutionColorMap={solutionColorMap}
                   />
                 )
               })}
@@ -507,7 +547,7 @@ export function SolutionsPage() {
     activePlaneId,
     setActiveEntity,
   } = useAppContext()
-  const { getEntityColor, isEntityVisible, getEntityPlane } = useEntityCollection()
+  const { getEntityColor, isEntityVisible, getEntityPlane, isEntityOnActivePlane } = useEntityCollection()
   const [selectedSolutionId, setSelectedSolutionId] = useState<string | null>(
     null,
   )
@@ -517,20 +557,48 @@ export function SolutionsPage() {
     setActiveEntity(id ? { kind: "solution", id } : null)
   }
 
-  const materialOptions = materials.map((m) => ({
-    value: m.id,
-    label: m.name || m.inventoryLabel || m.casNumber || m.id,
-  }))
+  const materialOptions = useMemo(() =>
+    materials
+      .filter((m) => isEntityOnActivePlane("material", m.id))
+      .map((m) => ({
+        value: m.id,
+        label: m.name || m.inventoryLabel || m.casNumber || m.id,
+      })),
+    [materials, isEntityOnActivePlane],
+  )
+
+  const materialColorMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const m of materials) {
+      const color = getEntityColor("material", m.id)
+      if (color) map.set(m.id, color)
+    }
+    return map
+  }, [materials, getEntityColor])
 
   const getMaterialName = (id: string) => {
     const m = materials.find((mat) => mat.id === id)
     return m ? m.name || m.inventoryLabel || m.casNumber || id : id
   }
 
-  const allSolutionOptions = solutions.map((s) => ({
-    value: s.id,
-    label: s.name || s.id,
-  }))
+  const allSolutionOptions = useMemo(() =>
+    solutions
+      .filter((s) => isEntityOnActivePlane("solution", s.id))
+      .map((s) => ({
+        value: s.id,
+        label: s.name || s.id,
+      })),
+    [solutions, isEntityOnActivePlane],
+  )
+
+  const solutionColorMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const s of solutions) {
+      const color = getEntityColor("solution", s.id)
+      if (color) map.set(s.id, color)
+    }
+    return map
+  }, [solutions, getEntityColor])
 
   const getSolutionName = (id: string) => {
     const s = solutions.find((sol) => sol.id === id)
@@ -690,6 +758,8 @@ export function SolutionsPage() {
                   getMaterialName={getMaterialName}
                   allSolutionOptions={allSolutionOptions}
                   getSolutionName={getSolutionName}
+                  materialColorMap={materialColorMap}
+                  solutionColorMap={solutionColorMap}
                   collectionColor={getEntityColor("solution", solution.id) ?? undefined}
                   isSelected={selectedSolutionId === solution.id}
                   onSelect={selectSolution}
@@ -712,6 +782,8 @@ export function SolutionsPage() {
                   getMaterialName={getMaterialName}
                   allSolutionOptions={allSolutionOptions}
                   getSolutionName={getSolutionName}
+                  materialColorMap={materialColorMap}
+                  solutionColorMap={solutionColorMap}
                   collectionColor={getEntityColor("solution", solution.id) ?? undefined}
                   isSelected={selectedSolutionId === solution.id}
                   onSelect={selectSolution}
@@ -730,6 +802,8 @@ export function SolutionsPage() {
               getMaterialName={getMaterialName}
               allSolutionOptions={allSolutionOptions}
               getSolutionName={getSolutionName}
+              materialColorMap={materialColorMap}
+              solutionColorMap={solutionColorMap}
               collectionColor={getEntityColor("solution", solution.id) ?? undefined}
               isSelected={selectedSolutionId === solution.id}
               onSelect={selectSolution}

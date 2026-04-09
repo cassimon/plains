@@ -197,7 +197,10 @@ export function AppLayout() {
               <Menu.Dropdown>
                 <Menu.Item
                   fw={!activePlaneId ? 700 : undefined}
-                  onClick={() => setActivePlaneId(null)}
+                  onClick={() => {
+                    setActivePlaneId(null)
+                    setActiveCollectionId(null)
+                  }}
                 >
                   General
                 </Menu.Item>

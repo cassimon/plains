@@ -68,17 +68,25 @@ function extractDeviceFromFilename(fileName: string): string {
   // Remove extension
   const baseName = fileName.replace(/\.[^/.]+$/, "")
 
-  // Try to extract device patterns like "AI44", "Device_01", etc.
-  // Pattern 1: Letters followed by numbers (e.g., "AI44", "XY123")
-  const match1 = baseName.match(/^([A-Za-z]+\d+)/)
+  // Pattern 1: Two uppercase letters followed by 2-3 digits anywhere in the
+  // name (e.g. "AI44" inside "2025-11-19_AI44-1C"). Matches the primary
+  // substrate-ID convention used in the lab.
+  const match1 = baseName.match(/\b([A-Z]{2}\d{2,3})\b/)
   if (match1) {
-    return match1[1].toUpperCase()
+    return match1[1]
   }
 
-  // Pattern 2: Anything before the first underscore or dash
-  const match2 = baseName.match(/^([^_\-\s]+)/)
+  // Pattern 2: Word containing letters-then-digits at start of basename
+  // (e.g. "Device01")
+  const match2 = baseName.match(/^([A-Za-z]+\d+)/)
   if (match2) {
-    return match2[1]
+    return match2[1].toUpperCase()
+  }
+
+  // Pattern 3: Anything before the first underscore or dash
+  const match3 = baseName.match(/^([^_\-\s]+)/)
+  if (match3) {
+    return match3[1]
   }
 
   return baseName
@@ -507,21 +515,16 @@ function ResultsDetail({
           filesByDevice.set(key, existing)
         }
       } else if (strategy === "search") {
-        // Group by device name substring search
+        // Group by exact device name — same as the Python app's
+        // "Search by Device Name" which uses groupby("Device Name").
+        // Files are only grouped together when their extracted device name
+        // is identical (case-insensitive). Substring inclusion was removed
+        // because it caused false merges (e.g. "AI4" folded into "AI44").
         for (const file of files) {
-          const key = file.deviceName
-          // Find existing group that contains or is contained by this device name
-          let found = false
-          for (const [groupKey, groupFiles] of filesByDevice.entries()) {
-            if (groupKey.includes(key) || key.includes(groupKey)) {
-              groupFiles.push(file)
-              found = true
-              break
-            }
-          }
-          if (!found) {
-            filesByDevice.set(key, [file])
-          }
+          const key = file.deviceName.toUpperCase()
+          const existing = filesByDevice.get(key) ?? []
+          existing.push(file)
+          filesByDevice.set(key, existing)
         }
       } else {
         // Fuzzy matching - group similar names together
@@ -601,7 +604,7 @@ function ResultsDetail({
         return {
           ...group,
           assignedSubstrateId:
-            bestMatch && bestMatch.score > 0.5 ? bestMatch.id : null,
+            bestMatch && bestMatch.score > 0.6 ? bestMatch.id : null,
           matchScore: bestMatch?.score ?? 0,
         }
       })

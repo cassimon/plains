@@ -1287,5 +1287,21 @@ export function useEntityCollection() {
     [planes],
   )
 
-  return { getEntityColor, isEntityVisible, getEntityPlane, activePlane }
+  /**
+   * True when entity belongs to the active plane (ignoring collection filter).
+   * Used for filtering picker options to the current plane context.
+   * - General view (no plane): always true
+   * - Plane selected: true for entities on that plane, or unassigned orphans
+   */
+  const isEntityOnActivePlane = useCallback(
+    (kind: CollectionRef["kind"], id: string): boolean => {
+      if (!activePlane) return true
+      if (planeReferencedEntities.has(`${kind}:${id}`)) return true
+      if (!allReferencedEntities.has(`${kind}:${id}`)) return true // orphan
+      return false
+    },
+    [activePlane, planeReferencedEntities, allReferencedEntities],
+  )
+
+  return { getEntityColor, isEntityVisible, getEntityPlane, activePlane, isEntityOnActivePlane }
 }
