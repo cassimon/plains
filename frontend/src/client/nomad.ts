@@ -126,10 +126,6 @@ export async function uploadToNomad(
   formData.append("experiment_id", data.experiment_id)
   formData.append("experiment_name", data.experiment_name)
 
-  // For POST with files, we need to send the metadata differently
-  // Let's use query params for the main request body
-  const queryParams = new URLSearchParams()
-
   // Get auth token
   const token = OpenAPI.TOKEN || localStorage.getItem("access_token")
 

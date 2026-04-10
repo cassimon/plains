@@ -53,7 +53,6 @@ import {
 import {
   getNomadConfig,
   previewNomadMetadata,
-  testNomadAuth,
   type NomadConfig,
   type NomadUploadRequest,
   type NomadUploadResponse,
@@ -1186,12 +1185,12 @@ function ResultsDetail({
                         size="sm"
                         color="green"
                         leftSection={nomadUploading ? <Loader size={14} color="white" /> : <IconCloudUpload size={16} />}
-                        disabled={nomadUploading || (nomadConfig && !nomadConfig.enabled)}
+                        disabled={nomadUploading || !nomadConfig?.enabled}
                         onClick={async () => {
                           if (!nomadConfig?.enabled) {
                             notifications.show({
                               title: "NOMAD Not Configured",
-                              message: "Please configure NOMAD credentials in .env (NOMAD_USERNAME and NOMAD_PASSWORD)",
+                              message: "Please configure NOMAD credentials in the auth file (../sensitive config/.nomad_auth)",
                               color: "orange",
                             })
                             return
@@ -1398,7 +1397,7 @@ function ResultsDetail({
                       <Text size="sm">
                         <Text span fw={600}>Upload ID:</Text> <Code>{results.nomad.upload_id}</Code>
                       </Text>
-                      {results.nomad.entry_ids?.length > 0 && (
+                      {results.nomad.entry_ids && results.nomad.entry_ids.length > 0 && (
                         <Text size="sm">
                           <Text span fw={600}>Entries:</Text> {results.nomad.entry_ids.length}
                         </Text>

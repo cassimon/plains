@@ -75,7 +75,6 @@ class TestApiAddresses:
         print("=" * 70)
         print(f"Configured NOMAD_URL: {settings.NOMAD_URL}")
         print(f"Expected TEST URL:    {EXPECTED_TEST_BASE_URL}")
-        print(f"Production URL:       {PRODUCTION_BASE_URL}")
         print("-" * 70)
         
         # Check that /test/ is in the URL
@@ -190,6 +189,7 @@ class TestApiAddresses:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
             mock_settings.NOMAD_USERNAME = TEST_USERNAME
             mock_settings.NOMAD_PASSWORD = TEST_PASSWORD
+            mock_settings.NOMAD_MOCK_MODE = False
             
             print("Mock Configuration:")
             print(f"  NOMAD_URL:      {mock_settings.NOMAD_URL}")
@@ -272,6 +272,7 @@ class TestApiAddresses:
         # Override settings for test
         with patch("app.services.nomad.settings") as mock_settings:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
+            mock_settings.NOMAD_MOCK_MODE = False
             
             print(f"Using NOMAD_URL: {mock_settings.NOMAD_URL}")
             print("-" * 70)
@@ -449,6 +450,7 @@ class TestAuthToken:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
             mock_settings.NOMAD_USERNAME = TEST_USERNAME
             mock_settings.NOMAD_PASSWORD = TEST_PASSWORD
+            mock_settings.NOMAD_MOCK_MODE = False
             
             print("Request Details:")
             print(f"  Target URL: {EXPECTED_TEST_AUTH_URL}")
@@ -495,6 +497,7 @@ class TestAuthToken:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
             mock_settings.NOMAD_USERNAME = "wrong_user"
             mock_settings.NOMAD_PASSWORD = "wrong_password"
+            mock_settings.NOMAD_MOCK_MODE = False
             
             print("Testing with invalid credentials...")
             print(f"  URL: {EXPECTED_TEST_AUTH_URL}")
@@ -665,6 +668,7 @@ class TestArchiveUpload:
         
         with patch("app.services.nomad.settings") as mock_settings:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
+            mock_settings.NOMAD_MOCK_MODE = False
             
             print("Making Upload Request:")
             print(f"  Target URL: {EXPECTED_TEST_UPLOAD_URL}")
@@ -830,6 +834,7 @@ class TestFullCycle:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
             mock_settings.NOMAD_USERNAME = TEST_USERNAME
             mock_settings.NOMAD_PASSWORD = TEST_PASSWORD
+            mock_settings.NOMAD_MOCK_MODE = False
             
             print("\n" + "-" * 70)
             print("Configuration:")
