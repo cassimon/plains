@@ -36,6 +36,7 @@ import {
   IconNote,
   IconPlayerPlay,
   IconPlus,
+  IconPointer,
   IconSeparatorVertical,
   IconUnderline,
   IconX,
@@ -1813,7 +1814,7 @@ function DivisionOverlay({
 // Infinite-scroll canvas for one Plane
 // ─────────────────────────────────────────────────────────────────────────────
 
-type CanvasTool = "select" | "text" | "plaintext" | "line" | "collection"
+type CanvasTool = "pointer" | "select" | "text" | "plaintext" | "line" | "collection"
 
 function PlaneCanvas({ plane, onHoveredPlaneTabChange }: { plane: Plane; onHoveredPlaneTabChange?: (id: string | null) => void }) {
   const {
@@ -1851,7 +1852,10 @@ function PlaneCanvas({ plane, onHoveredPlaneTabChange }: { plane: Plane; onHover
   const thumbTop =
     maxPanYRef.current > 0 ? (-pan.y / maxPanYRef.current) * thumbTrack : 0
 
-  const [tool, setTool] = useState<CanvasTool>("select")
+  const [tool, setTool] = useState<CanvasTool>("pointer")
+  // Element picker popup state for pointer tool
+  const [elementPickerPos, setElementPickerPos] = useState<Vec2 | null>(null)
+  const [elementPickerOpen, setElementPickerOpen] = useState(false)
   // Start with a real color – gray default is not available for new elements
   const [selectedColor, setSelectedColor] = useState<string>(PALETTE[2]) // #74c0fc (light blue)
   // Plain text formatting options (default: black text, no formatting)
@@ -2057,6 +2061,11 @@ function PlaneCanvas({ plane, onHoveredPlaneTabChange }: { plane: Plane; onHover
       if (e.code === "Space") {
         spaceDown.current = e.type === "keydown"
       }
+      // Close element picker on Escape
+      if (e.code === "Escape" && e.type === "keydown") {
+        setElementPickerOpen(false)
+        setElementPickerPos(null)
+      }
     }
     window.addEventListener("keydown", onKey)
     window.addEventListener("keyup", onKey)
@@ -2094,6 +2103,14 @@ function PlaneCanvas({ plane, onHoveredPlaneTabChange }: { plane: Plane; onHover
     el.addEventListener("wheel", onWheel, { passive: false })
     return () => el.removeEventListener("wheel", onWheel)
   }, [])
+
+  // ── Close element picker when tool changes ─────────────────────────────────
+  useEffect(() => {
+    if (tool !== "pointer") {
+      setElementPickerOpen(false)
+      setElementPickerPos(null)
+    }
+  }, [tool])
 
   // ── Custom scrollbar thumb drag ─────────────────────────────────────────────
   const thumbDragStart = useRef<{ mouseY: number; panY: number } | null>(null)
@@ -2142,6 +2159,43 @@ function PlaneCanvas({ plane, onHoveredPlaneTabChange }: { plane: Plane; onHover
     // clicking bare canvas background deselects active collection
     if (tool === "select") {
       setActiveCollectionId(null)
+    }
+
+    // Pointer tool: Show element picker popup on bare canvas click, or close if already open
+    if (tool === "pointer" && e.target === e.currentTarget) {
+      // If popup is already open, close it and reopen at new position
+      if (elementPickerOpen) {
+        setElementPickerOpen(false)
+        setElementPickerPos(null)
+        // Small delay to allow position update before reopening
+        setTimeout(() => {
+          const rect = containerRef.current?.getBoundingClientRect()
+          if (rect) {
+            setElementPickerPos({
+              x: e.clientX - rect.left,
+              y: e.clientY - rect.top,
+            })
+            setElementPickerOpen(true)
+          }
+        }, 10)
+        return
+      }
+      // Store screen position for popup placement
+      const rect = containerRef.current?.getBoundingClientRect()
+      if (rect) {
+        setElementPickerPos({
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top,
+        })
+        setElementPickerOpen(true)
+      }
+      return
+    }
+
+    // Close element picker when clicking on existing elements or switching away from pointer
+    if (elementPickerOpen) {
+      setElementPickerOpen(false)
+      setElementPickerPos(null)
     }
 
     // For placement tools, only act on the bare canvas background - bail if clicking on an existing element
@@ -2250,6 +2304,26 @@ function PlaneCanvas({ plane, onHoveredPlaneTabChange }: { plane: Plane; onHover
           flexShrink: 0,
         }}
       >
+        <Tooltip
+          label={
+            plane.elements.length === 0
+              ? "Click to place elements"
+              : "Pointer tool"
+          }
+          position="bottom"
+        >
+          <ActionIcon
+            variant={tool === "pointer" ? "filled" : "subtle"}
+            style={toolStyle("pointer")}
+            onClick={() => {
+              setTool("pointer")
+              setElementPickerOpen(false)
+              setElementPickerPos(null)
+            }}
+          >
+            <IconPointer size={18} />
+          </ActionIcon>
+        </Tooltip>
         <Tooltip label="Select / Pan (or hold Space)" position="bottom">
           <ActionIcon
             variant={tool === "select" ? "filled" : "subtle"}
@@ -2490,6 +2564,10 @@ function PlaneCanvas({ plane, onHoveredPlaneTabChange }: { plane: Plane; onHover
         </Popover>
         <Divider orientation="vertical" />
         <Text size="xs" c="dimmed">
+          {tool === "pointer" &&
+            (plane.elements.length === 0
+              ? "Click to place elements"
+              : "Click to place elements")}
           {tool === "select" &&
             "Select or drag to pan · Middle-mouse drag also pans"}
           {tool === "text" && "Click anywhere to place a sticky note"}
@@ -2521,7 +2599,9 @@ function PlaneCanvas({ plane, onHoveredPlaneTabChange }: { plane: Plane; onHover
                 ? isPanning.current
                   ? "grabbing"
                   : "grab"
-                : "crosshair",
+                : tool === "pointer"
+                  ? "default"
+                  : "crosshair",
             backgroundImage:
               "radial-gradient(circle, var(--mantine-color-gray-3) 1px, transparent 1px)",
             backgroundSize: `${GRID}px ${GRID}px`,
@@ -2612,6 +2692,156 @@ function PlaneCanvas({ plane, onHoveredPlaneTabChange }: { plane: Plane; onHover
             }
             return null
           })}
+
+          {/* Element Picker Popup for Pointer Tool */}
+          {elementPickerOpen && elementPickerPos && (
+            <Paper
+              shadow="md"
+              radius="md"
+              p="xs"
+              style={{
+                position: "absolute",
+                left: elementPickerPos.x,
+                top: elementPickerPos.y,
+                zIndex: 10001,
+                minWidth: 180,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Stack gap={4}>
+                <Tooltip label="Place Note" position="right">
+                  <Button
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    leftSection={<IconNote size={16} />}
+                    justify="flex-start"
+                    onClick={() => {
+                      const pos = canvasCoords(
+                        {
+                          clientX:
+                            (containerRef.current?.getBoundingClientRect()
+                              .left || 0) + elementPickerPos.x,
+                          clientY:
+                            (containerRef.current?.getBoundingClientRect()
+                              .top || 0) + elementPickerPos.y,
+                        } as MouseEvent<HTMLDivElement>,
+                        containerRef,
+                        pan,
+                      )
+                      const el = addTextElement(plane.id, pos)
+                      updateElement(plane.id, { ...el, color: selectedColor })
+                      setElementPickerOpen(false)
+                      setElementPickerPos(null)
+                      setTool("text")
+                    }}
+                  >
+                    Place Note
+                  </Button>
+                </Tooltip>
+                <Tooltip label="Place Text" position="right">
+                  <Button
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    leftSection={<IconLetterT size={16} />}
+                    justify="flex-start"
+                    onClick={() => {
+                      const pos = canvasCoords(
+                        {
+                          clientX:
+                            (containerRef.current?.getBoundingClientRect()
+                              .left || 0) + elementPickerPos.x,
+                          clientY:
+                            (containerRef.current?.getBoundingClientRect()
+                              .top || 0) + elementPickerPos.y,
+                        } as MouseEvent<HTMLDivElement>,
+                        containerRef,
+                        pan,
+                      )
+                      plaintextEditingRef.current = true
+                      const newEl = addPlainTextElement(
+                        plane.id,
+                        pos,
+                        textColor,
+                        textFormatting,
+                      )
+                      setEditingPlaintextId(newEl.id)
+                      setElementPickerOpen(false)
+                      setElementPickerPos(null)
+                      setTool("plaintext")
+                    }}
+                  >
+                    Place Text
+                  </Button>
+                </Tooltip>
+                <Tooltip label="Draw Line" position="right">
+                  <Button
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    leftSection={<IconMinus size={16} />}
+                    justify="flex-start"
+                    onClick={() => {
+                      const pos = canvasCoords(
+                        {
+                          clientX:
+                            (containerRef.current?.getBoundingClientRect()
+                              .left || 0) + elementPickerPos.x,
+                          clientY:
+                            (containerRef.current?.getBoundingClientRect()
+                              .top || 0) + elementPickerPos.y,
+                        } as MouseEvent<HTMLDivElement>,
+                        containerRef,
+                        pan,
+                      )
+                      const el = addLineElement(plane.id, pos)
+                      updateElement(plane.id, {
+                        ...el,
+                        color: selectedColor,
+                      } as CanvasLineElement)
+                      drawingLineId.current = el.id
+                      setElementPickerOpen(false)
+                      setElementPickerPos(null)
+                      setTool("line")
+                    }}
+                  >
+                    Draw Line
+                  </Button>
+                </Tooltip>
+                <Tooltip label="Place Data Collection" position="right">
+                  <Button
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    leftSection={<IconFolderPlus size={16} />}
+                    justify="flex-start"
+                    onClick={() => {
+                      const pos = canvasCoords(
+                        {
+                          clientX:
+                            (containerRef.current?.getBoundingClientRect()
+                              .left || 0) + elementPickerPos.x,
+                          clientY:
+                            (containerRef.current?.getBoundingClientRect()
+                              .top || 0) + elementPickerPos.y,
+                        } as MouseEvent<HTMLDivElement>,
+                        containerRef,
+                        pan,
+                      )
+                      const el = addCollectionElement(plane.id, pos)
+                      updateElement(plane.id, { ...el, color: selectedColor })
+                      setElementPickerOpen(false)
+                      setElementPickerPos(null)
+                      // Stay in pointer tool for collections
+                    }}
+                  >
+                    Place Data Collection
+                  </Button>
+                </Tooltip>
+              </Stack>
+            </Paper>
+          )}
         </Box>
 
         {/* Custom scrollbar track */}

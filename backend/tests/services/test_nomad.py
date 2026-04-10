@@ -43,7 +43,7 @@ EXPECTED_TEST_AUTH_URL = "https://nomad-lab.eu/prod/v1/test/api/v1/auth/token"
 EXPECTED_TEST_UPLOAD_URL = "https://nomad-lab.eu/prod/v1/test/api/v1/uploads"
 
 # Production URLs (for comparison - should NOT be used by default)
-PRODUCTION_BASE_URL = "https://nomad-lab.eu/prod/v1/api/v1"
+
 
 # Test credentials (only used for mock tests)
 TEST_USERNAME = "test_user@example.com"
