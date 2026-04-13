@@ -7,10 +7,10 @@ import {
   Stack,
   Text,
   TextInput,
+  useMantineColorScheme,
 } from "@mantine/core"
 import { IconMessageCircle, IconSend, IconX } from "@tabler/icons-react"
 import { useEffect, useRef, useState } from "react"
-import { useTheme } from "@/components/theme-provider"
 
 type ChatMessage = {
   id: string
@@ -24,7 +24,7 @@ type ChatMessage = {
  * A simple chatbot that provides dummy responses
  */
 export function ChatWidgetComponent() {
-  const { resolvedTheme } = useTheme()
+  const { colorScheme } = useMantineColorScheme()
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -145,7 +145,7 @@ export function ChatWidgetComponent() {
     }, 500)
   }
 
-  const isDark = resolvedTheme === "dark"
+  const isDark = colorScheme === "dark"
   const bgColor = isDark ? "#1f1f23" : "#ffffff"
   const botBgColor = isDark ? "#2a2a2f" : "#f3f3f3"
   const userBgColor = "#228be6"
@@ -180,12 +180,13 @@ export function ChatWidgetComponent() {
           <Paper
             shadow="lg"
             radius="md"
+            p={0}
             style={{
               width: 380,
               height: 500,
               display: "flex",
               flexDirection: "column",
-              background: bgColor,
+              backgroundColor: bgColor,
               borderTop: "2px solid #228be6",
             }}
           >
@@ -223,7 +224,7 @@ export function ChatWidgetComponent() {
                 flex: 1,
                 minHeight: 0,
                 padding: 12,
-                background: bgColor,
+                backgroundColor: bgColor,
               }}
             >
               <Stack gap="sm">
