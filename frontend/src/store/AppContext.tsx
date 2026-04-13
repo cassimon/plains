@@ -13,6 +13,7 @@ import {
   type BackendAdapter,
   HttpBackend,
   InMemoryBackend,
+  UNLOAD_BACKUP_KEY,
 } from "./backend"
 
 // ── Material ────────────────────────────────────────────────────────────────
@@ -86,7 +87,7 @@ export type DeviceArchitecture =
 /** A single substrate in an experiment */
 export type Substrate = {
   id: string
-  name: string // e.g. "A1", "A2", "B1"
+  name: string // e.g. "substrate_1", "substrate_2"
   notes?: string
   // Per-substrate parameter values for variation mode
   // Key format: "layerId:paramName", Value: string
@@ -212,35 +213,41 @@ export function newLayer(index: number): ExperimentLayer {
   }
 }
 
+type SubstrateNameOptions = {
+  baseName?: string
+  date?: string
+  experimentName?: string
+  userName?: string
+  includeDate?: boolean
+  includeExpName?: boolean
+  includeUser?: boolean
+  startIndex?: number
+}
+
 /**
- * Generate substrate names based on parameters (like Streamlit app)
- * Supports: date_expname_user format with automatic deduplication
+ * Generate substrate names from a base name plus optional metadata.
  */
 export function generateSubstrates(
   count: number,
-  options?: {
-    date?: string
-    experimentName?: string
-    userName?: string
-    includeDate?: boolean
-    includeExpName?: boolean
-    includeUser?: boolean
-  },
+  options?: SubstrateNameOptions,
 ): Substrate[] {
   const {
+    baseName = "substrate",
     date,
     experimentName,
     userName,
-    includeDate = true,
-    includeExpName = true,
+    includeDate = false,
+    includeExpName = false,
     includeUser = false,
+    startIndex = 1,
   } = options ?? {}
 
+  const normalizedBaseName = baseName.trim().replace(/\s+/g, "_") || "substrate"
   const substrates: Substrate[] = []
-  const nameCounts: Record<string, number> = {}
 
-  for (let i = 1; i <= count; i++) {
-    const parts: string[] = []
+  for (let i = 0; i < count; i++) {
+    const parts: string[] = [normalizedBaseName]
+    const index = startIndex + i
 
     if (includeDate && date) {
       parts.push(date)
@@ -252,26 +259,10 @@ export function generateSubstrates(
       parts.push(userName.replace(/\s+/g, "_"))
     }
 
-    // If no parts selected, use index-based names (A1, A2, etc.)
-    if (parts.length === 0) {
-      const cols = Math.ceil(Math.sqrt(count))
-      const row = Math.floor((i - 1) / cols)
-      const col = (i - 1) % cols
-      const rowLetter = String.fromCharCode(65 + row)
-      const colNumber = col + 1
-      substrates.push({
-        id: crypto.randomUUID(),
-        name: `${rowLetter}${colNumber}`,
-      })
-    } else {
-      const baseName = parts.join("_")
-      nameCounts[baseName] = (nameCounts[baseName] ?? 0) + 1
-      const finalName =
-        nameCounts[baseName] > 1
-          ? `${baseName}_${nameCounts[baseName]}`
-          : baseName
-      substrates.push({ id: crypto.randomUUID(), name: finalName })
-    }
+    substrates.push({
+      id: crypto.randomUUID(),
+      name: `${parts.join("_")}_${index}`,
+    })
   }
 
   return substrates
@@ -282,14 +273,7 @@ export function generateSubstrates(
  */
 export function regenerateSubstrateNames(
   existingSubstrates: Substrate[],
-  options?: {
-    date?: string
-    experimentName?: string
-    userName?: string
-    includeDate?: boolean
-    includeExpName?: boolean
-    includeUser?: boolean
-  },
+  options?: SubstrateNameOptions,
 ): Substrate[] {
   const newSubstrates = generateSubstrates(existingSubstrates.length, options)
   return existingSubstrates.map((sub, idx) => ({
@@ -939,9 +923,10 @@ export function AppProvider({
       return
     }
     scheduleSave()
-  }, [loaded, scheduleSave])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, scheduleSave, materials, solutions, experiments, results, planes])
 
-  // ── Periodic safety flush + unload flush ───────────────────────────────────
+  // ── Periodic safety flush + unload / visibility watchdog ──────────────────
 
   useEffect(() => {
     if (!loaded) {
@@ -952,16 +937,46 @@ export function AppProvider({
       void persistDirtyState()
     }
 
-    const interval = window.setInterval(flushIfDirty, SAVE_INTERVAL_MS)
-    const handleUnload = () => {
-      dirtyRef.current = true
-      void persistDirtyState()
+    // visibilitychange fires while the page is still alive (tab switch, window
+    // minimize, reload).  The in-flight fetch can complete here, making this
+    // far more reliable than beforeunload for saving unsaved work.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        if (saveTimeoutRef.current !== null) {
+          window.clearTimeout(saveTimeoutRef.current)
+          saveTimeoutRef.current = null
+        }
+        dirtyRef.current = true
+        void persistDirtyState()
+      }
     }
-    window.addEventListener("beforeunload", handleUnload)
+
+    // beforeunload fires synchronously right before the page is destroyed.
+    // Async fetches are not guaranteed to complete here, so we only write
+    // a synchronous emergency snapshot to localStorage.  HttpBackend.load()
+    // will pick this up on the next session and push it to the server.
+    const handleBeforeUnload = () => {
+      if (dirtyRef.current) {
+        try {
+          localStorage.setItem(
+            UNLOAD_BACKUP_KEY,
+            JSON.stringify({ snapshot: stateRef.current, savedAt: Date.now() }),
+          )
+        } catch {
+          // Storage full — ignore; the server either already has the data or
+          // visibilitychange will have flushed it.
+        }
+      }
+    }
+
+    const interval = window.setInterval(flushIfDirty, SAVE_INTERVAL_MS)
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    window.addEventListener("beforeunload", handleBeforeUnload)
 
     return () => {
       window.clearInterval(interval)
-      window.removeEventListener("beforeunload", handleUnload)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+      window.removeEventListener("beforeunload", handleBeforeUnload)
       if (saveTimeoutRef.current !== null) {
         window.clearTimeout(saveTimeoutRef.current)
       }

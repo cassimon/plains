@@ -33,6 +33,7 @@ import {
   IconInfoCircle,
   IconLayersLinked,
   IconPlus,
+  IconRefresh,
   IconStack2,
   IconTrash,
   IconUpload,
@@ -890,8 +891,9 @@ function SubstratesTab({
   experiment: Experiment
   onUpdate: (exp: Experiment) => void
 }) {
-  const [includeDate, setIncludeDate] = useState(true)
-  const [includeExpName, setIncludeExpName] = useState(true)
+  const [baseName, setBaseName] = useState("substrate")
+  const [includeDate, setIncludeDate] = useState(false)
+  const [includeExpName, setIncludeExpName] = useState(false)
   const [includeUser, setIncludeUser] = useState(false)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [editingName, setEditingName] = useState("")
@@ -920,29 +922,54 @@ function SubstratesTab({
     onUpdate({ ...experiment, substrates: newSubstrates })
   }
 
-  const handleRegenerateName = (index: number) => {
-    const newNames = regenerateSubstrateNames(experiment.substrates, {
-      date: experiment.date,
-      experimentName: experiment.name,
-      userName: "User",
-      includeDate,
-      includeExpName,
-      includeUser,
+  const getSubstrateNameOptions = () => ({
+    baseName,
+    date: experiment.date,
+    experimentName: experiment.name,
+    userName: "User",
+    includeDate,
+    includeExpName,
+    includeUser,
+  })
+
+  const resizeSubstrates = (newCount: number) => {
+    const boundedCount = Math.max(1, newCount)
+    const newSubstrates =
+      boundedCount > experiment.substrates.length
+        ? [
+            ...experiment.substrates,
+            ...generateSubstrates(
+              boundedCount - experiment.substrates.length,
+              {
+                ...getSubstrateNameOptions(),
+                startIndex: experiment.substrates.length + 1,
+              },
+            ),
+          ]
+        : experiment.substrates.slice(0, boundedCount)
+
+    onUpdate({
+      ...experiment,
+      numSubstrates: boundedCount,
+      substrates: newSubstrates,
     })
+  }
+
+  const handleRegenerateName = (index: number) => {
+    const newNames = regenerateSubstrateNames(
+      experiment.substrates,
+      getSubstrateNameOptions(),
+    )
     const newSubstrates = [...experiment.substrates]
     newSubstrates[index] = newNames[index]
     onUpdate({ ...experiment, substrates: newSubstrates })
   }
 
   const handleRegenerateAll = () => {
-    const newSubstrates = regenerateSubstrateNames(experiment.substrates, {
-      date: experiment.date,
-      experimentName: experiment.name,
-      userName: "User",
-      includeDate,
-      includeExpName,
-      includeUser,
-    })
+    const newSubstrates = regenerateSubstrateNames(
+      experiment.substrates,
+      getSubstrateNameOptions(),
+    )
     onUpdate({ ...experiment, substrates: newSubstrates })
   }
 
@@ -981,6 +1008,14 @@ function SubstratesTab({
           Substrate Name Generator Options
         </Text>
         <Group gap="lg">
+          <TextInput
+            label="Base Name"
+            value={baseName}
+            onChange={(e) => setBaseName(e.currentTarget.value)}
+            placeholder="substrate"
+            size="sm"
+            style={{ minWidth: 180 }}
+          />
           <Checkbox
             label="Include Date"
             checked={includeDate}
@@ -1006,29 +1041,24 @@ function SubstratesTab({
       </Paper>
 
       <Paper withBorder p="md" radius="md">
-        <NumberInput
-          label="Number of Substrates"
-          value={experiment.numSubstrates}
-          onChange={(v) => {
-            const newCount = Math.max(1, Number(v) || 1)
-            const newSubstrates =
-              newCount > experiment.substrates.length
-                ? [
-                    ...experiment.substrates,
-                    ...generateSubstrates(
-                      newCount - experiment.substrates.length,
-                    ),
-                  ]
-                : experiment.substrates.slice(0, newCount)
-            onUpdate({
-              ...experiment,
-              numSubstrates: newCount,
-              substrates: newSubstrates,
-            })
-          }}
-          min={1}
-          mb="md"
-        />
+        <Group align="flex-end" gap="xs" mb="md">
+          <NumberInput
+            label="Number of Substrates"
+            value={experiment.numSubstrates}
+            onChange={(v) => resizeSubstrates(Number(v) || 1)}
+            min={1}
+            style={{ flex: 1 }}
+          />
+          <Button
+            size="sm"
+            variant="light"
+            leftSection={<IconPlus size={14} />}
+            onClick={() => resizeSubstrates(experiment.numSubstrates + 1)}
+            title="Add a substrate"
+          >
+            Add
+          </Button>
+        </Group>
 
         <Group justify="space-between" mb="sm">
           <Text size="sm" fw={600}>
@@ -1189,7 +1219,7 @@ function SubstratesTab({
                             color="blue"
                             onClick={() => handleRegenerateName(idx)}
                           >
-                            <IconPlus size={14} />
+                            <IconRefresh size={14} />
                           </ActionIcon>
                         </Tooltip>
                         <Tooltip label="Delete">
@@ -1206,6 +1236,29 @@ function SubstratesTab({
                     </td>
                   </tr>
                 ))}
+                <tr
+                  style={{
+                    borderBottom: "2px solid var(--mantine-color-gray-2)",
+                    background: "var(--mantine-color-gray-0)",
+                  }}
+                >
+                  <td
+                    colSpan={3}
+                    style={{
+                      padding: "12px 8px",
+                      textAlign: "center",
+                    }}
+                  >
+                    <Button
+                      size="xs"
+                      variant="subtle"
+                      leftSection={<IconPlus size={14} />}
+                      onClick={() => resizeSubstrates(experiment.numSubstrates + 1)}
+                    >
+                      Add Substrate
+                    </Button>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </Box>
@@ -1294,13 +1347,27 @@ function ExperimentDetail({
               value="layerstack"
               leftSection={<IconLayersLinked size={14} />}
             >
-              Layer Stack
+              Layer Stack ({experiment.layers.length})
             </Tabs.Tab>
             <Tabs.Tab
               value="layers"
               leftSection={<IconLayersLinked size={14} />}
             >
-              Assign Parameters ({experiment.layers.length})
+              Assign Parameters ({
+                experiment.layers.reduce((total, layer) => {
+                  const layerParams = [
+                    layer.depositionMethod,
+                    layer.substrateTemp,
+                    layer.depositionAtmosphere,
+                    layer.solutionVolume,
+                    layer.dryingMethod,
+                    layer.annealingTime,
+                    layer.annealingTemp,
+                    layer.annealingAtmosphere,
+                  ].filter((p) => p?.value).length
+                  return total + layerParams
+                }, 0)
+              })
             </Tabs.Tab>
             {getVariedParameters(experiment).length > 0 && (
               <Tabs.Tab
@@ -1391,12 +1458,6 @@ function ExperimentDetail({
                     }
                   />
                 </SimpleGrid>
-              </Paper>
-
-              <Paper withBorder p="md" radius="md">
-                <Text size="sm" fw={600} mb="sm">
-                  Substrate & Device Configuration
-                </Text>
               </Paper>
 
               {missingFields.length > 0 && (

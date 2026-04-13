@@ -195,6 +195,13 @@ export interface BackendAdapter {
 const LOCAL_STORAGE_KEY = "plains_app_state"
 
 /**
+ * Key used by AppContext's beforeunload watchdog to persist an emergency
+ * snapshot when the page is closed before the debounced HTTP save completes.
+ * HttpBackend.load() restores from this key and then pushes to the server.
+ */
+export const UNLOAD_BACKUP_KEY = "plains_unload_backup"
+
+/**
  * Default backend that keeps state in memory with optional localStorage
  * persistence for page reloads.
  */
@@ -443,6 +450,13 @@ export class HttpBackend implements BackendAdapter {
             "elements:",
             this.data.planes.reduce((n, p) => n + p.elements.length, 0),
           )
+          // Check for an emergency backup written by the beforeunload watchdog.
+          // If it exists and is recent, it represents work that was not pushed to
+          // the server before the tab was closed; restore it and re-sync.
+          const restoredFromBackup = this.restoreUnloadBackup()
+          if (restoredFromBackup) {
+            return { ...this.data }
+          }
           return { ...this.data }
         }
       }
@@ -599,10 +613,58 @@ export class HttpBackend implements BackendAdapter {
       }
 
       this.data = { materials, solutions, experiments, results, planes }
+      // Check for emergency backup from beforeunload watchdog.
+      const restoredFromBackup = this.restoreUnloadBackup()
+      if (restoredFromBackup) {
+        return { ...this.data }
+      }
       return { ...this.data }
     } catch (err) {
       console.error("[HttpBackend] load error:", err)
-      return { ...EMPTY_SNAPSHOT }
+      // Even on error, see if an emergency backup can rescue unsaved work.
+      this.restoreUnloadBackup()
+      return { ...this.data }
+    }
+  }
+
+  /**
+   * Check localStorage for an emergency snapshot written by the beforeunload
+   * watchdog in AppContext.  If one exists and is recent (< 30 min), restore
+   * it into this.data and schedule an async push to the server.
+   * Returns true if a backup was applied.
+   */
+  private restoreUnloadBackup(): boolean {
+    const BACKUP_MAX_AGE_MS = 30 * 60 * 1000 // 30 minutes
+    try {
+      const raw = localStorage.getItem(UNLOAD_BACKUP_KEY)
+      if (!raw) return false
+      const backup = JSON.parse(raw) as {
+        snapshot: AppSnapshot
+        savedAt: number
+      }
+      if (!backup?.snapshot || !backup?.savedAt) {
+        localStorage.removeItem(UNLOAD_BACKUP_KEY)
+        return false
+      }
+      if (Date.now() - backup.savedAt > BACKUP_MAX_AGE_MS) {
+        console.log("[HttpBackend] discarding stale unload backup")
+        localStorage.removeItem(UNLOAD_BACKUP_KEY)
+        return false
+      }
+      console.log(
+        "[HttpBackend] restoring emergency unload backup from",
+        new Date(backup.savedAt).toISOString(),
+      )
+      this.data = backup.snapshot
+      localStorage.removeItem(UNLOAD_BACKUP_KEY)
+      // Re-push the restored snapshot to the server asynchronously.
+      setTimeout(() => void this.save(this.data), 1_500)
+      return true
+    } catch {
+      try {
+        localStorage.removeItem(UNLOAD_BACKUP_KEY)
+      } catch { /* ignore */ }
+      return false
     }
   }
 
@@ -638,6 +700,10 @@ export class HttpBackend implements BackendAdapter {
         console.error("[HttpBackend] save failed:", res.status, text)
       } else {
         console.log("[HttpBackend] save succeeded:", res.status)
+        // Clear any emergency backup — the server now has the authoritative state.
+        try {
+          localStorage.removeItem(UNLOAD_BACKUP_KEY)
+        } catch { /* ignore */ }
       }
     } catch (err) {
       console.error("[HttpBackend] save network error:", err)
