@@ -60,6 +60,7 @@ export type ExperimentLayer = {
   id: string
   name: string
   color: string
+  layerType?: "etl" | "htl" | "perovskite" | "additional" | "back_contact" // Layer category
   materialId?: string // reference to Material
   solutionId?: string // reference to Solution
   // Process parameters - all optional, encourage adding over requiring
@@ -616,7 +617,10 @@ export function getDependentLocations(
             (r) => r.kind === refKind && r.id === refId,
           )
         ) {
-          return { planeName: plane.name, collectionName: (el as CanvasCollectionElement).name }
+          return {
+            planeName: plane.name,
+            collectionName: (el as CanvasCollectionElement).name,
+          }
         }
       }
     }
@@ -627,33 +631,58 @@ export function getDependentLocations(
     for (const sol of data.solutions) {
       if (sol.components.some((c) => c.materialId === id)) {
         const host = findHost("solution", sol.id)
-        locations.push({ ...host, itemKind: "solution", itemName: sol.name, itemId: sol.id })
+        locations.push({
+          ...host,
+          itemKind: "solution",
+          itemName: sol.name,
+          itemId: sol.id,
+        })
       }
     }
     for (const exp of data.experiments) {
       if (exp.layers.some((l) => l.materialId === id)) {
         const host = findHost("experiment", exp.id)
-        locations.push({ ...host, itemKind: "experiment", itemName: exp.name, itemId: exp.id })
+        locations.push({
+          ...host,
+          itemKind: "experiment",
+          itemName: exp.name,
+          itemId: exp.id,
+        })
       }
     }
   } else if (kind === "solution") {
     for (const sol of data.solutions) {
       if (sol.components.some((c) => c.solutionId === id)) {
         const host = findHost("solution", sol.id)
-        locations.push({ ...host, itemKind: "solution", itemName: sol.name, itemId: sol.id })
+        locations.push({
+          ...host,
+          itemKind: "solution",
+          itemName: sol.name,
+          itemId: sol.id,
+        })
       }
     }
     for (const exp of data.experiments) {
       if (exp.layers.some((l) => l.solutionId === id)) {
         const host = findHost("experiment", exp.id)
-        locations.push({ ...host, itemKind: "experiment", itemName: exp.name, itemId: exp.id })
+        locations.push({
+          ...host,
+          itemKind: "experiment",
+          itemName: exp.name,
+          itemId: exp.id,
+        })
       }
     }
   } else if (kind === "experiment") {
     for (const res of data.results) {
       if (res.experimentId === id) {
         const host = findHost("result", res.id)
-        locations.push({ ...host, itemKind: "result", itemName: `Result ${res.id.slice(0, 6)}`, itemId: res.id })
+        locations.push({
+          ...host,
+          itemKind: "result",
+          itemName: `Result ${res.id.slice(0, 6)}`,
+          itemId: res.id,
+        })
       }
     }
   }
@@ -779,7 +808,7 @@ export function AppProvider({
 }) {
   // Use HttpBackend by default if user is authenticated, fall back to InMemory
   const getToken = useCallback(() => localStorage.getItem("access_token"), [])
-  
+
   const defaultBackend = useMemo(() => {
     const token = getToken()
     if (token) {
@@ -787,7 +816,7 @@ export function AppProvider({
     }
     return DEFAULT_BACKEND
   }, [getToken])
-  
+
   const backend = providedBackend ?? defaultBackend
   const [materials, setMaterials] = useState<Material[]>([])
   const [solutions, setSolutions] = useState<Solution[]>([])
@@ -824,7 +853,12 @@ export function AppProvider({
 
   const persistDirtyState = useCallback(async () => {
     if (!loaded || !dirtyRef.current) {
-      console.log("[AppContext] persistDirtyState skipped: loaded=", loaded, "dirty=", dirtyRef.current)
+      console.log(
+        "[AppContext] persistDirtyState skipped: loaded=",
+        loaded,
+        "dirty=",
+        dirtyRef.current,
+      )
       return
     }
     dirtyRef.current = false
@@ -851,17 +885,26 @@ export function AppProvider({
 
   useEffect(() => {
     let cancelled = false
-    console.log("[AppContext] loading state from backend...", backend.constructor.name)
+    console.log(
+      "[AppContext] loading state from backend...",
+      backend.constructor.name,
+    )
     backend.load().then((snapshot) => {
       if (cancelled) {
         return
       }
-      console.log("[AppContext] loaded snapshot:",
-        "materials:", snapshot.materials.length,
-        "solutions:", snapshot.solutions.length,
-        "experiments:", snapshot.experiments.length,
-        "results:", snapshot.results.length,
-        "planes:", snapshot.planes.length,
+      console.log(
+        "[AppContext] loaded snapshot:",
+        "materials:",
+        snapshot.materials.length,
+        "solutions:",
+        snapshot.solutions.length,
+        "experiments:",
+        snapshot.experiments.length,
+        "results:",
+        snapshot.results.length,
+        "planes:",
+        snapshot.planes.length,
       )
       if (snapshot.materials.length > 0) {
         setMaterials(snapshot.materials)
@@ -896,15 +939,7 @@ export function AppProvider({
       return
     }
     scheduleSave()
-  }, [
-    loaded,
-    materials,
-    solutions,
-    experiments,
-    results,
-    planes,
-    scheduleSave,
-  ])
+  }, [loaded, scheduleSave])
 
   // ── Periodic safety flush + unload flush ───────────────────────────────────
 
@@ -1275,7 +1310,12 @@ export function useEntityCollection() {
       if (!allReferencedEntities.has(`${kind}:${id}`)) return true
       return false
     },
-    [activeCollection, activePlane, planeReferencedEntities, allReferencedEntities],
+    [
+      activeCollection,
+      activePlane,
+      planeReferencedEntities,
+      allReferencedEntities,
+    ],
   )
 
   /**
@@ -1314,5 +1354,11 @@ export function useEntityCollection() {
     [activePlane, planeReferencedEntities, allReferencedEntities],
   )
 
-  return { getEntityColor, isEntityVisible, getEntityPlane, activePlane, isEntityOnActivePlane }
+  return {
+    getEntityColor,
+    isEntityVisible,
+    getEntityPlane,
+    activePlane,
+    isEntityOnActivePlane,
+  }
 }

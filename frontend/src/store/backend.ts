@@ -382,7 +382,9 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
 export class HttpBackend implements BackendAdapter {
   private data: AppSnapshot = { ...EMPTY_SNAPSHOT }
 
-  constructor(private baseUrl: string = `${import.meta.env.VITE_API_URL}/api/v1`) {}
+  constructor(
+    private baseUrl: string = `${import.meta.env.VITE_API_URL}/api/v1`,
+  ) {}
 
   private getToken(): string | null {
     return localStorage.getItem("access_token")
@@ -404,11 +406,19 @@ export class HttpBackend implements BackendAdapter {
       console.log("[HttpBackend] GET /state/ response:", stateRes.status)
       if (stateRes.ok) {
         const stateJson = await stateRes.json()
-        console.log("[HttpBackend] /state/ response data keys:", Object.keys(stateJson))
+        console.log(
+          "[HttpBackend] /state/ response data keys:",
+          Object.keys(stateJson),
+        )
         const raw = stateJson.data ?? {}
-        console.log("[HttpBackend] /state/ data keys:", Object.keys(raw),
-          "materials:", Array.isArray(raw.materials) ? raw.materials.length : "none",
-          "planes:", Array.isArray(raw.planes) ? raw.planes.length : "none")
+        console.log(
+          "[HttpBackend] /state/ data keys:",
+          Object.keys(raw),
+          "materials:",
+          Array.isArray(raw.materials) ? raw.materials.length : "none",
+          "planes:",
+          Array.isArray(raw.planes) ? raw.planes.length : "none",
+        )
         const hasSnapshotData =
           Array.isArray(raw.materials) ||
           Array.isArray(raw.solutions) ||
@@ -424,10 +434,15 @@ export class HttpBackend implements BackendAdapter {
             results: raw.results ?? [],
             planes: raw.planes ?? [],
           }
-          console.log("[HttpBackend] loaded from /state/ snapshot:",
-            "materials:", this.data.materials.length,
-            "planes:", this.data.planes.length,
-            "elements:", this.data.planes.reduce((n, p) => n + p.elements.length, 0))
+          console.log(
+            "[HttpBackend] loaded from /state/ snapshot:",
+            "materials:",
+            this.data.materials.length,
+            "planes:",
+            this.data.planes.length,
+            "elements:",
+            this.data.planes.reduce((n, p) => n + p.elements.length, 0),
+          )
           return { ...this.data }
         }
       }
@@ -454,7 +469,7 @@ export class HttpBackend implements BackendAdapter {
         inventoryLabel: "",
         purity: "",
       }))
-      
+
       const solutions = (json.solutions ?? []).map((s: any) => ({
         id: s.id,
         name: s.name,
@@ -466,12 +481,13 @@ export class HttpBackend implements BackendAdapter {
           unit: c.unit as "mg" | "ml",
         })),
       }))
-      
+
       const experiments = (json.experiments ?? []).map((e: any) => ({
         id: e.id,
         name: e.name,
         description: e.description ?? "",
-        date: e.created_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+        date:
+          e.created_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
         architecture: "n-i-p" as const,
         substrateMaterial: "Glass/ITO",
         substrateWidth: 2.5,
@@ -494,7 +510,7 @@ export class HttpBackend implements BackendAdapter {
         })),
         hasResults: false,
       }))
-      
+
       const results = (json.results ?? []).map((r: any) => ({
         id: r.id,
         experimentId: r.experiment_id,
@@ -516,7 +532,7 @@ export class HttpBackend implements BackendAdapter {
         matchingStrategy: "fuzzy" as const,
         updatedAt: r.created_at ?? new Date().toISOString(),
       }))
-      
+
       const planes = (json.planes ?? []).map((p: any) => ({
         id: p.id,
         name: p.name,
@@ -529,7 +545,7 @@ export class HttpBackend implements BackendAdapter {
             }
           }
           const parsed = e.content ? tryParseJson(e.content) : null
-          
+
           if (e.element_type === "collection") {
             return {
               id: e.id,
@@ -540,14 +556,19 @@ export class HttpBackend implements BackendAdapter {
               refs: parsed?.refs ?? [],
               color: e.color ?? undefined,
             }
-          } else if (e.element_type === "line") {
+          }
+          if (e.element_type === "line") {
             return {
               id: e.id,
               type: "line" as const,
-              points: parsed?.points ?? [{ x: e.x, y: e.y }, { x: e.x + e.width, y: e.y + e.height }],
+              points: parsed?.points ?? [
+                { x: e.x, y: e.y },
+                { x: e.x + e.width, y: e.y + e.height },
+              ],
               color: e.color ?? undefined,
             }
-          } else if (e.element_type === "plaintext") {
+          }
+          if (e.element_type === "plaintext") {
             return {
               id: e.id,
               type: "plaintext" as const,
@@ -557,19 +578,18 @@ export class HttpBackend implements BackendAdapter {
               color: e.color ?? "#000000",
               formatting: parsed?.formatting ?? {},
             }
-          } else {
-            return {
-              id: e.id,
-              type: "text" as const,
-              position: { x: e.x, y: e.y },
-              size: { x: e.width, y: e.height },
-              content: e.content ?? "",
-              color: e.color ?? undefined,
-            }
+          }
+          return {
+            id: e.id,
+            type: "text" as const,
+            position: { x: e.x, y: e.y },
+            size: { x: e.width, y: e.height },
+            content: e.content ?? "",
+            color: e.color ?? undefined,
           }
         }),
       }))
-      
+
       // Mark experiments with results
       const experimentIdsWithResults = new Set(
         results.map((r: ExperimentResults) => r.experimentId),
@@ -577,7 +597,7 @@ export class HttpBackend implements BackendAdapter {
       for (const exp of experiments) {
         exp.hasResults = experimentIdsWithResults.has(exp.id)
       }
-      
+
       this.data = { materials, solutions, experiments, results, planes }
       return { ...this.data }
     } catch (err) {
@@ -599,7 +619,9 @@ export class HttpBackend implements BackendAdapter {
     console.log("[HttpBackend] save() called:", summary)
     const token = this.getToken()
     if (!token) {
-      console.warn("[HttpBackend] save() skipped — no token (already logged out)")
+      console.warn(
+        "[HttpBackend] save() skipped — no token (already logged out)",
+      )
       return
     }
     try {

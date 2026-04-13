@@ -1,22 +1,31 @@
-import { useTheme } from "@/components/theme-provider";
-import { useState, useRef, useEffect } from "react";
-import { Box, Button, Group, Paper, ScrollArea, Stack, Text, TextInput } from "@mantine/core";
-import { IconMessageCircle, IconSend, IconX } from "@tabler/icons-react";
+import {
+  Box,
+  Button,
+  Group,
+  Paper,
+  ScrollArea,
+  Stack,
+  Text,
+  TextInput,
+} from "@mantine/core"
+import { IconMessageCircle, IconSend, IconX } from "@tabler/icons-react"
+import { useEffect, useRef, useState } from "react"
+import { useTheme } from "@/components/theme-provider"
 
 type ChatMessage = {
-  id: string;
-  sender: "user" | "bot";
-  text: string;
-  timestamp: Date;
-};
+  id: string
+  sender: "user" | "bot"
+  text: string
+  timestamp: Date
+}
 
 /**
  * Chat Widget Component - Floating Chat Interface
  * A simple chatbot that provides dummy responses
  */
 export function ChatWidgetComponent() {
-  const { resolvedTheme } = useTheme();
-  const [isOpen, setIsOpen] = useState(false);
+  const { resolvedTheme } = useTheme()
+  const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "1",
@@ -24,17 +33,17 @@ export function ChatWidgetComponent() {
       text: "Hello! I'm the Plains Assistant. How can I help you today?",
       timestamp: new Date(),
     },
-  ]);
-  const [inputValue, setInputValue] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  ])
+  const [inputValue, setInputValue] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages]);
+  }, [])
 
   const generateBotResponse = (userMessage: string): string => {
     const responses: { [key: string]: string[] } = {
@@ -62,11 +71,11 @@ export function ChatWidgetComponent() {
         "I'm not sure I understand that question. Could you rephrase it?",
         "I can help with questions about experiments, materials, and analysis. Please try again.",
       ],
-    };
+    }
 
     // Simple keyword matching for demo
-    const lowerMessage = userMessage.toLowerCase();
-    let category = "default";
+    const lowerMessage = userMessage.toLowerCase()
+    let category = "default"
 
     if (
       lowerMessage.includes("experiment") ||
@@ -74,40 +83,42 @@ export function ChatWidgetComponent() {
       lowerMessage.includes("substrate") ||
       lowerMessage.includes("device")
     ) {
-      category = "experiment";
+      category = "experiment"
     } else if (
       lowerMessage.includes("material") ||
       lowerMessage.includes("inventory") ||
       lowerMessage.includes("supplier")
     ) {
-      category = "material";
+      category = "material"
     } else if (
       lowerMessage.includes("solution") ||
       lowerMessage.includes("solvent")
     ) {
-      category = "material";
+      category = "material"
     } else if (lowerMessage.includes("analys")) {
-      category = "analysis";
+      category = "analysis"
     } else if (
       lowerMessage.includes("help") ||
       lowerMessage.includes("how") ||
       lowerMessage.includes("what can you")
     ) {
-      category = "help";
+      category = "help"
     } else if (
       lowerMessage.includes("hi") ||
       lowerMessage.includes("hello") ||
       lowerMessage.includes("hey")
     ) {
-      category = "greet";
+      category = "greet"
     }
 
-    const categoryResponses = responses[category];
-    return categoryResponses[Math.floor(Math.random() * categoryResponses.length)];
-  };
+    const categoryResponses = responses[category]
+    return categoryResponses[
+      Math.floor(Math.random() * categoryResponses.length)
+    ]
+  }
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim()) return
 
     // Add user message
     const userMessage: ChatMessage = {
@@ -115,11 +126,11 @@ export function ChatWidgetComponent() {
       sender: "user",
       text: inputValue,
       timestamp: new Date(),
-    };
+    }
 
-    setMessages((prev) => [...prev, userMessage]);
-    setInputValue("");
-    setIsLoading(true);
+    setMessages((prev) => [...prev, userMessage])
+    setInputValue("")
+    setIsLoading(true)
 
     // Simulate bot response delay
     setTimeout(() => {
@@ -128,16 +139,16 @@ export function ChatWidgetComponent() {
         sender: "bot",
         text: generateBotResponse(inputValue),
         timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, botResponse]);
-      setIsLoading(false);
-    }, 500);
-  };
+      }
+      setMessages((prev) => [...prev, botResponse])
+      setIsLoading(false)
+    }, 500)
+  }
 
-  const isDark = resolvedTheme === "dark";
-  const bgColor = isDark ? "#1f1f23" : "#ffffff";
-  const botBgColor = isDark ? "#2a2a2f" : "#f3f3f3";
-  const userBgColor = "#228be6";
+  const isDark = resolvedTheme === "dark"
+  const bgColor = isDark ? "#1f1f23" : "#ffffff"
+  const botBgColor = isDark ? "#2a2a2f" : "#f3f3f3"
+  const userBgColor = "#228be6"
 
   return (
     <>
@@ -268,7 +279,7 @@ export function ChatWidgetComponent() {
                 onChange={(e) => setInputValue(e.currentTarget.value)}
                 onKeyPress={(e) => {
                   if (e.key === "Enter") {
-                    handleSendMessage();
+                    handleSendMessage()
                   }
                 }}
                 disabled={isLoading}
@@ -287,5 +298,5 @@ export function ChatWidgetComponent() {
         )}
       </Box>
     </>
-  );
+  )
 }

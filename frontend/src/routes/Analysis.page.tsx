@@ -10,52 +10,57 @@ import {
   Select,
   Stack,
   Text,
-} from "@mantine/core";
+} from "@mantine/core"
 import {
   IconChartBar,
   IconGripVertical,
   IconPlus,
   IconX,
-} from "@tabler/icons-react";
-import EChartsReact from "echarts-for-react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { Experiment } from "../store/AppContext";
-import { useAppContext } from "../store/AppContext";
+} from "@tabler/icons-react"
+import EChartsReact from "echarts-for-react"
+import type React from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import type { Experiment } from "../store/AppContext"
+import { useAppContext } from "../store/AppContext"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-type DataSourceMode = "all-devices" | "per-device" | "per-substrate" | "per-varied-parameter";
+type DataSourceMode =
+  | "all-devices"
+  | "per-device"
+  | "per-substrate"
+  | "per-varied-parameter"
 
 type PlotWidget = {
-  id: string;
-  type: "boxplot" | "jv-curve" | "scatter" | "bar";
-  title: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  experimentId?: string;
-  layerIds?: string[];
-  parameterKey?: string;
-};
+  id: string
+  type: "boxplot" | "jv-curve" | "scatter" | "bar"
+  title: string
+  x: number
+  y: number
+  width: number
+  height: number
+  experimentId?: string
+  layerIds?: string[]
+  parameterKey?: string
+}
 
 type DragState = {
-  widgetId: string;
-  startX: number;
-  startY: number;
-  startWidgetX: number;
-  startWidgetY: number;
-} | null;
+  widgetId: string
+  startX: number
+  startY: number
+  startWidgetX: number
+  startWidgetY: number
+} | null
 
 type ResizeState = {
-  widgetId: string;
-  startX: number;
-  startY: number;
-  startWidth: number;
-  startHeight: number;
-} | null;
+  widgetId: string
+  startX: number
+  startY: number
+  startWidth: number
+  startHeight: number
+} | null
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Plot Colors
@@ -68,9 +73,9 @@ const PLOT_COLORS = {
   quaternary: "#fab005",
   quinary: "#7950f2",
   senary: "#e64980",
-};
+}
 
-const COLOR_ARRAY = Object.values(PLOT_COLORS);
+const COLOR_ARRAY = Object.values(PLOT_COLORS)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Example Plot Data Generators
@@ -78,14 +83,15 @@ const COLOR_ARRAY = Object.values(PLOT_COLORS);
 
 /** Generate example box plot data for PCE by layer parameter */
 function generateBoxPlotOption(paramName: string) {
-  const categories = ["100°C", "120°C", "140°C", "160°C"];
+  const categories = ["100°C", "120°C", "140°C", "160°C"]
 
   const data: number[][] = categories.map((_, idx) => {
-    const baseValue = 15 + idx * 1.5;
-    return Array.from({ length: 20 }, () =>
-      baseValue + (Math.random() - 0.5) * 4
-    );
-  });
+    const baseValue = 15 + idx * 1.5
+    return Array.from(
+      { length: 20 },
+      () => baseValue + (Math.random() - 0.5) * 4,
+    )
+  })
 
   return {
     title: {
@@ -124,23 +130,30 @@ function generateBoxPlotOption(paramName: string) {
         color: COLOR_ARRAY[idx % COLOR_ARRAY.length],
       },
     })),
-  };
+  }
 }
 
 /** Generate example JV curve data */
 function generateJVCurveOption() {
-  const generateJVCurve = (voc: number, jsc: number, name: string, color: string) => {
-    const voltages: number[] = [];
-    const currents: number[] = [];
+  const generateJVCurve = (
+    voc: number,
+    jsc: number,
+    name: string,
+    color: string,
+  ) => {
+    const voltages: number[] = []
+    const currents: number[] = []
 
     for (let v = -0.1; v <= voc + 0.1; v += 0.01) {
-      voltages.push(parseFloat(v.toFixed(2)));
+      voltages.push(parseFloat(v.toFixed(2)))
       // Simplified diode equation
-      const j0 = 1e-10;
-      const n = 1.5;
-      const vt = 0.026; // thermal voltage at 300K
-      const current = jsc - j0 * (Math.exp(v / (n * vt)) - 1);
-      currents.push(parseFloat(Math.max(-5, Math.min(current, jsc * 1.1)).toFixed(2)));
+      const j0 = 1e-10
+      const n = 1.5
+      const vt = 0.026 // thermal voltage at 300K
+      const current = jsc - j0 * (Math.exp(v / (n * vt)) - 1)
+      currents.push(
+        parseFloat(Math.max(-5, Math.min(current, jsc * 1.1)).toFixed(2)),
+      )
     }
 
     return {
@@ -152,8 +165,8 @@ function generateJVCurveOption() {
       itemStyle: { color },
       lineStyle: { color },
       symbol: "none",
-    };
-  };
+    }
+  }
 
   return {
     title: {
@@ -169,7 +182,11 @@ function generateJVCurveOption() {
     },
     legend: {
       top: "bottom",
-      data: ["Device A (PCE: 18.9%)", "Device B (PCE: 16.9%)", "Device C (PCE: 15.6%)"],
+      data: [
+        "Device A (PCE: 18.9%)",
+        "Device B (PCE: 16.9%)",
+        "Device C (PCE: 15.6%)",
+      ],
     },
     grid: {
       left: 60,
@@ -192,17 +209,25 @@ function generateJVCurveOption() {
     },
     series: [
       generateJVCurve(1.1, 22, "Device A (PCE: 18.9%)", PLOT_COLORS.primary),
-      generateJVCurve(1.05, 21.5, "Device B (PCE: 16.9%)", PLOT_COLORS.secondary),
+      generateJVCurve(
+        1.05,
+        21.5,
+        "Device B (PCE: 16.9%)",
+        PLOT_COLORS.secondary,
+      ),
       generateJVCurve(1.08, 20, "Device C (PCE: 15.6%)", PLOT_COLORS.tertiary),
     ] as any,
-  };
+  }
 }
 
 /** Generate example scatter plot for parameter correlation */
 function generateScatterPlotOption() {
-  const n = 30;
-  const x = Array.from({ length: n }, () => 100 + Math.random() * 60);
-  const data = x.map((xi) => [xi, 12 + (xi - 100) * 0.08 + (Math.random() - 0.5) * 3]);
+  const n = 30
+  const x = Array.from({ length: n }, () => 100 + Math.random() * 60)
+  const data = x.map((xi) => [
+    xi,
+    12 + (xi - 100) * 0.08 + (Math.random() - 0.5) * 3,
+  ])
 
   return {
     title: {
@@ -252,13 +277,13 @@ function generateScatterPlotOption() {
         },
       },
     ],
-  };
+  }
 }
 
 /** Generate example bar chart for layer comparison */
 function generateBarChartOption() {
-  const layers = ["ETL", "Perovskite", "HTL", "Metal"];
-  const pceContribution = [2.1, 12.5, 3.2, 0.8];
+  const layers = ["ETL", "Perovskite", "HTL", "Metal"]
+  const pceContribution = [2.1, 12.5, 3.2, 0.8]
 
   return {
     title: {
@@ -300,7 +325,7 @@ function generateBarChartOption() {
         })),
       },
     ],
-  };
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -312,9 +337,9 @@ function ExperimentListItem({
   isSelected,
   onSelect,
 }: {
-  experiment: Experiment;
-  isSelected: boolean;
-  onSelect: () => void;
+  experiment: Experiment
+  isSelected: boolean
+  onSelect: () => void
 }) {
   return (
     <Paper
@@ -350,7 +375,7 @@ function ExperimentListItem({
         </Box>
       </Group>
     </Paper>
-  );
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -366,13 +391,13 @@ function DataSourceConfigPanel({
   excludedSubstrates,
   onExcludedSubstratesChange,
 }: {
-  mode: DataSourceMode;
-  onModeChange: (mode: DataSourceMode) => void;
-  experiment: Experiment | null;
-  excludedDevices: string[];
-  onExcludedDevicesChange: (devices: string[]) => void;
-  excludedSubstrates: string[];
-  onExcludedSubstratesChange: (substrates: string[]) => void;
+  mode: DataSourceMode
+  onModeChange: (mode: DataSourceMode) => void
+  experiment: Experiment | null
+  excludedDevices: string[]
+  onExcludedDevicesChange: (devices: string[]) => void
+  excludedSubstrates: string[]
+  onExcludedSubstratesChange: (substrates: string[]) => void
 }) {
   if (!experiment) {
     return (
@@ -385,7 +410,7 @@ function DataSourceConfigPanel({
           Select an experiment to configure data sources
         </Text>
       </Paper>
-    );
+    )
   }
 
   // Calculate device options
@@ -394,14 +419,14 @@ function DataSourceConfigPanel({
     (_, i) => ({
       value: `device-${i}`,
       label: `Device ${i + 1}`,
-    })
-  );
+    }),
+  )
 
   // Calculate substrate options
   const substrateOptions = experiment.substrates.map((sub) => ({
     value: sub.id,
     label: sub.name,
-  }));
+  }))
 
   return (
     <Paper
@@ -477,7 +502,7 @@ function DataSourceConfigPanel({
         </Text>
       </Stack>
     </Paper>
-  );
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -492,35 +517,35 @@ function PlotWidgetComponent({
   isSelected,
   onSelect,
 }: {
-  widget: PlotWidget;
-  onMouseDownDrag: (e: React.MouseEvent) => void;
-  onMouseDownResize: (e: React.MouseEvent) => void;
-  onDelete: () => void;
-  isSelected: boolean;
-  onSelect: () => void;
+  widget: PlotWidget
+  onMouseDownDrag: (e: React.MouseEvent) => void
+  onMouseDownResize: (e: React.MouseEvent) => void
+  onDelete: () => void
+  isSelected: boolean
+  onSelect: () => void
 }) {
-  const chartRef = useRef<EChartsReact>(null);
+  const chartRef = useRef<EChartsReact>(null)
 
   // Generate plot data based on type
   const chartOption = useMemo(() => {
     switch (widget.type) {
       case "boxplot":
-        return generateBoxPlotOption("Annealing Temp");
+        return generateBoxPlotOption("Annealing Temp")
       case "jv-curve":
-        return generateJVCurveOption();
+        return generateJVCurveOption()
       case "scatter":
-        return generateScatterPlotOption();
+        return generateScatterPlotOption()
       case "bar":
-        return generateBarChartOption();
+        return generateBarChartOption()
       default:
-        return generateBoxPlotOption("Parameter");
+        return generateBoxPlotOption("Parameter")
     }
-  }, [widget.type]);
+  }, [widget.type])
 
   useEffect(() => {
     // Resize chart when widget dimensions change
-    chartRef.current?.getEchartsInstance().resize();
-  }, [widget.width, widget.height]);
+    chartRef.current?.getEchartsInstance().resize()
+  }, [])
 
   return (
     <Paper
@@ -541,8 +566,8 @@ function PlotWidgetComponent({
         flexDirection: "column",
       }}
       onClick={(e) => {
-        e.stopPropagation();
-        onSelect();
+        e.stopPropagation()
+        onSelect()
       }}
     >
       {/* Header */}
@@ -574,8 +599,8 @@ function PlotWidgetComponent({
           variant="subtle"
           color="red"
           onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
+            e.stopPropagation()
+            onDelete()
           }}
         >
           <IconX size={12} />
@@ -608,23 +633,26 @@ function PlotWidgetComponent({
         onMouseDown={onMouseDownResize}
       />
     </Paper>
-  );
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Page
 // ─────────────────────────────────────────────────────────────────────────────
 
-const GRID_SIZE = 20; // snap grid size
-const MIN_WIDGET_SIZE = 200;
+const GRID_SIZE = 20 // snap grid size
+const MIN_WIDGET_SIZE = 200
 
 export function AnalysisPage() {
-  const { experiments, setActiveEntity } = useAppContext();
-  const [selectedExperimentId, setSelectedExperimentId] = useState<string | null>(null);
-  const [dataSourceMode, setDataSourceMode] = useState<DataSourceMode>("all-devices");
-  const [excludedDevices, setExcludedDevices] = useState<string[]>([]);
-  const [excludedSubstrates, setExcludedSubstrates] = useState<string[]>([]);
-  
+  const { experiments, setActiveEntity } = useAppContext()
+  const [selectedExperimentId, setSelectedExperimentId] = useState<
+    string | null
+  >(null)
+  const [dataSourceMode, setDataSourceMode] =
+    useState<DataSourceMode>("all-devices")
+  const [excludedDevices, setExcludedDevices] = useState<string[]>([])
+  const [excludedSubstrates, setExcludedSubstrates] = useState<string[]>([])
+
   const [widgets, setWidgets] = useState<PlotWidget[]>(() => [
     // Initial example widgets
     {
@@ -663,31 +691,33 @@ export function AnalysisPage() {
       width: 350,
       height: 300,
     },
-  ]);
+  ])
 
-  const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
-  const [dragState, setDragState] = useState<DragState>(null);
-  const [resizeState, setResizeState] = useState<ResizeState>(null);
-  const planeRef = useRef<HTMLDivElement>(null);
+  const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null)
+  const [dragState, setDragState] = useState<DragState>(null)
+  const [resizeState, setResizeState] = useState<ResizeState>(null)
+  const planeRef = useRef<HTMLDivElement>(null)
 
   const selectExperiment = (id: string | null) => {
-    setSelectedExperimentId(id);
-    setActiveEntity(id ? { kind: "experiment", id } : null);
-  };
+    setSelectedExperimentId(id)
+    setActiveEntity(id ? { kind: "experiment", id } : null)
+  }
 
-  const selectedExperiment = experiments.find((e) => e.id === selectedExperimentId);
+  const selectedExperiment = experiments.find(
+    (e) => e.id === selectedExperimentId,
+  )
 
   // Snap to grid helper
   const snapToGrid = (value: number): number => {
-    return Math.round(value / GRID_SIZE) * GRID_SIZE;
-  };
+    return Math.round(value / GRID_SIZE) * GRID_SIZE
+  }
 
   // Handle drag start
   const handleDragStart = (widgetId: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    const widget = widgets.find((w) => w.id === widgetId);
+    e.preventDefault()
+    const widget = widgets.find((w) => w.id === widgetId)
     if (!widget) {
-      return;
+      return
     }
 
     setDragState({
@@ -696,17 +726,17 @@ export function AnalysisPage() {
       startY: e.clientY,
       startWidgetX: widget.x,
       startWidgetY: widget.y,
-    });
-    setSelectedWidgetId(widgetId);
-  };
+    })
+    setSelectedWidgetId(widgetId)
+  }
 
   // Handle resize start
   const handleResizeStart = (widgetId: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const widget = widgets.find((w) => w.id === widgetId);
+    e.preventDefault()
+    e.stopPropagation()
+    const widget = widgets.find((w) => w.id === widgetId)
     if (!widget) {
-      return;
+      return
     }
 
     setResizeState({
@@ -715,69 +745,69 @@ export function AnalysisPage() {
       startY: e.clientY,
       startWidth: widget.width,
       startHeight: widget.height,
-    });
-    setSelectedWidgetId(widgetId);
-  };
+    })
+    setSelectedWidgetId(widgetId)
+  }
 
   // Handle mouse move for drag/resize
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (dragState) {
-        const deltaX = e.clientX - dragState.startX;
-        const deltaY = e.clientY - dragState.startY;
+        const deltaX = e.clientX - dragState.startX
+        const deltaY = e.clientY - dragState.startY
 
         setWidgets((prev) =>
           prev.map((w) => {
             if (w.id !== dragState.widgetId) {
-              return w;
+              return w
             }
             return {
               ...w,
               x: snapToGrid(Math.max(0, dragState.startWidgetX + deltaX)),
               y: snapToGrid(Math.max(0, dragState.startWidgetY + deltaY)),
-            };
-          })
-        );
+            }
+          }),
+        )
       }
 
       if (resizeState) {
-        const deltaX = e.clientX - resizeState.startX;
-        const deltaY = e.clientY - resizeState.startY;
+        const deltaX = e.clientX - resizeState.startX
+        const deltaY = e.clientY - resizeState.startY
 
         setWidgets((prev) =>
           prev.map((w) => {
             if (w.id !== resizeState.widgetId) {
-              return w;
+              return w
             }
             return {
               ...w,
               width: snapToGrid(
-                Math.max(MIN_WIDGET_SIZE, resizeState.startWidth + deltaX)
+                Math.max(MIN_WIDGET_SIZE, resizeState.startWidth + deltaX),
               ),
               height: snapToGrid(
-                Math.max(MIN_WIDGET_SIZE, resizeState.startHeight + deltaY)
+                Math.max(MIN_WIDGET_SIZE, resizeState.startHeight + deltaY),
               ),
-            };
-          })
-        );
+            }
+          }),
+        )
       }
-    };
+    }
 
     const handleMouseUp = () => {
-      setDragState(null);
-      setResizeState(null);
-    };
+      setDragState(null)
+      setResizeState(null)
+    }
 
     if (dragState || resizeState) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
+      document.addEventListener("mousemove", handleMouseMove)
+      document.addEventListener("mouseup", handleMouseUp)
     }
 
     return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [dragState, resizeState]);
+      document.removeEventListener("mousemove", handleMouseMove)
+      document.removeEventListener("mouseup", handleMouseUp)
+    }
+  }, [dragState, resizeState, snapToGrid])
 
   // Add new widget
   const addWidget = (type: PlotWidget["type"]) => {
@@ -796,18 +826,18 @@ export function AnalysisPage() {
       y: snapToGrid(20 + widgets.length * 20),
       width: 400,
       height: 300,
-    };
-    setWidgets((prev) => [...prev, newWidget]);
-    setSelectedWidgetId(newWidget.id);
-  };
+    }
+    setWidgets((prev) => [...prev, newWidget])
+    setSelectedWidgetId(newWidget.id)
+  }
 
   // Delete widget
   const deleteWidget = (widgetId: string) => {
-    setWidgets((prev) => prev.filter((w) => w.id !== widgetId));
+    setWidgets((prev) => prev.filter((w) => w.id !== widgetId))
     if (selectedWidgetId === widgetId) {
-      setSelectedWidgetId(null);
+      setSelectedWidgetId(null)
     }
-  };
+  }
 
   return (
     <Box
@@ -917,10 +947,7 @@ export function AnalysisPage() {
                   textAlign: "center",
                 }}
               >
-                <IconChartBar
-                  size={64}
-                  color="var(--mantine-color-gray-4)"
-                />
+                <IconChartBar size={64} color="var(--mantine-color-gray-4)" />
                 <Text size="lg" c="dimmed" mt="md">
                   No plots yet
                 </Text>
@@ -1013,5 +1040,5 @@ export function AnalysisPage() {
         </Box>
       </Box>
     </Box>
-  );
+  )
 }

@@ -6,25 +6,25 @@
  * Run this with: node mock-rasa-server.js
  */
 
-import express from "express";
-import { Server as SocketIOServer } from "socket.io";
-import { createServer } from "http";
-import cors from "cors";
+import { createServer } from "node:http"
+import cors from "cors"
+import express from "express"
+import { Server as SocketIOServer } from "socket.io"
 
-const app = express();
-const server = createServer(app);
+const app = express()
+const server = createServer(app)
 const io = new SocketIOServer(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
   },
   path: "/socket.io/",
-});
+})
 
-app.use(cors());
-app.use(express.json());
+app.use(cors())
+app.use(express.json())
 
-const PORT = process.env.PORT || 5005;
+const PORT = process.env.PORT || 5005
 
 // Dummy bot responses
 const botResponses = {
@@ -52,11 +52,11 @@ const botResponses = {
     "I'm not sure I understand that question. Could you rephrase it?",
     "I can help with questions about experiments, materials, and analysis. Please try again.",
   ],
-};
+}
 
 function generateResponse(userMessage) {
-  const lowerMessage = userMessage.toLowerCase();
-  let category = "default";
+  const lowerMessage = userMessage.toLowerCase()
+  let category = "default"
 
   if (
     lowerMessage.includes("experiment") ||
@@ -64,81 +64,81 @@ function generateResponse(userMessage) {
     lowerMessage.includes("substrate") ||
     lowerMessage.includes("device")
   ) {
-    category = "experiment";
+    category = "experiment"
   } else if (
     lowerMessage.includes("material") ||
     lowerMessage.includes("inventory") ||
     lowerMessage.includes("supplier")
   ) {
-    category = "material";
+    category = "material"
   } else if (
     lowerMessage.includes("solution") ||
     lowerMessage.includes("solvent")
   ) {
-    category = "material";
+    category = "material"
   } else if (lowerMessage.includes("analys")) {
-    category = "analysis";
+    category = "analysis"
   } else if (
     lowerMessage.includes("help") ||
     lowerMessage.includes("how") ||
     lowerMessage.includes("what can you")
   ) {
-    category = "help";
+    category = "help"
   } else if (
     lowerMessage.includes("hi") ||
     lowerMessage.includes("hello") ||
     lowerMessage.includes("hey")
   ) {
-    category = "greet";
+    category = "greet"
   }
 
-  const responses = botResponses[category];
-  return responses[Math.floor(Math.random() * responses.length)];
+  const responses = botResponses[category]
+  return responses[Math.floor(Math.random() * responses.length)]
 }
 
 // Handle Socket.IO connections
 io.on("connection", (socket) => {
-  console.log("New client connected:", socket.id);
+  console.log("New client connected:", socket.id)
 
   // Handle user messages
   socket.on("user_uttered", (data) => {
-    console.log("User message:", data);
+    console.log("User message:", data)
 
     // Generate bot response
-    const userMessage = data.message || "";
-    const botMessage = generateResponse(userMessage);
+    const userMessage = data.message || ""
+    const botMessage = generateResponse(userMessage)
 
     // Send response back to client
     socket.emit("bot_uttered", {
       text: botMessage,
-    });
+    })
 
-    console.log("Bot response:", botMessage);
-  });
+    console.log("Bot response:", botMessage)
+  })
 
   // Send initial greeting on connection
   socket.emit("bot_uttered", {
     text: "Hello! I'm the Plains Assistant. How can I help you today?",
-  });
+  })
 
   socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
-  });
+    console.log("Client disconnected:", socket.id)
+  })
 
   socket.on("error", (error) => {
-    console.error("Socket error:", error);
-  });
-});
+    console.error("Socket error:", error)
+  })
+})
 
 // Health check endpoint
-app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
-});
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok" })
+})
 
 // Start server
 server.listen(PORT, () => {
-  console.log("🤖 Mock Rasa Server running on http://localhost:" + PORT);
-  console.log("   Socket.IO path: /socket.io/");
-  console.log("\nBot is ready to respond to messages!");
-  console.log("Topics: experiments, materials, analysis, help");
-});
+  console.log(`🤖 Mock Rasa Server running on http://localhost:${PORT}`)
+  console.log("   Socket.IO path: /socket.io/")
+  console.log("\nBot is ready to respond to messages!")
+  console.log("Topics: experiments, materials, analysis, help")
+})

@@ -1,4 +1,8 @@
-export function LoadingScreen({ message = "Loading your data..." }: { message?: string }) {
+export function LoadingScreen({
+  message = "Loading your data...",
+}: {
+  message?: string
+}) {
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-background">
       <div className="flex flex-col items-center gap-4">

@@ -39,6 +39,7 @@ import {
   IconX,
 } from "@tabler/icons-react"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { DependencyBlockModal } from "../components/DependencyBlockModal"
 import {
   type DeviceArchitecture,
   type Experiment,
@@ -57,7 +58,6 @@ import {
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
-import { DependencyBlockModal } from "../components/DependencyBlockModal"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Buffered inputs — keep a local draft so parent only re-renders on commit
@@ -205,7 +205,7 @@ function DeviceStackPreview({
 
       <Box style={{ display: "flex", flexDirection: "column-reverse", gap: 2 }}>
         {/* Substrate at bottom */}
-        <Box
+          <Box
           style={{
             background: "linear-gradient(135deg, #a8d5e5 0%, #74b9d0 100%)",
             height: SUBSTRATE_HEIGHT,
@@ -217,47 +217,60 @@ function DeviceStackPreview({
           }}
         >
           <Text size="xs" fw={600} c="dark">
-            {substrateMaterial}
+            substrate: {substrateMaterial}
           </Text>
         </Box>
 
         {/* Layers stacked on top */}
-        {layers.map((layer, idx) => (
-          <Box
-            key={layer.id}
-            style={{
-              background: layer.color,
-              height: LAYER_HEIGHT,
-              borderRadius: 4,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              border: "1px solid rgba(0,0,0,0.1)",
-              position: "relative",
-            }}
-          >
-            <Text
-              size="xs"
-              fw={600}
-              c="white"
-              style={{ textShadow: "0 1px 2px rgba(0,0,0,0.3)" }}
-            >
-              {layer.name}
-            </Text>
-            <Text
-              size="10px"
-              c="white"
+        {layers.map((layer, idx) => {
+          const typeMap: Record<string, string> = {
+            etl: "ETL",
+            htl: "HTL",
+            perovskite: "Absorber",
+            additional: "Additional",
+            back_contact: "Back Contact",
+          }
+          const displayName = layer.layerType 
+            ? `${typeMap[layer.layerType]}: ${layer.name}` 
+            : layer.name
+          
+          return (
+            <Box
+              key={layer.id}
               style={{
-                position: "absolute",
-                right: 6,
-                top: 2,
-                opacity: 0.7,
+                background: layer.color,
+                height: LAYER_HEIGHT,
+                borderRadius: 4,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "1px solid rgba(0,0,0,0.1)",
+                position: "relative",
               }}
             >
-              {idx + 1}
-            </Text>
-          </Box>
-        ))}
+              <Text
+                size="xs"
+                fw={600}
+                c="white"
+                style={{ textShadow: "0 1px 2px rgba(0,0,0,0.3)" }}
+              >
+                {displayName}
+              </Text>
+              <Text
+                size="10px"
+                c="white"
+                style={{
+                  position: "absolute",
+                  right: 6,
+                  top: 2,
+                  opacity: 0.7,
+                }}
+              >
+                {idx + 1}
+              </Text>
+            </Box>
+          )
+        })}
       </Box>
 
       {layers.length === 0 && (
@@ -468,12 +481,29 @@ function LayerCard({
       <Collapse in={expanded}>
         <Box p="sm" pt={0}>
           {/* Basic info */}
-          <SimpleGrid cols={3} spacing="sm" mb="md">
+          <SimpleGrid cols={4} spacing="sm" mb="md">
             <BufferedTextInput
               size="xs"
               label="Layer Name"
               value={layer.name}
               onCommit={(v) => onUpdate({ ...layer, name: v })}
+            />
+            <Select
+              size="xs"
+              label="Layer Type"
+              placeholder="Select type"
+              data={[
+                { value: "etl", label: "ETL" },
+                { value: "htl", label: "HTL" },
+                { value: "perovskite", label: "Absorber (Perovskite)" },
+                { value: "additional", label: "Additional" },
+                { value: "back_contact", label: "Back Contact" },
+              ]}
+              value={layer.layerType ?? null}
+              onChange={(v) =>
+                onUpdate({ ...layer, layerType: v as "etl" | "htl" | "perovskite" | "additional" | "back_contact" | undefined })
+              }
+              clearable
             />
             <TextInput
               size="xs"
@@ -927,7 +957,7 @@ function SubstratesTab({
 
       setEditingIndex(null)
     },
-    [editingName, experiment.substrates],
+    [editingName, experiment.substrates, updateSubstrate],
   )
 
   return (
@@ -1506,6 +1536,26 @@ function ExperimentDetail({
                               placeholder={`Layer ${idx + 1}`}
                               style={{ flex: 1 }}
                             />
+                            <Select
+                              size="xs"
+                              placeholder="Type"
+                              value={layer.layerType ?? null}
+                              onChange={(v) =>
+                                updateLayer(idx, {
+                                  ...layer,
+                                  layerType: v as "etl" | "htl" | "perovskite" | "additional" | "back_contact" | undefined,
+                                })
+                              }
+                              data={[
+                                { value: "etl", label: "ETL" },
+                                { value: "htl", label: "HTL" },
+                                { value: "perovskite", label: "Absorber" },
+                                { value: "additional", label: "Additional" },
+                                { value: "back_contact", label: "Back Contact" },
+                              ]}
+                              clearable
+                              style={{ width: 120 }}
+                            />
                             <TextInput
                               size="xs"
                               type="color"
@@ -1551,13 +1601,57 @@ function ExperimentDetail({
                       fontFamily: "monospace",
                     }}
                   >
-                    <Text size="xs" c="dimmed">
-                      {experiment.substrateMaterial}
-                      {experiment.layers.length > 0 && " / "}
-                      {experiment.layers.map((l) => l.name).join(" / ")}
-                      {experiment.architecture !== "custom" &&
-                        ` : ${experiment.architecture}`}
-                    </Text>
+                    <Stack gap="xs">
+                      {/* General notation showing architecture format */}
+                      <Text size="xs" c="dimmed">
+                        <Text span fw={600}>General:</Text> {(() => {
+                          const typeMap: Record<string, string> = {
+                            etl: "ETL",
+                            htl: "HTL",
+                            perovskite: "Absorber",
+                            additional: "Additional",
+                            back_contact: "Back Contact",
+                          }
+                          
+                          // Build list of type display names from layers
+                          const types = experiment.layers
+                            .map((l) => (l.layerType ? typeMap[l.layerType] : "unknown"))
+                          
+                          // Group consecutive same types with counts
+                          const grouped: Array<{ type: string; count: number }> = []
+                          types.forEach((t) => {
+                            const last = grouped[grouped.length - 1]
+                            if (last && last.type === t) {
+                              last.count++
+                            } else {
+                              grouped.push({ type: t, count: 1 })
+                            }
+                          })
+                          
+                          // Format as "TYPE" or "TYPE (count)"
+                          const formatted = grouped
+                            .map((g) => (g.count > 1 ? `${g.type} (${g.count})` : g.type))
+                            .join(" / ")
+                          
+                          // Return full general notation, use ':' before architecture
+                          return `substrate${formatted ? " / " + formatted : ""}: ${experiment.architecture}`
+                        })()}
+                      </Text>
+                      
+                      {/* Concrete stack notation */}
+                      <Text size="xs" c="dimmed">
+                        <Text span fw={600}>Stack:</Text> {experiment.substrateMaterial}
+                        {experiment.layers.length > 0 && (
+                          <>
+                            {" | "}
+                            {experiment.layers
+                              .map((l) => l.name)
+                              .join(" | ")}
+                            {" |"}
+                          </>
+                        )}
+                      </Text>
+                    </Stack>
                   </Box>
                 </Stack>
               </SimpleGrid>
@@ -1815,7 +1909,8 @@ export function ExperimentsPage() {
     activeCollectionId,
     activePlaneId,
   } = useAppContext()
-  const { getEntityColor, isEntityVisible, getEntityPlane } = useEntityCollection()
+  const { getEntityColor, isEntityVisible, getEntityPlane } =
+    useEntityCollection()
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const selectExperiment = useCallback(
@@ -1867,7 +1962,12 @@ export function ExperimentsPage() {
 
   const deleteExperiment = (id: string) => {
     const exp = experiments.find((e) => e.id === id)
-    const dependents = getDependentLocations("experiment", id, { solutions, experiments, results, planes })
+    const dependents = getDependentLocations("experiment", id, {
+      solutions,
+      experiments,
+      results,
+      planes,
+    })
     if (dependents.length > 0) {
       modals.open({
         title: "Cannot delete experiment",
@@ -1944,7 +2044,13 @@ export function ExperimentsPage() {
         </Group>
 
         {!activeCollectionId && (
-          <Alert icon={<IconInfoCircle size={16} />} color="blue" radius={0} p="sm" style={{ borderRadius: 0, borderLeft: 0, borderRight: 0 }}>
+          <Alert
+            icon={<IconInfoCircle size={16} />}
+            color="blue"
+            radius={0}
+            p="sm"
+            style={{ borderRadius: 0, borderLeft: 0, borderRight: 0 }}
+          >
             Select a collection in the Organization tab to add experiments.
           </Alert>
         )}
@@ -1965,7 +2071,10 @@ export function ExperimentsPage() {
             ) : !activePlaneId ? (
               // General mode: group by plane
               (() => {
-                const groups = new Map<string, { planeName: string; items: typeof visibleExperiments }>()
+                const groups = new Map<
+                  string,
+                  { planeName: string; items: typeof visibleExperiments }
+                >()
                 const orphans: typeof visibleExperiments = []
                 for (const exp of visibleExperiments) {
                   const plane = getEntityPlane("experiment", exp.id)
@@ -1974,7 +2083,10 @@ export function ExperimentsPage() {
                     if (group) {
                       group.items.push(exp)
                     } else {
-                      groups.set(plane.id, { planeName: plane.name, items: [exp] })
+                      groups.set(plane.id, {
+                        planeName: plane.name,
+                        items: [exp],
+                      })
                     }
                   } else {
                     orphans.push(exp)
@@ -1983,37 +2095,59 @@ export function ExperimentsPage() {
                 const sections: React.ReactNode[] = []
                 for (const [planeId, { planeName, items }] of groups) {
                   sections.push(
-                    <Text key={`plane-header-${planeId}`} size="xs" fw={700} c="dimmed" tt="uppercase" mt="xs">
+                    <Text
+                      key={`plane-header-${planeId}`}
+                      size="xs"
+                      fw={700}
+                      c="dimmed"
+                      tt="uppercase"
+                      mt="xs"
+                    >
                       {planeName}
-                    </Text>
+                    </Text>,
                   )
-                  sections.push(...items.map((exp) => (
-                    <ExperimentListItem
-                      key={exp.id}
-                      experiment={exp}
-                      isSelected={selectedId === exp.id}
-                      onSelect={() => selectExperiment(exp.id)}
-                      onDelete={() => deleteExperiment(exp.id)}
-                      collectionColor={getEntityColor("experiment", exp.id) ?? undefined}
-                    />
-                  )))
+                  sections.push(
+                    ...items.map((exp) => (
+                      <ExperimentListItem
+                        key={exp.id}
+                        experiment={exp}
+                        isSelected={selectedId === exp.id}
+                        onSelect={() => selectExperiment(exp.id)}
+                        onDelete={() => deleteExperiment(exp.id)}
+                        collectionColor={
+                          getEntityColor("experiment", exp.id) ?? undefined
+                        }
+                      />
+                    )),
+                  )
                 }
                 if (orphans.length > 0) {
                   sections.push(
-                    <Text key="plane-header-orphan" size="xs" fw={700} c="dimmed" tt="uppercase" mt="xs">
+                    <Text
+                      key="plane-header-orphan"
+                      size="xs"
+                      fw={700}
+                      c="dimmed"
+                      tt="uppercase"
+                      mt="xs"
+                    >
                       Unassigned
-                    </Text>
+                    </Text>,
                   )
-                  sections.push(...orphans.map((exp) => (
-                    <ExperimentListItem
-                      key={exp.id}
-                      experiment={exp}
-                      isSelected={selectedId === exp.id}
-                      onSelect={() => selectExperiment(exp.id)}
-                      onDelete={() => deleteExperiment(exp.id)}
-                      collectionColor={getEntityColor("experiment", exp.id) ?? undefined}
-                    />
-                  )))
+                  sections.push(
+                    ...orphans.map((exp) => (
+                      <ExperimentListItem
+                        key={exp.id}
+                        experiment={exp}
+                        isSelected={selectedId === exp.id}
+                        onSelect={() => selectExperiment(exp.id)}
+                        onDelete={() => deleteExperiment(exp.id)}
+                        collectionColor={
+                          getEntityColor("experiment", exp.id) ?? undefined
+                        }
+                      />
+                    )),
+                  )
                 }
                 return sections
               })()
@@ -2059,7 +2193,11 @@ export function ExperimentsPage() {
             <Text size="lg" c="dimmed" mt="md">
               Select an experiment to view details
             </Text>
-            <Button mt="lg" onClick={createExperiment} disabled={!activeCollectionId}>
+            <Button
+              mt="lg"
+              onClick={createExperiment}
+              disabled={!activeCollectionId}
+            >
               Create Experiment
             </Button>
           </Box>

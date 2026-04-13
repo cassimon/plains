@@ -35,6 +35,7 @@ import {
   IconX,
 } from "@tabler/icons-react"
 import { useEffect, useMemo, useState } from "react"
+import { DependencyBlockModal } from "../components/DependencyBlockModal"
 import {
   getDependentLocations,
   newComponent,
@@ -44,7 +45,6 @@ import {
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
-import { DependencyBlockModal } from "../components/DependencyBlockModal"
 
 // ── Component row (material/solution + amount + unit) ─────────────────────────
 
@@ -84,7 +84,9 @@ function ComponentRow({
 }: ComponentRowProps) {
   // Derive which type is being edited from the buffer state
   const editType: "material" | "solution" =
-    editing && buffer && buffer.solutionId !== undefined ? "solution" : "material"
+    editing && buffer && buffer.solutionId !== undefined
+      ? "solution"
+      : "material"
 
   return (
     <Table.Tr>
@@ -96,9 +98,17 @@ function ComponentRow({
               value={editType}
               onChange={(t) => {
                 if (t === "material") {
-                  onBufferChange({ ...buffer, materialId: buffer.materialId ?? "", solutionId: undefined })
+                  onBufferChange({
+                    ...buffer,
+                    materialId: buffer.materialId ?? "",
+                    solutionId: undefined,
+                  })
                 } else {
-                  onBufferChange({ ...buffer, solutionId: buffer.solutionId ?? "", materialId: undefined })
+                  onBufferChange({
+                    ...buffer,
+                    solutionId: buffer.solutionId ?? "",
+                    materialId: undefined,
+                  })
                 }
               }}
               data={[
@@ -111,7 +121,11 @@ function ComponentRow({
                 size="xs"
                 value={buffer.materialId || null}
                 onChange={(v) =>
-                  onBufferChange({ ...buffer, materialId: v ?? "", solutionId: undefined })
+                  onBufferChange({
+                    ...buffer,
+                    materialId: v ?? "",
+                    solutionId: undefined,
+                  })
                 }
                 data={materialOptions}
                 placeholder="— select material —"
@@ -137,7 +151,11 @@ function ComponentRow({
                 size="xs"
                 value={buffer.solutionId || null}
                 onChange={(v) =>
-                  onBufferChange({ ...buffer, solutionId: v ?? "", materialId: undefined })
+                  onBufferChange({
+                    ...buffer,
+                    solutionId: v ?? "",
+                    materialId: undefined,
+                  })
                 }
                 data={solutionOptions}
                 placeholder="— select solution —"
@@ -341,7 +359,12 @@ function SolutionCard({
 
   const cancelComponent = (id: string) => {
     const original = solution.components.find((c) => c.id === id)
-    if (original && !original.materialId && !original.solutionId && !original.amount) {
+    if (
+      original &&
+      !original.materialId &&
+      !original.solutionId &&
+      !original.amount
+    ) {
       onUpdate({
         ...solution,
         components: solution.components.filter((c) => c.id !== id),
@@ -547,7 +570,12 @@ export function SolutionsPage() {
     activePlaneId,
     setActiveEntity,
   } = useAppContext()
-  const { getEntityColor, isEntityVisible, getEntityPlane, isEntityOnActivePlane } = useEntityCollection()
+  const {
+    getEntityColor,
+    isEntityVisible,
+    getEntityPlane,
+    isEntityOnActivePlane,
+  } = useEntityCollection()
   const [selectedSolutionId, setSelectedSolutionId] = useState<string | null>(
     null,
   )
@@ -557,13 +585,14 @@ export function SolutionsPage() {
     setActiveEntity(id ? { kind: "solution", id } : null)
   }
 
-  const materialOptions = useMemo(() =>
-    materials
-      .filter((m) => isEntityOnActivePlane("material", m.id))
-      .map((m) => ({
-        value: m.id,
-        label: m.name || m.inventoryLabel || m.casNumber || m.id,
-      })),
+  const materialOptions = useMemo(
+    () =>
+      materials
+        .filter((m) => isEntityOnActivePlane("material", m.id))
+        .map((m) => ({
+          value: m.id,
+          label: m.name || m.inventoryLabel || m.casNumber || m.id,
+        })),
     [materials, isEntityOnActivePlane],
   )
 
@@ -581,13 +610,14 @@ export function SolutionsPage() {
     return m ? m.name || m.inventoryLabel || m.casNumber || id : id
   }
 
-  const allSolutionOptions = useMemo(() =>
-    solutions
-      .filter((s) => isEntityOnActivePlane("solution", s.id))
-      .map((s) => ({
-        value: s.id,
-        label: s.name || s.id,
-      })),
+  const allSolutionOptions = useMemo(
+    () =>
+      solutions
+        .filter((s) => isEntityOnActivePlane("solution", s.id))
+        .map((s) => ({
+          value: s.id,
+          label: s.name || s.id,
+        })),
     [solutions, isEntityOnActivePlane],
   )
 
@@ -663,7 +693,12 @@ export function SolutionsPage() {
 
   const deleteSolution = (id: string) => {
     const sol = solutions.find((s) => s.id === id)
-    const dependents = getDependentLocations("solution", id, { solutions, experiments, results, planes })
+    const dependents = getDependentLocations("solution", id, {
+      solutions,
+      experiments,
+      results,
+      planes,
+    })
     if (dependents.length > 0) {
       modals.open({
         title: "Cannot delete solution",
@@ -726,7 +761,10 @@ export function SolutionsPage() {
         {(() => {
           if (!activePlaneId) {
             // General mode: group by plane
-            const groups = new Map<string, { planeName: string; items: typeof visibleSolutions }>()
+            const groups = new Map<
+              string,
+              { planeName: string; items: typeof visibleSolutions }
+            >()
             const orphans: typeof visibleSolutions = []
             for (const solution of visibleSolutions) {
               const plane = getEntityPlane("solution", solution.id)
@@ -735,7 +773,10 @@ export function SolutionsPage() {
                 if (group) {
                   group.items.push(solution)
                 } else {
-                  groups.set(plane.id, { planeName: plane.name, items: [solution] })
+                  groups.set(plane.id, {
+                    planeName: plane.name,
+                    items: [solution],
+                  })
                 }
               } else {
                 orphans.push(solution)
@@ -744,51 +785,77 @@ export function SolutionsPage() {
             const sections: React.ReactNode[] = []
             for (const [planeId, { planeName, items }] of groups) {
               sections.push(
-                <Text key={`plane-header-${planeId}`} size="xs" fw={700} c="dimmed" tt="uppercase" mt="md" mb={4} px={4}>
+                <Text
+                  key={`plane-header-${planeId}`}
+                  size="xs"
+                  fw={700}
+                  c="dimmed"
+                  tt="uppercase"
+                  mt="md"
+                  mb={4}
+                  px={4}
+                >
                   {planeName}
-                </Text>
+                </Text>,
               )
-              sections.push(...items.map((solution) => (
-                <SolutionCard
-                  key={solution.id}
-                  solution={solution}
-                  onUpdate={updateSolution}
-                  onDelete={() => deleteSolution(solution.id)}
-                  materialOptions={materialOptions}
-                  getMaterialName={getMaterialName}
-                  allSolutionOptions={allSolutionOptions}
-                  getSolutionName={getSolutionName}
-                  materialColorMap={materialColorMap}
-                  solutionColorMap={solutionColorMap}
-                  collectionColor={getEntityColor("solution", solution.id) ?? undefined}
-                  isSelected={selectedSolutionId === solution.id}
-                  onSelect={selectSolution}
-                />
-              )))
+              sections.push(
+                ...items.map((solution) => (
+                  <SolutionCard
+                    key={solution.id}
+                    solution={solution}
+                    onUpdate={updateSolution}
+                    onDelete={() => deleteSolution(solution.id)}
+                    materialOptions={materialOptions}
+                    getMaterialName={getMaterialName}
+                    allSolutionOptions={allSolutionOptions}
+                    getSolutionName={getSolutionName}
+                    materialColorMap={materialColorMap}
+                    solutionColorMap={solutionColorMap}
+                    collectionColor={
+                      getEntityColor("solution", solution.id) ?? undefined
+                    }
+                    isSelected={selectedSolutionId === solution.id}
+                    onSelect={selectSolution}
+                  />
+                )),
+              )
             }
             if (orphans.length > 0) {
               sections.push(
-                <Text key="plane-header-orphan" size="xs" fw={700} c="dimmed" tt="uppercase" mt="md" mb={4} px={4}>
+                <Text
+                  key="plane-header-orphan"
+                  size="xs"
+                  fw={700}
+                  c="dimmed"
+                  tt="uppercase"
+                  mt="md"
+                  mb={4}
+                  px={4}
+                >
                   Unassigned
-                </Text>
+                </Text>,
               )
-              sections.push(...orphans.map((solution) => (
-                <SolutionCard
-                  key={solution.id}
-                  solution={solution}
-                  onUpdate={updateSolution}
-                  onDelete={() => deleteSolution(solution.id)}
-                  materialOptions={materialOptions}
-                  getMaterialName={getMaterialName}
-                  allSolutionOptions={allSolutionOptions}
-                  getSolutionName={getSolutionName}
-                  materialColorMap={materialColorMap}
-                  solutionColorMap={solutionColorMap}
-                  collectionColor={getEntityColor("solution", solution.id) ?? undefined}
-                  isSelected={selectedSolutionId === solution.id}
-                  onSelect={selectSolution}
-                />
-              )))
+              sections.push(
+                ...orphans.map((solution) => (
+                  <SolutionCard
+                    key={solution.id}
+                    solution={solution}
+                    onUpdate={updateSolution}
+                    onDelete={() => deleteSolution(solution.id)}
+                    materialOptions={materialOptions}
+                    getMaterialName={getMaterialName}
+                    allSolutionOptions={allSolutionOptions}
+                    getSolutionName={getSolutionName}
+                    materialColorMap={materialColorMap}
+                    solutionColorMap={solutionColorMap}
+                    collectionColor={
+                      getEntityColor("solution", solution.id) ?? undefined
+                    }
+                    isSelected={selectedSolutionId === solution.id}
+                    onSelect={selectSolution}
+                  />
+                )),
+              )
             }
             return sections
           }
@@ -804,7 +871,9 @@ export function SolutionsPage() {
               getSolutionName={getSolutionName}
               materialColorMap={materialColorMap}
               solutionColorMap={solutionColorMap}
-              collectionColor={getEntityColor("solution", solution.id) ?? undefined}
+              collectionColor={
+                getEntityColor("solution", solution.id) ?? undefined
+              }
               isSelected={selectedSolutionId === solution.id}
               onSelect={selectSolution}
             />

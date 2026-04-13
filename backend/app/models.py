@@ -258,6 +258,7 @@ class SubstratePublic(SubstrateBase):
 
 class ExperimentLayerBase(SQLModel):
     name: str = Field(min_length=1, max_length=255)
+    layer_type: str | None = Field(default=None, max_length=50)  # etl, htl, perovskite, additional, back_contact
     material_id: uuid.UUID | None = Field(default=None, foreign_key="material.id", ondelete="SET NULL")
     solution_id: uuid.UUID | None = Field(default=None, foreign_key="solution.id", ondelete="SET NULL")
     temperature: float | None = None

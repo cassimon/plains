@@ -27,14 +27,14 @@ import {
   IconX,
 } from "@tabler/icons-react"
 import { useEffect, useState } from "react"
+import { DependencyBlockModal } from "../components/DependencyBlockModal"
 import {
+  getDependentLocations,
   type Material,
   newMaterial,
-  getDependentLocations,
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
-import { DependencyBlockModal } from "../components/DependencyBlockModal"
 
 type Column = {
   key: keyof Material
@@ -86,7 +86,8 @@ export function MaterialsPage() {
     activePlaneId,
     setActiveEntity,
   } = useAppContext()
-  const { getEntityColor, isEntityVisible, getEntityPlane } = useEntityCollection()
+  const { getEntityColor, isEntityVisible, getEntityPlane } =
+    useEntityCollection()
   const [sort, setSort] = useState<SortState>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editBuffer, setEditBuffer] = useState<Material | null>(null)
@@ -198,18 +199,37 @@ export function MaterialsPage() {
     const depReport: { materialName: string; count: number }[] = []
     for (const id of selected) {
       const mat = materials.find((m) => m.id === id)
-      const dependents = getDependentLocations("material", id, { solutions, experiments, results, planes })
+      const dependents = getDependentLocations("material", id, {
+        solutions,
+        experiments,
+        results,
+        planes,
+      })
       if (dependents.length > 0) {
-        depReport.push({ materialName: mat?.name || id, count: dependents.length })
+        depReport.push({
+          materialName: mat?.name || id,
+          count: dependents.length,
+        })
       }
     }
     if (depReport.length > 0) {
       // Collect all dependents for the first blocked material and show a blocking modal
-      const firstBlockedId = [...selected].find((id) =>
-        getDependentLocations("material", id, { solutions, experiments, results, planes }).length > 0
+      const firstBlockedId = [...selected].find(
+        (id) =>
+          getDependentLocations("material", id, {
+            solutions,
+            experiments,
+            results,
+            planes,
+          }).length > 0,
       )!
       const firstMat = materials.find((m) => m.id === firstBlockedId)
-      const firstDeps = getDependentLocations("material", firstBlockedId, { solutions, experiments, results, planes })
+      const firstDeps = getDependentLocations("material", firstBlockedId, {
+        solutions,
+        experiments,
+        results,
+        planes,
+      })
       modals.open({
         title: "Cannot delete material",
         children: (
@@ -286,9 +306,7 @@ export function MaterialsPage() {
                 value={editBuffer[col.key]}
                 onChange={(e) =>
                   setEditBuffer((prev) =>
-                    prev
-                      ? { ...prev, [col.key]: e.currentTarget.value }
-                      : prev,
+                    prev ? { ...prev, [col.key]: e.currentTarget.value } : prev,
                   )
                 }
                 onKeyDown={(e) => {
@@ -437,7 +455,10 @@ export function MaterialsPage() {
             {(() => {
               // In General mode (no plane selected), group by plane with subheadings
               if (!activePlaneId) {
-                const groups = new Map<string, { planeName: string; items: typeof sorted }>()
+                const groups = new Map<
+                  string,
+                  { planeName: string; items: typeof sorted }
+                >()
                 const orphans: typeof sorted = []
                 for (const material of sorted) {
                   const plane = getEntityPlane("material", material.id)
@@ -446,7 +467,10 @@ export function MaterialsPage() {
                     if (group) {
                       group.items.push(material)
                     } else {
-                      groups.set(plane.id, { planeName: plane.name, items: [material] })
+                      groups.set(plane.id, {
+                        planeName: plane.name,
+                        items: [material],
+                      })
                     }
                   } else {
                     orphans.push(material)
@@ -456,22 +480,42 @@ export function MaterialsPage() {
                 for (const [planeId, { planeName, items }] of groups) {
                   sections.push(
                     <Table.Tr key={`plane-header-${planeId}`}>
-                      <Table.Td colSpan={COLUMNS.length + 3} style={{ background: "var(--mantine-color-gray-1)", padding: "4px 12px" }}>
-                        <Text size="xs" fw={700} c="dimmed" tt="uppercase">{planeName}</Text>
+                      <Table.Td
+                        colSpan={COLUMNS.length + 3}
+                        style={{
+                          background: "var(--mantine-color-gray-1)",
+                          padding: "4px 12px",
+                        }}
+                      >
+                        <Text size="xs" fw={700} c="dimmed" tt="uppercase">
+                          {planeName}
+                        </Text>
                       </Table.Td>
-                    </Table.Tr>
+                    </Table.Tr>,
                   )
-                  sections.push(...items.map((material) => renderMaterialRow(material)))
+                  sections.push(
+                    ...items.map((material) => renderMaterialRow(material)),
+                  )
                 }
                 if (orphans.length > 0) {
                   sections.push(
                     <Table.Tr key="plane-header-orphan">
-                      <Table.Td colSpan={COLUMNS.length + 3} style={{ background: "var(--mantine-color-gray-1)", padding: "4px 12px" }}>
-                        <Text size="xs" fw={700} c="dimmed" tt="uppercase">Unassigned</Text>
+                      <Table.Td
+                        colSpan={COLUMNS.length + 3}
+                        style={{
+                          background: "var(--mantine-color-gray-1)",
+                          padding: "4px 12px",
+                        }}
+                      >
+                        <Text size="xs" fw={700} c="dimmed" tt="uppercase">
+                          Unassigned
+                        </Text>
                       </Table.Td>
-                    </Table.Tr>
+                    </Table.Tr>,
                   )
-                  sections.push(...orphans.map((material) => renderMaterialRow(material)))
+                  sections.push(
+                    ...orphans.map((material) => renderMaterialRow(material)),
+                  )
                 }
                 return sections
               }

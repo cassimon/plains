@@ -228,7 +228,10 @@ export function AppLayout() {
                   c={activeCollection ? undefined : "dimmed"}
                   style={
                     activeCollection
-                      ? { borderLeft: `3px solid ${accentColor}`, paddingLeft: 8 }
+                      ? {
+                          borderLeft: `3px solid ${accentColor}`,
+                          paddingLeft: 8,
+                        }
                       : undefined
                   }
                 >
@@ -243,42 +246,44 @@ export function AppLayout() {
                         alignItems: "center",
                         padding: "0 2px",
                       }}
-                >
-                  <IconChevronDown
-                    size={14}
-                    style={{ color: "var(--mantine-color-dimmed)" }}
-                  />
-                </UnstyledButton>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item
-                  leftSection={<IconX size={14} />}
-                  disabled={!activeCollection}
-                  onClick={() => setActiveCollectionId(null)}
-                >
-                  No Collection
-                </Menu.Item>
-                {collections.length > 0 && <Menu.Divider />}
-                {collections.map((col) => (
-                  <Menu.Item
-                    key={col.id}
-                    fw={col.id === activeCollectionId ? 700 : undefined}
-                    leftSection={
-                      <ColorSwatch
-                        color={col.color || DEFAULT_ACCENT}
-                        size={12}
+                    >
+                      <IconChevronDown
+                        size={14}
+                        style={{ color: "var(--mantine-color-dimmed)" }}
                       />
-                    }
-                    onClick={() => setActiveCollectionId(col.id)}
-                  >
-                    {col.name}
-                  </Menu.Item>
-                ))}
-                {collections.length === 0 && (
-                  <Menu.Item disabled>No collections in this plane</Menu.Item>
-                )}
-              </Menu.Dropdown>
-            </Menu>
+                    </UnstyledButton>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Item
+                      leftSection={<IconX size={14} />}
+                      disabled={!activeCollection}
+                      onClick={() => setActiveCollectionId(null)}
+                    >
+                      No Collection
+                    </Menu.Item>
+                    {collections.length > 0 && <Menu.Divider />}
+                    {collections.map((col) => (
+                      <Menu.Item
+                        key={col.id}
+                        fw={col.id === activeCollectionId ? 700 : undefined}
+                        leftSection={
+                          <ColorSwatch
+                            color={col.color || DEFAULT_ACCENT}
+                            size={12}
+                          />
+                        }
+                        onClick={() => setActiveCollectionId(col.id)}
+                      >
+                        {col.name}
+                      </Menu.Item>
+                    ))}
+                    {collections.length === 0 && (
+                      <Menu.Item disabled>
+                        No collections in this plane
+                      </Menu.Item>
+                    )}
+                  </Menu.Dropdown>
+                </Menu>
               </>
             )}
 

@@ -57,6 +57,100 @@ export const Body_login_login_access_tokenSchema = {
     title: 'Body_login-login_access_token'
 } as const;
 
+export const Body_nomad_upload_files_for_nomadSchema = {
+    properties: {
+        experiment_id: {
+            type: 'string',
+            title: 'Experiment Id'
+        },
+        experiment_name: {
+            type: 'string',
+            title: 'Experiment Name'
+        },
+        files: {
+            items: {
+                type: 'string',
+                format: 'binary'
+            },
+            type: 'array',
+            title: 'Files'
+        }
+    },
+    type: 'object',
+    required: ['experiment_id', 'experiment_name', 'files'],
+    title: 'Body_nomad-upload_files_for_nomad'
+} as const;
+
+export const Body_nomad_upload_to_nomad_endpointSchema = {
+    properties: {
+        request: {
+            '$ref': '#/components/schemas/NomadUploadRequest'
+        },
+        files: {
+            anyOf: [
+                {
+                    items: {
+                        type: 'string',
+                        format: 'binary'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Files'
+        }
+    },
+    type: 'object',
+    required: ['request'],
+    title: 'Body_nomad-upload_to_nomad_endpoint'
+} as const;
+
+export const BulkStateResponseSchema = {
+    properties: {
+        materials: {
+            items: {
+                '$ref': '#/components/schemas/MaterialPublic'
+            },
+            type: 'array',
+            title: 'Materials'
+        },
+        solutions: {
+            items: {
+                '$ref': '#/components/schemas/SolutionPublic'
+            },
+            type: 'array',
+            title: 'Solutions'
+        },
+        experiments: {
+            items: {
+                '$ref': '#/components/schemas/ExperimentPublic'
+            },
+            type: 'array',
+            title: 'Experiments'
+        },
+        results: {
+            items: {
+                '$ref': '#/components/schemas/ExperimentResultsPublic'
+            },
+            type: 'array',
+            title: 'Results'
+        },
+        planes: {
+            items: {
+                '$ref': '#/components/schemas/PlanePublic'
+            },
+            type: 'array',
+            title: 'Planes'
+        }
+    },
+    type: 'object',
+    required: ['materials', 'solutions', 'experiments', 'results', 'planes'],
+    title: 'BulkStateResponse',
+    description: 'Full application state for bulk loading.'
+} as const;
+
 export const CanvasElementCreateSchema = {
     properties: {
         element_type: {
@@ -174,62 +268,6 @@ export const CanvasElementPublicSchema = {
     title: 'CanvasElementPublic'
 } as const;
 
-export const CanvasElementUpdateSchema = {
-    properties: {
-        element_type: {
-            type: 'string',
-            maxLength: 50,
-            title: 'Element Type'
-        },
-        x: {
-            type: 'number',
-            title: 'X',
-            default: 0
-        },
-        y: {
-            type: 'number',
-            title: 'Y',
-            default: 0
-        },
-        width: {
-            type: 'number',
-            title: 'Width',
-            default: 100
-        },
-        height: {
-            type: 'number',
-            title: 'Height',
-            default: 100
-        },
-        content: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Content'
-        },
-        color: {
-            anyOf: [
-                {
-                    type: 'string',
-                    maxLength: 50
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Color'
-        }
-    },
-    type: 'object',
-    required: ['element_type'],
-    title: 'CanvasElementUpdate'
-} as const;
-
 export const DeviceGroupCreateSchema = {
     properties: {
         name: {
@@ -254,6 +292,42 @@ export const DeviceGroupCreateSchema = {
     type: 'object',
     required: ['name'],
     title: 'DeviceGroupCreate'
+} as const;
+
+export const DeviceGroupInfoSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            title: 'Id'
+        },
+        deviceName: {
+            type: 'string',
+            title: 'Devicename'
+        },
+        assignedSubstrateId: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Assignedsubstrateid'
+        },
+        files: {
+            items: {
+                '$ref': '#/components/schemas/MeasurementFileInfo'
+            },
+            type: 'array',
+            title: 'Files',
+            default: []
+        }
+    },
+    type: 'object',
+    required: ['id', 'deviceName'],
+    title: 'DeviceGroupInfo',
+    description: 'Device group info for NOMAD upload.'
 } as const;
 
 export const DeviceGroupPublicSchema = {
@@ -370,6 +444,18 @@ export const ExperimentLayerCreateSchema = {
             minLength: 1,
             title: 'Name'
         },
+        layer_type: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Layer Type'
+        },
         material_id: {
             anyOf: [
                 {
@@ -452,6 +538,18 @@ export const ExperimentLayerPublicSchema = {
             maxLength: 255,
             minLength: 1,
             title: 'Name'
+        },
+        layer_type: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Layer Type'
         },
         material_id: {
             anyOf: [
@@ -1301,6 +1399,67 @@ export const MeasurementFileCreateSchema = {
     title: 'MeasurementFileCreate'
 } as const;
 
+export const MeasurementFileInfoSchema = {
+    properties: {
+        fileName: {
+            type: 'string',
+            title: 'Filename'
+        },
+        fileType: {
+            type: 'string',
+            title: 'Filetype'
+        },
+        deviceName: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Devicename'
+        },
+        cell: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Cell'
+        },
+        pixel: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Pixel'
+        },
+        value: {
+            anyOf: [
+                {
+                    type: 'number'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Value'
+        }
+    },
+    type: 'object',
+    required: ['fileName', 'fileType'],
+    title: 'MeasurementFileInfo',
+    description: 'Measurement file metadata for NOMAD upload.'
+} as const;
+
 export const MeasurementFilePublicSchema = {
     properties: {
         filename: {
@@ -1375,6 +1534,225 @@ export const NewPasswordSchema = {
     type: 'object',
     required: ['token', 'new_password'],
     title: 'NewPassword'
+} as const;
+
+export const NomadConfigResponseSchema = {
+    properties: {
+        enabled: {
+            type: 'boolean',
+            title: 'Enabled'
+        },
+        url: {
+            type: 'string',
+            title: 'Url'
+        },
+        use_global_auth: {
+            type: 'boolean',
+            title: 'Use Global Auth'
+        },
+        has_credentials: {
+            type: 'boolean',
+            title: 'Has Credentials'
+        }
+    },
+    type: 'object',
+    required: ['enabled', 'url', 'use_global_auth', 'has_credentials'],
+    title: 'NomadConfigResponse',
+    description: 'NOMAD configuration status.'
+} as const;
+
+export const NomadMetadataPreviewSchema = {
+    properties: {
+        yaml_content: {
+            type: 'string',
+            title: 'Yaml Content'
+        },
+        file_count: {
+            type: 'integer',
+            title: 'File Count'
+        },
+        device_group_count: {
+            type: 'integer',
+            title: 'Device Group Count'
+        }
+    },
+    type: 'object',
+    required: ['yaml_content', 'file_count', 'device_group_count'],
+    title: 'NomadMetadataPreview',
+    description: 'Preview of NOMAD metadata YAML.'
+} as const;
+
+export const NomadUploadRequestSchema = {
+    properties: {
+        experiment_id: {
+            type: 'string',
+            title: 'Experiment Id'
+        },
+        experiment_name: {
+            type: 'string',
+            title: 'Experiment Name'
+        },
+        substrates: {
+            items: {
+                '$ref': '#/components/schemas/SubstrateInfo'
+            },
+            type: 'array',
+            title: 'Substrates',
+            default: []
+        },
+        measurement_files: {
+            items: {
+                '$ref': '#/components/schemas/MeasurementFileInfo'
+            },
+            type: 'array',
+            title: 'Measurement Files',
+            default: []
+        },
+        device_groups: {
+            items: {
+                '$ref': '#/components/schemas/DeviceGroupInfo'
+            },
+            type: 'array',
+            title: 'Device Groups',
+            default: []
+        },
+        notes: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Notes'
+        },
+        custom_metadata: {
+            anyOf: [
+                {
+                    additionalProperties: true,
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Custom Metadata'
+        }
+    },
+    type: 'object',
+    required: ['experiment_id', 'experiment_name'],
+    title: 'NomadUploadRequest',
+    description: 'Request body for NOMAD upload.'
+} as const;
+
+export const NomadUploadResponseSchema = {
+    properties: {
+        success: {
+            type: 'boolean',
+            title: 'Success'
+        },
+        upload_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Upload Id'
+        },
+        entry_ids: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Entry Ids',
+            default: []
+        },
+        upload_create_time: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Upload Create Time'
+        },
+        processing_status: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Processing Status'
+        },
+        message: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Message'
+        }
+    },
+    type: 'object',
+    required: ['success'],
+    title: 'NomadUploadResponse',
+    description: 'Response from NOMAD upload.'
+} as const;
+
+export const NomadUploadStatusSchema = {
+    properties: {
+        upload_id: {
+            type: 'string',
+            title: 'Upload Id'
+        },
+        status: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Status'
+        },
+        entries: {
+            items: {
+                additionalProperties: true,
+                type: 'object'
+            },
+            type: 'array',
+            title: 'Entries',
+            default: []
+        },
+        error: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error'
+        }
+    },
+    type: 'object',
+    required: ['upload_id'],
+    title: 'NomadUploadStatus',
+    description: 'Status of a NOMAD upload.'
 } as const;
 
 export const PlaneCreateSchema = {
@@ -1715,6 +2093,23 @@ export const SubstrateCreateSchema = {
     type: 'object',
     required: ['name'],
     title: 'SubstrateCreate'
+} as const;
+
+export const SubstrateInfoSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            title: 'Id'
+        },
+        name: {
+            type: 'string',
+            title: 'Name'
+        }
+    },
+    type: 'object',
+    required: ['id', 'name'],
+    title: 'SubstrateInfo',
+    description: 'Substrate info for NOMAD upload.'
 } as const;
 
 export const SubstratePublicSchema = {

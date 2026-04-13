@@ -4,12 +4,12 @@
  */
 
 import type {
-  Material,
-  Solution,
+  CanvasElement,
   Experiment,
   ExperimentResults,
+  Material,
   Plane,
-  CanvasElement,
+  Solution,
 } from "./AppContext"
 
 // ── API Response Types (match backend schemas) ──────────────────────────────
@@ -52,6 +52,7 @@ export interface ApiSubstrate {
 export interface ApiExperimentLayer {
   id: string
   name: string
+  layer_type: string | null
   material_id: string | null
   solution_id: string | null
   temperature: number | null
@@ -173,6 +174,7 @@ export function apiExperimentToExperiment(api: ApiExperiment): Experiment {
       id: l.id,
       name: l.name,
       color: ["#FF6B6B", "#4ECDC4", "#45B7D1"][i % 3],
+      layerType: l.layer_type ? (l.layer_type === "perovskite" ? "perovskite" : l.layer_type as "etl" | "htl" | "perovskite" | "additional" | "back_contact") : undefined,
       materialId: l.material_id ?? undefined,
       solutionId: l.solution_id ?? undefined,
       notes: l.notes ?? undefined,
@@ -185,7 +187,9 @@ export function apiExperimentToExperiment(api: ApiExperiment): Experiment {
   }
 }
 
-export function apiResultsToResults(api: ApiExperimentResults): ExperimentResults {
+export function apiResultsToResults(
+  api: ApiExperimentResults,
+): ExperimentResults {
   return {
     id: api.id,
     experimentId: api.experiment_id,
@@ -224,7 +228,7 @@ export function apiPlaneToPlane(api: ApiPlane): Plane {
     elements: api.elements.map((e) => {
       // Parse content as JSON for collection elements
       const parsed = e.content ? tryParseJson(e.content) : null
-      
+
       if (e.element_type === "collection") {
         return {
           id: e.id,
@@ -235,14 +239,19 @@ export function apiPlaneToPlane(api: ApiPlane): Plane {
           refs: parsed?.refs ?? [],
           color: e.color ?? undefined,
         }
-      } else if (e.element_type === "line") {
+      }
+      if (e.element_type === "line") {
         return {
           id: e.id,
           type: "line" as const,
-          points: parsed?.points ?? [{ x: e.x, y: e.y }, { x: e.x + e.width, y: e.y + e.height }],
+          points: parsed?.points ?? [
+            { x: e.x, y: e.y },
+            { x: e.x + e.width, y: e.y + e.height },
+          ],
           color: e.color ?? undefined,
         }
-      } else if (e.element_type === "plaintext") {
+      }
+      if (e.element_type === "plaintext") {
         return {
           id: e.id,
           type: "plaintext" as const,
@@ -252,15 +261,14 @@ export function apiPlaneToPlane(api: ApiPlane): Plane {
           color: e.color ?? "#000000",
           formatting: parsed?.formatting ?? {},
         }
-      } else {
-        return {
-          id: e.id,
-          type: "text" as const,
-          position: { x: e.x, y: e.y },
-          size: { x: e.width, y: e.height },
-          content: e.content ?? "",
-          color: e.color ?? undefined,
-        }
+      }
+      return {
+        id: e.id,
+        type: "text" as const,
+        position: { x: e.x, y: e.y },
+        size: { x: e.width, y: e.height },
+        content: e.content ?? "",
+        color: e.color ?? undefined,
       }
     }),
   }
@@ -307,6 +315,7 @@ export function experimentToApiCreate(e: Experiment) {
     })),
     layers: e.layers.map((l) => ({
       name: l.name,
+      layer_type: l.layerType || null,
       material_id: l.materialId || null,
       solution_id: l.solutionId || null,
       temperature: null,
@@ -332,7 +341,8 @@ export function planeToApiCreate(p: Plane) {
           content: JSON.stringify({ name: e.name, refs: e.refs }),
           color: e.color || null,
         }
-      } else if (e.type === "line") {
+      }
+      if (e.type === "line") {
         return {
           element_type: "line",
           x: e.points[0]?.x ?? 0,
@@ -342,26 +352,29 @@ export function planeToApiCreate(p: Plane) {
           content: JSON.stringify({ points: e.points }),
           color: e.color || null,
         }
-      } else if (e.type === "plaintext") {
+      }
+      if (e.type === "plaintext") {
         return {
           element_type: "plaintext",
           x: e.position.x,
           y: e.position.y,
           width: e.size.x,
           height: e.size.y,
-          content: JSON.stringify({ content: e.content, formatting: e.formatting }),
+          content: JSON.stringify({
+            content: e.content,
+            formatting: e.formatting,
+          }),
           color: e.color,
         }
-      } else {
-        return {
-          element_type: "text",
-          x: e.position.x,
-          y: e.position.y,
-          width: e.size.x,
-          height: e.size.y,
-          content: e.content,
-          color: e.color || null,
-        }
+      }
+      return {
+        element_type: "text",
+        x: e.position.x,
+        y: e.position.y,
+        width: e.size.x,
+        height: e.size.y,
+        content: e.content,
+        color: e.color || null,
       }
     }),
   }
@@ -378,7 +391,8 @@ export function canvasElementToApiCreate(e: CanvasElement) {
       content: JSON.stringify({ name: e.name, refs: e.refs }),
       color: e.color || null,
     }
-  } else if (e.type === "line") {
+  }
+  if (e.type === "line") {
     return {
       element_type: "line",
       x: e.points[0]?.x ?? 0,
@@ -388,7 +402,8 @@ export function canvasElementToApiCreate(e: CanvasElement) {
       content: JSON.stringify({ points: e.points }),
       color: e.color || null,
     }
-  } else if (e.type === "plaintext") {
+  }
+  if (e.type === "plaintext") {
     return {
       element_type: "plaintext",
       x: e.position.x,
@@ -398,15 +413,14 @@ export function canvasElementToApiCreate(e: CanvasElement) {
       content: JSON.stringify({ content: e.content, formatting: e.formatting }),
       color: e.color,
     }
-  } else {
-    return {
-      element_type: "text",
-      x: e.position.x,
-      y: e.position.y,
-      width: e.size.x,
-      height: e.size.y,
-      content: e.content,
-      color: e.color || null,
-    }
+  }
+  return {
+    element_type: "text",
+    x: e.position.x,
+    y: e.position.y,
+    width: e.size.x,
+    height: e.size.y,
+    content: e.content,
+    color: e.color || null,
   }
 }

@@ -21,10 +21,11 @@ import {
   Tooltip,
   useMantineTheme,
 } from "@mantine/core"
+import { Dropzone, MIME_TYPES } from "@mantine/dropzone"
 import { modals } from "@mantine/modals"
 import { notifications } from "@mantine/notifications"
-import { Dropzone, MIME_TYPES } from "@mantine/dropzone"
 import {
+  IconArrowBackUp,
   IconCheck,
   IconChevronDown,
   IconChevronRight,
@@ -32,12 +33,18 @@ import {
   IconExternalLink,
   IconFile,
   IconFlask,
-  IconArrowBackUp,
   IconTrash,
   IconUpload,
   IconX,
 } from "@tabler/icons-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { OpenAPI } from "../client/core/OpenAPI"
+import { NomadService } from "../client/sdk.gen"
+import {
+  type NomadConfigResponse,
+  type NomadUploadRequest,
+  type NomadUploadResponse,
+} from "../client/types.gen"
 import {
   type CanvasCollectionElement,
   type DeviceGroup,
@@ -51,14 +58,6 @@ import {
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
-import {
-  getNomadConfig,
-  previewNomadMetadata,
-  type NomadConfig,
-  type NomadUploadRequest,
-  type NomadUploadResponse,
-} from "../client/nomad"
-import { OpenAPI } from "../client/core/OpenAPI"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // File Parsing Utilities (ported from Streamlit app)
@@ -437,7 +436,12 @@ function DeviceGroupCard({
 
         <Group gap="xs">
           <Tooltip label="Delete group (files become ungrouped)" withArrow>
-            <ActionIcon size="xs" variant="subtle" color="red" onClick={onDeleteGroup}>
+            <ActionIcon
+              size="xs"
+              variant="subtle"
+              color="red"
+              onClick={onDeleteGroup}
+            >
               <IconTrash size={12} />
             </ActionIcon>
           </Tooltip>
@@ -492,8 +496,17 @@ function DeviceGroupCard({
               {group.files.map((file) => (
                 <Table.Tr key={file.id}>
                   <Table.Td style={{ maxWidth: 260 }}>
-                    <Tooltip label={file.fileName} position="top-start" withArrow openDelay={300}>
-                      <Group gap={4} wrap="nowrap" style={{ overflow: "hidden" }}>
+                    <Tooltip
+                      label={file.fileName}
+                      position="top-start"
+                      withArrow
+                      openDelay={300}
+                    >
+                      <Group
+                        gap={4}
+                        wrap="nowrap"
+                        style={{ overflow: "hidden" }}
+                      >
                         <IconFile size={14} style={{ flexShrink: 0 }} />
                         <Text
                           size="xs"
@@ -563,26 +576,39 @@ function ResultsDetail({
 }) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const theme = useMantineTheme()
-  
+
   // NOMAD upload state
-  const [nomadConfig, setNomadConfig] = useState<NomadConfig | null>(null)
+  const [nomadConfig, setNomadConfig] = useState<NomadConfigResponse | null>(null)
   const [nomadUploading, setNomadUploading] = useState(false)
-  const [nomadMetadataPreview, setNomadMetadataPreview] = useState<string | null>(null)
+  const [nomadMetadataPreview, setNomadMetadataPreview] = useState<
+    string | null
+  >(null)
   const [showMetadataModal, setShowMetadataModal] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
-  const [selectedUngroupedFileIds, setSelectedUngroupedFileIds] = useState<Set<string>>(new Set())
-  const [moveTargetGroupId, setMoveTargetGroupId] = useState<string | null>(null)
-  const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(null)
-  
+  const [selectedUngroupedFileIds, setSelectedUngroupedFileIds] = useState<
+    Set<string>
+  >(new Set())
+  const [moveTargetGroupId, setMoveTargetGroupId] = useState<string | null>(
+    null,
+  )
+  const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(
+    null,
+  )
+
   // Fetch NOMAD config on mount
   useEffect(() => {
-    getNomadConfig()
+    NomadService.getNomadConfig()
       .then(setNomadConfig)
-      .catch((err) => console.warn("Failed to fetch NOMAD config:", err))
+      .catch((err: unknown) => console.warn("Failed to fetch NOMAD config:", err))
   }, [])
 
   // Undo-delete state: keeps recently deleted files for a short window
-  type DeletedEntry = { file: MeasurementFile; groupId: string; groupDeviceName: string; deletedAt: number }
+  type DeletedEntry = {
+    file: MeasurementFile
+    groupId: string
+    groupDeviceName: string
+    deletedAt: number
+  }
   const [deletedFiles, setDeletedFiles] = useState<DeletedEntry[]>([])
   const undoTimerRef = useRef<number | null>(null)
 
@@ -813,15 +839,20 @@ function ResultsDetail({
       if (newFiles.length === 0) {
         return
       }
-      
+
       // Store the actual File objects for NOMAD upload
-      setUploadedFiles((prev) => [...prev, ...droppedFiles.filter((f) => {
-        const category = getFileCategory(f.name)
-        return category !== null
-      })])
+      setUploadedFiles((prev) => [
+        ...prev,
+        ...droppedFiles.filter((f) => {
+          const category = getFileCategory(f.name)
+          return category !== null
+        }),
+      ])
 
       // Group files by device name while preserving existing ungrouped files
-      const groupedExistingFiles = results.files.filter((f) => groupedFileIds.has(f.id))
+      const groupedExistingFiles = results.files.filter((f) =>
+        groupedFileIds.has(f.id),
+      )
       const allFiles = [...results.files, ...newFiles]
       const deviceGroups = groupFilesByDevice(
         [...groupedExistingFiles, ...newFiles],
@@ -855,7 +886,9 @@ function ResultsDetail({
   // Handle strategy changes
   const handleGroupingStrategyChange = (strategy: string) => {
     const newStrategy = strategy as "exact" | "search" | "fuzzy"
-    const groupedExistingFiles = results.files.filter((f) => groupedFileIds.has(f.id))
+    const groupedExistingFiles = results.files.filter((f) =>
+      groupedFileIds.has(f.id),
+    )
     const newGroups = groupFilesByDevice(groupedExistingFiles, newStrategy)
     const matchedGroups = matchGroupsToSubstrates(
       newGroups,
@@ -992,7 +1025,8 @@ function ResultsDetail({
       setDeletedFiles((prev) => [entry, ...prev.slice(0, 4)])
 
       // Reset auto-dismiss timer
-      if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current)
+      if (undoTimerRef.current !== null)
+        window.clearTimeout(undoTimerRef.current)
       undoTimerRef.current = window.setTimeout(() => {
         setDeletedFiles([])
       }, UNDO_WINDOW_MS)
@@ -1047,9 +1081,13 @@ function ResultsDetail({
   }, [deletedFiles, results, onUpdateResults])
 
   // Clean up timer on unmount
-  useEffect(() => () => {
-    if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current)
-  }, [])
+  useEffect(
+    () => () => {
+      if (undoTimerRef.current !== null)
+        window.clearTimeout(undoTimerRef.current)
+    },
+    [],
+  )
 
   const handleClearAll = () => {
     onUpdateResults({
@@ -1272,8 +1310,12 @@ function ResultsDetail({
                 >
                   <Group justify="space-between" wrap="nowrap">
                     <Text size="sm">
-                      <Text span fw={600}>{deletedFiles[0].file.fileName}</Text> moved to ungrouped
-                      {deletedFiles.length > 1 && ` (+${deletedFiles.length - 1} more)`}
+                      <Text span fw={600}>
+                        {deletedFiles[0].file.fileName}
+                      </Text>{" "}
+                      moved to ungrouped
+                      {deletedFiles.length > 1 &&
+                        ` (+${deletedFiles.length - 1} more)`}
                     </Text>
                     <Button
                       size="xs"
@@ -1298,7 +1340,9 @@ function ResultsDetail({
                 >
                   <Group justify="space-between" align="center">
                     <Text size="sm">
-                      All {totalGroups} device group{totalGroups !== 1 ? "s are" : " is"} matched to a substrate.
+                      All {totalGroups} device group
+                      {totalGroups !== 1 ? "s are" : " is"} matched to a
+                      substrate.
                     </Text>
                     <Group gap="xs">
                       <Button
@@ -1307,23 +1351,12 @@ function ResultsDetail({
                         color="blue"
                         onClick={async () => {
                           try {
-                            const preview = await previewNomadMetadata({
-                              experiment_id: experiment.id,
-                              experiment_name: experiment.name,
-                              substrates: substrates,
-                              measurement_files: results.files.map((f) => ({
-                                fileName: f.fileName,
-                                fileType: f.fileType,
-                                deviceName: f.deviceName,
-                                cell: f.cell,
-                                pixel: f.pixel,
-                                value: f.value,
-                              })),
-                              device_groups: results.deviceGroups.map((g) => ({
-                                id: g.id,
-                                deviceName: g.deviceName,
-                                assignedSubstrateId: g.assignedSubstrateId,
-                                files: g.files.map((f) => ({
+                            const preview = await NomadService.previewNomadMetadata({
+                              requestBody: {
+                                experiment_id: experiment.id,
+                                experiment_name: experiment.name,
+                                substrates: substrates,
+                                measurement_files: results.files.map((f) => ({
                                   fileName: f.fileName,
                                   fileType: f.fileType,
                                   deviceName: f.deviceName,
@@ -1331,11 +1364,24 @@ function ResultsDetail({
                                   pixel: f.pixel,
                                   value: f.value,
                                 })),
-                              })),
+                                device_groups: results.deviceGroups.map((g) => ({
+                                  id: g.id,
+                                  deviceName: g.deviceName,
+                                  assignedSubstrateId: g.assignedSubstrateId,
+                                  files: g.files.map((f) => ({
+                                    fileName: f.fileName,
+                                    fileType: f.fileType,
+                                    deviceName: f.deviceName,
+                                    cell: f.cell,
+                                    pixel: f.pixel,
+                                    value: f.value,
+                                  })),
+                                })),
+                              },
                             })
                             setNomadMetadataPreview(preview.yaml_content)
                             setShowMetadataModal(true)
-                          } catch (err) {
+                          } catch (_err) {
                             notifications.show({
                               title: "Error",
                               message: "Failed to generate metadata preview",
@@ -1349,34 +1395,48 @@ function ResultsDetail({
                       <Button
                         size="sm"
                         color="green"
-                        leftSection={nomadUploading ? <Loader size={14} color="white" /> : <IconCloudUpload size={16} />}
+                        leftSection={
+                          nomadUploading ? (
+                            <Loader size={14} color="white" />
+                          ) : (
+                            <IconCloudUpload size={16} />
+                          )
+                        }
                         disabled={nomadUploading || !nomadConfig?.enabled}
                         onClick={async () => {
                           if (!nomadConfig?.enabled) {
                             notifications.show({
                               title: "NOMAD Not Configured",
-                              message: "Please configure NOMAD credentials in the auth file (../sensitive config/.nomad_auth)",
+                              message:
+                                "Please configure NOMAD credentials in the auth file (../sensitive config/.nomad_auth)",
                               color: "orange",
                             })
                             return
                           }
-                          
+
                           modals.openConfirmModal({
                             title: "Save to NOMAD",
                             children: (
                               <Stack gap="sm">
                                 <Text size="sm">
-                                  This will export all {results.files.length} file
-                                  {results.files.length !== 1 ? "s" : ""} with their substrate
-                                  assignments to NOMAD.
+                                  This will export all {results.files.length}{" "}
+                                  file
+                                  {results.files.length !== 1 ? "s" : ""} with
+                                  their substrate assignments to NOMAD.
                                 </Text>
                                 <Text size="xs" c="dimmed">
                                   Using NOMAD URL: {nomadConfig.url}
                                 </Text>
                               </Stack>
                             ),
-                            labels: { confirm: "Upload to NOMAD", cancel: "Cancel" },
-                            confirmProps: { color: "green", leftSection: <IconCloudUpload size={14} /> },
+                            labels: {
+                              confirm: "Upload to NOMAD",
+                              cancel: "Cancel",
+                            },
+                            confirmProps: {
+                              color: "green",
+                              leftSection: <IconCloudUpload size={14} />,
+                            },
                             onConfirm: async () => {
                               setNomadUploading(true)
                               try {
@@ -1393,43 +1453,49 @@ function ResultsDetail({
                                     pixel: f.pixel,
                                     value: f.value,
                                   })),
-                                  device_groups: results.deviceGroups.map((g) => ({
-                                    id: g.id,
-                                    deviceName: g.deviceName,
-                                    assignedSubstrateId: g.assignedSubstrateId,
-                                    files: g.files.map((f) => ({
-                                      fileName: f.fileName,
-                                      fileType: f.fileType,
-                                      deviceName: f.deviceName,
-                                      cell: f.cell,
-                                      pixel: f.pixel,
-                                      value: f.value,
-                                    })),
-                                  })),
+                                  device_groups: results.deviceGroups.map(
+                                    (g) => ({
+                                      id: g.id,
+                                      deviceName: g.deviceName,
+                                      assignedSubstrateId:
+                                        g.assignedSubstrateId,
+                                      files: g.files.map((f) => ({
+                                        fileName: f.fileName,
+                                        fileType: f.fileType,
+                                        deviceName: f.deviceName,
+                                        cell: f.cell,
+                                        pixel: f.pixel,
+                                        value: f.value,
+                                      })),
+                                    }),
+                                  ),
                                 }
-                                
+
                                 // Create FormData for the upload
                                 const formData = new FormData()
-                                
+
                                 // Add uploaded files if we have them stored
                                 // Note: In production, you'd store the actual File objects
                                 // For now, we'll create placeholder files from the metadata
                                 for (const file of uploadedFiles) {
                                   formData.append("files", file)
                                 }
-                                
+
                                 // If no files stored, we need to handle this differently
                                 // The backend will need to work with metadata only
                                 if (uploadedFiles.length === 0) {
                                   notifications.show({
                                     title: "Note",
-                                    message: "No files to upload. Metadata will be saved.",
+                                    message:
+                                      "No files to upload. Metadata will be saved.",
                                     color: "blue",
                                   })
                                 }
-                                
+
                                 // Make the upload request
-                                const token = OpenAPI.TOKEN || localStorage.getItem("access_token")
+                                const token =
+                                  OpenAPI.TOKEN ||
+                                  localStorage.getItem("access_token")
                                 const response = await fetch(
                                   `${OpenAPI.BASE}/api/v1/nomad/upload/nomad`,
                                   {
@@ -1439,81 +1505,116 @@ function ResultsDetail({
                                       Authorization: `Bearer ${token}`,
                                     },
                                     body: JSON.stringify(requestData),
-                                  }
+                                  },
                                 )
-                                
-                                const result: NomadUploadResponse = await response.json()
-                                
+
+                                const result: NomadUploadResponse =
+                                  await response.json()
+
                                 if (result.success) {
                                   // Update results with NOMAD info
                                   const updatedResults = {
                                     ...results,
                                     nomad: {
-                                      upload_id: result.upload_id,
-                                      entry_ids: result.entry_ids,
-                                      upload_time: result.upload_create_time,
-                                      status: result.processing_status,
+                                      upload_id: result.upload_id ?? undefined,
+                                      entry_ids: result.entry_ids ?? undefined,
+                                      upload_time: result.upload_create_time ?? undefined,
+                                      status: result.processing_status ?? undefined,
                                     },
                                     updatedAt: new Date().toISOString(),
                                   }
                                   onUpdateResults(updatedResults)
-                                  
+
                                   notifications.show({
                                     title: "Upload Successful!",
                                     message: (
                                       <Stack gap={4}>
-                                        <Text size="sm">Data uploaded to NOMAD.</Text>
-                                        <Text size="xs" c="dimmed">Upload ID: {result.upload_id}</Text>
+                                        <Text size="sm">
+                                          Data uploaded to NOMAD.
+                                        </Text>
+                                        <Text size="xs" c="dimmed">
+                                          Upload ID: {result.upload_id}
+                                        </Text>
                                       </Stack>
                                     ),
                                     color: "green",
                                     autoClose: 10000,
                                   })
-                                  
+
                                   // Show success modal with details
                                   modals.open({
                                     title: "NOMAD Upload Complete",
                                     children: (
                                       <Stack gap="md">
-                                        <Alert color="green" icon={<IconCheck size={16} />}>
+                                        <Alert
+                                          color="green"
+                                          icon={<IconCheck size={16} />}
+                                        >
                                           Successfully uploaded to NOMAD
                                         </Alert>
                                         <Table>
                                           <Table.Tbody>
                                             <Table.Tr>
-                                              <Table.Td fw={600}>Upload ID</Table.Td>
+                                              <Table.Td fw={600}>
+                                                Upload ID
+                                              </Table.Td>
                                               <Table.Td>
                                                 <Code>{result.upload_id}</Code>
                                               </Table.Td>
                                             </Table.Tr>
-                                            {result.entry_ids.length > 0 && (
+                                            {result.entry_ids && result.entry_ids.length > 0 && (
                                               <Table.Tr>
-                                                <Table.Td fw={600}>Entry IDs</Table.Td>
+                                                <Table.Td fw={600}>
+                                                  Entry IDs
+                                                </Table.Td>
                                                 <Table.Td>
-                                                  {result.entry_ids.map((id, i) => (
-                                                    <Code key={i} block>{id}</Code>
-                                                  ))}
+                                                  {result.entry_ids.map(
+                                                    (id: string, i: number) => (
+                                                      <Code key={i} block>
+                                                        {id}
+                                                      </Code>
+                                                    ),
+                                                  )}
                                                 </Table.Td>
                                               </Table.Tr>
                                             )}
                                             <Table.Tr>
-                                              <Table.Td fw={600}>Upload Time</Table.Td>
-                                              <Table.Td>{result.upload_create_time}</Table.Td>
+                                              <Table.Td fw={600}>
+                                                Upload Time
+                                              </Table.Td>
+                                              <Table.Td>
+                                                {result.upload_create_time}
+                                              </Table.Td>
                                             </Table.Tr>
                                             <Table.Tr>
-                                              <Table.Td fw={600}>Status</Table.Td>
+                                              <Table.Td fw={600}>
+                                                Status
+                                              </Table.Td>
                                               <Table.Td>
-                                                <Badge color="blue">{result.processing_status || "Processing"}</Badge>
+                                                <Badge color="blue">
+                                                  {result.processing_status ||
+                                                    "Processing"}
+                                                </Badge>
                                               </Table.Td>
                                             </Table.Tr>
                                           </Table.Tbody>
                                         </Table>
                                         <Button
                                           variant="light"
-                                          leftSection={<IconExternalLink size={14} />}
+                                          leftSection={
+                                            <IconExternalLink size={14} />
+                                          }
                                           onClick={() => {
-                                            const nomadUrl = nomadConfig?.url?.replace("/api/v1", "") || "https://nomad-lab.eu/prod/v1/test"
-                                            window.open(`${nomadUrl}/user/uploads/upload/id/${result.upload_id}`, "_blank")
+                                            const nomadUrl =
+                                              nomadConfig?.url?.replace(
+                                                "/api/v1",
+                                                "",
+                                              ) ||
+                                              "https://nomad-lab.eu/prod/v1/test"
+                                            window.open(
+                                              `${nomadUrl}/user/uploads/upload/id/${result.upload_id}`,
+                                              "_blank",
+                                            )
                                           }}
                                         >
                                           View in NOMAD
@@ -1524,7 +1625,9 @@ function ResultsDetail({
                                 } else {
                                   notifications.show({
                                     title: "Upload Failed",
-                                    message: result.message || "Unknown error occurred",
+                                    message:
+                                      result.message ||
+                                      "Unknown error occurred",
                                     color: "red",
                                   })
                                 }
@@ -1532,7 +1635,10 @@ function ResultsDetail({
                                 console.error("NOMAD upload error:", err)
                                 notifications.show({
                                   title: "Upload Error",
-                                  message: err instanceof Error ? err.message : "Failed to upload to NOMAD",
+                                  message:
+                                    err instanceof Error
+                                      ? err.message
+                                      : "Failed to upload to NOMAD",
                                   color: "red",
                                 })
                               } finally {
@@ -1548,7 +1654,7 @@ function ResultsDetail({
                   </Group>
                 </Alert>
               )}
-              
+
               {/* NOMAD Info Display (if already uploaded) */}
               {results.nomad?.upload_id && (
                 <Alert
@@ -1560,21 +1666,33 @@ function ResultsDetail({
                   <Stack gap="xs">
                     <Group gap="lg">
                       <Text size="sm">
-                        <Text span fw={600}>Upload ID:</Text> <Code>{results.nomad.upload_id}</Code>
+                        <Text span fw={600}>
+                          Upload ID:
+                        </Text>{" "}
+                        <Code>{results.nomad.upload_id}</Code>
                       </Text>
-                      {results.nomad.entry_ids && results.nomad.entry_ids.length > 0 && (
-                        <Text size="sm">
-                          <Text span fw={600}>Entries:</Text> {results.nomad.entry_ids.length}
-                        </Text>
-                      )}
+                      {results.nomad.entry_ids &&
+                        results.nomad.entry_ids.length > 0 && (
+                          <Text size="sm">
+                            <Text span fw={600}>
+                              Entries:
+                            </Text>{" "}
+                            {results.nomad.entry_ids.length}
+                          </Text>
+                        )}
                     </Group>
                     <Button
                       size="xs"
                       variant="light"
                       leftSection={<IconExternalLink size={14} />}
                       onClick={() => {
-                        const nomadUrl = nomadConfig?.url?.replace("/api/v1", "") || "https://nomad-lab.eu/prod/v1/test"
-                        window.open(`${nomadUrl}/user/uploads/upload/id/${results.nomad?.upload_id}`, "_blank")
+                        const nomadUrl =
+                          nomadConfig?.url?.replace("/api/v1", "") ||
+                          "https://nomad-lab.eu/prod/v1/test"
+                        window.open(
+                          `${nomadUrl}/user/uploads/upload/id/${results.nomad?.upload_id}`,
+                          "_blank",
+                        )
                       }}
                     >
                       View in NOMAD
@@ -1582,7 +1700,7 @@ function ResultsDetail({
                   </Stack>
                 </Alert>
               )}
-              
+
               {/* Metadata Preview Modal */}
               <Modal
                 opened={showMetadataModal}
@@ -1592,40 +1710,74 @@ function ResultsDetail({
               >
                 <Stack gap="md">
                   <Text size="sm" c="dimmed">
-                    This YAML will be included in your upload to describe the data structure.
+                    This YAML will be included in your upload to describe the
+                    data structure.
                   </Text>
-                  <ScrollArea style={{ height: "60vh", background: "var(--mantine-color-gray-0)", padding: 8, borderRadius: 6 }}>
-                    <pre style={{ whiteSpace: "pre-wrap", fontFamily: "monospace", fontSize: 12, margin: 0 }}>
+                  <ScrollArea
+                    style={{
+                      height: "60vh",
+                      background: "var(--mantine-color-gray-0)",
+                      padding: 8,
+                      borderRadius: 6,
+                    }}
+                  >
+                    <pre
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        fontFamily: "monospace",
+                        fontSize: 12,
+                        margin: 0,
+                      }}
+                    >
                       {nomadMetadataPreview || ""}
                     </pre>
                   </ScrollArea>
-                  <Button onClick={() => setShowMetadataModal(false)}>Close</Button>
+                  <Button onClick={() => setShowMetadataModal(false)}>
+                    Close
+                  </Button>
                 </Stack>
               </Modal>
 
               <Divider label="Device Groups" labelPosition="center" />
 
               <Group align="flex-start" grow wrap="nowrap">
-                <Paper withBorder p="sm" radius="md" style={{ flex: 1, minWidth: 0 }}>
+                <Paper
+                  withBorder
+                  p="sm"
+                  radius="md"
+                  style={{ flex: 1, minWidth: 0 }}
+                >
                   <Stack gap="sm">
                     <Group justify="space-between" align="center">
                       <Group gap="xs">
-                        <Text size="sm" fw={600}>Ungrouped Files</Text>
-                        <Badge size="xs" variant="light">{ungroupedFiles.length}</Badge>
+                        <Text size="sm" fw={600}>
+                          Ungrouped Files
+                        </Text>
+                        <Badge size="xs" variant="light">
+                          {ungroupedFiles.length}
+                        </Badge>
                       </Group>
                       <Group gap="xs">
                         <Button
                           size="xs"
                           variant="subtle"
                           onClick={() => {
-                            if (selectedUngroupedFileIds.size === ungroupedFiles.length) {
+                            if (
+                              selectedUngroupedFileIds.size ===
+                              ungroupedFiles.length
+                            ) {
                               setSelectedUngroupedFileIds(new Set())
                             } else {
-                              setSelectedUngroupedFileIds(new Set(ungroupedFiles.map((f) => f.id)))
+                              setSelectedUngroupedFileIds(
+                                new Set(ungroupedFiles.map((f) => f.id)),
+                              )
                             }
                           }}
                         >
-                          {selectedUngroupedFileIds.size === ungroupedFiles.length ? "Clear" : "Select All"}
+                          {selectedUngroupedFileIds.size ===
+                          ungroupedFiles.length
+                            ? "Clear"
+                            : "Select All"}
                         </Button>
                         <Select
                           size="xs"
@@ -1641,7 +1793,10 @@ function ResultsDetail({
                         <Button
                           size="xs"
                           onClick={handleMoveSelectedToGroup}
-                          disabled={selectedUngroupedFileIds.size === 0 || results.deviceGroups.length === 0}
+                          disabled={
+                            selectedUngroupedFileIds.size === 0 ||
+                            results.deviceGroups.length === 0
+                          }
                         >
                           Move to Group
                         </Button>
@@ -1677,7 +1832,9 @@ function ResultsDetail({
                             >
                               <Table.Td>
                                 <Checkbox
-                                  checked={selectedUngroupedFileIds.has(file.id)}
+                                  checked={selectedUngroupedFileIds.has(
+                                    file.id,
+                                  )}
                                   onChange={(e) => {
                                     const checked = e.currentTarget.checked
                                     setSelectedUngroupedFileIds((prev) => {
@@ -1693,8 +1850,15 @@ function ResultsDetail({
                                 />
                               </Table.Td>
                               <Table.Td>
-                                <Group gap={4} wrap="nowrap" style={{ overflow: "hidden", maxWidth: 280 }}>
-                                  <IconFile size={14} style={{ flexShrink: 0 }} />
+                                <Group
+                                  gap={4}
+                                  wrap="nowrap"
+                                  style={{ overflow: "hidden", maxWidth: 280 }}
+                                >
+                                  <IconFile
+                                    size={14}
+                                    style={{ flexShrink: 0 }}
+                                  />
                                   <Text
                                     size="xs"
                                     style={{
@@ -1710,9 +1874,15 @@ function ResultsDetail({
                               <Table.Td>
                                 <FileTypeBadge type={file.fileType} />
                               </Table.Td>
-                              <Table.Td><Text size="xs">{file.deviceName || "—"}</Text></Table.Td>
-                              <Table.Td><Text size="xs">{file.cell || "—"}</Text></Table.Td>
-                              <Table.Td><Text size="xs">{file.pixel || "—"}</Text></Table.Td>
+                              <Table.Td>
+                                <Text size="xs">{file.deviceName || "—"}</Text>
+                              </Table.Td>
+                              <Table.Td>
+                                <Text size="xs">{file.cell || "—"}</Text>
+                              </Table.Td>
+                              <Table.Td>
+                                <Text size="xs">{file.pixel || "—"}</Text>
+                              </Table.Td>
                             </Table.Tr>
                           ))}
                         </Table.Tbody>
@@ -1721,18 +1891,28 @@ function ResultsDetail({
                   </Stack>
                 </Paper>
 
-                <Paper withBorder p="sm" radius="md" style={{ flex: 1, minWidth: 0 }}>
+                <Paper
+                  withBorder
+                  p="sm"
+                  radius="md"
+                  style={{ flex: 1, minWidth: 0 }}
+                >
                   <Stack gap="sm">
                     <Group justify="space-between" align="center">
                       <Group gap="xs">
-                        <Text size="sm" fw={600}>File Groups</Text>
-                        <Badge size="xs" variant="light">{results.deviceGroups.length}</Badge>
+                        <Text size="sm" fw={600}>
+                          File Groups
+                        </Text>
+                        <Badge size="xs" variant="light">
+                          {results.deviceGroups.length}
+                        </Badge>
                       </Group>
                     </Group>
 
                     {results.deviceGroups.length === 0 ? (
                       <Text size="sm" c="dimmed" ta="center" py="md">
-                        No device groups found. Create groups from uploaded files, then drag ungrouped files into a group.
+                        No device groups found. Create groups from uploaded
+                        files, then drag ungrouped files into a group.
                       </Text>
                     ) : (
                       <Stack gap="sm">
@@ -1827,7 +2007,12 @@ export function ResultsPage() {
     if (linkedExperimentId) {
       selectExperiment(linkedExperimentId)
     }
-  }, [pendingCollectionLink, planes, setPendingCollectionLink])
+  }, [
+    pendingCollectionLink,
+    planes,
+    setPendingCollectionLink,
+    selectExperiment,
+  ])
 
   const syncResultRefsForExperiment = (
     experimentId: string,
@@ -1855,7 +2040,10 @@ export function ResultsPage() {
         const nextRefs =
           nextResultId === null
             ? withoutOldResultRefs
-            : [...withoutOldResultRefs, { kind: "result" as const, id: nextResultId }]
+            : [
+                ...withoutOldResultRefs,
+                { kind: "result" as const, id: nextResultId },
+              ]
 
         const refsChanged =
           nextRefs.length !== collection.refs.length ||
@@ -1885,10 +2073,14 @@ export function ResultsPage() {
 
     setResults((prev) => {
       if (!hasFiles) {
-        return prev.filter((r) => r.experimentId !== updatedResults.experimentId)
+        return prev.filter(
+          (r) => r.experimentId !== updatedResults.experimentId,
+        )
       }
 
-      const exists = prev.some((r) => r.experimentId === updatedResults.experimentId)
+      const exists = prev.some(
+        (r) => r.experimentId === updatedResults.experimentId,
+      )
       if (exists) {
         return prev.map((r) =>
           r.experimentId === updatedResults.experimentId ? updatedResults : r,
@@ -1906,16 +2098,16 @@ export function ResultsPage() {
       ),
     )
 
-      // Keep collection result refs in sync with the effective persisted state.
-      syncResultRefsForExperiment(
-        updatedResults.experimentId,
-        resultIdsForExperiment.length > 0
-          ? resultIdsForExperiment
-          : existingForExperiment
-            ? [existingForExperiment.id]
-            : [updatedResults.id],
-        hasFiles ? (existingForExperiment?.id ?? updatedResults.id) : null,
-      )
+    // Keep collection result refs in sync with the effective persisted state.
+    syncResultRefsForExperiment(
+      updatedResults.experimentId,
+      resultIdsForExperiment.length > 0
+        ? resultIdsForExperiment
+        : existingForExperiment
+          ? [existingForExperiment.id]
+          : [updatedResults.id],
+      hasFiles ? (existingForExperiment?.id ?? updatedResults.id) : null,
+    )
   }
 
   // Filter experiments that are at least "ready" status

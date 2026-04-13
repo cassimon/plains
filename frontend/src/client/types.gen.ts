@@ -9,6 +9,28 @@ export type Body_login_login_access_token = {
     client_secret?: (string | null);
 };
 
+export type Body_nomad_upload_files_for_nomad = {
+    experiment_id: string;
+    experiment_name: string;
+    files: Array<((Blob | File))>;
+};
+
+export type Body_nomad_upload_to_nomad_endpoint = {
+    request: NomadUploadRequest;
+    files?: (Array<((Blob | File))> | null);
+};
+
+/**
+ * Full application state for bulk loading.
+ */
+export type BulkStateResponse = {
+    materials: Array<MaterialPublic>;
+    solutions: Array<SolutionPublic>;
+    experiments: Array<ExperimentPublic>;
+    results: Array<ExperimentResultsPublic>;
+    planes: Array<PlanePublic>;
+};
+
 export type CanvasElementCreate = {
     element_type: string;
     x?: number;
@@ -30,19 +52,19 @@ export type CanvasElementPublic = {
     id: string;
 };
 
-export type CanvasElementUpdate = {
-    element_type: string;
-    x?: number;
-    y?: number;
-    width?: number;
-    height?: number;
-    content?: (string | null);
-    color?: (string | null);
-};
-
 export type DeviceGroupCreate = {
     name: string;
     substrate_name?: (string | null);
+};
+
+/**
+ * Device group info for NOMAD upload.
+ */
+export type DeviceGroupInfo = {
+    id: string;
+    deviceName: string;
+    assignedSubstrateId?: (string | null);
+    files?: Array<MeasurementFileInfo>;
 };
 
 export type DeviceGroupPublic = {
@@ -63,6 +85,7 @@ export type ExperimentCreate = {
 
 export type ExperimentLayerCreate = {
     name: string;
+    layer_type?: (string | null);
     material_id?: (string | null);
     solution_id?: (string | null);
     temperature?: (number | null);
@@ -74,6 +97,7 @@ export type ExperimentLayerCreate = {
 
 export type ExperimentLayerPublic = {
     name: string;
+    layer_type?: (string | null);
     material_id?: (string | null);
     solution_id?: (string | null);
     temperature?: (number | null);
@@ -207,6 +231,18 @@ export type MeasurementFileCreate = {
     notes?: (string | null);
 };
 
+/**
+ * Measurement file metadata for NOMAD upload.
+ */
+export type MeasurementFileInfo = {
+    fileName: string;
+    fileType: string;
+    deviceName?: (string | null);
+    cell?: (string | null);
+    pixel?: (string | null);
+    value?: (number | null);
+};
+
 export type MeasurementFilePublic = {
     filename: string;
     file_type: string;
@@ -222,6 +258,64 @@ export type Message = {
 export type NewPassword = {
     token: string;
     new_password: string;
+};
+
+/**
+ * NOMAD configuration status.
+ */
+export type NomadConfigResponse = {
+    enabled: boolean;
+    url: string;
+    use_global_auth: boolean;
+    has_credentials: boolean;
+};
+
+/**
+ * Preview of NOMAD metadata YAML.
+ */
+export type NomadMetadataPreview = {
+    yaml_content: string;
+    file_count: number;
+    device_group_count: number;
+};
+
+/**
+ * Request body for NOMAD upload.
+ */
+export type NomadUploadRequest = {
+    experiment_id: string;
+    experiment_name: string;
+    substrates?: Array<SubstrateInfo>;
+    measurement_files?: Array<MeasurementFileInfo>;
+    device_groups?: Array<DeviceGroupInfo>;
+    notes?: (string | null);
+    custom_metadata?: ({
+    [key: string]: unknown;
+} | null);
+};
+
+/**
+ * Response from NOMAD upload.
+ */
+export type NomadUploadResponse = {
+    success: boolean;
+    upload_id?: (string | null);
+    entry_ids?: Array<(string)>;
+    upload_create_time?: (string | null);
+    processing_status?: (string | null);
+    message?: (string | null);
+};
+
+/**
+ * Status of a NOMAD upload.
+ */
+export type NomadUploadStatus = {
+    upload_id: string;
+    status?: (string | null);
+    entries?: Array<{
+        [key: string]: unknown;
+    }>;
+    error?: (string | null);
 };
 
 export type PlaneCreate = {
@@ -294,6 +388,14 @@ export type SolutionUpdate = {
 export type SubstrateCreate = {
     name: string;
     thickness_nm?: (number | null);
+};
+
+/**
+ * Substrate info for NOMAD upload.
+ */
+export type SubstrateInfo = {
+    id: string;
+    name: string;
 };
 
 export type SubstratePublic = {
@@ -467,11 +569,11 @@ export type MaterialsReadMaterialsData = {
 
 export type MaterialsReadMaterialsResponse = (MaterialsPublic);
 
-export type MaterialsCreateItemData = {
+export type MaterialsCreateMaterialData = {
     requestBody: MaterialCreate;
 };
 
-export type MaterialsCreateItemResponse = (MaterialPublic);
+export type MaterialsCreateMaterialResponse = (MaterialPublic);
 
 export type MaterialsReadMaterialData = {
     id: string;
@@ -479,18 +581,51 @@ export type MaterialsReadMaterialData = {
 
 export type MaterialsReadMaterialResponse = (MaterialPublic);
 
-export type MaterialsUpdateItemData = {
+export type MaterialsUpdateMaterialData = {
     id: string;
     requestBody: MaterialUpdate;
 };
 
-export type MaterialsUpdateItemResponse = (MaterialPublic);
+export type MaterialsUpdateMaterialResponse = (MaterialPublic);
 
 export type MaterialsDeleteMaterialData = {
     id: string;
 };
 
 export type MaterialsDeleteMaterialResponse = (unknown);
+
+export type NomadGetNomadConfigResponse = (NomadConfigResponse);
+
+export type NomadPreviewNomadMetadataData = {
+    requestBody: NomadUploadRequest;
+};
+
+export type NomadPreviewNomadMetadataResponse = (NomadMetadataPreview);
+
+export type NomadUploadFilesForNomadData = {
+    formData: Body_nomad_upload_files_for_nomad;
+};
+
+export type NomadUploadFilesForNomadResponse = ({
+    [key: string]: unknown;
+});
+
+export type NomadUploadToNomadEndpointData = {
+    archivePath?: (string | null);
+    formData: Body_nomad_upload_to_nomad_endpoint;
+};
+
+export type NomadUploadToNomadEndpointResponse = (NomadUploadResponse);
+
+export type NomadCheckUploadStatusData = {
+    uploadId: string;
+};
+
+export type NomadCheckUploadStatusResponse = (NomadUploadStatus);
+
+export type NomadTestNomadAuthResponse = ({
+    [key: string]: unknown;
+});
 
 export type PlanesReadPlanesData = {
     limit?: number;
@@ -499,11 +634,11 @@ export type PlanesReadPlanesData = {
 
 export type PlanesReadPlanesResponse = (PlanesPublic);
 
-export type PlanesCreateItemData = {
+export type PlanesCreatePlaneData = {
     requestBody: PlaneCreate;
 };
 
-export type PlanesCreateItemResponse = (PlanePublic);
+export type PlanesCreatePlaneResponse = (PlanePublic);
 
 export type PlanesReadPlaneData = {
     id: string;
@@ -511,24 +646,18 @@ export type PlanesReadPlaneData = {
 
 export type PlanesReadPlaneResponse = (PlanePublic);
 
-export type PlanesUpdateItemData = {
+export type PlanesUpdatePlaneData = {
     id: string;
     requestBody: PlaneUpdate;
 };
 
-export type PlanesUpdateItemResponse = (PlanePublic);
+export type PlanesUpdatePlaneResponse = (PlanePublic);
 
 export type PlanesDeletePlaneData = {
     id: string;
 };
 
 export type PlanesDeletePlaneResponse = (unknown);
-
-export type PlanesReadPlaneElementsData = {
-    planeId: string;
-};
-
-export type PlanesReadPlaneElementsResponse = (Array<CanvasElementPublic>);
 
 export type PlanesCreateElementData = {
     planeId: string;
@@ -540,7 +669,7 @@ export type PlanesCreateElementResponse = (CanvasElementPublic);
 export type PlanesUpdateElementData = {
     elementId: string;
     planeId: string;
-    requestBody: CanvasElementUpdate;
+    requestBody: CanvasElementCreate;
 };
 
 export type PlanesUpdateElementResponse = (CanvasElementPublic);
@@ -630,6 +759,8 @@ export type StateUpdateStateData = {
 };
 
 export type StateUpdateStateResponse = (UserStatePublic);
+
+export type StateGetBulkStateResponse = (BulkStateResponse);
 
 export type UsersReadUsersData = {
     limit?: number;

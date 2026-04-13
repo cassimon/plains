@@ -15,7 +15,11 @@ export function DependencyBlockModal({
   return (
     <>
       <Text size="sm" mb="md">
-        <Text span fw={600}>"{itemName}"</Text> cannot be deleted because the following items still depend on it. Remove or update those items first.
+        <Text span fw={600}>
+          "{itemName}"
+        </Text>{" "}
+        cannot be deleted because the following items still depend on it. Remove
+        or update those items first.
       </Text>
       <Table withTableBorder withColumnBorders>
         <Table.Thead>
@@ -33,7 +37,9 @@ export function DependencyBlockModal({
               <Table.Td>{dep.collectionName}</Table.Td>
               <Table.Td>{dep.itemName}</Table.Td>
               <Table.Td>
-                <Text size="xs" c="dimmed" tt="capitalize">{dep.itemKind}</Text>
+                <Text size="xs" c="dimmed" tt="capitalize">
+                  {dep.itemKind}
+                </Text>
               </Table.Td>
             </Table.Tr>
           ))}
