@@ -1563,6 +1563,11 @@ export const NomadConfigResponseSchema = {
 
 export const NomadMetadataPreviewSchema = {
     properties: {
+        metadata_json: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Metadata Json'
+        },
         yaml_content: {
             type: 'string',
             title: 'Yaml Content'
@@ -1577,9 +1582,9 @@ export const NomadMetadataPreviewSchema = {
         }
     },
     type: 'object',
-    required: ['yaml_content', 'file_count', 'device_group_count'],
+    required: ['metadata_json', 'yaml_content', 'file_count', 'device_group_count'],
     title: 'NomadMetadataPreview',
-    description: 'Preview of NOMAD metadata YAML.'
+    description: 'Preview of NOMAD metadata.'
 } as const;
 
 export const NomadUploadRequestSchema = {

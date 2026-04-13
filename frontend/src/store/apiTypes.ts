@@ -174,7 +174,16 @@ export function apiExperimentToExperiment(api: ApiExperiment): Experiment {
       id: l.id,
       name: l.name,
       color: ["#FF6B6B", "#4ECDC4", "#45B7D1"][i % 3],
-      layerType: l.layer_type ? (l.layer_type === "perovskite" ? "perovskite" : l.layer_type as "etl" | "htl" | "perovskite" | "additional" | "back_contact") : undefined,
+      layerType: l.layer_type
+        ? l.layer_type === "perovskite"
+          ? "perovskite"
+          : (l.layer_type as
+              | "etl"
+              | "htl"
+              | "perovskite"
+              | "additional"
+              | "back_contact")
+        : undefined,
       materialId: l.material_id ?? undefined,
       solutionId: l.solution_id ?? undefined,
       notes: l.notes ?? undefined,

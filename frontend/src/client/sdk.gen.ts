@@ -454,7 +454,7 @@ export class NomadService {
     
     /**
      * Preview Nomad Metadata
-     * Preview the NOMAD metadata YAML that would be generated.
+     * Preview the NOMAD metadata JSON that would be generated.
      *
      * This allows users to review the metadata before uploading.
      * @param data The data for the request.

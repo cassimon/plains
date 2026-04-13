@@ -40,10 +40,10 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { OpenAPI } from "../client/core/OpenAPI"
 import { NomadService } from "../client/sdk.gen"
-import {
-  type NomadConfigResponse,
-  type NomadUploadRequest,
-  type NomadUploadResponse,
+import type {
+  NomadConfigResponse,
+  NomadUploadRequest,
+  NomadUploadResponse,
 } from "../client/types.gen"
 import {
   type CanvasCollectionElement,
@@ -578,12 +578,18 @@ function ResultsDetail({
   const theme = useMantineTheme()
 
   // NOMAD upload state
-  const [nomadConfig, setNomadConfig] = useState<NomadConfigResponse | null>(null)
+  const [nomadConfig, setNomadConfig] = useState<NomadConfigResponse | null>(
+    null,
+  )
   const [nomadUploading, setNomadUploading] = useState(false)
   const [nomadMetadataPreview, setNomadMetadataPreview] = useState<
     string | null
   >(null)
   const [showMetadataModal, setShowMetadataModal] = useState(false)
+  const [fabricationMetadataPreview, setFabricationMetadataPreview] = useState<
+    string | null
+  >(null)
+  const [showFabricationModal, setShowFabricationModal] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
   const [selectedUngroupedFileIds, setSelectedUngroupedFileIds] = useState<
     Set<string>
@@ -599,7 +605,9 @@ function ResultsDetail({
   useEffect(() => {
     NomadService.getNomadConfig()
       .then(setNomadConfig)
-      .catch((err: unknown) => console.warn("Failed to fetch NOMAD config:", err))
+      .catch((err: unknown) =>
+        console.warn("Failed to fetch NOMAD config:", err),
+      )
   }, [])
 
   // Undo-delete state: keeps recently deleted files for a short window
@@ -1351,24 +1359,13 @@ function ResultsDetail({
                         color="blue"
                         onClick={async () => {
                           try {
-                            const preview = await NomadService.previewNomadMetadata({
-                              requestBody: {
-                                experiment_id: experiment.id,
-                                experiment_name: experiment.name,
-                                substrates: substrates,
-                                measurement_files: results.files.map((f) => ({
-                                  fileName: f.fileName,
-                                  fileType: f.fileType,
-                                  deviceName: f.deviceName,
-                                  cell: f.cell,
-                                  pixel: f.pixel,
-                                  value: f.value,
-                                })),
-                                device_groups: results.deviceGroups.map((g) => ({
-                                  id: g.id,
-                                  deviceName: g.deviceName,
-                                  assignedSubstrateId: g.assignedSubstrateId,
-                                  files: g.files.map((f) => ({
+                            const preview =
+                              await NomadService.previewNomadMetadata({
+                                requestBody: {
+                                  experiment_id: experiment.id,
+                                  experiment_name: experiment.name,
+                                  substrates: substrates,
+                                  measurement_files: results.files.map((f) => ({
                                     fileName: f.fileName,
                                     fileType: f.fileType,
                                     deviceName: f.deviceName,
@@ -1376,9 +1373,24 @@ function ResultsDetail({
                                     pixel: f.pixel,
                                     value: f.value,
                                   })),
-                                })),
-                              },
-                            })
+                                  device_groups: results.deviceGroups.map(
+                                    (g) => ({
+                                      id: g.id,
+                                      deviceName: g.deviceName,
+                                      assignedSubstrateId:
+                                        g.assignedSubstrateId,
+                                      files: g.files.map((f) => ({
+                                        fileName: f.fileName,
+                                        fileType: f.fileType,
+                                        deviceName: f.deviceName,
+                                        cell: f.cell,
+                                        pixel: f.pixel,
+                                        value: f.value,
+                                      })),
+                                    }),
+                                  ),
+                                },
+                              })
                             setNomadMetadataPreview(preview.yaml_content)
                             setShowMetadataModal(true)
                           } catch (_err) {
@@ -1390,7 +1402,72 @@ function ResultsDetail({
                           }
                         }}
                       >
-                        Preview Metadata
+                        Preview File Metadata
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="light"
+                        color="violet"
+                        onClick={async () => {
+                          try {
+                            const preview =
+                              await NomadService.previewNomadMetadata({
+                                requestBody: {
+                                  experiment_id: experiment.id,
+                                  experiment_name: experiment.name,
+                                  substrates: substrates,
+                                  measurement_files: results.files.map((f) => ({
+                                    fileName: f.fileName,
+                                    fileType: f.fileType,
+                                    deviceName: f.deviceName,
+                                    cell: f.cell,
+                                    pixel: f.pixel,
+                                    value: f.value,
+                                  })),
+                                  device_groups: results.deviceGroups.map(
+                                    (g) => ({
+                                      id: g.id,
+                                      deviceName: g.deviceName,
+                                      assignedSubstrateId:
+                                        g.assignedSubstrateId,
+                                      files: g.files.map((f) => ({
+                                        fileName: f.fileName,
+                                        fileType: f.fileType,
+                                        deviceName: f.deviceName,
+                                        cell: f.cell,
+                                        pixel: f.pixel,
+                                        value: f.value,
+                                      })),
+                                    }),
+                                  ),
+                                },
+                              })
+                            // Show fabrication metadata JSON (first substrate)
+                            console.log(
+                              "Fabrication metadata response:",
+                              preview,
+                            )
+                            const jsonStr = JSON.stringify(
+                              preview.metadata_json,
+                              null,
+                              2,
+                            )
+                            console.log("Stringified metadata:", jsonStr)
+                            setFabricationMetadataPreview(
+                              jsonStr || "No metadata available",
+                            )
+                            setShowFabricationModal(true)
+                          } catch (_err) {
+                            notifications.show({
+                              title: "Error",
+                              message:
+                                "Failed to generate fabrication metadata preview",
+                              color: "red",
+                            })
+                          }
+                        }}
+                      >
+                        Preview Fabrication Metadata
                       </Button>
                       <Button
                         size="sm"
@@ -1518,8 +1595,10 @@ function ResultsDetail({
                                     nomad: {
                                       upload_id: result.upload_id ?? undefined,
                                       entry_ids: result.entry_ids ?? undefined,
-                                      upload_time: result.upload_create_time ?? undefined,
-                                      status: result.processing_status ?? undefined,
+                                      upload_time:
+                                        result.upload_create_time ?? undefined,
+                                      status:
+                                        result.processing_status ?? undefined,
                                     },
                                     updatedAt: new Date().toISOString(),
                                   }
@@ -1562,22 +1641,26 @@ function ResultsDetail({
                                                 <Code>{result.upload_id}</Code>
                                               </Table.Td>
                                             </Table.Tr>
-                                            {result.entry_ids && result.entry_ids.length > 0 && (
-                                              <Table.Tr>
-                                                <Table.Td fw={600}>
-                                                  Entry IDs
-                                                </Table.Td>
-                                                <Table.Td>
-                                                  {result.entry_ids.map(
-                                                    (id: string, i: number) => (
-                                                      <Code key={i} block>
-                                                        {id}
-                                                      </Code>
-                                                    ),
-                                                  )}
-                                                </Table.Td>
-                                              </Table.Tr>
-                                            )}
+                                            {result.entry_ids &&
+                                              result.entry_ids.length > 0 && (
+                                                <Table.Tr>
+                                                  <Table.Td fw={600}>
+                                                    Entry IDs
+                                                  </Table.Td>
+                                                  <Table.Td>
+                                                    {result.entry_ids.map(
+                                                      (
+                                                        id: string,
+                                                        i: number,
+                                                      ) => (
+                                                        <Code key={i} block>
+                                                          {id}
+                                                        </Code>
+                                                      ),
+                                                    )}
+                                                  </Table.Td>
+                                                </Table.Tr>
+                                              )}
                                             <Table.Tr>
                                               <Table.Td fw={600}>
                                                 Upload Time
@@ -1701,11 +1784,11 @@ function ResultsDetail({
                 </Alert>
               )}
 
-              {/* Metadata Preview Modal */}
+              {/* File Metadata Preview Modal */}
               <Modal
                 opened={showMetadataModal}
                 onClose={() => setShowMetadataModal(false)}
-                title="NOMAD Metadata Preview"
+                title="NOMAD File Metadata Preview"
                 size="xl"
               >
                 <Stack gap="md">
@@ -1733,6 +1816,43 @@ function ResultsDetail({
                     </pre>
                   </ScrollArea>
                   <Button onClick={() => setShowMetadataModal(false)}>
+                    Close
+                  </Button>
+                </Stack>
+              </Modal>
+
+              {/* Fabrication Metadata Preview Modal */}
+              <Modal
+                opened={showFabricationModal}
+                onClose={() => setShowFabricationModal(false)}
+                title="NOMAD Fabrication Metadata Preview (First Substrate)"
+                size="xl"
+              >
+                <Stack gap="md">
+                  <Text size="sm" c="dimmed">
+                    This shows the perovskite solar cell fabrication metadata
+                    that will be uploaded to NOMAD for the first substrate.
+                  </Text>
+                  <ScrollArea
+                    style={{
+                      height: "60vh",
+                      background: "var(--mantine-color-gray-0)",
+                      padding: 8,
+                      borderRadius: 6,
+                    }}
+                  >
+                    <pre
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        fontFamily: "monospace",
+                        fontSize: 12,
+                        margin: 0,
+                      }}
+                    >
+                      {fabricationMetadataPreview || ""}
+                    </pre>
+                  </ScrollArea>
+                  <Button onClick={() => setShowFabricationModal(false)}>
                     Close
                   </Button>
                 </Stack>

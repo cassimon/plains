@@ -205,7 +205,7 @@ function DeviceStackPreview({
 
       <Box style={{ display: "flex", flexDirection: "column-reverse", gap: 2 }}>
         {/* Substrate at bottom */}
-          <Box
+        <Box
           style={{
             background: "linear-gradient(135deg, #a8d5e5 0%, #74b9d0 100%)",
             height: SUBSTRATE_HEIGHT,
@@ -230,10 +230,10 @@ function DeviceStackPreview({
             additional: "Additional",
             back_contact: "Back Contact",
           }
-          const displayName = layer.layerType 
-            ? `${typeMap[layer.layerType]}: ${layer.name}` 
+          const displayName = layer.layerType
+            ? `${typeMap[layer.layerType]}: ${layer.name}`
             : layer.name
-          
+
           return (
             <Box
               key={layer.id}
@@ -501,7 +501,16 @@ function LayerCard({
               ]}
               value={layer.layerType ?? null}
               onChange={(v) =>
-                onUpdate({ ...layer, layerType: v as "etl" | "htl" | "perovskite" | "additional" | "back_contact" | undefined })
+                onUpdate({
+                  ...layer,
+                  layerType: v as
+                    | "etl"
+                    | "htl"
+                    | "perovskite"
+                    | "additional"
+                    | "back_contact"
+                    | undefined,
+                })
               }
               clearable
             />
@@ -1543,7 +1552,13 @@ function ExperimentDetail({
                               onChange={(v) =>
                                 updateLayer(idx, {
                                   ...layer,
-                                  layerType: v as "etl" | "htl" | "perovskite" | "additional" | "back_contact" | undefined,
+                                  layerType: v as
+                                    | "etl"
+                                    | "htl"
+                                    | "perovskite"
+                                    | "additional"
+                                    | "back_contact"
+                                    | undefined,
                                 })
                               }
                               data={[
@@ -1551,7 +1566,10 @@ function ExperimentDetail({
                                 { value: "htl", label: "HTL" },
                                 { value: "perovskite", label: "Absorber" },
                                 { value: "additional", label: "Additional" },
-                                { value: "back_contact", label: "Back Contact" },
+                                {
+                                  value: "back_contact",
+                                  label: "Back Contact",
+                                },
                               ]}
                               clearable
                               style={{ width: 120 }}
@@ -1604,7 +1622,10 @@ function ExperimentDetail({
                     <Stack gap="xs">
                       {/* General notation showing architecture format */}
                       <Text size="xs" c="dimmed">
-                        <Text span fw={600}>General:</Text> {(() => {
+                        <Text span fw={600}>
+                          General:
+                        </Text>{" "}
+                        {(() => {
                           const typeMap: Record<string, string> = {
                             etl: "ETL",
                             htl: "HTL",
@@ -1612,13 +1633,17 @@ function ExperimentDetail({
                             additional: "Additional",
                             back_contact: "Back Contact",
                           }
-                          
+
                           // Build list of type display names from layers
-                          const types = experiment.layers
-                            .map((l) => (l.layerType ? typeMap[l.layerType] : "unknown"))
-                          
+                          const types = experiment.layers.map((l) =>
+                            l.layerType ? typeMap[l.layerType] : "unknown",
+                          )
+
                           // Group consecutive same types with counts
-                          const grouped: Array<{ type: string; count: number }> = []
+                          const grouped: Array<{
+                            type: string
+                            count: number
+                          }> = []
                           types.forEach((t) => {
                             const last = grouped[grouped.length - 1]
                             if (last && last.type === t) {
@@ -1627,26 +1652,29 @@ function ExperimentDetail({
                               grouped.push({ type: t, count: 1 })
                             }
                           })
-                          
+
                           // Format as "TYPE" or "TYPE (count)"
                           const formatted = grouped
-                            .map((g) => (g.count > 1 ? `${g.type} (${g.count})` : g.type))
+                            .map((g) =>
+                              g.count > 1 ? `${g.type} (${g.count})` : g.type,
+                            )
                             .join(" / ")
-                          
+
                           // Return full general notation, use ':' before architecture
-                          return `substrate${formatted ? " / " + formatted : ""}: ${experiment.architecture}`
+                          return `substrate${formatted ? ` / ${formatted}` : ""}: ${experiment.architecture}`
                         })()}
                       </Text>
-                      
+
                       {/* Concrete stack notation */}
                       <Text size="xs" c="dimmed">
-                        <Text span fw={600}>Stack:</Text> {experiment.substrateMaterial}
+                        <Text span fw={600}>
+                          Stack:
+                        </Text>{" "}
+                        {experiment.substrateMaterial}
                         {experiment.layers.length > 0 && (
                           <>
                             {" | "}
-                            {experiment.layers
-                              .map((l) => l.name)
-                              .join(" | ")}
+                            {experiment.layers.map((l) => l.name).join(" | ")}
                             {" |"}
                           </>
                         )}

@@ -1,0 +1,129 @@
+{
+    "data": {
+        "m_def": "perovskite_solar_cell_database.schema.PerovskiteSolarCell",
+        "ref": {
+            "free_text_comment": "",
+            "name_of_person_entering_the_data": "user_name",
+            "DOI_number": "doi_number",
+            "lead_author": "Unknown",
+            "publication_date": "Unknown",
+            "journal": "Unknown",
+            "extraction_method": "plains_gui"
+        },
+        "cell": {
+            "stack_sequence": "Unknown",
+            "architecture": "Unknown"
+        },
+        "substrate": {
+            "stack_sequence": "Unknown | Unknown",
+            "thickness": "nan | nan",
+            "deposition_procedure": "Unknown"
+        },
+        "etl": {
+            "stack_sequence": "Unknown | Unknown",
+            "thickness": "nan | nan",
+            "deposition_procedure": "Unknown",
+            "deposition_synthesis_atmosphere": "Unknown",
+            "deposition_solvents": "Unknown",
+            "deposition_reaction_solutions_compounds": "Unknown",
+            "deposition_reaction_solutions_concentrations": "Unknown",
+            "deposition_reaction_solutions_volumes": "Unknown",
+            "deposition_reaction_solutions_temperature": "Unknown",
+            "deposition_substrate_temperature": "Unknown",
+            "deposition_thermal_annealing_temperature": "Unknown",
+            "deposition_thermal_annealing_time": "Unknown",
+            "deposition_thermal_annealing_atmosphere": "Unknown",
+            "surface_treatment_before_next_deposition_step": "Unknown"
+        },
+        "perovskite": {
+            "dimension_3D": true,
+            "dimension_list_of_layers": "3D",
+            "composition_a_ions": "Unknown; Unknown; Unknown",
+            "composition_a_ions_coefficients": "nan; nan; nan",
+            "composition_b_ions": "Unknown",
+            "composition_b_ions_coefficients": "nan",
+            "composition_c_ions": "Unknown; Unknown",
+            "composition_c_ions_coefficients": "nan; nan",
+            "composition_short_form": "Unknown",
+            "composition_long_form": "Unknown",
+            "thickness": "nan",
+            "band_gap": "nan",
+            "surface_treatment_before_next_deposition_step": "Unknown"
+        },
+        "perovskite_deposition": {
+            "number_of_deposition_steps": 0,
+            "procedure": "",
+            "synthesis_atmosphere": "",
+            "solvents": "",
+            "solvents_mixing_ratios": "",
+            "reaction_solutions_compounds": "",
+            "reaction_solutions_concentrations": "",
+            "reaction_solutions_volumes": "",
+            "reaction_solutions_temperature": "",
+            "substrate_temperature": "",
+            "quenching_induced_crystallisation": false,
+            "quenching_media": ""
+        },
+        "htl": {
+            "stack_sequence": "Unknown | Unknown",
+            "thickness_list": "nan | nan",
+            "deposition_procedure": "Unknown",
+            "deposition_synthesis_atmosphere": "Unknown",
+            "deposition_solvents": "Unknown",
+            "deposition_reaction_solutions_compounds": "Unknown",
+            "deposition_reaction_solutions_concentrations": "Unknown",
+            "deposition_reaction_solutions_volumes": "Unknown",
+            "deposition_reaction_solutions_temperature": "Unknown",
+            "deposition_substrate_temperature": "Unknown",
+            "deposition_thermal_annealing_temperature": "Unknown",
+            "deposition_thermal_annealing_time": "Unknown",
+            "deposition_thermal_annealing_atmosphere": "Unknown",
+            "surface_treatment_before_next_deposition_step": "Unknown"
+        },
+        "backcontact": {
+            "stack_sequence": "Unknown | Unknown",
+            "thickness_list": "nan | nan",
+            "deposition_procedure": "Unknown",
+            "deposition_synthesis_atmosphere": "Unknown",
+            "deposition_solvents": "Unknown",
+            "deposition_reaction_solutions_compounds": "Unknown",
+            "deposition_reaction_solutions_concentrations": "Unknown",
+            "deposition_reaction_solutions_volumes": "Unknown",
+            "deposition_reaction_solutions_temperature": "Unknown",
+            "deposition_substrate_temperature": "Unknown",
+            "deposition_thermal_annealing_temperature": "Unknown",
+            "deposition_thermal_annealing_time": "Unknown",
+            "deposition_thermal_annealing_atmosphere": "Unknown",
+            "surface_treatment_before_next_deposition_step": "Unknown"
+        },
+        "add": {
+            "stack_sequence": "Unknown | Unknown",
+            "thickness_list": "nan | nan",
+            "deposition_procedure": "Unknown",
+            "deposition_synthesis_atmosphere": "Unknown",
+            "deposition_solvents": "Unknown",
+            "deposition_reaction_solutions_compounds": "Unknown",
+            "deposition_reaction_solutions_concentrations": "Unknown",
+            "deposition_reaction_solutions_volumes": "Unknown",
+            "deposition_reaction_solutions_temperature": "Unknown",
+            "deposition_substrate_temperature": "Unknown",
+            "deposition_thermal_annealing_temperature": "Unknown",
+            "deposition_thermal_annealing_time": "Unknown",
+            "deposition_thermal_annealing_atmosphere": "Unknown",
+            "surface_treatment_before_next_deposition_step": "Unknown"
+        },
+        "encapsulation": {},
+        "jv": {
+            "light_intensity": "nan",
+            "light_spectra": "AM 1.5G",
+            "default_Voc": "nan",
+            "default_Jsc": "nan",
+            "default_FF": "nan",
+            "default_PCE": "nan"
+        },
+        "stability": {}
+    },
+    "results": {
+        "material": {}
+    }
+}

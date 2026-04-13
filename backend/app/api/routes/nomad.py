@@ -10,6 +10,7 @@ Provides endpoints for:
 
 import logging
 import uuid
+import yaml
 from datetime import datetime, timezone
 from typing import Any
 
@@ -83,8 +84,9 @@ class NomadUploadRequest(BaseModel):
 
 
 class NomadMetadataPreview(BaseModel):
-    """Preview of NOMAD metadata YAML."""
-    yaml_content: str
+    """Preview of NOMAD metadata."""
+    metadata_json: dict[str, Any]
+    yaml_content: str  # YAML serialization for display
     file_count: int
     device_group_count: int
 
@@ -129,28 +131,83 @@ def get_nomad_config(current_user: CurrentUser) -> NomadConfigResponse:
 
 @router.post("/metadata/preview", response_model=NomadMetadataPreview)
 def preview_nomad_metadata(
+    session: SessionDep,
     current_user: CurrentUser,
     request: NomadUploadRequest,
 ) -> NomadMetadataPreview:
     """
-    Preview the NOMAD metadata YAML that would be generated.
+    Preview the NOMAD metadata JSON that would be generated.
     
     This allows users to review the metadata before uploading.
+    Provides both:
+    - metadata_json: Perovskite solar cell JSON structure
+    - yaml_content: Upload archive metadata YAML (file organization)
     """
-    yaml_content = create_nomad_metadata_yaml(
-        experiment_name=request.experiment_name,
-        substrates=[s.model_dump() for s in request.substrates],
-        measurement_files=[m.model_dump() for m in request.measurement_files],
-        device_groups=[d.model_dump() for d in request.device_groups],
-        user_notes=request.notes,
-        custom_metadata=request.custom_metadata,
-    )
-    
-    return NomadMetadataPreview(
-        yaml_content=yaml_content,
-        file_count=len(request.measurement_files),
-        device_group_count=len(request.device_groups),
-    )
+    try:
+        metadata_json = create_nomad_metadata_yaml(
+            experiment_id=request.experiment_id,
+            user_name=current_user.full_name or current_user.email,
+            session=session,
+        )
+        
+        logger.info(f"DEBUG: metadata_json type: {type(metadata_json)}, keys: {list(metadata_json.keys()) if isinstance(metadata_json, dict) else 'N/A'}")
+        
+        # Generate upload archive metadata (for file organization YAML preview)
+        upload_metadata = {
+            "metadata": {
+                "upload_name": request.experiment_name,
+                "upload_create_time": datetime.now(timezone.utc).isoformat(),
+                "coauthors": [],
+                "references": [],
+                "datasets": [],
+                "embargo_length": 0,
+                "comment": "Automated upload from Plains GUI",
+            },
+            "entries": [
+                {
+                    "mainfile": f.fileName,
+                    "entry_name": f.fileName.replace(".", "_"),
+                    "comment": f"Measurement file: {f.fileType}",
+                    "metadata": {
+                        "device_name": f.deviceName or "Unknown",
+                        "cell": f.cell or "",
+                        "pixel": f.pixel or "",
+                    }
+                }
+                for f in request.measurement_files
+            ],
+            "device_groups": [
+                {
+                    "name": g.deviceName,
+                    "substrate_id": g.assignedSubstrateId or "",
+                    "files": [f.fileName for f in g.files],
+                }
+                for g in request.device_groups
+            ],
+            "substrates": [
+                {"id": str(s.id), "name": s.name}
+                for s in request.substrates
+            ]
+        }
+        
+        # Convert upload metadata to YAML for file organization preview
+        yaml_content = yaml.dump(upload_metadata, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        
+        logger.info(f"Generated metadata preview with keys: {list(metadata_json.get('data', {}).keys())}")
+        
+        preview = NomadMetadataPreview(
+            metadata_json=metadata_json,
+            yaml_content=yaml_content,
+            file_count=len(request.measurement_files),
+            device_group_count=len(request.device_groups),
+        )
+        
+        logger.info(f"DEBUG: NomadMetadataPreview created. preview has metadata_json: {'metadata_json' in preview.model_dump()}")
+        
+        return preview
+    except Exception as e:
+        logger.error(f"Error generating metadata preview: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate metadata: {str(e)}")
 
 
 @router.post("/upload/files")
@@ -231,15 +288,14 @@ async def upload_to_nomad_endpoint(
         )
     
     try:
-        # Generate metadata YAML
-        metadata_yaml = create_nomad_metadata_yaml(
-            experiment_name=request.experiment_name,
-            substrates=[s.model_dump() for s in request.substrates],
-            measurement_files=[m.model_dump() for m in request.measurement_files],
-            device_groups=[d.model_dump() for d in request.device_groups],
-            user_notes=request.notes,
-            custom_metadata=request.custom_metadata,
+        # Generate metadata JSON
+        metadata_json = create_nomad_metadata_yaml(
+            experiment_id=request.experiment_id,
+            user_name=current_user.full_name or current_user.email,
+            session=session,
         )
+        # Convert to YAML for NOMAD upload
+        metadata_yaml = yaml.dump(metadata_json, default_flow_style=False, allow_unicode=True, sort_keys=False)
         
         # If files are provided directly, create a new archive
         if files:

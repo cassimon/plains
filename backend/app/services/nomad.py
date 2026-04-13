@@ -156,95 +156,314 @@ def create_secure_zip(
 
 
 def create_nomad_metadata_yaml(
-    experiment_name: str,
-    substrates: list[dict[str, Any]],
-    measurement_files: list[dict[str, Any]],
-    device_groups: list[dict[str, Any]],
-    user_notes: str | None = None,
-    custom_metadata: dict[str, Any] | None = None,
-) -> str:
+    experiment_id: str,
+    user_name: str,
+    session: Any,
+) -> dict[str, Any]:
     """
-    Create NOMAD metadata YAML content for data management.
+    Create NOMAD perovskite solar cell metadata JSON structure from experiment data.
     
-    This generates a YAML file that describes how the data should be stored
-    and organized in NOMAD.
+    This generates a JSON dict matching the NOMAD perovskite_solar_cell schema
+    and populates it with data from the experiment's database fields.
     
     Args:
-        experiment_name: Name of the experiment
-        substrates: List of substrate info dicts
-        measurement_files: List of measurement file metadata
-        device_groups: List of device group info
-        user_notes: Optional notes about the upload
-        custom_metadata: Optional additional metadata
+        experiment_id: UUID of the experiment
+        user_name: Name of user entering the data
+        session: Database session for querying
     
     Returns:
-        YAML string content
+        Dictionary containing NOMAD metadata structure
     """
-    metadata = {
-        "metadata": {
-            "upload_name": experiment_name,
-            "upload_create_time": datetime.now(timezone.utc).isoformat(),
-            "coauthors": [],
-            "references": [],
-            "datasets": [],
-            "embargo_length": 0,
-            "comment": user_notes or f"Automated upload from Plains GUI for experiment: {experiment_name}",
+    from sqlmodel import select
+    from app.models import Experiment
+    import uuid as uuid_module
+    
+    # Fetch experiment with owner - convert string ID to UUID if needed
+    try:
+        if isinstance(experiment_id, str):
+            exp_uuid = uuid_module.UUID(experiment_id)
+        else:
+            exp_uuid = experiment_id
+    except (ValueError, AttributeError):
+        exp_uuid = experiment_id
+    
+    statement = select(Experiment).where(Experiment.id == exp_uuid)
+    experiment = session.exec(statement).first()
+    
+    if not experiment:
+        raise ValueError(f"Experiment {experiment_id} not found")
+    
+    # Extract frontend data which contains full experiment definition
+    frontend_data = experiment.frontend_data or {}
+    
+    # Try to get experiment data using both string and UUID representations
+    exp_id_str = str(experiment_id)
+    exp_data = frontend_data.get("experiments", {}).get(exp_id_str) or {}
+    
+    if not exp_data:
+        # Also try with the database experiment ID
+        exp_data = frontend_data.get("experiments", {}).get(str(experiment.id)) or {}
+    
+    if not exp_data:
+        # Log available keys for debugging
+        if "experiments" in frontend_data and isinstance(frontend_data["experiments"], dict):
+            logger.warning(f"Available experiment IDs in frontend_data: {list(frontend_data['experiments'].keys())}")
+        logger.warning(f"No frontend data found for experiment {experiment_id}, using database fields")
+        
+        # Fall back to database fields if frontend_data is empty
+        if experiment.layers:
+            exp_data = {
+                "name": experiment.name,
+                "description": experiment.description or "",
+                "architecture": experiment.device_type or "n-i-p",
+                "substrateMaterial": "Unknown",  # Not stored directly in Experiment model
+                "layers": [
+                    {
+                        "id": str(layer.id),
+                        "name": layer.name,
+                        "layerType": layer.layer_type,
+                        "color": "#888888",
+                        "depositionMethod": {"value": "Unknown"},
+                        "substrateTemp": None,
+                        "depositionAtmosphere": None,
+                        "solutionVolume": None,
+                        "dryingMethod": None,
+                        "annealingTime": None,
+                        "annealingTemp": None,
+                        "annealingAtmosphere": None,
+                    }
+                    for layer in experiment.layers
+                ]
+            }
+        else:
+            # Create minimal metadata structure even without layers
+            exp_data = {
+                "name": experiment.name,
+                "description": experiment.description or "",
+                "architecture": experiment.device_type or "n-i-p",
+                "substrateMaterial": "Unknown",
+                "layers": []
+            }
+    
+    # Extract layers and group by type
+    layers = exp_data.get("layers", [])
+    substrate_material = exp_data.get("substrateMaterial", "Unknown")
+    architecture = exp_data.get("architecture", "n-i-p")
+    comment = exp_data.get("description", "")
+    
+    # Build concrete stack sequence (substrate | layer1 | layer2 | ...)
+    stack_sequence = substrate_material
+    if layers:
+        layer_names = [layer.get("name", "Unknown") for layer in layers]
+        stack_sequence += " | " + " | ".join(layer_names)
+    
+    # Helper to get param value
+    def get_param_value(param: dict | None, default: str = "Unknown") -> str:
+        if param and isinstance(param, dict):
+            return str(param.get("value", default))
+        return default
+    
+    # Helper to concatenate layers of same type with |
+    def concat_layer_names(layer_list: list[dict]) -> str:
+        return " | ".join([layer.get("name", "Unknown") for layer in layer_list])
+    
+    def concat_layer_params(layer_list: list[dict], param_key: str, default: str = "Unknown") -> str:
+        values = []
+        for layer in layer_list:
+            param = layer.get(param_key)
+            values.append(get_param_value(param, default))
+        return " | ".join(values) if values else default
+    
+    # Group layers by type
+    etl_layers = [l for l in layers if l.get("layerType") == "etl"]
+    htl_layers = [l for l in layers if l.get("layerType") == "htl"]
+    perovskite_layers = [l for l in layers if l.get("layerType") == "perovskite"]
+    additional_layers = [l for l in layers if l.get("layerType") == "additional"]
+    backcontact_layers = [l for l in layers if l.get("layerType") == "back_contact"]
+    
+    # Build NOMAD structure
+    nomad_data = {
+        "data": {
+            "m_def": "perovskite_solar_cell_database.schema.PerovskiteSolarCell",
+            "ref": {
+                "free_text_comment": comment or "",
+                "name_of_person_entering_the_data": user_name,
+                "DOI_number": "",
+                "lead_author": "Unknown",
+                "publication_date": "Unknown",
+                "journal": "Unknown",
+                "extraction_method": "plains_gui"
+            },
+            "cell": {
+                "stack_sequence": stack_sequence,
+                "architecture": architecture
+            },
+            "substrate": {
+                "stack_sequence": substrate_material,
+                "thickness": "nan",
+                "deposition_procedure": "Unknown"
+            },
+            "etl": {},
+            "perovskite": {},
+            "perovskite_deposition": {},
+            "htl": {},
+            "backcontact": {},
+            "add": {},
+            "encapsulation": {},
+            "jv": {
+                "light_intensity": "nan",
+                "light_spectra": "AM 1.5G",
+                "default_Voc": "nan",
+                "default_Jsc": "nan",
+                "default_FF": "nan",
+                "default_PCE": "nan"
+            },
+            "stability": {}
         },
-        "entries": [],
+        "results": {
+            "material": {}
+        }
     }
     
-    # Create entries for each measurement file
-    for mf in measurement_files:
-        entry = {
-            "mainfile": mf.get("fileName", ""),
-            "entry_name": mf.get("fileName", "").replace(".", "_"),
-            "comment": f"Measurement file: {mf.get('fileType', 'Unknown')}",
+    # Fill ETL section
+    if etl_layers:
+        nomad_data["data"]["etl"] = {
+            "stack_sequence": concat_layer_names(etl_layers),
+            "thickness": "nan",
+            "deposition_procedure": concat_layer_params(etl_layers, "depositionMethod"),
+            "deposition_synthesis_atmosphere": concat_layer_params(etl_layers, "depositionAtmosphere"),
+            "deposition_solvents": "Unknown",
+            "deposition_reaction_solutions_compounds": "Unknown",
+            "deposition_reaction_solutions_concentrations": "Unknown",
+            "deposition_reaction_solutions_volumes": concat_layer_params(etl_layers, "solutionVolume"),
+            "deposition_reaction_solutions_temperature": "Unknown",
+            "deposition_substrate_temperature": concat_layer_params(etl_layers, "substrateTemp"),
+            "deposition_thermal_annealing_temperature": concat_layer_params(etl_layers, "annealingTemp"),
+            "deposition_thermal_annealing_time": concat_layer_params(etl_layers, "annealingTime"),
+            "deposition_thermal_annealing_atmosphere": concat_layer_params(etl_layers, "annealingAtmosphere"),
+            "surface_treatment_before_next_deposition_step": "Unknown"
+        }
+    
+    # Fill Perovskite section
+    if perovskite_layers:
+        perovskite_layer = perovskite_layers[0]  # Use first perovskite layer
+        nomad_data["data"]["perovskite"] = {
+            "dimension_3D": True,
+            "dimension_list_of_layers": "3D",
+            "composition_a_ions": "Unknown",
+            "composition_a_ions_coefficients": "nan",
+            "composition_b_ions": "Unknown",
+            "composition_b_ions_coefficients": "nan",
+            "composition_c_ions": "Unknown",
+            "composition_c_ions_coefficients": "nan",
+            "composition_short_form": perovskite_layer.get("name", "Unknown"),
+            "composition_long_form": "Unknown",
+            "thickness": "nan",
+            "band_gap": "nan",
+            "surface_treatment_before_next_deposition_step": "Unknown"
         }
         
-        # Add device information if available
-        if mf.get("deviceName"):
-            entry["metadata"] = {
-                "device_name": mf.get("deviceName"),
-                "cell": mf.get("cell", ""),
-                "pixel": mf.get("pixel", ""),
-            }
-        
-        metadata["entries"].append(entry)
+        # Fill perovskite deposition details
+        nomad_data["data"]["perovskite_deposition"] = {
+            "number_of_deposition_steps": 1,
+            "procedure": get_param_value(perovskite_layer.get("depositionMethod")),
+            "aggregation_state_of_reactants": "Unknown",
+            "synthesis_atmosphere": get_param_value(perovskite_layer.get("depositionAtmosphere")),
+            "synthesis_atmosphere_pressure_total": "Unknown",
+            "synthesis_atmosphere_pressure_partial": "Unknown",
+            "synthesis_atmosphere_relative_humidity": "Unknown",
+            "solvents": "Unknown",
+            "solvents_mixing_ratios": "Unknown",
+            "solvents_supplier": "Unknown",
+            "solvents_purity": "Unknown",
+            "reaction_solutions_compounds": "Unknown",
+            "reaction_solutions_compounds_supplier": "Unknown",
+            "reaction_solutions_compounds_purity": "Unknown",
+            "reaction_solutions_concentrations": "Unknown",
+            "reaction_solutions_volumes": get_param_value(perovskite_layer.get("solutionVolume")),
+            "reaction_solutions_age": "Unknown",
+            "reaction_solutions_temperature": "Unknown",
+            "substrate_temperature": get_param_value(perovskite_layer.get("substrateTemp")),
+            "quenching_induced_crystallisation": False,
+            "quenching_media": get_param_value(perovskite_layer.get("dryingMethod")),
+            "quenching_media_mixing_ratios": "Unknown",
+            "quenching_media_volume": "Unknown",
+            "quenching_media_additives_compounds": "Unknown",
+            "quenching_media_additives_concentrations": "Unknown",
+            "thermal_annealing_temperature": get_param_value(perovskite_layer.get("annealingTemp")),
+            "thermal_annealing_time": get_param_value(perovskite_layer.get("annealingTime")),
+            "thermal_annealing_atmosphere": get_param_value(perovskite_layer.get("annealingAtmosphere")),
+            "thermal_annealing_relative_humidity": "Unknown",
+            "thermal_annealing_pressure": "Unknown",
+            "solvent_annealing": False,
+            "solvent_annealing_timing": "Unknown",
+            "solvent_annealing_solvent_atmosphere": "Unknown",
+            "solvent_annealing_time": "Unknown",
+            "solvent_annealing_temperature": "Unknown",
+            "after_treatment_of_formed_perovskite": False,
+            "after_treatment_of_formed_perovskite_method": "Unknown"
+        }
     
-    # Add device group information
-    if device_groups:
-        metadata["device_groups"] = []
-        for dg in device_groups:
-            group_info = {
-                "name": dg.get("deviceName", "Unknown"),
-                "substrate_id": dg.get("assignedSubstrateId"),
-                "files": [f.get("fileName") for f in dg.get("files", [])],
-            }
-            metadata["device_groups"].append(group_info)
+    # Fill HTL section
+    if htl_layers:
+        nomad_data["data"]["htl"] = {
+            "stack_sequence": concat_layer_names(htl_layers),
+            "thickness_list": "nan",
+            "deposition_procedure": concat_layer_params(htl_layers, "depositionMethod"),
+            "deposition_synthesis_atmosphere": concat_layer_params(htl_layers, "depositionAtmosphere"),
+            "deposition_solvents": "Unknown",
+            "deposition_reaction_solutions_compounds": "Unknown",
+            "deposition_reaction_solutions_concentrations": "Unknown",
+            "deposition_reaction_solutions_volumes": concat_layer_params(htl_layers, "solutionVolume"),
+            "deposition_reaction_solutions_temperature": "Unknown",
+            "deposition_substrate_temperature": concat_layer_params(htl_layers, "substrateTemp"),
+            "deposition_thermal_annealing_temperature": concat_layer_params(htl_layers, "annealingTemp"),
+            "deposition_thermal_annealing_time": concat_layer_params(htl_layers, "annealingTime"),
+            "deposition_thermal_annealing_atmosphere": concat_layer_params(htl_layers, "annealingAtmosphere"),
+            "surface_treatment_before_next_deposition_step": "Unknown"
+        }
     
-    # Add substrate information
-    if substrates:
-        metadata["substrates"] = [
-            {"id": s.get("id"), "name": s.get("name")}
-            for s in substrates
-        ]
+    # Fill Back Contact section
+    if backcontact_layers:
+        nomad_data["data"]["backcontact"] = {
+            "stack_sequence": concat_layer_names(backcontact_layers),
+            "thickness_list": "nan",
+            "deposition_procedure": concat_layer_params(backcontact_layers, "depositionMethod"),
+            "deposition_synthesis_atmosphere": concat_layer_params(backcontact_layers, "depositionAtmosphere"),
+            "deposition_solvents": "Unknown",
+            "deposition_reaction_solutions_compounds": "Unknown",
+            "deposition_reaction_solutions_concentrations": "Unknown",
+            "deposition_reaction_solutions_volumes": concat_layer_params(backcontact_layers, "solutionVolume"),
+            "deposition_reaction_solutions_temperature": "Unknown",
+            "deposition_substrate_temperature": concat_layer_params(backcontact_layers, "substrateTemp"),
+            "deposition_thermal_annealing_temperature": concat_layer_params(backcontact_layers, "annealingTemp"),
+            "deposition_thermal_annealing_time": concat_layer_params(backcontact_layers, "annealingTime"),
+            "deposition_thermal_annealing_atmosphere": concat_layer_params(backcontact_layers, "annealingAtmosphere"),
+            "surface_treatment_before_next_deposition_step": "Unknown"
+        }
     
-    # Merge custom metadata
-    if custom_metadata:
-        metadata.update(custom_metadata)
+    # Fill Additional layers section
+    if additional_layers:
+        nomad_data["data"]["add"] = {
+            "stack_sequence": concat_layer_names(additional_layers),
+            "thickness_list": "nan",
+            "deposition_procedure": concat_layer_params(additional_layers, "depositionMethod"),
+            "deposition_synthesis_atmosphere": concat_layer_params(additional_layers, "depositionAtmosphere"),
+            "deposition_solvents": "Unknown",
+            "deposition_reaction_solutions_compounds": "Unknown",
+            "deposition_reaction_solutions_concentrations": "Unknown",
+            "deposition_reaction_solutions_volumes": concat_layer_params(additional_layers, "solutionVolume"),
+            "deposition_reaction_solutions_temperature": "Unknown",
+            "deposition_substrate_temperature": concat_layer_params(additional_layers, "substrateTemp"),
+            "deposition_thermal_annealing_temperature": concat_layer_params(additional_layers, "annealingTemp"),
+            "deposition_thermal_annealing_time": concat_layer_params(additional_layers, "annealingTime"),
+            "deposition_thermal_annealing_atmosphere": concat_layer_params(additional_layers, "annealingAtmosphere"),
+            "surface_treatment_before_next_deposition_step": "Unknown"
+        }
     
-    logger.info(
-            "[yaml] Generated NOMAD metadata YAML for experiment '%s' with %d substrates, %d measurement files, and %d device groups." \
-                "nUser notes: %s\nCustom metadata keys: %s",
-            experiment_name,
-            substrates,
-            measurement_files,
-            device_groups,
-            user_notes,
-            yaml.dump(metadata, default_flow_style=False, allow_unicode=True, sort_keys=False)
-        )
-
-    return yaml.dump(metadata, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    logger.info(f"Generated NOMAD metadata for experiment {experiment_id}")
+    
+    return nomad_data
 
 
 def upload_to_nomad(

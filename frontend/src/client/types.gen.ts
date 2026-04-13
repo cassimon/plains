@@ -271,9 +271,12 @@ export type NomadConfigResponse = {
 };
 
 /**
- * Preview of NOMAD metadata YAML.
+ * Preview of NOMAD metadata.
  */
 export type NomadMetadataPreview = {
+    metadata_json: {
+        [key: string]: unknown;
+    };
     yaml_content: string;
     file_count: number;
     device_group_count: number;
