@@ -856,6 +856,19 @@ function SubstratesTab({
   const [includeUser, setIncludeUser] = useState(false)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [editingName, setEditingName] = useState("")
+  const editingInputRef = useRef<HTMLInputElement | null>(null)
+  const suppressBlurCommitRef = useRef(false)
+
+  useEffect(() => {
+    if (editingIndex === null) {
+      return
+    }
+    const raf = window.requestAnimationFrame(() => {
+      editingInputRef.current?.focus()
+      editingInputRef.current?.select()
+    })
+    return () => window.cancelAnimationFrame(raf)
+  }, [editingIndex])
 
   const updateSubstrate = (index: number, substrate: Substrate) => {
     const newSubstrates = [...experiment.substrates]
@@ -893,6 +906,29 @@ function SubstratesTab({
     })
     onUpdate({ ...experiment, substrates: newSubstrates })
   }
+
+  const commitSubstrateName = useCallback(
+    (index: number, moveToNext: boolean) => {
+      const trimmed = editingName.trim()
+      if (trimmed) {
+        updateSubstrate(index, {
+          ...experiment.substrates[index],
+          name: trimmed,
+        })
+      }
+
+      if (moveToNext && index < experiment.substrates.length - 1) {
+        const nextIndex = index + 1
+        suppressBlurCommitRef.current = true
+        setEditingIndex(nextIndex)
+        setEditingName(experiment.substrates[nextIndex].name)
+        return
+      }
+
+      setEditingIndex(null)
+    },
+    [editingName, experiment.substrates],
+  )
 
   return (
     <Stack gap="md">
@@ -1049,27 +1085,24 @@ function SubstratesTab({
                     >
                       {editingIndex === idx ? (
                         <TextInput
+                          ref={editingInputRef}
                           size="xs"
                           value={editingName}
                           onChange={(e) =>
                             setEditingName(e.currentTarget.value)
                           }
                           onBlur={() => {
-                            if (editingName.trim()) {
-                              updateSubstrate(idx, {
-                                ...substrate,
-                                name: editingName,
-                              })
+                            if (suppressBlurCommitRef.current) {
+                              suppressBlurCommitRef.current = false
+                              return
                             }
-                            setEditingIndex(null)
+                            commitSubstrateName(idx, false)
                           }}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter" && editingName.trim()) {
-                              updateSubstrate(idx, {
-                                ...substrate,
-                                name: editingName,
-                              })
-                              setEditingIndex(null)
+                            if (e.key === "Enter" || e.key === "Tab") {
+                              e.preventDefault()
+                              commitSubstrateName(idx, true)
+                              return
                             }
                             if (e.key === "Escape") {
                               setEditingIndex(null)

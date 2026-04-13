@@ -233,6 +233,17 @@ def create_nomad_metadata_yaml(
     if custom_metadata:
         metadata.update(custom_metadata)
     
+    logger.info(
+            "[yaml] Generated NOMAD metadata YAML for experiment '%s' with %d substrates, %d measurement files, and %d device groups." \
+                "nUser notes: %s\nCustom metadata keys: %s",
+            experiment_name,
+            substrates,
+            measurement_files,
+            device_groups,
+            user_notes,
+            yaml.dump(metadata, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        )
+
     return yaml.dump(metadata, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
 

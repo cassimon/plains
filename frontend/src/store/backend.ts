@@ -605,7 +605,6 @@ export class HttpBackend implements BackendAdapter {
     try {
       const res = await fetch(`${this.baseUrl}/state/`, {
         method: "PUT",
-        keepalive: true,
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
