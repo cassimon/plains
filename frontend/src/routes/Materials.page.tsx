@@ -80,6 +80,7 @@ export function MaterialsPage() {
     results,
     planes,
     updateElement,
+    removeCollectionRefs,
     pendingCollectionLink,
     setPendingCollectionLink,
     activeCollectionId,
@@ -205,6 +206,7 @@ export function MaterialsPage() {
     if (original && !COLUMNS.some((c) => original[c.key])) {
       // Row was never filled — remove it
       setMaterials((prev) => prev.filter((m) => m.id !== id))
+      removeCollectionRefs("material", [id])
     }
     setEditingId(null)
     setEditBuffer(null)
@@ -268,7 +270,9 @@ export function MaterialsPage() {
       labels: { confirm: "Delete", cancel: "Cancel" },
       confirmProps: { color: "red" },
       onConfirm: () => {
+        const deletedIds = [...selected]
         setMaterials((prev) => prev.filter((m) => !selected.has(m.id)))
+        removeCollectionRefs("material", deletedIds)
         setSelected(new Set())
         if (selectedMaterialId && selected.has(selectedMaterialId)) {
           selectMaterial(null)

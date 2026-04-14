@@ -708,6 +708,8 @@ type AppContextValue = {
   ) => CanvasCollectionElement
   updateElement: (planeId: string, element: CanvasElement) => void
   deleteElement: (planeId: string, elementId: string) => void
+  /** Remove refs of a given kind/ids from every collection across all planes */
+  removeCollectionRefs: (kind: CollectionRef["kind"], ids: string[]) => void
   /** Remove srcId and dstId, insert merged collection — all in one atomic update */
   fuseCollections: (
     planeId: string,
@@ -1089,6 +1091,38 @@ export function AppProvider({
     )
   }, [])
 
+  const removeCollectionRefs = useCallback(
+    (kind: CollectionRef["kind"], ids: string[]) => {
+      const idSet = new Set(ids)
+      if (idSet.size === 0) {
+        return
+      }
+
+      setPlanes((prev) =>
+        prev.map((plane) => {
+          let changed = false
+          const nextElements = plane.elements.map((el) => {
+            if (el.type !== "collection") {
+              return el
+            }
+            const collection = el as CanvasCollectionElement
+            const nextRefs = collection.refs.filter(
+              (ref) => !(ref.kind === kind && idSet.has(ref.id)),
+            )
+            if (nextRefs.length === collection.refs.length) {
+              return el
+            }
+            changed = true
+            return { ...collection, refs: nextRefs }
+          })
+
+          return changed ? { ...plane, elements: nextElements } : plane
+        }),
+      )
+    },
+    [],
+  )
+
   const fuseCollections = useCallback(
     (
       planeId: string,
@@ -1179,6 +1213,7 @@ export function AppProvider({
         addCollectionElement,
         updateElement,
         deleteElement,
+        removeCollectionRefs,
         fuseCollections,
         copyElementToPlane,
         moveElementToPlane,

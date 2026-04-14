@@ -1992,6 +1992,7 @@ export function ExperimentsPage() {
     results,
     planes,
     updateElement,
+    removeCollectionRefs,
     pendingCollectionLink,
     setPendingCollectionLink,
     setActiveEntity,
@@ -2070,6 +2071,7 @@ export function ExperimentsPage() {
       return
     }
     setExperiments((prev) => prev.filter((e) => e.id !== id))
+    removeCollectionRefs("experiment", [id])
     if (selectedId === id) {
       selectExperiment(null)
     }

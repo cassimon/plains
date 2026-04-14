@@ -583,6 +583,7 @@ export function SolutionsPage() {
     results,
     planes,
     updateElement,
+    removeCollectionRefs,
     pendingCollectionLink,
     setPendingCollectionLink,
     activeCollectionId,
@@ -777,6 +778,7 @@ export function SolutionsPage() {
       confirmProps: { color: "red" },
       onConfirm: () => {
         setSolutions((prev) => prev.filter((s) => s.id !== id))
+        removeCollectionRefs("solution", [id])
         if (id === selectedSolutionId) {
           selectSolution(null)
         }
