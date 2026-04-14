@@ -29,7 +29,9 @@ import {
   IconCheck,
   IconChevronDown,
   IconChevronRight,
+  IconClipboard,
   IconCloudUpload,
+  IconDownload,
   IconExternalLink,
   IconFile,
   IconFlask,
@@ -62,6 +64,33 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 // File Parsing Utilities (ported from Streamlit app)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Recursively parse any string values that are valid JSON objects/arrays.
+ * Fixes the issue where API responses contain double-stringified JSON. */
+function deepParseJsonStrings(value: unknown): unknown {
+  if (typeof value === "string") {
+    try {
+      const parsed: unknown = JSON.parse(value)
+      if (typeof parsed === "object" && parsed !== null) {
+        return deepParseJsonStrings(parsed)
+      }
+      return parsed
+    } catch {
+      return value
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.map(deepParseJsonStrings)
+  }
+  if (typeof value === "object" && value !== null) {
+    const result: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      result[k] = deepParseJsonStrings(v)
+    }
+    return result
+  }
+  return value
+}
 
 /** Get file category based on extension */
 function getFileCategory(fileName: string): MeasurementType | null {
@@ -1449,16 +1478,14 @@ function ResultsDetail({
                                 },
                               })
                             // Show fabrication metadata JSON (first substrate)
-                            console.log(
-                              "Fabrication metadata response:",
-                              preview,
+                            const cleanedJson = deepParseJsonStrings(
+                              preview.metadata_json,
                             )
                             const jsonStr = JSON.stringify(
-                              preview.metadata_json,
+                              cleanedJson,
                               null,
                               2,
                             )
-                            console.log("Stringified metadata:", jsonStr)
                             setFabricationMetadataPreview(
                               jsonStr || "No metadata available",
                             )
@@ -1834,13 +1861,13 @@ function ResultsDetail({
               <Modal
                 opened={showFabricationModal}
                 onClose={() => setShowFabricationModal(false)}
-                title="NOMAD Fabrication Metadata Preview (First Substrate)"
+                title="Review NOMAD JSON"
                 size="xl"
               >
                 <Stack gap="md">
                   <Text size="sm" c="dimmed">
-                    This shows the perovskite solar cell fabrication metadata
-                    that will be uploaded to NOMAD for the first substrate.
+                    Perovskite solar cell fabrication metadata for NOMAD upload.
+                    Use the buttons below to download or copy the JSON.
                   </Text>
                   <ScrollArea
                     style={{
@@ -1861,9 +1888,58 @@ function ResultsDetail({
                       {fabricationMetadataPreview || ""}
                     </pre>
                   </ScrollArea>
-                  <Button onClick={() => setShowFabricationModal(false)}>
-                    Close
-                  </Button>
+                  <Group justify="flex-end">
+                    <Button
+                      variant="light"
+                      color="teal"
+                      leftSection={<IconClipboard size={16} />}
+                      onClick={() => {
+                        navigator.clipboard
+                          .writeText(fabricationMetadataPreview || "")
+                          .then(() => {
+                            notifications.show({
+                              title: "Copied",
+                              message: "JSON copied to clipboard",
+                              color: "teal",
+                            })
+                          })
+                          .catch(() => {
+                            notifications.show({
+                              title: "Copy failed",
+                              message: "Could not access clipboard",
+                              color: "red",
+                            })
+                          })
+                      }}
+                    >
+                      Copy to Clipboard
+                    </Button>
+                    <Button
+                      variant="light"
+                      color="blue"
+                      leftSection={<IconDownload size={16} />}
+                      onClick={() => {
+                        const blob = new Blob(
+                          [fabricationMetadataPreview || ""],
+                          { type: "application/json" },
+                        )
+                        const url = URL.createObjectURL(blob)
+                        const a = document.createElement("a")
+                        a.href = url
+                        a.download = "nomad_metadata.json"
+                        a.click()
+                        URL.revokeObjectURL(url)
+                      }}
+                    >
+                      Download JSON
+                    </Button>
+                    <Button
+                      variant="subtle"
+                      onClick={() => setShowFabricationModal(false)}
+                    >
+                      Close
+                    </Button>
+                  </Group>
                 </Stack>
               </Modal>
 
