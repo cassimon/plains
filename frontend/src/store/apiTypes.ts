@@ -38,6 +38,8 @@ export interface ApiSolution {
   id: string
   name: string
   notes: string | null
+  handling?: string | null
+  creation_time?: string | null
   owner_id: string
   created_at: string | null
   components: ApiSolutionComponent[]
@@ -146,6 +148,8 @@ export function apiSolutionToSolution(api: ApiSolution): Solution {
   return {
     id: api.id,
     name: api.name,
+    handling: api.handling ?? "",
+    creationTime: api.creation_time ?? api.created_at ?? new Date().toISOString(),
     components: api.components.map((c) => ({
       id: c.id,
       materialId: c.material_id,
@@ -301,6 +305,8 @@ export function solutionToApiCreate(s: Solution) {
   return {
     name: s.name,
     notes: null,
+    handling: s.handling || null,
+    creation_time: s.creationTime || null,
     components: s.components
       .filter((c) => c.materialId)
       .map((c) => ({

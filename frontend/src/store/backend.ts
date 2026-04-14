@@ -487,6 +487,8 @@ export class HttpBackend implements BackendAdapter {
       const solutions = (json.solutions ?? []).map((s: any) => ({
         id: s.id,
         name: s.name,
+        handling: s.handling ?? "",
+        creationTime: s.creation_time ?? s.created_at ?? new Date().toISOString(),
         components: (s.components ?? []).map((c: any) => ({
           id: c.id,
           materialId: c.material_id,

@@ -53,6 +53,25 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
+def _safe_datetime(val: Any) -> datetime | None:
+    if not val:
+        return None
+    if isinstance(val, datetime):
+        return val
+    if isinstance(val, str):
+        raw = val.strip()
+        if not raw:
+            return None
+        # Accept common ISO input with trailing Z.
+        if raw.endswith("Z"):
+            raw = f"{raw[:-1]}+00:00"
+        try:
+            return datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+    return None
+
+
 # ---------------------------------------------------------------------------
 # GET /state/ — read state from normalised tables
 # ---------------------------------------------------------------------------
@@ -81,10 +100,19 @@ def read_state(session: SessionDep, current_user: CurrentUser) -> Any:
     solutions_out = []
     for s in solutions_db:
         if s.frontend_data:
-            solutions_out.append(s.frontend_data)
+            payload = dict(s.frontend_data)
+            if "handling" not in payload:
+                payload["handling"] = s.handling or ""
+            if "creationTime" not in payload:
+                payload["creationTime"] = (
+                    s.creation_time or s.created_at or datetime.now(timezone.utc)
+                ).isoformat()
+            solutions_out.append(payload)
         else:
             solutions_out.append({
                 "id": str(s.id), "name": s.name, "components": [],
+                "handling": s.handling or "",
+                "creationTime": (s.creation_time or s.created_at or datetime.now(timezone.utc)).isoformat(),
             })
 
     # --- Experiments ---
@@ -254,10 +282,20 @@ def _do_sync(session: SessionDep, uid: _uuid.UUID, data: dict) -> UserStatePubli
 
     for s_data in incoming_solutions:
         sid = _uuid_or_gen(s_data.get("id"))
+        has_creation_time = (
+            "creationTime" in s_data or "creation_time" in s_data
+        )
+        creation_time = _safe_datetime(
+            s_data.get("creationTime") or s_data.get("creation_time")
+        )
         incoming_sol_ids.add(sid)
         if sid in existing_sols:
             sol = existing_sols[sid]
             sol.name = s_data.get("name") or sol.name
+            if "handling" in s_data:
+                sol.handling = s_data.get("handling")
+            if has_creation_time and creation_time is not None:
+                sol.creation_time = creation_time
             sol.frontend_data = s_data
             flag_modified(sol, "frontend_data")
             session.add(sol)
@@ -266,6 +304,8 @@ def _do_sync(session: SessionDep, uid: _uuid.UUID, data: dict) -> UserStatePubli
                 id=sid,
                 owner_id=uid,
                 name=s_data.get("name", ""),
+                handling=s_data.get("handling"),
+                creation_time=creation_time or datetime.now(timezone.utc),
                 frontend_data=s_data,
             )
             session.add(sol)

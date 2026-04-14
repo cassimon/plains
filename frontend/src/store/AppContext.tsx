@@ -317,11 +317,19 @@ export type SolutionComponent = {
 export type Solution = {
   id: string
   name: string
+  handling: string
+  creationTime: string
   components: SolutionComponent[]
 }
 
 export function newSolution(): Solution {
-  return { id: crypto.randomUUID(), name: "New Solution", components: [] }
+  return {
+    id: crypto.randomUUID(),
+    name: "New Solution",
+    handling: "",
+    creationTime: new Date().toISOString(),
+    components: [],
+  }
 }
 
 export function newComponent(): SolutionComponent {

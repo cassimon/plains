@@ -194,6 +194,8 @@ class SolutionComponentPublic(SolutionComponentBase):
 class SolutionBase(SQLModel):
     name: str = Field(min_length=1, max_length=255)
     notes: str | None = None
+    handling: str | None = Field(default=None, max_length=255)
+    creation_time: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
 
 
 class SolutionCreate(SolutionBase):

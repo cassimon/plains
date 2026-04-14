@@ -46,6 +46,35 @@ import {
   useEntityCollection,
 } from "../store/AppContext"
 
+function toDateTimeLocalValue(isoValue: string | undefined): string {
+  if (!isoValue) {
+    return ""
+  }
+  const d = new Date(isoValue)
+  if (Number.isNaN(d.getTime())) {
+    return ""
+  }
+
+  const pad2 = (n: number) => String(n).padStart(2, "0")
+  const year = d.getFullYear()
+  const month = pad2(d.getMonth() + 1)
+  const day = pad2(d.getDate())
+  const hour = pad2(d.getHours())
+  const minute = pad2(d.getMinutes())
+  return `${year}-${month}-${day}T${hour}:${minute}`
+}
+
+function fromDateTimeLocalValue(localValue: string): string | null {
+  if (!localValue) {
+    return null
+  }
+  const d = new Date(localValue)
+  if (Number.isNaN(d.getTime())) {
+    return null
+  }
+  return d.toISOString()
+}
+
 // ── Component row (material/solution + amount + unit) ─────────────────────────
 
 type ComponentRowProps = {
@@ -335,6 +364,10 @@ function SolutionCard({
   }
   const [editingName, setEditingName] = useState(false)
   const [nameBuffer, setNameBuffer] = useState(solution.name)
+  const [handlingBuffer, setHandlingBuffer] = useState(solution.handling ?? "")
+  const [creationTimeBuffer, setCreationTimeBuffer] = useState(
+    toDateTimeLocalValue(solution.creationTime),
+  )
   const [editingComponentId, setEditingComponentId] = useState<string | null>(
     null,
   )
@@ -349,6 +382,11 @@ function SolutionCard({
     }
   }, [editingComponentId, editingName, onEditingChange, solution.id])
 
+  useEffect(() => {
+    setHandlingBuffer(solution.handling ?? "")
+    setCreationTimeBuffer(toDateTimeLocalValue(solution.creationTime))
+  }, [solution.creationTime, solution.handling])
+
   const commitName = () => {
     onUpdate({ ...solution, name: nameBuffer.trim() || solution.name })
     setEditingName(false)
@@ -360,6 +398,25 @@ function SolutionCard({
     onUpdate(updated)
     setEditingComponentId(c.id)
     setComponentBuffer(c)
+  }
+
+  const commitHandling = () => {
+    if ((solution.handling ?? "") === handlingBuffer) {
+      return
+    }
+    onUpdate({ ...solution, handling: handlingBuffer })
+  }
+
+  const commitCreationTime = () => {
+    const parsed = fromDateTimeLocalValue(creationTimeBuffer)
+    if (!parsed) {
+      setCreationTimeBuffer(toDateTimeLocalValue(solution.creationTime))
+      return
+    }
+    if (parsed === solution.creationTime) {
+      return
+    }
+    onUpdate({ ...solution, creationTime: parsed })
   }
 
   const commitComponent = () => {
@@ -501,6 +558,34 @@ function SolutionCard({
 
       <Collapse in={open}>
         <Divider my="sm" />
+        <Group grow mb="xs" align="end">
+          <TextInput
+            label="Handling"
+            size="xs"
+            value={handlingBuffer}
+            onChange={(e) => setHandlingBuffer(e.currentTarget.value)}
+            onBlur={commitHandling}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                commitHandling()
+              }
+            }}
+            placeholder="e.g. Store under nitrogen"
+          />
+          <TextInput
+            label="Creation Time"
+            size="xs"
+            type="datetime-local"
+            value={creationTimeBuffer}
+            onChange={(e) => setCreationTimeBuffer(e.currentTarget.value)}
+            onBlur={commitCreationTime}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                commitCreationTime()
+              }
+            }}
+          />
+        </Group>
         <ScrollArea>
           <Table withColumnBorders withTableBorder>
             <Table.Thead>
