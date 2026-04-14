@@ -29,6 +29,7 @@ import { modals } from "@mantine/modals"
 import {
   IconChevronDown,
   IconChevronRight,
+  IconCopy,
   IconFlask,
   IconInfoCircle,
   IconLayersLinked,
@@ -1860,12 +1861,14 @@ function ExperimentListItem({
   isSelected,
   onSelect,
   onDelete,
+  onCopy,
   collectionColor,
 }: {
   experiment: Experiment
   isSelected: boolean
   onSelect: () => void
   onDelete: () => void
+  onCopy: () => void
   collectionColor?: string
 }) {
   const status = getExperimentStatus(experiment)
@@ -1917,17 +1920,30 @@ function ExperimentListItem({
           </Group>
         </Box>
 
-        <ActionIcon
-          size="sm"
-          variant="subtle"
-          color="red"
-          onClick={(e) => {
-            e.stopPropagation()
-            onDelete()
-          }}
-        >
-          <IconTrash size={14} />
-        </ActionIcon>
+        <Group gap={2} wrap="nowrap">
+          <ActionIcon
+            size="sm"
+            variant="subtle"
+            color="teal"
+            onClick={(e) => {
+              e.stopPropagation()
+              onCopy()
+            }}
+          >
+            <IconCopy size={14} />
+          </ActionIcon>
+          <ActionIcon
+            size="sm"
+            variant="subtle"
+            color="red"
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete()
+            }}
+          >
+            <IconTrash size={14} />
+          </ActionIcon>
+        </Group>
       </Group>
     </Paper>
   )
@@ -1953,7 +1969,7 @@ export function ExperimentsPage() {
     activeCollectionId,
     activePlaneId,
   } = useAppContext()
-  const { getEntityColor, isEntityVisible, getEntityPlane } =
+  const { getEntityColor, isEntityVisible, getEntityPlane, getEntityCollection } =
     useEntityCollection()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const processedPendingRequestIdsRef = useRef<Set<string>>(new Set())
@@ -2037,6 +2053,49 @@ export function ExperimentsPage() {
     if (selectedId === id) {
       selectExperiment(null)
     }
+  }
+
+  const copyExperiment = (id: string) => {
+    const original = experiments.find((e) => e.id === id)
+    if (!original) return
+    const layerIdMap = new Map(
+      original.layers.map((l) => [l.id, crypto.randomUUID()]),
+    )
+    const copied: Experiment = {
+      ...original,
+      id: crypto.randomUUID(),
+      name: `Copy of ${original.name}`,
+      hasResults: false,
+      layers: original.layers.map((l) => ({ ...l, id: layerIdMap.get(l.id)! })),
+      substrates: original.substrates.map((s) => {
+        const newParamValues: { [key: string]: string } = {}
+        if (s.parameterValues) {
+          for (const [key, value] of Object.entries(s.parameterValues)) {
+            const colonIdx = key.indexOf(":")
+            const oldLayerId = key.slice(0, colonIdx)
+            const rest = key.slice(colonIdx)
+            const newLayerId = layerIdMap.get(oldLayerId)
+            if (newLayerId) {
+              newParamValues[`${newLayerId}${rest}`] = value
+            }
+          }
+        }
+        return {
+          ...s,
+          id: crypto.randomUUID(),
+          parameterValues: s.parameterValues ? newParamValues : undefined,
+        }
+      }),
+    }
+    setExperiments((prev) => [...prev, copied])
+    const owner = getEntityCollection("experiment", id)
+    if (owner) {
+      updateElement(owner.plane.id, {
+        ...owner.collection,
+        refs: [...owner.collection.refs, { kind: "experiment" as const, id: copied.id }],
+      })
+    }
+    selectExperiment(copied.id)
   }
 
   const createExperiment = () => {
@@ -2176,6 +2235,7 @@ export function ExperimentsPage() {
                         isSelected={selectedId === exp.id}
                         onSelect={() => selectExperiment(exp.id)}
                         onDelete={() => deleteExperiment(exp.id)}
+                        onCopy={() => copyExperiment(exp.id)}
                         collectionColor={
                           getEntityColor("experiment", exp.id) ?? undefined
                         }
@@ -2204,6 +2264,7 @@ export function ExperimentsPage() {
                         isSelected={selectedId === exp.id}
                         onSelect={() => selectExperiment(exp.id)}
                         onDelete={() => deleteExperiment(exp.id)}
+                        onCopy={() => copyExperiment(exp.id)}
                         collectionColor={
                           getEntityColor("experiment", exp.id) ?? undefined
                         }
@@ -2221,6 +2282,7 @@ export function ExperimentsPage() {
                   isSelected={selectedId === exp.id}
                   onSelect={() => selectExperiment(exp.id)}
                   onDelete={() => deleteExperiment(exp.id)}
+                  onCopy={() => copyExperiment(exp.id)}
                   collectionColor={
                     getEntityColor("experiment", exp.id) ?? undefined
                   }

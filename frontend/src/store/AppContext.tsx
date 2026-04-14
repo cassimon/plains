@@ -1491,10 +1491,35 @@ export function useEntityCollection() {
     [activePlane, planeReferencedEntities, allReferencedEntities],
   )
 
+  /**
+   * Returns { plane, collection } that owns an entity, or null if unowned.
+   * Searches all planes (not just the active one) so copy always lands in
+   * the right collection regardless of the current view.
+   */
+  const getEntityCollection = useCallback(
+    (
+      kind: CollectionRef["kind"],
+      id: string,
+    ): { plane: Plane; collection: CanvasCollectionElement } | null => {
+      for (const plane of planes) {
+        for (const el of plane.elements) {
+          if (el.type !== "collection") continue
+          const col = el as CanvasCollectionElement
+          if (col.refs.some((r) => r.kind === kind && r.id === id)) {
+            return { plane, collection: col }
+          }
+        }
+      }
+      return null
+    },
+    [planes],
+  )
+
   return {
     getEntityColor,
     isEntityVisible,
     getEntityPlane,
+    getEntityCollection,
     activePlane,
     isEntityOnActivePlane,
   }

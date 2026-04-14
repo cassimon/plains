@@ -19,6 +19,7 @@ import {
   IconCheck,
   IconChevronDown,
   IconChevronUp,
+  IconCopy,
   IconInfoCircle,
   IconPencil,
   IconPlus,
@@ -87,7 +88,7 @@ export function MaterialsPage() {
     activePlaneId,
     setActiveEntity,
   } = useAppContext()
-  const { getEntityColor, isEntityVisible, getEntityPlane } =
+  const { getEntityColor, isEntityVisible, getEntityPlane, getEntityCollection } =
     useEntityCollection()
   const [sort, setSort] = useState<SortState>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -178,6 +179,23 @@ export function MaterialsPage() {
       const cmp = av.localeCompare(bv)
       return sort.direction === "asc" ? cmp : -cmp
     })
+
+  const copyMaterial = (m: Material) => {
+    const copied: Material = {
+      ...m,
+      id: crypto.randomUUID(),
+      name: `Copy of ${m.name}`,
+    }
+    setMaterials((prev) => [...prev, copied])
+    const owner = getEntityCollection("material", m.id)
+    if (owner) {
+      updateElement(owner.plane.id, {
+        ...owner.collection,
+        refs: [...owner.collection.refs, { kind: "material" as const, id: copied.id }],
+      })
+    }
+    startEdit(copied)
+  }
 
   const addMaterial = () => {
     const m = newMaterial()
@@ -385,16 +403,28 @@ export function MaterialsPage() {
                 </Tooltip>
               </>
             ) : (
-              <Tooltip label="Edit">
-                <ActionIcon
-                  size="sm"
-                  variant="subtle"
-                  color="blue"
-                  onClick={() => startEdit(material)}
-                >
-                  <IconPencil size={14} />
-                </ActionIcon>
-              </Tooltip>
+              <>
+                <Tooltip label="Edit">
+                  <ActionIcon
+                    size="sm"
+                    variant="subtle"
+                    color="blue"
+                    onClick={() => startEdit(material)}
+                  >
+                    <IconPencil size={14} />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Duplicate">
+                  <ActionIcon
+                    size="sm"
+                    variant="subtle"
+                    color="teal"
+                    onClick={() => copyMaterial(material)}
+                  >
+                    <IconCopy size={14} />
+                  </ActionIcon>
+                </Tooltip>
+              </>
             )}
           </Group>
         </Table.Td>

@@ -28,6 +28,7 @@ import {
   IconCheck,
   IconChevronDown,
   IconChevronRight,
+  IconCopy,
   IconInfoCircle,
   IconPencil,
   IconPlus,
@@ -317,6 +318,7 @@ type SolutionCardProps = {
   solution: Solution
   onUpdate: (s: Solution) => void
   onDelete: () => void
+  onCopy: () => void
   materialOptions: { value: string; label: string }[]
   getMaterialName: (id: string) => string
   /** All solutions (used to build solution-as-component options) */
@@ -334,6 +336,7 @@ function SolutionCard({
   solution,
   onUpdate,
   onDelete,
+  onCopy,
   materialOptions,
   getMaterialName,
   allSolutionOptions,
@@ -549,6 +552,11 @@ function SolutionCard({
           </Badge>
         </Group>
 
+        <Tooltip label="Duplicate solution">
+          <ActionIcon size="sm" variant="subtle" color="teal" onClick={onCopy}>
+            <IconCopy size={14} />
+          </ActionIcon>
+        </Tooltip>
         <Tooltip label="Delete solution">
           <ActionIcon size="sm" variant="subtle" color="red" onClick={onDelete}>
             <IconTrash size={14} />
@@ -679,6 +687,7 @@ export function SolutionsPage() {
     getEntityColor,
     isEntityVisible,
     getEntityPlane,
+    getEntityCollection,
     isEntityOnActivePlane,
   } = useEntityCollection()
   const [selectedSolutionId, setSelectedSolutionId] = useState<string | null>(
@@ -840,6 +849,28 @@ export function SolutionsPage() {
     setSolutions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)))
   }
 
+  const copySolution = (id: string) => {
+    const original = solutions.find((s) => s.id === id)
+    if (!original) return
+    const copied: Solution = {
+      ...original,
+      id: crypto.randomUUID(),
+      name: `Copy of ${original.name}`,
+      components: original.components.map((c) => ({
+        ...c,
+        id: crypto.randomUUID(),
+      })),
+    }
+    setSolutions((prev) => [...prev, copied])
+    const owner = getEntityCollection("solution", id)
+    if (owner) {
+      updateElement(owner.plane.id, {
+        ...owner.collection,
+        refs: [...owner.collection.refs, { kind: "solution" as const, id: copied.id }],
+      })
+    }
+  }
+
   const deleteSolution = (id: string) => {
     const sol = solutions.find((s) => s.id === id)
     const dependents = getDependentLocations("solution", id, {
@@ -955,6 +986,7 @@ export function SolutionsPage() {
                     solution={solution}
                     onUpdate={updateSolution}
                     onDelete={() => deleteSolution(solution.id)}
+                    onCopy={() => copySolution(solution.id)}
                     materialOptions={materialOptions}
                     getMaterialName={getMaterialName}
                     allSolutionOptions={allSolutionOptions}
@@ -993,6 +1025,7 @@ export function SolutionsPage() {
                     solution={solution}
                     onUpdate={updateSolution}
                     onDelete={() => deleteSolution(solution.id)}
+                    onCopy={() => copySolution(solution.id)}
                     materialOptions={materialOptions}
                     getMaterialName={getMaterialName}
                     allSolutionOptions={allSolutionOptions}
@@ -1017,6 +1050,7 @@ export function SolutionsPage() {
               solution={solution}
               onUpdate={updateSolution}
               onDelete={() => deleteSolution(solution.id)}
+              onCopy={() => copySolution(solution.id)}
               materialOptions={materialOptions}
               getMaterialName={getMaterialName}
               allSolutionOptions={allSolutionOptions}
