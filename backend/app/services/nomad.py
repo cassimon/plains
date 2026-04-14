@@ -159,6 +159,7 @@ def create_nomad_metadata_yaml(
     experiment_id: str,
     user_name: str,
     session: Any,
+    experiment_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Create NOMAD perovskite solar cell metadata JSON structure from experiment data.
@@ -170,6 +171,8 @@ def create_nomad_metadata_yaml(
         experiment_id: UUID of the experiment
         user_name: Name of user entering the data
         session: Database session for querying
+        experiment_snapshot: Optional frontend experiment payload to use directly
+            (preferred for preview/upload so latest UI edits are reflected)
     
     Returns:
         Dictionary containing NOMAD metadata structure
@@ -193,16 +196,23 @@ def create_nomad_metadata_yaml(
     if not experiment:
         raise ValueError(f"Experiment {experiment_id} not found")
     
-    # Extract frontend data which contains full experiment definition
-    frontend_data = experiment.frontend_data or {}
-    
-    # Try to get experiment data using both string and UUID representations
-    exp_id_str = str(experiment_id)
-    exp_data = frontend_data.get("experiments", {}).get(exp_id_str) or {}
-    
-    if not exp_data:
-        # Also try with the database experiment ID
-        exp_data = frontend_data.get("experiments", {}).get(str(experiment.id)) or {}
+    exp_data: dict[str, Any] = {}
+
+    # Prefer request-provided experiment data so metadata preview reflects
+    # unsaved/live edits from the UI.
+    if experiment_snapshot and isinstance(experiment_snapshot, dict):
+        exp_data = experiment_snapshot
+    else:
+        # Extract frontend data which contains full experiment definition
+        frontend_data = experiment.frontend_data or {}
+
+        # Try to get experiment data using both string and UUID representations
+        exp_id_str = str(experiment_id)
+        exp_data = frontend_data.get("experiments", {}).get(exp_id_str) or {}
+
+        if not exp_data:
+            # Also try with the database experiment ID
+            exp_data = frontend_data.get("experiments", {}).get(str(experiment.id)) or {}
     
     if not exp_data:
         # Log available keys for debugging
@@ -321,7 +331,8 @@ def create_nomad_metadata_yaml(
             "stability": {}
         },
         "results": {
-            "material": {}
+            "material": {"Hello World":"Test"
+                         }
         }
     }
     

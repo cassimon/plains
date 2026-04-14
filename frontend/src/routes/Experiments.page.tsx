@@ -425,8 +425,8 @@ function ProcessParamInput({
         >
           <Text size="xs" c="dimmed">
             <IconInfoCircle size={12} style={{ verticalAlign: "middle" }} />{" "}
-            Variation editor coming soon. Define different values for different
-            substrates here.
+            Variation editor tab created. Define different values for different
+            substrates there.
           </Text>
         </Paper>
       )}
@@ -723,6 +723,7 @@ function ParameterVariationTab({
   )
   const [helperValue, setHelperValue] = useState("")
   const [helperCount, setHelperCount] = useState(1)
+  const helperValueInputRef = useRef<HTMLInputElement>(null)
 
   const toggleParam = (paramKey: string) => {
     setSelectedParamKeys((prev) => {
@@ -774,8 +775,7 @@ function ParameterVariationTab({
     })
 
     onUpdate({ ...experiment, substrates: newSubstrates })
-    setHelperValue("")
-    setHelperCount(1)
+    helperValueInputRef.current?.focus()
   }
 
   return (
@@ -816,6 +816,7 @@ function ParameterVariationTab({
             placeholder="e.g., 150°C"
             size="xs"
             value={helperValue}
+            ref={helperValueInputRef}
             onChange={(e) => setHelperValue(e.currentTarget.value)}
             style={{ flex: 1 }}
           />

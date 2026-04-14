@@ -1364,6 +1364,9 @@ function ResultsDetail({
                                 requestBody: {
                                   experiment_id: experiment.id,
                                   experiment_name: experiment.name,
+                                  custom_metadata: {
+                                    experiment,
+                                  },
                                   substrates: substrates,
                                   measurement_files: results.files.map((f) => ({
                                     fileName: f.fileName,
@@ -1415,6 +1418,9 @@ function ResultsDetail({
                                 requestBody: {
                                   experiment_id: experiment.id,
                                   experiment_name: experiment.name,
+                                  custom_metadata: {
+                                    experiment,
+                                  },
                                   substrates: substrates,
                                   measurement_files: results.files.map((f) => ({
                                     fileName: f.fileName,
@@ -1521,6 +1527,9 @@ function ResultsDetail({
                                 const requestData: NomadUploadRequest = {
                                   experiment_id: experiment.id,
                                   experiment_name: experiment.name,
+                                  custom_metadata: {
+                                    experiment,
+                                  },
                                   substrates: substrates,
                                   measurement_files: results.files.map((f) => ({
                                     fileName: f.fileName,
