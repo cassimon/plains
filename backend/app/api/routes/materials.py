@@ -5,8 +5,7 @@ from fastapi import APIRouter, HTTPException
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
-from app.crud import create_material, update_material
-from app.models import Material, MaterialCreate, MaterialPublic, MaterialsPublic, MaterialUpdate
+from app.models import Material, MaterialCreate, MaterialPublic, MaterialsPublic, MaterialUpdate, Message
 
 router = APIRouter(prefix="/materials", tags=["materials"])
 
@@ -53,18 +52,19 @@ def read_material(session: SessionDep, current_user: CurrentUser, id: uuid.UUID)
 
 
 @router.post("/", response_model=MaterialPublic)
-def create_item(
+def create_material(
     *, session: SessionDep, current_user: CurrentUser, material_in: MaterialCreate
 ) -> Any:
     """Create new material."""
-    material = create_material(
-        session=session, material_in=material_in, owner_id=current_user.id
-    )
+    material = Material.model_validate(material_in, update={"owner_id": current_user.id})
+    session.add(material)
+    session.commit()
+    session.refresh(material)
     return material
 
 
 @router.put("/{id}", response_model=MaterialPublic)
-def update_item(
+def update_material(
     *,
     session: SessionDep,
     current_user: CurrentUser,
@@ -77,14 +77,16 @@ def update_item(
         raise HTTPException(status_code=404, detail="Material not found")
     if not current_user.is_superuser and (material.owner_id != current_user.id):
         raise HTTPException(status_code=403, detail="Not enough permissions")
-    material = update_material(session=session, db_material=material, material_in=material_in)
+    update_data = material_in.model_dump(exclude_unset=True)
+    material.sqlmodel_update(update_data)
+    session.add(material)
+    session.commit()
+    session.refresh(material)
     return material
 
 
 @router.delete("/{id}")
-def delete_material(
-    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
-) -> Any:
+def delete_material(session: SessionDep, current_user: CurrentUser, id: uuid.UUID) -> Any:
     """Delete material."""
     material = session.get(Material, id)
     if not material:

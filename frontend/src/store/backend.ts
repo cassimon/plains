@@ -371,64 +371,255 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
 }
 
 /**
- * HTTP adapter that persists the full AppSnapshot as a JSON blob via
- * `GET/PUT /api/v1/state`.  The JWT access token is read from localStorage
- * (`access_token` key), matching the template's auth flow.
+ * HTTP-based backend adapter for Plains.
  *
- * Only `load()` and `save()` hit the network.  Per-entity methods delegate to
- * the in-memory copy so that the AppProvider's periodic save flushes everything
- * in one request.
+ * Persistence strategy:
+ * - Prefer `GET/PUT /state/` for full snapshot round-trip (exact AppContext sync).
+ * - Fall back to `GET /state/bulk` for normalized bootstrap data when `/state/` is empty.
+ *
+ * Per-entity methods mutate the in-memory copy; `save()` persists the snapshot.
  */
 export class HttpBackend implements BackendAdapter {
   private data: AppSnapshot = { ...EMPTY_SNAPSHOT }
 
-  constructor(private baseUrl: string = "/api/v1") {}
+  constructor(private baseUrl: string = `${import.meta.env.VITE_API_URL}/api/v1`) {}
 
-  private getToken(): string {
-    const token = localStorage.getItem("access_token")
-    if (!token) throw new Error("Not authenticated")
-    return token
+  private getToken(): string | null {
+    return localStorage.getItem("access_token")
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   async load(): Promise<AppSnapshot> {
-    const res = await fetch(`${this.baseUrl}/state/`, {
-      headers: { Authorization: `Bearer ${this.getToken()}` },
-    })
-    if (!res.ok) {
-      console.warn(`[HttpBackend] load failed (${res.status}), starting fresh`)
+    try {
+      console.log("[HttpBackend] load() called, baseUrl:", this.baseUrl)
+      const token = this.getToken()
+      if (!token) {
+        console.warn("[HttpBackend] load() skipped — no token")
+        return { ...EMPTY_SNAPSHOT }
+      }
+      const stateRes = await fetch(`${this.baseUrl}/state/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      console.log("[HttpBackend] GET /state/ response:", stateRes.status)
+      if (stateRes.ok) {
+        const stateJson = await stateRes.json()
+        console.log("[HttpBackend] /state/ response data keys:", Object.keys(stateJson))
+        const raw = stateJson.data ?? {}
+        console.log("[HttpBackend] /state/ data keys:", Object.keys(raw),
+          "materials:", Array.isArray(raw.materials) ? raw.materials.length : "none",
+          "planes:", Array.isArray(raw.planes) ? raw.planes.length : "none")
+        const hasSnapshotData =
+          Array.isArray(raw.materials) ||
+          Array.isArray(raw.solutions) ||
+          Array.isArray(raw.experiments) ||
+          Array.isArray(raw.results) ||
+          Array.isArray(raw.planes)
+
+        if (hasSnapshotData) {
+          this.data = {
+            materials: raw.materials ?? [],
+            solutions: raw.solutions ?? [],
+            experiments: raw.experiments ?? [],
+            results: raw.results ?? [],
+            planes: raw.planes ?? [],
+          }
+          console.log("[HttpBackend] loaded from /state/ snapshot:",
+            "materials:", this.data.materials.length,
+            "planes:", this.data.planes.length,
+            "elements:", this.data.planes.reduce((n, p) => n + p.elements.length, 0))
+          return { ...this.data }
+        }
+      }
+
+      const bulkRes = await fetch(`${this.baseUrl}/state/bulk`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!bulkRes.ok) {
+        console.warn(
+          `[HttpBackend] bulk load failed (${bulkRes.status}), starting fresh`,
+        )
+        return { ...EMPTY_SNAPSHOT }
+      }
+      const json = await bulkRes.json()
+      // Apply type conversions from API format to AppContext format
+      const materials = (json.materials ?? []).map((m: any) => ({
+        id: m.id,
+        type: "",
+        name: m.name,
+        supplier: m.supplier ?? "",
+        supplierNumber: "",
+        casNumber: m.cas_number ?? "",
+        pubchemCid: "",
+        inventoryLabel: "",
+        purity: "",
+      }))
+      
+      const solutions = (json.solutions ?? []).map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        components: (s.components ?? []).map((c: any) => ({
+          id: c.id,
+          materialId: c.material_id,
+          solutionId: undefined,
+          amount: String(c.amount),
+          unit: c.unit as "mg" | "ml",
+        })),
+      }))
+      
+      const experiments = (json.experiments ?? []).map((e: any) => ({
+        id: e.id,
+        name: e.name,
+        description: e.description ?? "",
+        date: e.created_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+        architecture: "n-i-p" as const,
+        substrateMaterial: "Glass/ITO",
+        substrateWidth: 2.5,
+        substrateLength: 2.5,
+        numSubstrates: (e.substrates ?? []).length || 1,
+        devicesPerSubstrate: 4,
+        deviceArea: e.active_area_cm2 ?? 0.09,
+        deviceType: (e.device_type as "film" | "half" | "full") ?? "film",
+        layers: (e.layers ?? []).map((l: any, i: number) => ({
+          id: l.id,
+          name: l.name,
+          color: ["#FF6B6B", "#4ECDC4", "#45B7D1"][i % 3],
+          materialId: l.material_id ?? undefined,
+          solutionId: l.solution_id ?? undefined,
+          notes: l.notes ?? undefined,
+        })),
+        substrates: (e.substrates ?? []).map((s: any) => ({
+          id: s.id,
+          name: s.name,
+        })),
+        hasResults: false,
+      }))
+      
+      const results = (json.results ?? []).map((r: any) => ({
+        id: r.id,
+        experimentId: r.experiment_id,
+        files: (r.measurement_files ?? []).map((f: any) => ({
+          id: f.id,
+          fileName: f.filename,
+          fileType: f.file_type as any,
+          deviceName: "",
+          cell: "",
+          pixel: "",
+        })),
+        deviceGroups: (r.device_groups ?? []).map((g: any) => ({
+          id: g.id,
+          deviceName: g.name,
+          files: [],
+          assignedSubstrateId: null,
+        })),
+        groupingStrategy: "search" as const,
+        matchingStrategy: "fuzzy" as const,
+        updatedAt: r.created_at ?? new Date().toISOString(),
+      }))
+      
+      const planes = (json.planes ?? []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        elements: (p.elements ?? []).map((e: any) => {
+          const tryParseJson = (s: string) => {
+            try {
+              return JSON.parse(s)
+            } catch {
+              return null
+            }
+          }
+          const parsed = e.content ? tryParseJson(e.content) : null
+          
+          if (e.element_type === "collection") {
+            return {
+              id: e.id,
+              type: "collection" as const,
+              position: { x: e.x, y: e.y },
+              size: { x: e.width, y: e.height },
+              name: parsed?.name ?? "Collection",
+              refs: parsed?.refs ?? [],
+              color: e.color ?? undefined,
+            }
+          } else if (e.element_type === "line") {
+            return {
+              id: e.id,
+              type: "line" as const,
+              points: parsed?.points ?? [{ x: e.x, y: e.y }, { x: e.x + e.width, y: e.y + e.height }],
+              color: e.color ?? undefined,
+            }
+          } else if (e.element_type === "plaintext") {
+            return {
+              id: e.id,
+              type: "plaintext" as const,
+              position: { x: e.x, y: e.y },
+              size: { x: e.width, y: e.height },
+              content: parsed?.content ?? e.content ?? "",
+              color: e.color ?? "#000000",
+              formatting: parsed?.formatting ?? {},
+            }
+          } else {
+            return {
+              id: e.id,
+              type: "text" as const,
+              position: { x: e.x, y: e.y },
+              size: { x: e.width, y: e.height },
+              content: e.content ?? "",
+              color: e.color ?? undefined,
+            }
+          }
+        }),
+      }))
+      
+      // Mark experiments with results
+      const experimentIdsWithResults = new Set(
+        results.map((r: ExperimentResults) => r.experimentId),
+      )
+      for (const exp of experiments) {
+        exp.hasResults = experimentIdsWithResults.has(exp.id)
+      }
+      
+      this.data = { materials, solutions, experiments, results, planes }
+      return { ...this.data }
+    } catch (err) {
+      console.error("[HttpBackend] load error:", err)
       return { ...EMPTY_SNAPSHOT }
     }
-    const json = await res.json()
-    // The API returns { data: {...}, updated_at: ... }
-    const raw = json.data ?? {}
-    this.data = {
-      materials: raw.materials ?? [],
-      solutions: raw.solutions ?? [],
-      experiments: raw.experiments ?? [],
-      results: raw.results ?? [],
-      planes: raw.planes ?? [],
-    }
-    return { ...this.data }
   }
 
   async save(snapshot: AppSnapshot): Promise<void> {
     this.data = snapshot
+    const summary = {
+      materials: snapshot.materials.length,
+      solutions: snapshot.solutions.length,
+      experiments: snapshot.experiments.length,
+      results: snapshot.results.length,
+      planes: snapshot.planes.length,
+      elements: snapshot.planes.reduce((n, p) => n + p.elements.length, 0),
+    }
+    console.log("[HttpBackend] save() called:", summary)
+    const token = this.getToken()
+    if (!token) {
+      console.warn("[HttpBackend] save() skipped — no token (already logged out)")
+      return
+    }
     try {
-      await fetch(`${this.baseUrl}/state/`, {
+      const res = await fetch(`${this.baseUrl}/state/`, {
         method: "PUT",
+        keepalive: true,
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${this.getToken()}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ data: snapshot }),
       })
+      if (!res.ok) {
+        const text = await res.text()
+        console.error("[HttpBackend] save failed:", res.status, text)
+      } else {
+        console.log("[HttpBackend] save succeeded:", res.status)
+      }
     } catch (err) {
-      console.warn(
-        "[HttpBackend] save failed, will retry on next interval",
-        err,
-      )
+      console.error("[HttpBackend] save network error:", err)
     }
   }
 
