@@ -197,6 +197,46 @@ export function MaterialsPage() {
     startEdit(copied)
   }
 
+  const deleteMaterial = (id: string) => {
+    const mat = materials.find((m) => m.id === id)
+    const dependents = getDependentLocations("material", id, {
+      solutions,
+      experiments,
+      results,
+      planes,
+    })
+    if (dependents.length > 0) {
+      modals.open({
+        title: "Cannot delete material",
+        children: (
+          <DependencyBlockModal
+            itemName={mat?.name ?? id}
+            dependents={dependents}
+          />
+        ),
+      })
+      return
+    }
+    modals.openConfirmModal({
+      title: "Delete material",
+      children: (
+        <Text size="sm">
+          Are you sure you want to delete the material "{mat?.name || id}"? This
+          cannot be undone.
+        </Text>
+      ),
+      labels: { confirm: "Delete", cancel: "Cancel" },
+      confirmProps: { color: "red" },
+      onConfirm: () => {
+        setMaterials((prev) => prev.filter((m) => m.id !== id))
+        removeCollectionRefs("material", [id])
+        if (selectedMaterialId === id) {
+          selectMaterial(null)
+        }
+      },
+    })
+  }
+
   const addMaterial = () => {
     const m = newMaterial()
     setMaterials((prev) => [...prev, m])
@@ -424,6 +464,16 @@ export function MaterialsPage() {
                     <IconCopy size={14} />
                   </ActionIcon>
                 </Tooltip>
+                <Tooltip label="Delete">
+                  <ActionIcon
+                    size="sm"
+                    variant="subtle"
+                    color="red"
+                    onClick={() => deleteMaterial(material.id)}
+                  >
+                    <IconTrash size={14} />
+                  </ActionIcon>
+                </Tooltip>
               </>
             )}
           </Group>
@@ -496,7 +546,7 @@ export function MaterialsPage() {
                   </UnstyledButton>
                 </Table.Th>
               ))}
-              <Table.Th style={{ width: rem(80) }} />
+              <Table.Th style={{ width: rem(130) }} />
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
