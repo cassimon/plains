@@ -1551,6 +1551,10 @@ function ResultsDetail({
 
                                 // Create FormData for the upload
                                 const formData = new FormData()
+                                formData.append(
+                                  "request_json",
+                                  JSON.stringify(requestData),
+                                )
 
                                 // Add uploaded files if we have them stored
                                 // Note: In production, you'd store the actual File objects
@@ -1572,17 +1576,18 @@ function ResultsDetail({
 
                                 // Make the upload request
                                 const token =
-                                  OpenAPI.TOKEN ||
-                                  localStorage.getItem("access_token")
+                                  typeof OpenAPI.TOKEN === "function"
+                                    ? await OpenAPI.TOKEN({} as any)
+                                    : OpenAPI.TOKEN ||
+                                      localStorage.getItem("access_token")
                                 const response = await fetch(
                                   `${OpenAPI.BASE}/api/v1/nomad/upload/nomad`,
                                   {
                                     method: "POST",
                                     headers: {
-                                      "Content-Type": "application/json",
                                       Authorization: `Bearer ${token}`,
                                     },
-                                    body: JSON.stringify(requestData),
+                                    body: formData,
                                   },
                                 )
 

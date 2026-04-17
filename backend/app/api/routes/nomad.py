@@ -312,7 +312,7 @@ async def upload_files_for_nomad(
 async def upload_to_nomad_endpoint(
     session: SessionDep,
     current_user: CurrentUser,
-    request: NomadUploadRequest,
+    request_json: str = Form(...),
     archive_path: str | None = None,
     files: list[UploadFile] | None = File(None),
 ) -> NomadUploadResponse:
@@ -329,6 +329,17 @@ async def upload_to_nomad_endpoint(
     - archive_path: Path to a pre-created archive (from /upload/files)
     - files: Direct file upload
     """
+
+    try:
+        request = NomadUploadRequest.model_validate_json(request_json)
+    except Exception as e:
+        logger.error("Invalid NOMAD upload metadata", exc_info=True)
+        raise HTTPException(status_code=422, detail="Invalid upload request metadata")
+
+    logger.info(
+        f"Received NOMAD upload request for experiment_id: {request.experiment_id}, experiment_name: {request.experiment_name}, archive_path: {archive_path}, file_count: {len(files) if files else 0}"
+    )
+
     if not settings.nomad_enabled:
         return NomadUploadResponse(
             success=False,
