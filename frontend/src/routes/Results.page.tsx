@@ -1686,11 +1686,22 @@ function ResultsDetail({
         measurementDate: f.measurementDate,
       })),
       device_groups: results.deviceGroups.map((g) => ({
-        name: g.deviceName,
-        substrate_name: g.assignedSubstrateId
-          ? experiment?.substrates.find((s) => s.id === g.assignedSubstrateId)
-              ?.name
-          : undefined,
+        id: g.id,
+        deviceName: g.deviceName,
+        assignedSubstrateId: g.assignedSubstrateId ?? undefined,
+        files: g.files.map((f) => ({
+          fileName: f.fileName,
+          fileType: f.fileType,
+          deviceName: f.deviceName,
+          cell: f.cell,
+          pixel: f.pixel,
+          value: f.value,
+          voc: f.voc,
+          jsc: f.jsc,
+          ff: f.ff,
+          user: f.user,
+          measurementDate: f.measurementDate,
+        })),
       })),
     }
   }, [experiment, processes, results.deviceGroups, results.files, substrates])
@@ -1736,13 +1747,22 @@ function ResultsDetail({
         return false
       }
 
-      const data = await res.json()
+      let metadataFileCount = 0
+      try {
+        const data = (await res.json()) as { metadata_file_count?: number }
+        metadataFileCount = data.metadata_file_count || 0
+      } catch (_err) {
+        // Some successful backend/proxy paths can return an empty or
+        // non-JSON body after writing the archive. Treat the 2xx status as
+        // authoritative so the workflow can still advance.
+      }
 
       setReviewConfirmed(true)
+      setWorkflowStep(3)
 
       notifications.show({
         title: "Upload Prepared",
-        message: `Archive ready with ${data.metadata_file_count || 0} YAML metadata files`,
+        message: `Archive ready with ${metadataFileCount} YAML metadata files`,
         color: "green",
       })
       return true
@@ -2253,10 +2273,7 @@ function ResultsDetail({
                                   return
                                 }
 
-                                const prepared = await handlePrepareUpload()
-                                if (prepared) {
-                                  setWorkflowStep(3)
-                                }
+                                await handlePrepareUpload()
                               })()
                             }}
                             loading={preparingUpload}
