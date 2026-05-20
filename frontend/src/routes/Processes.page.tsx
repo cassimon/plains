@@ -2478,15 +2478,6 @@ export function ProcessesPage() {
     }
   }, [selectedProcess, isEntityVisible, selectProcess])
 
-  const selectedStageIndex = useMemo(() => {
-    if (!selectedProcess || !selectedStep) {
-      return -1
-    }
-    return selectedProcess.stages.findIndex((stage) =>
-      stage.alternatives.some((step) => step.id === selectedStep.id),
-    )
-  }, [selectedProcess, selectedStep])
-
   const hasBothSubstrateAndStep = useMemo(() => {
     if (!selectedProcess) return false
     const hasSubstrate = (selectedProcess.substrateIds ?? []).length > 0

@@ -836,69 +836,6 @@ export function MaterialsPage() {
     }
   }
 
-  const searchCidByMaterialName = async (material: Material) => {
-    const typedName =
-      editBuffer && editBuffer.id === material.id
-        ? (editBuffer.name ?? "").trim()
-        : (material.name ?? "").trim()
-
-    if (!typedName) {
-      modals.open({
-        title: "Missing name",
-        children: (
-          <Text size="sm">
-            Please enter a material name first, then try "Search Name..." again.
-          </Text>
-        ),
-      })
-      return
-    }
-
-    setPubChemCidSearchingId(material.id)
-    try {
-      const response = await fetch(
-        `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(typedName)}/cids/JSON`,
-      )
-      if (!response.ok) {
-        throw new Error("PubChem lookup failed")
-      }
-
-      const data = (await response.json()) as {
-        IdentifierList?: { CID?: number[] }
-      }
-      const cid = data.IdentifierList?.CID?.[0]
-
-      if (!cid) {
-        modals.open({
-          title: "No CID found",
-          children: (
-            <Text size="sm">
-              PubChem did not return a CID for "{typedName}".
-            </Text>
-          ),
-        })
-        return
-      }
-
-      setEditBuffer((prev) =>
-        prev && prev.id === material.id
-          ? { ...prev, pubchemCid: String(cid) }
-          : prev,
-      )
-    } catch {
-      modals.open({
-        title: "PubChem search failed",
-        children: (
-          <Text size="sm">
-            Could not fetch a PubChem CID right now. Please try again.
-          </Text>
-        ),
-      })
-    } finally {
-      setPubChemCidSearchingId(null)
-    }
-  }
-
   const commitEdit = () => {
     if (!editBuffer) {
       return
