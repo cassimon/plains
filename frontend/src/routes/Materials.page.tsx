@@ -704,10 +704,12 @@ export function MaterialsPage() {
 
       setEditBuffer((prev) => {
         if (!prev || prev.id !== materialId) return prev
+        // Always update the CID when a chemical is selected
+        const updated = { ...prev, pubchemCid: result.cid }
         if (field === "casNumber") {
-          return { ...prev, casNumber: details.casNumber }
+          return { ...updated, casNumber: details.casNumber }
         }
-        return { ...prev, stateAtRt: details.stateAtRt }
+        return { ...updated, stateAtRt: details.stateAtRt }
       })
     } catch {
       // Keep existing value if fetch fails
@@ -716,6 +718,65 @@ export function MaterialsPage() {
       setPubChemModalOpen(false)
       setPubChemUpdateField(null)
       setPubChemUpdateMaterialId(null)
+    }
+  }
+
+  const fetchFieldByCid = async (
+    material: Material,
+    field: "casNumber" | "stateAtRt",
+  ) => {
+    const cid = (
+      editBuffer && editBuffer.id === material.id
+        ? (editBuffer.pubchemCid ?? "").trim()
+        : (material.pubchemCid ?? "").trim()
+    )
+
+    if (!cid) {
+      modals.open({
+        title: "Missing CID",
+        children: (
+          <Text size="sm">
+            Please enter a PubChem CID first, then try "Fetch by CID" again.
+          </Text>
+        ),
+      })
+      return
+    }
+
+    // Extract the first CID if multiple are present
+    const cidValues = extractCidValues(cid)
+    const firstCid = cidValues[0] ?? cid
+
+    setPubChemCidSearchingId(material.id)
+    try {
+      const detailRes = await fetch(
+        `https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/${firstCid}/JSON`,
+      )
+      if (!detailRes.ok) {
+        throw new Error("PubChem detail fetch failed")
+      }
+      const detailData = (await detailRes.json()) as unknown
+      const details = parsePubChemDetails(detailData)
+
+      setEditBuffer((prev) => {
+        if (!prev || prev.id !== material.id) return prev
+        if (field === "casNumber") {
+          return { ...prev, casNumber: details.casNumber }
+        }
+        return { ...prev, stateAtRt: details.stateAtRt }
+      })
+    } catch {
+      modals.open({
+        title: "PubChem fetch failed",
+        children: (
+          <Text size="sm">
+            Could not fetch data from PubChem for CID {firstCid}. Please try
+            again.
+          </Text>
+        ),
+      })
+    } finally {
+      setPubChemCidSearchingId(null)
     }
   }
 
@@ -988,6 +1049,7 @@ export function MaterialsPage() {
       )
     }
     if (colKey === "stateAtRt") {
+      const hasCid = (editBuffer.pubchemCid ?? "").trim()
       return (
         <Group gap={6} wrap="nowrap">
           <NativeSelect
@@ -1015,13 +1077,24 @@ export function MaterialsPage() {
             }}
             style={{ flex: 1 }}
           />
-          <Button
-            size="xs"
-            variant="light"
-            onClick={() => openFieldSearchModal(material, "stateAtRt")}
-          >
-            Search Name...
-          </Button>
+          {hasCid ? (
+            <Button
+              size="xs"
+              variant="light"
+              onClick={() => void fetchFieldByCid(material, "stateAtRt")}
+              loading={pubChemCidSearchingId === material.id}
+            >
+              Fetch by CID
+            </Button>
+          ) : (
+            <Button
+              size="xs"
+              variant="light"
+              onClick={() => openFieldSearchModal(material, "stateAtRt")}
+            >
+              Search Name...
+            </Button>
+          )}
         </Group>
       )
     }
@@ -1054,6 +1127,7 @@ export function MaterialsPage() {
     }
 
     if (colKey === "casNumber") {
+      const hasCid = (editBuffer.pubchemCid ?? "").trim()
       return (
         <Group gap={6} wrap="nowrap">
           <TextInput
@@ -1075,13 +1149,24 @@ export function MaterialsPage() {
             }}
             style={{ flex: 1 }}
           />
-          <Button
-            size="xs"
-            variant="light"
-            onClick={() => openFieldSearchModal(material, "casNumber")}
-          >
-            Search Name...
-          </Button>
+          {hasCid ? (
+            <Button
+              size="xs"
+              variant="light"
+              onClick={() => void fetchFieldByCid(material, "casNumber")}
+              loading={pubChemCidSearchingId === material.id}
+            >
+              Fetch by CID
+            </Button>
+          ) : (
+            <Button
+              size="xs"
+              variant="light"
+              onClick={() => openFieldSearchModal(material, "casNumber")}
+            >
+              Search Name...
+            </Button>
+          )}
         </Group>
       )
     }
