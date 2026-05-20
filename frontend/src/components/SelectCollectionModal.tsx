@@ -10,12 +10,13 @@ import {
 } from "@mantine/core"
 import { IconFolderPlus, IconPlus } from "@tabler/icons-react"
 import { useEffect, useState } from "react"
+import useAuth from "../hooks/useAuth"
 import {
   type CanvasCollectionElement,
   type CanvasElement,
   type Plane,
-  type Vec2,
   useAppContext,
+  type Vec2,
 } from "../store/AppContext"
 
 /**
@@ -101,6 +102,7 @@ export function SelectCollectionModal({
     setActivePlaneId,
     setActiveCollectionId,
   } = useAppContext()
+  const { user } = useAuth()
 
   const needsPlaneStep = activePlaneId === null
 
@@ -130,7 +132,7 @@ export function SelectCollectionModal({
     setSelectedCollectionId(null)
     setCreateNewCollection(false)
     setNewCollectionName("New Collection")
-  }, [opened]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [opened, activePlaneId, planes.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
@@ -142,9 +144,8 @@ export function SelectCollectionModal({
   /** Collections on the chosen plane (empty when creating a new plane) */
   const collections: CanvasCollectionElement[] = createNewPlane
     ? []
-    : ((chosenPlane?.elements.filter(
-        (e) => e.type === "collection",
-      ) ?? []) as CanvasCollectionElement[])
+    : ((chosenPlane?.elements.filter((e) => e.type === "collection") ??
+        []) as CanvasCollectionElement[])
 
   // ── Step 1 handlers ───────────────────────────────────────────────────────
 
@@ -171,7 +172,7 @@ export function SelectCollectionModal({
     // so that cancelling from step 2 doesn't leave a ghost plane)
     if (createNewPlane) {
       if (!newPlaneName.trim()) return
-      const p = addPlane(newPlaneName.trim())
+      const p = addPlane(newPlaneName.trim(), user?.id)
       finalPlaneId = p.id
     } else {
       if (!chosenPlaneId) return
@@ -328,7 +329,9 @@ export function SelectCollectionModal({
                 Plane
               </Text>
               <Text size="sm" fw={500}>
-                {createNewPlane ? newPlaneName || "New Plane" : chosenPlane?.name}
+                {createNewPlane
+                  ? newPlaneName || "New Plane"
+                  : chosenPlane?.name}
               </Text>
             </Box>
           )}
@@ -396,7 +399,10 @@ export function SelectCollectionModal({
               }}
             >
               <Group gap="xs">
-                <IconFolderPlus size={16} color="var(--mantine-color-green-6)" />
+                <IconFolderPlus
+                  size={16}
+                  color="var(--mantine-color-green-6)"
+                />
                 <Text size="sm" fw={500} c="green">
                   Create new collection
                 </Text>

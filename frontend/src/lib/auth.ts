@@ -1,7 +1,7 @@
 import { redirect } from "@tanstack/react-router"
 
 import { ApiError, UsersService } from "@/client"
-import { isAuthenticated, clearKeycloak } from "@/lib/keycloakInstance"
+import { clearKeycloak, isAuthenticated } from "@/lib/keycloakInstance"
 
 export const isLoggedIn = () => isAuthenticated()
 

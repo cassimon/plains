@@ -1,4 +1,8 @@
-import { type Process, PROCESS_PARAMETER_DEFINITIONS, type ProcessStep } from "@/store/AppContext"
+import {
+  PROCESS_PARAMETER_DEFINITIONS,
+  type Process,
+  type ProcessStep,
+} from "@/store/AppContext"
 
 type NamedEntity = { id: string; name: string }
 
@@ -63,7 +67,9 @@ export function buildProcessProtocolText({
   lines.push("")
   lines.push("1. Process Metadata")
   lines.push(`Name: ${process.name || "Untitled Process"}`)
-  lines.push(`Description: ${process.description?.trim() || "No description provided."}`)
+  lines.push(
+    `Description: ${process.description?.trim() || "No description provided."}`,
+  )
   lines.push(`Number of Stages: ${process.stages.length}`)
   lines.push("")
   lines.push("2. Process Stages")
@@ -82,12 +88,14 @@ export function buildProcessProtocolText({
 
     stage.alternatives.forEach((step, altIdx) => {
       const heading =
-        stage.alternatives.length > 1
-          ? `Alternative ${altIdx + 1}:`
-          : "Route:"
+        stage.alternatives.length > 1 ? `Alternative ${altIdx + 1}:` : "Route:"
       lines.push(heading)
-      lines.push(`- Name: ${step.depositionMethod?.value?.trim() || step.name || "Unnamed step"}`)
-      lines.push(`- Category: ${STEP_CATEGORY_LABELS[step.stepCategory] || step.stepCategory}`)
+      lines.push(
+        `- Name: ${step.depositionMethod?.value?.trim() || step.name || "Unnamed step"}`,
+      )
+      lines.push(
+        `- Category: ${STEP_CATEGORY_LABELS[step.stepCategory] || step.stepCategory}`,
+      )
       lines.push(
         `- Material: ${getStepSourceLabel(step, materialNameById, solutionNameById)}`,
       )
@@ -121,7 +129,9 @@ function triggerDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-export async function exportProcessProtocolAsPdf(input: ProcessExportInput): Promise<void> {
+export async function exportProcessProtocolAsPdf(
+  input: ProcessExportInput,
+): Promise<void> {
   const protocolText = buildProcessProtocolText(input)
   const { jsPDF } = await import("jspdf")
   const doc = new jsPDF({ unit: "pt", format: "a4" })
@@ -146,11 +156,15 @@ export async function exportProcessProtocolAsPdf(input: ProcessExportInput): Pro
     y += lineHeight
   })
 
-  const fileBaseName = sanitizeFileBaseName(input.process.name || "process-summary")
+  const fileBaseName = sanitizeFileBaseName(
+    input.process.name || "process-summary",
+  )
   doc.save(`${fileBaseName}.pdf`)
 }
 
-export async function exportProcessProtocolAsDocx(input: ProcessExportInput): Promise<void> {
+export async function exportProcessProtocolAsDocx(
+  input: ProcessExportInput,
+): Promise<void> {
   const docx = await import("docx")
   const materialNameById = new Map(input.materials.map((m) => [m.id, m.name]))
   const solutionNameById = new Map(input.solutions.map((s) => [s.id, s.name]))
@@ -181,7 +195,9 @@ export async function exportProcessProtocolAsDocx(input: ProcessExportInput): Pr
     new docx.Paragraph({
       children: [
         new docx.TextRun({ text: "Description: ", bold: true }),
-        new docx.TextRun(input.process.description?.trim() || "No description provided."),
+        new docx.TextRun(
+          input.process.description?.trim() || "No description provided.",
+        ),
       ],
     }),
   )
@@ -213,7 +229,9 @@ export async function exportProcessProtocolAsDocx(input: ProcessExportInput): Pr
       )
 
       if (stage.alternatives.length > 1) {
-        children.push(new docx.Paragraph({ text: "Alternative processing routes:" }))
+        children.push(
+          new docx.Paragraph({ text: "Alternative processing routes:" }),
+        )
       }
 
       stage.alternatives.forEach((step, altIdx) => {
@@ -252,11 +270,15 @@ export async function exportProcessProtocolAsDocx(input: ProcessExportInput): Pr
             children.push(new docx.Paragraph({ text: `- ${param}` }))
           })
         } else {
-          children.push(new docx.Paragraph({ text: "Parameters: No parameters set" }))
+          children.push(
+            new docx.Paragraph({ text: "Parameters: No parameters set" }),
+          )
         }
 
         if (step.notes?.trim()) {
-          children.push(new docx.Paragraph({ text: `Notes: ${step.notes.trim()}` }))
+          children.push(
+            new docx.Paragraph({ text: `Notes: ${step.notes.trim()}` }),
+          )
         }
         children.push(new docx.Paragraph({ text: "" }))
       })
@@ -265,6 +287,8 @@ export async function exportProcessProtocolAsDocx(input: ProcessExportInput): Pr
 
   const document = new docx.Document({ sections: [{ children }] })
   const blob = await docx.Packer.toBlob(document)
-  const fileBaseName = sanitizeFileBaseName(input.process.name || "process-summary")
+  const fileBaseName = sanitizeFileBaseName(
+    input.process.name || "process-summary",
+  )
   triggerDownload(blob, `${fileBaseName}.docx`)
 }

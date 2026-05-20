@@ -15,6 +15,7 @@
  *     HTTP adapter at construction time.
  */
 
+import { getTokenSync } from "../lib/keycloakInstance"
 import type {
   CanvasElement,
   Experiment,
@@ -24,7 +25,6 @@ import type {
   Process,
   Solution,
 } from "./AppContext"
-import { getTokenSync } from "../lib/keycloakInstance"
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -523,7 +523,8 @@ export class HttpBackend implements BackendAdapter {
         id: s.id,
         name: s.name,
         handling: s.handling ?? "",
-        creationTime: s.creation_time ?? s.created_at ?? new Date().toISOString(),
+        creationTime:
+          s.creation_time ?? s.created_at ?? new Date().toISOString(),
         components: (s.components ?? []).map((c: any) => ({
           id: c.id,
           materialId: c.material_id,
@@ -649,7 +650,14 @@ export class HttpBackend implements BackendAdapter {
         exp.hasResults = experimentIdsWithResults.has(exp.id)
       }
 
-      this.data = { materials, solutions, experiments, processes: [], results, planes }
+      this.data = {
+        materials,
+        solutions,
+        experiments,
+        processes: [],
+        results,
+        planes,
+      }
       // Check for emergency backup from beforeunload watchdog.
       const restoredFromBackup = this.restoreUnloadBackup()
       if (restoredFromBackup) {
@@ -700,7 +708,9 @@ export class HttpBackend implements BackendAdapter {
     } catch {
       try {
         localStorage.removeItem(UNLOAD_BACKUP_KEY)
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       return false
     }
   }
@@ -741,7 +751,9 @@ export class HttpBackend implements BackendAdapter {
         // Clear any emergency backup — the server now has the authoritative state.
         try {
           localStorage.removeItem(UNLOAD_BACKUP_KEY)
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     } catch (err) {
       console.error("[HttpBackend] save network error:", err)

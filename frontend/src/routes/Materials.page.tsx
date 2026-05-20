@@ -30,15 +30,18 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react"
-import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { DependencyBlockModal } from "../components/DependencyBlockModal"
-import { SelectCollectionModal, type CollectionConfirmParams } from "../components/SelectCollectionModal"
+import {
+  type CollectionConfirmParams,
+  SelectCollectionModal,
+} from "../components/SelectCollectionModal"
 import {
   type CanvasCollectionElement,
   getDependentLocations,
-  type MaterialCategory,
   type Material,
+  type MaterialCategory,
   newMaterial,
   useAppContext,
   useEntityCollection,
@@ -277,9 +280,8 @@ export function MaterialsPage() {
   const pendingCategoryRef = useRef<MaterialCategory | null>(null)
   const pendingImportRef = useRef<Partial<Material> | null>(null)
   const [pubChemModalOpen, setPubChemModalOpen] = useState(false)
-  const [pubChemCategory, setPubChemCategory] = useState<MaterialCategory>(
-    "chemical_compound",
-  )
+  const [pubChemCategory, setPubChemCategory] =
+    useState<MaterialCategory>("chemical_compound")
   const [pubChemQuery, setPubChemQuery] = useState("")
   const [pubChemLoading, setPubChemLoading] = useState(false)
   const [pubChemError, setPubChemError] = useState<string | null>(null)
@@ -287,9 +289,9 @@ export function MaterialsPage() {
   const [pubChemImportingCid, setPubChemImportingCid] = useState<string | null>(
     null,
   )
-  const [pubChemCidSearchingId, setPubChemCidSearchingId] = useState<string | null>(
-    null,
-  )
+  const [pubChemCidSearchingId, setPubChemCidSearchingId] = useState<
+    string | null
+  >(null)
   const [pubChemUpdateField, setPubChemUpdateField] = useState<
     "casNumber" | "stateAtRt" | null
   >(null)
@@ -309,7 +311,10 @@ export function MaterialsPage() {
 
   useEffect(() => {
     if (!editingId) {
-      if (activeEntity?.kind === "material" || activeEntity?.kind === "process") {
+      if (
+        activeEntity?.kind === "material" ||
+        activeEntity?.kind === "process"
+      ) {
         return
       }
       setActiveEntity(null)
@@ -364,7 +369,13 @@ export function MaterialsPage() {
     }
     processedPendingRequestIdsRef.current.add(pendingCollectionLink.requestId)
 
-    const { collectionId, planeId, materialCategory, processAttachment, returnTo } = pendingCollectionLink
+    const {
+      collectionId,
+      planeId,
+      materialCategory,
+      processAttachment,
+      returnTo,
+    } = pendingCollectionLink
     setPendingCollectionLink(null)
 
     if (returnTo) returnToRef.current = returnTo
@@ -399,7 +410,10 @@ export function MaterialsPage() {
               },
             }
           }
-          if (processAttachment.target === "step-material" && processAttachment.stepId) {
+          if (
+            processAttachment.target === "step-material" &&
+            processAttachment.stepId
+          ) {
             return {
               ...process,
               stages: process.stages.map((stage) => ({
@@ -478,7 +492,10 @@ export function MaterialsPage() {
     if (owner) {
       updateElement(owner.plane.id, {
         ...owner.collection,
-        refs: [...owner.collection.refs, { kind: "material" as const, id: copied.id }],
+        refs: [
+          ...owner.collection.refs,
+          { kind: "material" as const, id: copied.id },
+        ],
       })
     }
     startEdit(copied)
@@ -544,7 +561,11 @@ export function MaterialsPage() {
       const plane = planes.find((p) => p.id === activePlaneId)
       const col = plane?.elements.find((e) => e.id === activeCollectionId)
       if (col && col.type === "collection") {
-        doAddMaterial(category, { planeId: activePlaneId, collectionId: activeCollectionId, collection: col as CanvasCollectionElement })
+        doAddMaterial(category, {
+          planeId: activePlaneId,
+          collectionId: activeCollectionId,
+          collection: col as CanvasCollectionElement,
+        })
         return
       }
     }
@@ -647,14 +668,14 @@ export function MaterialsPage() {
         }
       }
 
-      const results: PubChemResult[] = (propData.PropertyTable?.Properties ?? []).map(
-        (item) => ({
-          cid: String(item.CID),
-          title: item.Title || item.IUPACName || `CID ${item.CID}`,
-          iupacName: item.IUPACName || "",
-          molecularFormula: item.MolecularFormula || "",
-        }),
-      )
+      const results: PubChemResult[] = (
+        propData.PropertyTable?.Properties ?? []
+      ).map((item) => ({
+        cid: String(item.CID),
+        title: item.Title || item.IUPACName || `CID ${item.CID}`,
+        iupacName: item.IUPACName || "",
+        molecularFormula: item.MolecularFormula || "",
+      }))
       setPubChemResults(results)
       if (results.length === 0) {
         setPubChemError("No compounds found for this query.")
@@ -980,7 +1001,9 @@ export function MaterialsPage() {
             ]}
             onChange={(e) => {
               const value = e.currentTarget.value as Material["stateAtRt"]
-              setEditBuffer((prev) => (prev ? { ...prev, stateAtRt: value } : prev))
+              setEditBuffer((prev) =>
+                prev ? { ...prev, stateAtRt: value } : prev,
+              )
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -1118,10 +1141,7 @@ export function MaterialsPage() {
     )
   }
 
-  const renderMaterialRow = (
-    material: Material,
-    categoryColumns: Column[],
-  ) => {
+  const renderMaterialRow = (material: Material, categoryColumns: Column[]) => {
     const isEditing = editingId === material.id
     return (
       <Table.Tr
@@ -1154,7 +1174,8 @@ export function MaterialsPage() {
           <Table.Td key={col.key}>
             {isEditing && editBuffer ? (
               renderCellEditor(material, col.key)
-            ) : col.key === "pubchemCid" && String(material.pubchemCid ?? "").trim() ? (
+            ) : col.key === "pubchemCid" &&
+              String(material.pubchemCid ?? "").trim() ? (
               (() => {
                 const raw = String(material.pubchemCid ?? "")
                 const cidValues = extractCidValues(raw)
@@ -1309,9 +1330,7 @@ export function MaterialsPage() {
                     }}
                     onChange={() => toggleSelectAllInCategory(itemIds)}
                     title={
-                      allSelectedInCategory
-                        ? "Deselect all"
-                        : "Select all"
+                      allSelectedInCategory ? "Deselect all" : "Select all"
                     }
                   />
                 </Table.Th>
@@ -1345,8 +1364,8 @@ export function MaterialsPage() {
                 <Table.Tr>
                   <Table.Td colSpan={columns.length + 3}>
                     <Text c="dimmed" ta="center" py="md">
-                      No {CATEGORY_LABEL[category].toLowerCase()} in the selected
-                      collection.
+                      No {CATEGORY_LABEL[category].toLowerCase()} in the
+                      selected collection.
                     </Text>
                   </Table.Td>
                 </Table.Tr>
@@ -1425,7 +1444,10 @@ export function MaterialsPage() {
               }}
               style={{ flex: 1 }}
             />
-            <Button onClick={() => void searchPubChem()} loading={pubChemLoading}>
+            <Button
+              onClick={() => void searchPubChem()}
+              loading={pubChemLoading}
+            >
               Search
             </Button>
           </Group>
@@ -1447,9 +1469,16 @@ export function MaterialsPage() {
                   <Box
                     key={result.cid}
                     p="sm"
-                    style={{ border: "1px solid var(--mantine-color-gray-3)", borderRadius: rem(8) }}
+                    style={{
+                      border: "1px solid var(--mantine-color-gray-3)",
+                      borderRadius: rem(8),
+                    }}
                   >
-                    <Group justify="space-between" align="flex-start" wrap="nowrap">
+                    <Group
+                      justify="space-between"
+                      align="flex-start"
+                      wrap="nowrap"
+                    >
                       <Box style={{ minWidth: 0 }}>
                         <Text fw={600} size="sm" truncate>
                           {result.title}
@@ -1458,7 +1487,9 @@ export function MaterialsPage() {
                           CID: {result.cid}
                         </Text>
                         {result.molecularFormula && (
-                          <Text size="xs">Formula: {result.molecularFormula}</Text>
+                          <Text size="xs">
+                            Formula: {result.molecularFormula}
+                          </Text>
                         )}
                         {result.iupacName && (
                           <Text size="xs" c="dimmed" lineClamp={2}>

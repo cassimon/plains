@@ -6,6 +6,7 @@ import {
   ColorSwatch,
   Divider,
   Group,
+  Loader,
   Modal,
   Paper,
   Popover,
@@ -20,6 +21,7 @@ import {
   Tooltip,
   useComputedColorScheme,
 } from "@mantine/core"
+import { useDebouncedValue } from "@mantine/hooks"
 import { modals } from "@mantine/modals"
 import {
   IconArrowRight,
@@ -43,22 +45,26 @@ import {
   IconPlayerPlay,
   IconPlus,
   IconPointer,
-  IconSquare,
   IconSeparatorVertical,
+  IconShare,
+  IconSquare,
   IconStack3,
+  IconTrash,
   IconUnderline,
   IconX,
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
 import {
-  type DragEvent as ReactDragEvent,
   type MouseEvent,
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useRef,
   useState,
 } from "react"
+import { PlanesService } from "../client"
+import useAuth from "../hooks/useAuth"
 import {
   type CanvasCollectionElement,
   type CanvasElement,
@@ -79,6 +85,7 @@ import {
   useAppContext,
   type Vec2,
 } from "../store/AppContext"
+import { apiPlaneToPlane } from "../store/apiTypes"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -405,9 +412,7 @@ function TextEl({
                 fontSize: "0.85rem",
                 fontWeight: textFormatting.bold ? 700 : 400,
                 fontStyle: textFormatting.italic ? "italic" : "normal",
-                textDecoration: textFormatting.underline
-                  ? "underline"
-                  : "none",
+                textDecoration: textFormatting.underline ? "underline" : "none",
                 padding: 0,
               },
             }}
@@ -806,7 +811,10 @@ function LineOverlay({
                 stroke="transparent"
                 strokeWidth={Math.max(12, strokeWidth + 8)}
                 fill="none"
-                style={{ pointerEvents: "stroke", cursor: canMove ? "grab" : "pointer" }}
+                style={{
+                  pointerEvents: "stroke",
+                  cursor: canMove ? "grab" : "pointer",
+                }}
                 onMouseEnter={() => setHovered(line.id)}
                 onMouseLeave={() => setHovered(null)}
                 onClick={(e) => {
@@ -903,9 +911,24 @@ const MATERIAL_SUBMENU_ITEMS: {
   Icon: React.ElementType
   category: MaterialCategory
 }[] = [
-  { label: "Compound", color: "teal", Icon: IconAtom, category: "chemical_compound" },
-  { label: "Com. Mixture", color: "cyan", Icon: IconPackage, category: "commercial_mixture" },
-  { label: "Substrate Mat.", color: "lime", Icon: IconLayersLinked, category: "substrate_material" },
+  {
+    label: "Compound",
+    color: "teal",
+    Icon: IconAtom,
+    category: "chemical_compound",
+  },
+  {
+    label: "Com. Mixture",
+    color: "cyan",
+    Icon: IconPackage,
+    category: "commercial_mixture",
+  },
+  {
+    label: "Substrate Mat.",
+    color: "lime",
+    Icon: IconLayersLinked,
+    category: "substrate_material",
+  },
 ]
 
 function MaterialActionBubble({
@@ -936,11 +959,30 @@ function MaterialActionBubble({
         variant="filled"
         color="teal"
         radius="xl"
-        onMouseEnter={() => { cancelClose(); setOpen(true); onHoverStart?.() }}
-        onMouseLeave={() => { scheduleClose(); onHoverEnd?.() }}
-        onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); (e.target as HTMLElement).setPointerCapture(e.pointerId) }}
-        onPointerUp={(e) => { e.stopPropagation(); e.preventDefault(); (e.target as HTMLElement).releasePointerCapture(e.pointerId) }}
-        onClick={(e) => { e.stopPropagation(); e.preventDefault(); onSelect("chemical_compound") }}
+        onMouseEnter={() => {
+          cancelClose()
+          setOpen(true)
+          onHoverStart?.()
+        }}
+        onMouseLeave={() => {
+          scheduleClose()
+          onHoverEnd?.()
+        }}
+        onPointerDown={(e) => {
+          e.stopPropagation()
+          e.preventDefault()
+          ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+        }}
+        onPointerUp={(e) => {
+          e.stopPropagation()
+          e.preventDefault()
+          ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+        }}
+        onClick={(e) => {
+          e.stopPropagation()
+          e.preventDefault()
+          onSelect("chemical_compound")
+        }}
         style={{
           position: "absolute",
           right: -44,
@@ -957,8 +999,14 @@ function MaterialActionBubble({
           shadow="md"
           p={4}
           radius="sm"
-          onMouseEnter={() => { cancelClose(); onHoverStart?.() }}
-          onMouseLeave={() => { scheduleClose(); onHoverEnd?.() }}
+          onMouseEnter={() => {
+            cancelClose()
+            onHoverStart?.()
+          }}
+          onMouseLeave={() => {
+            scheduleClose()
+            onHoverEnd?.()
+          }}
           style={{
             position: "absolute",
             right: -185,
@@ -971,14 +1019,22 @@ function MaterialActionBubble({
           }}
         >
           {MATERIAL_SUBMENU_ITEMS.map((item) => (
-            <Tooltip key={item.category} label={`Add ${item.label}`} position="right" withArrow>
+            <Tooltip
+              key={item.category}
+              label={`Add ${item.label}`}
+              position="right"
+              withArrow
+            >
               <Button
                 size="compact-xs"
                 variant="subtle"
                 color={item.color}
                 leftSection={<item.Icon size={13} />}
                 styles={{ inner: { justifyContent: "flex-start" } }}
-                onPointerDown={(e) => { e.stopPropagation(); e.preventDefault() }}
+                onPointerDown={(e) => {
+                  e.stopPropagation()
+                  e.preventDefault()
+                }}
                 onClick={(e) => {
                   e.stopPropagation()
                   e.preventDefault()
@@ -1294,7 +1350,9 @@ function ResultsActionBubble({
                           size="compact-xs"
                           variant="subtle"
                           color="orange"
-                          styles={{ inner: { justifyContent: "space-between" } }}
+                          styles={{
+                            inner: { justifyContent: "space-between" },
+                          }}
                           onPointerDown={(e) => {
                             e.stopPropagation()
                             e.preventDefault()
@@ -1307,7 +1365,9 @@ function ResultsActionBubble({
                           }}
                         >
                           <span>{exp.name || exp.id}</span>
-                          <span style={{ opacity: 0.7 }}>{exp.date || "-"}</span>
+                          <span style={{ opacity: 0.7 }}>
+                            {exp.date || "-"}
+                          </span>
                         </Button>
                       ))}
                       <Divider />
@@ -1377,9 +1437,9 @@ function CollectionEl({
   const dragStart = useRef<{ mouse: Vec2; origin: Vec2 } | null>(null)
   /** Screen-space position of the element while dragging (for fixed overlay) */
   const [dragScreenPos, setDragScreenPos] = useState<Vec2 | null>(null)
-  const [hoveredRefKind, setHoveredRefKind] = useState<CollectionRef["kind"] | null>(
-    null,
-  )
+  const [hoveredRefKind, setHoveredRefKind] = useState<
+    CollectionRef["kind"] | null
+  >(null)
   const [isHovered, setIsHovered] = useState(false)
   const hoverHideTimeoutRef = useRef<number | null>(null)
   const finalPosRef = useRef<Vec2>(el.position)
@@ -1389,10 +1449,12 @@ function CollectionEl({
   )
   const isActive = activeCollectionId === el.id
   const showCollectionControls = isActive || isHovered
-  
+
   // Drag-over state for showing drop zones
   const [isDragOver, setIsDragOver] = useState(false)
-  const [dropZoneHovered, setDropZoneHovered] = useState<'copy' | 'move' | null>(null)
+  const [dropZoneHovered, setDropZoneHovered] = useState<
+    "copy" | "move" | null
+  >(null)
   const dragOverPayloadRef = useRef<CollectionRefDragPayload | null>(null)
 
   const parseRefDragPayload = (
@@ -1451,7 +1513,7 @@ function CollectionEl({
     }, 320)
   }
 
-  useEffect(() => () => clearHoverHideTimeout(), [])
+  useEffect(() => () => clearHoverHideTimeout(), [clearHoverHideTimeout])
 
   const startDrag = (ev: ReactPointerEvent<HTMLDivElement>) => {
     setDragging(true)
@@ -1719,7 +1781,7 @@ function CollectionEl({
           return
         }
         e.preventDefault()
-        e.dataTransfer.dropEffect = dropZoneHovered === 'copy' ? 'copy' : 'move'
+        e.dataTransfer.dropEffect = dropZoneHovered === "copy" ? "copy" : "move"
         setIsDragOver(true)
         dragOverPayloadRef.current = payload
       }}
@@ -1742,12 +1804,12 @@ function CollectionEl({
         }
         e.preventDefault()
         e.stopPropagation()
-        
+
         // Only execute drop if user dropped on one of the drop zones
         if (dropZoneHovered) {
-          onDropRefs(el.id, payload, dropZoneHovered === 'copy')
+          onDropRefs(el.id, payload, dropZoneHovered === "copy")
         }
-        
+
         // Reset state
         setIsDragOver(false)
         setDropZoneHovered(null)
@@ -1784,8 +1846,8 @@ function CollectionEl({
           border: isDragOver
             ? "3px dashed var(--mantine-color-blue-5)"
             : isFuseCandidate
-            ? "3px dashed var(--mantine-color-violet-6)"
-            : `3px solid ${el.color || DEFAULT_ACCENT}`,
+              ? "3px dashed var(--mantine-color-violet-6)"
+              : `3px solid ${el.color || DEFAULT_ACCENT}`,
           background: isFuseCandidate
             ? "var(--mantine-color-violet-0)"
             : "var(--mantine-color-body)",
@@ -1973,30 +2035,44 @@ function CollectionEl({
             Empty
           </Text>
         )}
-        
+
         {/* Drop zones - shown when dragging elements over this collection */}
         {isDragOver && dragOverPayloadRef.current && (
-          <Stack gap={4} mt={8} style={{ borderTop: '1px solid var(--mantine-color-gray-3)', paddingTop: 6 }}>
+          <Stack
+            gap={4}
+            mt={8}
+            style={{
+              borderTop: "1px solid var(--mantine-color-gray-3)",
+              paddingTop: 6,
+            }}
+          >
             <Box
               onDragOver={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
-                setDropZoneHovered('copy')
+                setDropZoneHovered("copy")
               }}
               style={{
-                padding: '4px 8px',
+                padding: "4px 8px",
                 borderRadius: 4,
-                background: dropZoneHovered === 'copy' 
-                  ? 'var(--mantine-color-blue-1)' 
-                  : 'var(--mantine-color-gray-0)',
-                border: dropZoneHovered === 'copy'
-                  ? '2px solid var(--mantine-color-blue-5)'
-                  : '1px dashed var(--mantine-color-gray-4)',
-                cursor: 'copy',
-                transition: 'all 150ms ease',
+                background:
+                  dropZoneHovered === "copy"
+                    ? "var(--mantine-color-blue-1)"
+                    : "var(--mantine-color-gray-0)",
+                border:
+                  dropZoneHovered === "copy"
+                    ? "2px solid var(--mantine-color-blue-5)"
+                    : "1px dashed var(--mantine-color-gray-4)",
+                cursor: "copy",
+                transition: "all 150ms ease",
               }}
             >
-              <Text size="xs" fw={dropZoneHovered === 'copy' ? 600 : 400} c={dropZoneHovered === 'copy' ? 'blue' : 'dimmed'} ta="center">
+              <Text
+                size="xs"
+                fw={dropZoneHovered === "copy" ? 600 : 400}
+                c={dropZoneHovered === "copy" ? "blue" : "dimmed"}
+                ta="center"
+              >
                 📋 Place Copy here...
               </Text>
             </Box>
@@ -2004,22 +2080,29 @@ function CollectionEl({
               onDragOver={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
-                setDropZoneHovered('move')
+                setDropZoneHovered("move")
               }}
               style={{
-                padding: '4px 8px',
+                padding: "4px 8px",
                 borderRadius: 4,
-                background: dropZoneHovered === 'move' 
-                  ? 'var(--mantine-color-green-1)' 
-                  : 'var(--mantine-color-gray-0)',
-                border: dropZoneHovered === 'move'
-                  ? '2px solid var(--mantine-color-green-5)'
-                  : '1px dashed var(--mantine-color-gray-4)',
-                cursor: 'move',
-                transition: 'all 150ms ease',
+                background:
+                  dropZoneHovered === "move"
+                    ? "var(--mantine-color-green-1)"
+                    : "var(--mantine-color-gray-0)",
+                border:
+                  dropZoneHovered === "move"
+                    ? "2px solid var(--mantine-color-green-5)"
+                    : "1px dashed var(--mantine-color-gray-4)",
+                cursor: "move",
+                transition: "all 150ms ease",
               }}
             >
-              <Text size="xs" fw={dropZoneHovered === 'move' ? 600 : 400} c={dropZoneHovered === 'move' ? 'green' : 'dimmed'} ta="center">
+              <Text
+                size="xs"
+                fw={dropZoneHovered === "move" ? 600 : 400}
+                c={dropZoneHovered === "move" ? "green" : "dimmed"}
+                ta="center"
+              >
                 ➡️ Move here...
               </Text>
             </Box>
@@ -2853,7 +2936,9 @@ function PlaneCanvas({
   // Start with a real color – gray default is not available for new elements
   const [selectedColor, setSelectedColor] = useState<string>(PALETTE[0]) // sky blue
   // Plain text formatting options (default: black text in light mode, white in dark)
-  const [textColor, setTextColor] = useState<string>(isDark ? "#ffffff" : "#000000")
+  const [textColor, setTextColor] = useState<string>(
+    isDark ? "#ffffff" : "#000000",
+  )
   const [textFormatting, setTextFormatting] = useState<TextFormatting>({
     bold: false,
     italic: false,
@@ -2894,7 +2979,7 @@ function PlaneCanvas({
     if (updated.some((el, i) => el !== plane.elements[i])) {
       updatePlane({ ...plane, elements: updated })
     }
-  }, [colorScheme]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [colorScheme, plane, updatePlane]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Pick next free collection color (hue-rotation) ─────────────────────
   const nextCollectionColor = (): string => {
@@ -2926,7 +3011,6 @@ function PlaneCanvas({
     }
     return minColor
   }
-
 
   // srcId = dragged collection, dstId = collection being hovered over
   const [fuseCandidate, setFuseCandidate] = useState<{
@@ -3021,7 +3105,11 @@ function PlaneCanvas({
   }
 
   const handleDropRefs = useCallback(
-    (targetCollectionId: string, payload: CollectionRefDragPayload, isCopy: boolean) => {
+    (
+      targetCollectionId: string,
+      payload: CollectionRefDragPayload,
+      isCopy: boolean,
+    ) => {
       if (targetCollectionId === payload.sourceCollectionId) {
         return
       }
@@ -3147,7 +3235,11 @@ function PlaneCanvas({
         const dependentRefIds = new Set<string>()
 
         for (const ref of moving) {
-          if (ref.kind === "material" || ref.kind === "solution" || ref.kind === "process") {
+          if (
+            ref.kind === "material" ||
+            ref.kind === "solution" ||
+            ref.kind === "process"
+          ) {
             const deps = getDependentLocations(ref.kind, ref.id, {
               solutions,
               experiments,
@@ -3217,7 +3309,8 @@ function PlaneCanvas({
                   </Table.Tbody>
                 </Table>
                 <Text size="sm">
-                  Do you want to move these items along with all their dependencies?
+                  Do you want to move these items along with all their
+                  dependencies?
                 </Text>
               </>
             ),
@@ -3238,13 +3331,17 @@ function PlaneCanvas({
               }
 
               const nextSourceRefs = source.refs.filter(
-                (r) => !refsToMove.has(`${r.kind}:${r.id}`)
+                (r) => !refsToMove.has(`${r.kind}:${r.id}`),
               )
               const nextTargetRefs = [...target.refs]
 
               for (const ref of source.refs) {
                 if (refsToMove.has(`${ref.kind}:${ref.id}`)) {
-                  if (!nextTargetRefs.some((x) => x.kind === ref.kind && x.id === ref.id)) {
+                  if (
+                    !nextTargetRefs.some(
+                      (x) => x.kind === ref.kind && x.id === ref.id,
+                    )
+                  ) {
                     nextTargetRefs.push(ref)
                   }
                 }
@@ -3269,7 +3366,9 @@ function PlaneCanvas({
           const nextSourceRefs = source.refs.filter((r) => !shouldMove(r))
           const nextTargetRefs = [...target.refs]
           for (const r of moving) {
-            if (!nextTargetRefs.some((x) => x.kind === r.kind && x.id === r.id)) {
+            if (
+              !nextTargetRefs.some((x) => x.kind === r.kind && x.id === r.id)
+            ) {
               nextTargetRefs.push(r)
             }
           }
@@ -3459,9 +3558,7 @@ function PlaneCanvas({
           experiments,
           processes,
           planes,
-        }).filter(
-          (dep) => !plannedDelete[dep.itemKind].has(dep.itemId),
-        )
+        }).filter((dep) => !plannedDelete[dep.itemKind].has(dep.itemId))
         if (dependents.length > 0) {
           blocked.push({
             ref,
@@ -3613,12 +3710,10 @@ function PlaneCanvas({
       experiments,
       getRefDisplayName,
       activeCollectionId,
-      materials,
       plane.id,
       planes,
       processes,
       removeCollectionRefs,
-      results,
       setActiveCollectionId,
       setExperiments,
       setMaterials,
@@ -3654,7 +3749,10 @@ function PlaneCanvas({
   // Horizontal scrollbar geometry (only visible when maxPanX > 0)
   const xThumbW =
     containerWidth > 0 && maxPanX > 0
-      ? Math.max(30, (containerWidth * containerWidth) / (containerWidth + maxPanX))
+      ? Math.max(
+          30,
+          (containerWidth * containerWidth) / (containerWidth + maxPanX),
+        )
       : 0
   const xThumbTrack = Math.max(0, containerWidth - xThumbW)
   const xThumbLeft = maxPanX > 0 ? (-pan.x / maxPanX) * xThumbTrack : 0
@@ -3713,8 +3811,14 @@ function PlaneCanvas({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const current = panRef.current
-      const newY = Math.min(0, Math.max(-maxPanYRef.current, current.y - e.deltaY))
-      const newX = Math.min(0, Math.max(-maxPanXRef.current, current.x - e.deltaX))
+      const newY = Math.min(
+        0,
+        Math.max(-maxPanYRef.current, current.y - e.deltaY),
+      )
+      const newX = Math.min(
+        0,
+        Math.max(-maxPanXRef.current, current.x - e.deltaX),
+      )
       setPan({ x: newX, y: newY })
       // Expand canvas when scrolling within one section of the bottom
       if (e.deltaY > 0 && newY <= -(maxPanYRef.current - SECTION_HEIGHT)) {
@@ -3759,7 +3863,7 @@ function PlaneCanvas({
     if (pan.x < -maxPanX) {
       setPan((prev) => ({ ...prev, x: Math.max(-maxPanX, prev.x) }))
     }
-  }, [maxPanX]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [maxPanX, pan.x]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Custom vertical scrollbar thumb drag ───────────────────────────────────
   const thumbDragStart = useRef<{ mouseY: number; panY: number } | null>(null)
@@ -4390,56 +4494,61 @@ function PlaneCanvas({
         <Divider orientation="vertical" />
         {/* Color picker — hidden when text tools are active (they have their own picker) */}
         {tool !== "text" && tool !== "plaintext" && (
-        <Popover withArrow shadow="md">
-          <Popover.Target>
-            <Tooltip
-              label={
-                activeCollection
-                  ? "Change collection color"
-                  : "Select color for new elements"
-              }
-              position="bottom"
-            >
-              <ActionIcon variant="subtle" color="gray">
-                <ColorSwatch
-                  color={activeCollection?.color ?? (tool === "collection" ? pickerNextColor : selectedColor)}
-                  size={16}
-                />
-              </ActionIcon>
-            </Tooltip>
-          </Popover.Target>
-          <Popover.Dropdown p={6}>
-            <Group gap={4} wrap="wrap" w={160}>
-              {PALETTE.map((c) => {
-                const isSelected = activeCollection
-                  ? activeCollection.color === c
-                  : selectedColor === c
-                return (
+          <Popover withArrow shadow="md">
+            <Popover.Target>
+              <Tooltip
+                label={
+                  activeCollection
+                    ? "Change collection color"
+                    : "Select color for new elements"
+                }
+                position="bottom"
+              >
+                <ActionIcon variant="subtle" color="gray">
                   <ColorSwatch
-                    key={c}
-                    color={c}
-                    size={24}
-                    style={{
-                      cursor: "pointer",
-                      outline: isSelected ? `2px solid ${accentColor}` : "none",
-                      outlineOffset: 2,
-                    }}
-                    onClick={() => {
-                      if (activeCollection) {
-                        updateElement(plane.id, {
-                          ...activeCollection,
-                          color: c,
-                        })
-                      } else {
-                        setSelectedColor(c)
-                      }
-                    }}
+                    color={
+                      activeCollection?.color ??
+                      (tool === "collection" ? pickerNextColor : selectedColor)
+                    }
+                    size={16}
                   />
-                )
-              })}
-            </Group>
-          </Popover.Dropdown>
-        </Popover>
+                </ActionIcon>
+              </Tooltip>
+            </Popover.Target>
+            <Popover.Dropdown p={6}>
+              <Group gap={4} wrap="wrap" w={160}>
+                {PALETTE.map((c) => {
+                  const isSelected = activeCollection
+                    ? activeCollection.color === c
+                    : selectedColor === c
+                  return (
+                    <ColorSwatch
+                      key={c}
+                      color={c}
+                      size={24}
+                      style={{
+                        cursor: "pointer",
+                        outline: isSelected
+                          ? `2px solid ${accentColor}`
+                          : "none",
+                        outlineOffset: 2,
+                      }}
+                      onClick={() => {
+                        if (activeCollection) {
+                          updateElement(plane.id, {
+                            ...activeCollection,
+                            color: c,
+                          })
+                        } else {
+                          setSelectedColor(c)
+                        }
+                      }}
+                    />
+                  )
+                })}
+              </Group>
+            </Popover.Dropdown>
+          </Popover>
         )}
         <Divider orientation="vertical" />
         <Text size="xs" c="dimmed">
@@ -4476,459 +4585,459 @@ function PlaneCanvas({
             overflow: "hidden",
           }}
         >
-        <Box
-          ref={containerRef}
-          style={{
-            flex: 1,
-            position: "relative",
-            overflow: "hidden",
-            cursor:
-              tool === "select" || spaceDown.current
-                ? isPanning.current
-                  ? "grabbing"
-                  : "grab"
-                : tool === "pointer"
-                  ? "default"
-                  : "crosshair",
-            backgroundImage: `radial-gradient(circle, ${isDark ? "var(--mantine-color-dark-4)" : "var(--mantine-color-gray-4)"} 1px, transparent 1px)`,
-            backgroundSize: `${GRID}px ${GRID}px`,
-            backgroundPosition: `${pan.x % GRID}px ${pan.y % GRID}px`,
-          }}
-          onMouseDown={onMouseDown}
-          onMouseMove={onMouseMove}
-          onMouseUp={onMouseUp}
-          onMouseLeave={() => setMouseCanvasPos(null)}
-        >
-          {/* SVG line layer */}
-          <LineOverlay
-            lines={lines}
-            pan={pan}
-            canMove={tool === "select"}
-            activeId={activeDrawId}
-            setActiveId={setActiveDrawId}
-            onUpdate={(el) => updateElement(plane.id, el)}
-            onDelete={(id) => deleteElement(plane.id, id)}
-          />
+          <Box
+            ref={containerRef}
+            style={{
+              flex: 1,
+              position: "relative",
+              overflow: "hidden",
+              cursor:
+                tool === "select" || spaceDown.current
+                  ? isPanning.current
+                    ? "grabbing"
+                    : "grab"
+                  : tool === "pointer"
+                    ? "default"
+                    : "crosshair",
+              backgroundImage: `radial-gradient(circle, ${isDark ? "var(--mantine-color-dark-4)" : "var(--mantine-color-gray-4)"} 1px, transparent 1px)`,
+              backgroundSize: `${GRID}px ${GRID}px`,
+              backgroundPosition: `${pan.x % GRID}px ${pan.y % GRID}px`,
+            }}
+            onMouseDown={onMouseDown}
+            onMouseMove={onMouseMove}
+            onMouseUp={onMouseUp}
+            onMouseLeave={() => setMouseCanvasPos(null)}
+          >
+            {/* SVG line layer */}
+            <LineOverlay
+              lines={lines}
+              pan={pan}
+              canMove={tool === "select"}
+              activeId={activeDrawId}
+              setActiveId={setActiveDrawId}
+              onUpdate={(el) => updateElement(plane.id, el)}
+              onDelete={(id) => deleteElement(plane.id, id)}
+            />
 
-          {/* Element layer */}
-          {nonLines.map((el) => {
-            if (el.type === "text") {
-              const tel = el as CanvasTextElement
-              return (
-                <TextEl
-                  key={el.id}
-                  el={tel}
-                  onUpdate={(updated) => updateElement(plane.id, updated)}
-                  onDelete={() => deleteElement(plane.id, el.id)}
-                  onStartEdit={() => {
-                    setEditingTextId(tel.id)
-                    setTool("text")
-                    setTextColor(tel.color || "#000000")
-                    setTextFormatting(
-                      tel.formatting || {
-                        bold: false,
-                        italic: false,
-                        underline: false,
-                      },
-                    )
-                  }}
-                  onEditEnd={() => {
-                    setEditingTextId((prev) => (prev === tel.id ? null : prev))
-                    setTool("select")
-                  }}
-                  pan={pan}
-                />
-              )
-            }
-            if (el.type === "plaintext") {
-              const ptel = el as CanvasPlainTextElement
-              return (
-                <PlainTextEl
-                  key={el.id}
-                  el={ptel}
-                  onUpdate={(updated) => updateElement(plane.id, updated)}
-                  onDelete={() => deleteElement(plane.id, el.id)}
-                  onStartEdit={() => {
-                    plaintextEditingRef.current = true
-                    setEditingPlaintextId(ptel.id)
-                    setTool("plaintext")
-                    setTextColor(ptel.color)
-                    setTextFormatting(ptel.formatting)
-                  }}
-                  onEditEnd={() => {
-                    plaintextEditingRef.current = false
-                    setEditingPlaintextId(null)
-                    setTool("select")
-                  }}
-                  pan={pan}
-                />
-              )
-            }
-            if (el.type === "collection") {
-              return (
-                <CollectionEl
-                  key={el.id}
-                  el={el as CanvasCollectionElement}
-                  planeId={plane.id}
-                  onUpdate={(updated) => updateElement(plane.id, updated)}
-                  onDelete={() => handleDeleteCollection(el as CanvasCollectionElement)}
-                  pan={pan}
-                  isFuseCandidate={fuseCandidate?.dstId === el.id}
-                  onDragPositionUpdate={(pos) =>
-                    handleDragPositionUpdate(el.id, pos)
-                  }
-                  onDropped={handleDrop}
-                  onDropRefs={handleDropRefs}
-                  onStartDivide={() => {
-                    handleStartDivide(el as CanvasCollectionElement)
-                  }}
-                  onHoveredPlaneTabChange={onHoveredPlaneTabChange}
-                />
-              )
-            }
-            return null
-          })}
+            {/* Element layer */}
+            {nonLines.map((el) => {
+              if (el.type === "text") {
+                const tel = el as CanvasTextElement
+                return (
+                  <TextEl
+                    key={el.id}
+                    el={tel}
+                    onUpdate={(updated) => updateElement(plane.id, updated)}
+                    onDelete={() => deleteElement(plane.id, el.id)}
+                    onStartEdit={() => {
+                      setEditingTextId(tel.id)
+                      setTool("text")
+                      setTextColor(tel.color || "#000000")
+                      setTextFormatting(
+                        tel.formatting || {
+                          bold: false,
+                          italic: false,
+                          underline: false,
+                        },
+                      )
+                    }}
+                    onEditEnd={() => {
+                      setEditingTextId((prev) =>
+                        prev === tel.id ? null : prev,
+                      )
+                      setTool("select")
+                    }}
+                    pan={pan}
+                  />
+                )
+              }
+              if (el.type === "plaintext") {
+                const ptel = el as CanvasPlainTextElement
+                return (
+                  <PlainTextEl
+                    key={el.id}
+                    el={ptel}
+                    onUpdate={(updated) => updateElement(plane.id, updated)}
+                    onDelete={() => deleteElement(plane.id, el.id)}
+                    onStartEdit={() => {
+                      plaintextEditingRef.current = true
+                      setEditingPlaintextId(ptel.id)
+                      setTool("plaintext")
+                      setTextColor(ptel.color)
+                      setTextFormatting(ptel.formatting)
+                    }}
+                    onEditEnd={() => {
+                      plaintextEditingRef.current = false
+                      setEditingPlaintextId(null)
+                      setTool("select")
+                    }}
+                    pan={pan}
+                  />
+                )
+              }
+              if (el.type === "collection") {
+                return (
+                  <CollectionEl
+                    key={el.id}
+                    el={el as CanvasCollectionElement}
+                    planeId={plane.id}
+                    onUpdate={(updated) => updateElement(plane.id, updated)}
+                    onDelete={() =>
+                      handleDeleteCollection(el as CanvasCollectionElement)
+                    }
+                    pan={pan}
+                    isFuseCandidate={fuseCandidate?.dstId === el.id}
+                    onDragPositionUpdate={(pos) =>
+                      handleDragPositionUpdate(el.id, pos)
+                    }
+                    onDropped={handleDrop}
+                    onDropRefs={handleDropRefs}
+                    onStartDivide={() => {
+                      handleStartDivide(el as CanvasCollectionElement)
+                    }}
+                    onHoveredPlaneTabChange={onHoveredPlaneTabChange}
+                  />
+                )
+              }
+              return null
+            })}
 
-          {/* Pointer-tool follow tooltip on empty plane */}
-          {tool === "pointer" &&
-            plane.elements.length === 0 &&
-            mouseCanvasPos &&
-            !elementPickerOpen && (
-              <Box
-                style={{
-                  position: "absolute",
-                  left: mouseCanvasPos.x + 14,
-                  top: mouseCanvasPos.y - 10,
-                  background: "var(--mantine-color-dark-7)",
-                  color: "white",
-                  borderRadius: 6,
-                  padding: "4px 10px",
-                  fontSize: 12,
-                  pointerEvents: "none",
-                  userSelect: "none",
-                  zIndex: 10000,
-                  whiteSpace: "nowrap",
-                  boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
-                }}
-              >
-                Click to place items
-              </Box>
-            )}
-
-          {/* Element Picker Popup for Pointer Tool */}
-          {elementPickerOpen && elementPickerPos && (
-            <Stack
-              gap={6}
-              style={{
-                position: "absolute",
-                left: elementPickerPos.x - 90,
-                top: elementPickerPos.y - 24,
-                zIndex: 10001,
-                cursor: "default",
-                animation: "bubble-in 150ms ease-out both",
-              }}
-              onClick={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              {/* ── Primary action: Add Data Collection ── */}
-              <Tooltip label="Add Data Collection" position="top" withArrow>
+            {/* Pointer-tool follow tooltip on empty plane */}
+            {tool === "pointer" &&
+              plane.elements.length === 0 &&
+              mouseCanvasPos &&
+              !elementPickerOpen && (
                 <Box
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    e.preventDefault()
-                    const pos = canvasCoords(
-                      {
-                        clientX:
-                          (containerRef.current?.getBoundingClientRect().left ||
-                            0) + elementPickerPos.x,
-                        clientY:
-                          (containerRef.current?.getBoundingClientRect().top ||
-                            0) + elementPickerPos.y,
-                      } as MouseEvent<HTMLDivElement>,
-                      containerRef,
-                      pan,
-                    )
-                    const color = nextCollectionColor()
-                    const el = addCollectionElement(plane.id, pos)
-                    updateElement(plane.id, { ...el, color })
-                    setSelectedColor(color)
-                    setElementPickerOpen(false)
-                    setElementPickerPos(null)
-                  }}
                   style={{
-                    cursor: "pointer",
-                    borderRadius: 10,
-                    border: `2px solid ${pickerNextColor}`,
-                    boxShadow: `0 0 0 3px ${pickerNextColor}33`,
-                    background: "var(--mantine-color-body)",
-                    padding: "10px 16px",
-                    transition: "box-shadow 120ms",
+                    position: "absolute",
+                    left: mouseCanvasPos.x + 14,
+                    top: mouseCanvasPos.y - 10,
+                    background: "var(--mantine-color-dark-7)",
+                    color: "white",
+                    borderRadius: 6,
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    pointerEvents: "none",
+                    userSelect: "none",
+                    zIndex: 10000,
+                    whiteSpace: "nowrap",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
                   }}
                 >
-                  <Group gap={6}>
-                    <IconFolderPlus
-                      size={16}
-                      color={pickerNextColor}
-                    />
-                    <Text size="sm" fw={600}>
-                      Add Data Collection
-                    </Text>
-                  </Group>
+                  Click to place items
                 </Box>
-              </Tooltip>
+              )}
 
-              {/* ── Secondary actions (muted) ── */}
-              <Group gap={6} justify="center">
-                {(
-                  [
-                    {
-                      label: "Place Note",
-                      Icon: IconNote,
-                      action: () => {
-                        const pos = canvasCoords(
-                          {
-                            clientX:
-                              (containerRef.current
-                                ?.getBoundingClientRect()
-                                .left || 0) + elementPickerPos.x,
-                            clientY:
-                              (containerRef.current
-                                ?.getBoundingClientRect()
-                                .top || 0) + elementPickerPos.y,
-                          } as MouseEvent<HTMLDivElement>,
-                          containerRef,
-                          pan,
-                        )
-                        const el = addTextElement(plane.id, pos)
-                        updateElement(plane.id, {
-                          ...el,
-                          color: textColor,
-                          formatting: textFormatting,
-                        })
-                        setElementPickerOpen(false)
-                        setElementPickerPos(null)
-                        setTool("text")
-                      },
-                    },
-                    {
-                      label: "Place Text",
-                      Icon: IconLetterT,
-                      action: () => {
-                        const pos = canvasCoords(
-                          {
-                            clientX:
-                              (containerRef.current
-                                ?.getBoundingClientRect()
-                                .left || 0) + elementPickerPos.x,
-                            clientY:
-                              (containerRef.current
-                                ?.getBoundingClientRect()
-                                .top || 0) + elementPickerPos.y,
-                          } as MouseEvent<HTMLDivElement>,
-                          containerRef,
-                          pan,
-                        )
-                        plaintextEditingRef.current = true
-                        const newEl = addPlainTextElement(
-                          plane.id,
-                          pos,
-                          textColor,
-                          textFormatting,
-                        )
-                        setEditingPlaintextId(newEl.id)
-                        setElementPickerOpen(false)
-                        setElementPickerPos(null)
-                        setTool("plaintext")
-                      },
-                    },
-                    {
-                      label: "Draw Line",
-                      Icon: IconMinus,
-                      action: () => {
-                        const pos = canvasCoords(
-                          {
-                            clientX:
-                              (containerRef.current
-                                ?.getBoundingClientRect()
-                                .left || 0) + elementPickerPos.x,
-                            clientY:
-                              (containerRef.current
-                                ?.getBoundingClientRect()
-                                .top || 0) + elementPickerPos.y,
-                          } as MouseEvent<HTMLDivElement>,
-                          containerRef,
-                          pan,
-                        )
-                        const el = addLineElement(plane.id, pos)
-                        updateElement(plane.id, {
-                          ...el,
-                          color: selectedColor,
-                          strokeWidth,
-                          kind: "line",
-                        } as CanvasLineElement)
-                        drawingLineId.current = el.id
-                        drawingKindRef.current = "line"
-                        setElementPickerOpen(false)
-                        setElementPickerPos(null)
-                        setTool("line")
-                      },
-                    },
-                    {
-                      label: "Free Draw",
-                      Icon: IconPencil,
-                      action: () => {
-                        const pos = canvasCoords(
-                          {
-                            clientX:
-                              (containerRef.current
-                                ?.getBoundingClientRect()
-                                .left || 0) + elementPickerPos.x,
-                            clientY:
-                              (containerRef.current
-                                ?.getBoundingClientRect()
-                                .top || 0) + elementPickerPos.y,
-                          } as MouseEvent<HTMLDivElement>,
-                          containerRef,
-                          pan,
-                        )
-                        const el = addLineElement(plane.id, pos)
-                        updateElement(plane.id, {
-                          ...el,
-                          points: [pos, pos],
-                          color: selectedColor,
-                          strokeWidth,
-                          kind: "pen",
-                        } as CanvasLineElement)
-                        drawingLineId.current = el.id
-                        drawingKindRef.current = "pen"
-                        setElementPickerOpen(false)
-                        setElementPickerPos(null)
-                        setTool("pen")
-                      },
-                    },
-                    {
-                      label: "Draw Rectangle",
-                      Icon: IconSquare,
-                      action: () => {
-                        const pos = canvasCoords(
-                          {
-                            clientX:
-                              (containerRef.current
-                                ?.getBoundingClientRect()
-                                .left || 0) + elementPickerPos.x,
-                            clientY:
-                              (containerRef.current
-                                ?.getBoundingClientRect()
-                                .top || 0) + elementPickerPos.y,
-                          } as MouseEvent<HTMLDivElement>,
-                          containerRef,
-                          pan,
-                        )
-                        const el = addLineElement(plane.id, pos)
-                        updateElement(plane.id, {
-                          ...el,
-                          points: [pos, pos],
-                          color: selectedColor,
-                          strokeWidth,
-                          kind: "rectangle",
-                        } as CanvasLineElement)
-                        drawingLineId.current = el.id
-                        drawingKindRef.current = "rectangle"
-                        setElementPickerOpen(false)
-                        setElementPickerPos(null)
-                        setTool("rectangle")
-                      },
-                    },
-                  ] as const
-                ).map(({ label, Icon, action }, i) => (
-                  <Tooltip key={label} label={label} position="bottom" withArrow>
-                    <ActionIcon
-                      size="md"
-                      variant="default"
-                      color="gray"
-                      radius="md"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        e.preventDefault()
-                        action()
-                      }}
-                      style={{
-                        opacity: 0.55,
-                        animation: `bubble-in 150ms ease-out ${i * 40 + 60}ms both`,
-                        cursor: "default",
-                        border: "1px solid var(--mantine-color-gray-3)",
-                        background: "var(--mantine-color-gray-1)",
-                      }}
-                    >
-                      <Icon size={16} />
-                    </ActionIcon>
-                  </Tooltip>
-                ))}
-              </Group>
-            </Stack>
-          )}
-        </Box>
-
-        {/* Horizontal scrollbar — only shown when elements overflow to the right */}
-        {maxPanX > 0 && (
-          <div
-            role="scrollbar"
-            aria-controls="canvas-area"
-            aria-orientation="horizontal"
-            aria-valuenow={0}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === "ArrowLeft") {
-                setPan((prev) => ({ ...prev, x: Math.min(0, prev.x + 40) }))
-              } else if (e.key === "ArrowRight") {
-                setPan((prev) => ({
-                  ...prev,
-                  x: Math.max(-maxPanXRef.current, prev.x - 40),
-                }))
-              }
-            }}
-            style={{
-              height: 10,
-              flexShrink: 0,
-              background: "var(--mantine-color-gray-1)",
-              borderTop: "1px solid var(--mantine-color-default-border)",
-              position: "relative",
-              cursor: "default",
-              userSelect: "none",
-            }}
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect()
-              const frac = (e.clientX - rect.left) / rect.width
-              setPan((prev) => ({
-                ...prev,
-                x: Math.min(0, Math.max(-maxPanXRef.current, -frac * maxPanXRef.current)),
-              }))
-            }}
-          >
-            {xThumbW > 0 && (
-              <div
+            {/* Element Picker Popup for Pointer Tool */}
+            {elementPickerOpen && elementPickerPos && (
+              <Stack
+                gap={6}
                 style={{
                   position: "absolute",
-                  left: xThumbLeft,
-                  top: 1,
-                  bottom: 1,
-                  width: xThumbW,
-                  background: "var(--mantine-color-gray-5)",
-                  borderRadius: 3,
-                  cursor: "grab",
-                  userSelect: "none",
-                  touchAction: "none",
+                  left: elementPickerPos.x - 90,
+                  top: elementPickerPos.y - 24,
+                  zIndex: 10001,
+                  cursor: "default",
+                  animation: "bubble-in 150ms ease-out both",
                 }}
-                onPointerDown={onXThumbPointerDown}
-                onPointerMove={onXThumbPointerMove}
-                onPointerUp={onXThumbPointerUp}
-              />
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {/* ── Primary action: Add Data Collection ── */}
+                <Tooltip label="Add Data Collection" position="top" withArrow>
+                  <Box
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                      const pos = canvasCoords(
+                        {
+                          clientX:
+                            (containerRef.current?.getBoundingClientRect()
+                              .left || 0) + elementPickerPos.x,
+                          clientY:
+                            (containerRef.current?.getBoundingClientRect()
+                              .top || 0) + elementPickerPos.y,
+                        } as MouseEvent<HTMLDivElement>,
+                        containerRef,
+                        pan,
+                      )
+                      const color = nextCollectionColor()
+                      const el = addCollectionElement(plane.id, pos)
+                      updateElement(plane.id, { ...el, color })
+                      setSelectedColor(color)
+                      setElementPickerOpen(false)
+                      setElementPickerPos(null)
+                    }}
+                    style={{
+                      cursor: "pointer",
+                      borderRadius: 10,
+                      border: `2px solid ${pickerNextColor}`,
+                      boxShadow: `0 0 0 3px ${pickerNextColor}33`,
+                      background: "var(--mantine-color-body)",
+                      padding: "10px 16px",
+                      transition: "box-shadow 120ms",
+                    }}
+                  >
+                    <Group gap={6}>
+                      <IconFolderPlus size={16} color={pickerNextColor} />
+                      <Text size="sm" fw={600}>
+                        Add Data Collection
+                      </Text>
+                    </Group>
+                  </Box>
+                </Tooltip>
+
+                {/* ── Secondary actions (muted) ── */}
+                <Group gap={6} justify="center">
+                  {(
+                    [
+                      {
+                        label: "Place Note",
+                        Icon: IconNote,
+                        action: () => {
+                          const pos = canvasCoords(
+                            {
+                              clientX:
+                                (containerRef.current?.getBoundingClientRect()
+                                  .left || 0) + elementPickerPos.x,
+                              clientY:
+                                (containerRef.current?.getBoundingClientRect()
+                                  .top || 0) + elementPickerPos.y,
+                            } as MouseEvent<HTMLDivElement>,
+                            containerRef,
+                            pan,
+                          )
+                          const el = addTextElement(plane.id, pos)
+                          updateElement(plane.id, {
+                            ...el,
+                            color: textColor,
+                            formatting: textFormatting,
+                          })
+                          setElementPickerOpen(false)
+                          setElementPickerPos(null)
+                          setTool("text")
+                        },
+                      },
+                      {
+                        label: "Place Text",
+                        Icon: IconLetterT,
+                        action: () => {
+                          const pos = canvasCoords(
+                            {
+                              clientX:
+                                (containerRef.current?.getBoundingClientRect()
+                                  .left || 0) + elementPickerPos.x,
+                              clientY:
+                                (containerRef.current?.getBoundingClientRect()
+                                  .top || 0) + elementPickerPos.y,
+                            } as MouseEvent<HTMLDivElement>,
+                            containerRef,
+                            pan,
+                          )
+                          plaintextEditingRef.current = true
+                          const newEl = addPlainTextElement(
+                            plane.id,
+                            pos,
+                            textColor,
+                            textFormatting,
+                          )
+                          setEditingPlaintextId(newEl.id)
+                          setElementPickerOpen(false)
+                          setElementPickerPos(null)
+                          setTool("plaintext")
+                        },
+                      },
+                      {
+                        label: "Draw Line",
+                        Icon: IconMinus,
+                        action: () => {
+                          const pos = canvasCoords(
+                            {
+                              clientX:
+                                (containerRef.current?.getBoundingClientRect()
+                                  .left || 0) + elementPickerPos.x,
+                              clientY:
+                                (containerRef.current?.getBoundingClientRect()
+                                  .top || 0) + elementPickerPos.y,
+                            } as MouseEvent<HTMLDivElement>,
+                            containerRef,
+                            pan,
+                          )
+                          const el = addLineElement(plane.id, pos)
+                          updateElement(plane.id, {
+                            ...el,
+                            color: selectedColor,
+                            strokeWidth,
+                            kind: "line",
+                          } as CanvasLineElement)
+                          drawingLineId.current = el.id
+                          drawingKindRef.current = "line"
+                          setElementPickerOpen(false)
+                          setElementPickerPos(null)
+                          setTool("line")
+                        },
+                      },
+                      {
+                        label: "Free Draw",
+                        Icon: IconPencil,
+                        action: () => {
+                          const pos = canvasCoords(
+                            {
+                              clientX:
+                                (containerRef.current?.getBoundingClientRect()
+                                  .left || 0) + elementPickerPos.x,
+                              clientY:
+                                (containerRef.current?.getBoundingClientRect()
+                                  .top || 0) + elementPickerPos.y,
+                            } as MouseEvent<HTMLDivElement>,
+                            containerRef,
+                            pan,
+                          )
+                          const el = addLineElement(plane.id, pos)
+                          updateElement(plane.id, {
+                            ...el,
+                            points: [pos, pos],
+                            color: selectedColor,
+                            strokeWidth,
+                            kind: "pen",
+                          } as CanvasLineElement)
+                          drawingLineId.current = el.id
+                          drawingKindRef.current = "pen"
+                          setElementPickerOpen(false)
+                          setElementPickerPos(null)
+                          setTool("pen")
+                        },
+                      },
+                      {
+                        label: "Draw Rectangle",
+                        Icon: IconSquare,
+                        action: () => {
+                          const pos = canvasCoords(
+                            {
+                              clientX:
+                                (containerRef.current?.getBoundingClientRect()
+                                  .left || 0) + elementPickerPos.x,
+                              clientY:
+                                (containerRef.current?.getBoundingClientRect()
+                                  .top || 0) + elementPickerPos.y,
+                            } as MouseEvent<HTMLDivElement>,
+                            containerRef,
+                            pan,
+                          )
+                          const el = addLineElement(plane.id, pos)
+                          updateElement(plane.id, {
+                            ...el,
+                            points: [pos, pos],
+                            color: selectedColor,
+                            strokeWidth,
+                            kind: "rectangle",
+                          } as CanvasLineElement)
+                          drawingLineId.current = el.id
+                          drawingKindRef.current = "rectangle"
+                          setElementPickerOpen(false)
+                          setElementPickerPos(null)
+                          setTool("rectangle")
+                        },
+                      },
+                    ] as const
+                  ).map(({ label, Icon, action }, i) => (
+                    <Tooltip
+                      key={label}
+                      label={label}
+                      position="bottom"
+                      withArrow
+                    >
+                      <ActionIcon
+                        size="md"
+                        variant="default"
+                        color="gray"
+                        radius="md"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          action()
+                        }}
+                        style={{
+                          opacity: 0.55,
+                          animation: `bubble-in 150ms ease-out ${i * 40 + 60}ms both`,
+                          cursor: "default",
+                          border: "1px solid var(--mantine-color-gray-3)",
+                          background: "var(--mantine-color-gray-1)",
+                        }}
+                      >
+                        <Icon size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  ))}
+                </Group>
+              </Stack>
             )}
-          </div>
-        )}
-        </Box>{/* end column wrapper */}
+          </Box>
+
+          {/* Horizontal scrollbar — only shown when elements overflow to the right */}
+          {maxPanX > 0 && (
+            <div
+              role="scrollbar"
+              aria-controls="canvas-area"
+              aria-orientation="horizontal"
+              aria-valuenow={0}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowLeft") {
+                  setPan((prev) => ({ ...prev, x: Math.min(0, prev.x + 40) }))
+                } else if (e.key === "ArrowRight") {
+                  setPan((prev) => ({
+                    ...prev,
+                    x: Math.max(-maxPanXRef.current, prev.x - 40),
+                  }))
+                }
+              }}
+              style={{
+                height: 10,
+                flexShrink: 0,
+                background: "var(--mantine-color-gray-1)",
+                borderTop: "1px solid var(--mantine-color-default-border)",
+                position: "relative",
+                cursor: "default",
+                userSelect: "none",
+              }}
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect()
+                const frac = (e.clientX - rect.left) / rect.width
+                setPan((prev) => ({
+                  ...prev,
+                  x: Math.min(
+                    0,
+                    Math.max(-maxPanXRef.current, -frac * maxPanXRef.current),
+                  ),
+                }))
+              }}
+            >
+              {xThumbW > 0 && (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: xThumbLeft,
+                    top: 1,
+                    bottom: 1,
+                    width: xThumbW,
+                    background: "var(--mantine-color-gray-5)",
+                    borderRadius: 3,
+                    cursor: "grab",
+                    userSelect: "none",
+                    touchAction: "none",
+                  }}
+                  onPointerDown={onXThumbPointerDown}
+                  onPointerMove={onXThumbPointerMove}
+                  onPointerUp={onXThumbPointerUp}
+                />
+              )}
+            </div>
+          )}
+        </Box>
+        {/* end column wrapper */}
 
         {/* Custom vertical scrollbar track */}
         <div
@@ -5220,7 +5329,16 @@ function PlaneTabLabel({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function WelcomePlaneView() {
-  const { planes, addPlane, setActivePlaneId } = useAppContext()
+  const { planes, addPlane, setActivePlaneId, setPlanes } = useAppContext()
+  const { user } = useAuth()
+  const [sharingPlaneId, setSharingPlaneId] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [debouncedQuery] = useDebouncedValue(searchQuery, 300)
+  const [searchResults, setSearchResults] = useState<
+    Array<{ id: string; email: string; full_name?: string | null }>
+  >([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [hoveredPlaneId, setHoveredPlaneId] = useState<string | null>(null)
 
   /** Count items referenced by collections on a given plane */
   const getPlaneItemCounts = (plane: Plane) => {
@@ -5245,18 +5363,140 @@ function WelcomePlaneView() {
   }
 
   const handleAddPlane = () => {
-    const p = addPlane(`Plane ${planes.length + 1}`)
+    const p = addPlane(`Plane ${planes.length + 1}`, user?.id)
     setActivePlaneId(p.id)
   }
+
+  const handleOpenShareModal = (planeId: string, e: MouseEvent) => {
+    e.stopPropagation()
+    setSharingPlaneId(planeId)
+    setSearchQuery("")
+    setSearchResults([])
+  }
+
+  const handleCloseShareModal = () => {
+    setSharingPlaneId(null)
+    setSearchQuery("")
+    setSearchResults([])
+  }
+
+  const reloadPlanes = async () => {
+    try {
+      const response = await PlanesService.readPlanes({})
+      if (response.data) {
+        // Convert PlanePublic (API) to Plane (AppContext)
+        const convertedPlanes = response.data.map((apiPlane) => {
+          // Create ApiPlane compatible object for the converter
+          const apiPlaneCompat = {
+            id: apiPlane.id,
+            name: apiPlane.name,
+            owner_id: apiPlane.owner_id,
+            created_at: apiPlane.created_at ?? null,
+            elements: (apiPlane.elements ?? []).map((e) => ({
+              id: e.id,
+              element_type: e.element_type,
+              x: e.x ?? 0,
+              y: e.y ?? 0,
+              width: e.width ?? 100,
+              height: e.height ?? 100,
+              content: e.content ?? null,
+              color: e.color ?? null,
+            })),
+            shared_with:
+              apiPlane.shared_with?.map((u) => ({
+                id: u.id,
+                email: u.email,
+                full_name: u.full_name ?? null,
+              })) ?? [],
+          }
+          return apiPlaneToPlane(apiPlaneCompat)
+        })
+        setPlanes(convertedPlanes)
+      }
+    } catch (error) {
+      console.error("Failed to reload planes:", error)
+    }
+  }
+
+  const handleShareWithUser = async (userId: string) => {
+    if (!sharingPlaneId) return
+    try {
+      await PlanesService.sharePlane({
+        id: sharingPlaneId,
+        requestBody: { user_id: userId },
+      })
+      await reloadPlanes()
+      setSearchQuery("")
+      setSearchResults([])
+    } catch (error) {
+      console.error("Failed to share plane:", error)
+    }
+  }
+
+  const handleRemoveShare = async (planeId: string, userId: string) => {
+    try {
+      await PlanesService.unsharePlane({
+        id: planeId,
+        userId: userId,
+      })
+      await reloadPlanes()
+    } catch (error) {
+      console.error("Failed to remove share:", error)
+    }
+  }
+
+  // Search users when debounced query changes
+  useEffect(() => {
+    if (debouncedQuery.length < 2) {
+      setSearchResults([])
+      return
+    }
+    setIsSearching(true)
+    PlanesService.searchUsers({
+      q: debouncedQuery,
+      limit: 10,
+    })
+      .then((users) => {
+        setSearchResults(users)
+      })
+      .catch((error) => {
+        console.error("Failed to search users:", error)
+        setSearchResults([])
+      })
+      .finally(() => {
+        setIsSearching(false)
+      })
+  }, [debouncedQuery])
+
+  const sharingPlane = planes.find((p) => p.id === sharingPlaneId)
+  const isOwner = (plane: Plane) => {
+    // Debug: Check if we have user and plane data
+    console.log('[Share Debug]', {
+      userId: user?.id,
+      planeId: plane.id,
+      planeName: plane.name,
+      planeOwnerId: plane.ownerId,
+      isOwner: plane.ownerId === user?.id,
+      userExists: !!user,
+    })
+    return plane.ownerId === user?.id
+  }
+  const isShared = (plane: Plane) => (plane.sharedWith?.length ?? 0) > 0
 
   return (
     <Box p="xl">
       <Text size="xl" fw={700} mb="lg">
-        Planes Overview
+        Planes Overview & Data Sharing
+      </Text>
+      <Text size="sm" c="dimmed" mb="lg">
+        Share planes with other users to grant full read and write access to all
+        data and collections
       </Text>
       <Group gap="md" wrap="wrap" mb="lg">
         {planes.map((plane) => {
           const counts = getPlaneItemCounts(plane)
+          const owner = isOwner(plane)
+          const shared = isShared(plane)
           return (
             <Paper
               key={plane.id}
@@ -5267,12 +5507,51 @@ function WelcomePlaneView() {
                 width: 220,
                 cursor: "pointer",
                 transition: "box-shadow 150ms ease",
+                position: "relative",
               }}
+              onMouseEnter={() => setHoveredPlaneId(plane.id)}
+              onMouseLeave={() => setHoveredPlaneId(null)}
               onClick={() => setActivePlaneId(plane.id)}
             >
-              <Text fw={600} size="md" mb="xs">
-                {plane.name}
-              </Text>
+              {/* Share icon - always visible for owners */}
+              {/* Show if: owner, OR if user is logged in and plane has no ownerId (default owner) */}
+              {(owner || (user && !plane.ownerId)) && (
+                <ActionIcon
+                  variant="subtle"
+                  color={hoveredPlaneId === plane.id ? "blue" : "gray"}
+                  size="sm"
+                  onClick={(e) => handleOpenShareModal(plane.id, e)}
+                  style={{
+                    position: "absolute",
+                    top: 8,
+                    right: 8,
+                    zIndex: 10,
+                  }}
+                  title="Share this plane"
+                >
+                  <IconShare size={16} />
+                </ActionIcon>
+              )}
+              
+              <Group justify="space-between" mb="xs" pr={owner ? 24 : 0}>
+                <Text fw={600} size="md">
+                  {plane.name}
+                </Text>
+                {shared && (
+                  <Badge
+                    size="xs"
+                    color={owner ? "blue" : "green"}
+                    variant="light"
+                  >
+                    {owner ? "Shared" : "Shared with me"}
+                  </Badge>
+                )}
+                {!shared && owner && (
+                  <Badge size="xs" color="gray" variant="light">
+                    Private
+                  </Badge>
+                )}
+              </Group>
               <Stack gap={4}>
                 <Group gap={6}>
                   <IconBox size={14} color="var(--mantine-color-teal-6)" />
@@ -5336,6 +5615,102 @@ function WelcomePlaneView() {
           </Stack>
         </Paper>
       </Group>
+
+      {/* Share Modal */}
+      <Modal
+        opened={sharingPlaneId !== null}
+        onClose={handleCloseShareModal}
+        title={`Share "${sharingPlane?.name}"`}
+        size="md"
+      >
+        <Stack gap="md">
+          <Text size="sm" c="orange">
+            ⚠️ Sharing will grant full read and write access to all data and
+            collections on this plane
+          </Text>
+
+          <TextInput
+            label="Search users"
+            placeholder="Search by name or email..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.currentTarget.value)}
+            rightSection={isSearching ? <Loader size="xs" /> : null}
+          />
+
+          {searchResults.length > 0 && (
+            <Stack gap="xs">
+              <Text size="xs" fw={600} c="dimmed">
+                Search Results
+              </Text>
+              {searchResults.map((searchUser) => {
+                const alreadyShared = sharingPlane?.sharedWith?.some(
+                  (u) => u.id === searchUser.id,
+                )
+                return (
+                  <Paper key={searchUser.id} p="xs" withBorder>
+                    <Group justify="space-between">
+                      <Stack gap={0}>
+                        <Text size="sm">
+                          {searchUser.full_name || "No name"}
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                          {searchUser.email}
+                        </Text>
+                      </Stack>
+                      {alreadyShared ? (
+                        <Badge size="sm" color="green">
+                          Shared
+                        </Badge>
+                      ) : (
+                        <Button
+                          size="xs"
+                          onClick={() => handleShareWithUser(searchUser.id)}
+                        >
+                          Share
+                        </Button>
+                      )}
+                    </Group>
+                  </Paper>
+                )
+              })}
+            </Stack>
+          )}
+
+          {sharingPlane?.sharedWith && sharingPlane.sharedWith.length > 0 && (
+            <>
+              <Divider />
+              <Stack gap="xs">
+                <Text size="xs" fw={600} c="dimmed">
+                  Currently Shared With
+                </Text>
+                {sharingPlane.sharedWith.map((sharedUser) => (
+                  <Paper key={sharedUser.id} p="xs" withBorder>
+                    <Group justify="space-between">
+                      <Stack gap={0}>
+                        <Text size="sm">
+                          {sharedUser.full_name || "No name"}
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                          {sharedUser.email}
+                        </Text>
+                      </Stack>
+                      <ActionIcon
+                        color="red"
+                        variant="subtle"
+                        onClick={() =>
+                          handleRemoveShare(sharingPlane.id, sharedUser.id)
+                        }
+                      >
+                        <IconTrash size={16} />
+                      </ActionIcon>
+                    </Group>
+                  </Paper>
+                ))}
+              </Stack>
+            </>
+          )}
+        </Stack>
+      </Modal>
     </Box>
   )
 }
@@ -5353,6 +5728,7 @@ export function OrganizationPage() {
     activePlaneId,
     setActivePlaneId,
   } = useAppContext()
+  const { user } = useAuth()
 
   const [hoveredPlaneTabId, setHoveredPlaneTabId] = useState<string | null>(
     null,
@@ -5367,7 +5743,7 @@ export function OrganizationPage() {
   }, [planes, activePlaneId, setActivePlaneId])
 
   const handleAddPlane = () => {
-    const p = addPlane(`Plane ${planes.length + 1}`)
+    const p = addPlane(`Plane ${planes.length + 1}`, user?.id)
     setActivePlaneId(p.id)
   }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import type { AutocompleteProps, SelectProps } from "@mantine/core"
 import {
   ActionIcon,
   Autocomplete,
@@ -14,8 +14,8 @@ import {
   Text,
   TextInput,
 } from "@mantine/core"
-import type { SelectProps, AutocompleteProps } from "@mantine/core"
 import { IconX } from "@tabler/icons-react"
+import { useEffect, useMemo, useState } from "react"
 import { useAppContext, useEntityCollection } from "@/store/AppContext"
 
 // Wrappers that keep combobox dropdowns inside the Modal portal so they don't
@@ -133,9 +133,15 @@ function getMediaLabel(
   const ref = parseMediaReference(value)
   if (!ref) return value
   if (ref.kind === "material") {
-    return materials.find((material) => material.id === ref.id)?.name || "Unnamed material"
+    return (
+      materials.find((material) => material.id === ref.id)?.name ||
+      "Unnamed material"
+    )
   }
-  return solutions.find((solution) => solution.id === ref.id)?.name || "Unnamed solution"
+  return (
+    solutions.find((solution) => solution.id === ref.id)?.name ||
+    "Unnamed solution"
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -156,20 +162,28 @@ function buildQuenchingString(
     if (gas.pressure) parts.push(`pressure=${gas.pressure} ${gas.pressureUnit}`)
     if (gas.flowRate) parts.push(`flowRate=${gas.flowRate} ${gas.flowRateUnit}`)
     if (gas.height) parts.push(`height=${gas.height} ${gas.heightUnit}`)
-    if (gas.nozzleWidth) parts.push(`nozzleWidth=${gas.nozzleWidth} ${gas.nozzleWidthUnit}`)
+    if (gas.nozzleWidth)
+      parts.push(`nozzleWidth=${gas.nozzleWidth} ${gas.nozzleWidthUnit}`)
     if (gas.nozzleForm) parts.push(`nozzleForm=${gas.nozzleForm}`)
   } else if (type === "Antisolvent") {
     if (antisolvent.media) parts.push(`media=${antisolvent.media}`)
-    if (antisolvent.flowRate) parts.push(`flowRate=${antisolvent.flowRate} ul/s`)
-    if (antisolvent.depositionMethod) parts.push(`depositionMethod=${antisolvent.depositionMethod}`)
-    if (antisolvent.height) parts.push(`height=${antisolvent.height} ${antisolvent.heightUnit}`)
-    if (antisolvent.pressure) parts.push(`pressure=${antisolvent.pressure} ${antisolvent.pressureUnit}`)
+    if (antisolvent.flowRate)
+      parts.push(`flowRate=${antisolvent.flowRate} ul/s`)
+    if (antisolvent.depositionMethod)
+      parts.push(`depositionMethod=${antisolvent.depositionMethod}`)
+    if (antisolvent.height)
+      parts.push(`height=${antisolvent.height} ${antisolvent.heightUnit}`)
+    if (antisolvent.pressure)
+      parts.push(`pressure=${antisolvent.pressure} ${antisolvent.pressureUnit}`)
   } else if (type === "Vacuum") {
-    if (vacuum.height) parts.push(`height=${vacuum.height} ${vacuum.heightUnit}`)
-    if (vacuum.baseArea) parts.push(`baseArea=${vacuum.baseArea} ${vacuum.baseAreaUnit}`)
+    if (vacuum.height)
+      parts.push(`height=${vacuum.height} ${vacuum.heightUnit}`)
+    if (vacuum.baseArea)
+      parts.push(`baseArea=${vacuum.baseArea} ${vacuum.baseAreaUnit}`)
     if (vacuum.pumpModel) parts.push(`pumpModel=${vacuum.pumpModel}`)
     if (vacuum.deadVolume) parts.push(`deadVolume=${vacuum.deadVolume} m3`)
-    if (vacuum.evacuationTime) parts.push(`evacuationTime=${vacuum.evacuationTime} s`)
+    if (vacuum.evacuationTime)
+      parts.push(`evacuationTime=${vacuum.evacuationTime} s`)
   }
 
   return parts.join("|")
@@ -198,75 +212,92 @@ function parseQuenchingValue(value: string): {
     pairs[segment.slice(0, idx).trim()] = segment.slice(idx + 1).trim()
   })
 
-  const rawType = pairs["type"]
-  if (!rawType || !["Gas", "Antisolvent", "Vacuum"].includes(rawType)) return base
+  const rawType = pairs.type
+  if (!rawType || !["Gas", "Antisolvent", "Vacuum"].includes(rawType))
+    return base
   const type = rawType as QuenchingType
   base.type = type
 
   if (type === "Gas") {
     const gas = defaultGas()
-    if (pairs["gasType"]) gas.gasType = pairs["gasType"]
-    if (pairs["pressure"]) {
-      const parts = pairs["pressure"].split(" ")
+    if (pairs.gasType) gas.gasType = pairs.gasType
+    if (pairs.pressure) {
+      const parts = pairs.pressure.split(" ")
       gas.pressure = parts[0] ?? ""
-      gas.pressureUnit = (parts[1] === "Psi" ? "Psi" : "Pa") as GasState["pressureUnit"]
+      gas.pressureUnit = (
+        parts[1] === "Psi" ? "Psi" : "Pa"
+      ) as GasState["pressureUnit"]
     }
-    if (pairs["flowRate"]) {
-      const parts = pairs["flowRate"].split(" ")
+    if (pairs.flowRate) {
+      const parts = pairs.flowRate.split(" ")
       gas.flowRate = parts[0] ?? ""
-      gas.flowRateUnit = (parts[1] === "m/s" ? "m/s" : "Slm") as GasState["flowRateUnit"]
+      gas.flowRateUnit = (
+        parts[1] === "m/s" ? "m/s" : "Slm"
+      ) as GasState["flowRateUnit"]
     }
-    if (pairs["height"]) {
-      const parts = pairs["height"].split(" ")
+    if (pairs.height) {
+      const parts = pairs.height.split(" ")
       gas.height = parts[0] ?? ""
-      gas.heightUnit = (parts[1] === "cm" ? "cm" : "mm") as GasState["heightUnit"]
+      gas.heightUnit = (
+        parts[1] === "cm" ? "cm" : "mm"
+      ) as GasState["heightUnit"]
     }
-    if (pairs["nozzleWidth"]) {
-      const parts = pairs["nozzleWidth"].split(" ")
+    if (pairs.nozzleWidth) {
+      const parts = pairs.nozzleWidth.split(" ")
       gas.nozzleWidth = parts[0] ?? ""
-      gas.nozzleWidthUnit = (parts[1] === "cm" ? "cm" : "mm") as GasState["nozzleWidthUnit"]
+      gas.nozzleWidthUnit = (
+        parts[1] === "cm" ? "cm" : "mm"
+      ) as GasState["nozzleWidthUnit"]
     }
-    if (pairs["nozzleForm"]) gas.nozzleForm = pairs["nozzleForm"]
+    if (pairs.nozzleForm) gas.nozzleForm = pairs.nozzleForm
     base.gas = gas
   } else if (type === "Antisolvent") {
     const anti = defaultAntisolvent()
-    if (pairs["media"]) anti.media = pairs["media"]
-    if (pairs["material"]) anti.media = pairs["material"]
-    if (pairs["flowRate"]) {
-      const parts = pairs["flowRate"].split(" ")
+    if (pairs.media) anti.media = pairs.media
+    if (pairs.material) anti.media = pairs.material
+    if (pairs.flowRate) {
+      const parts = pairs.flowRate.split(" ")
       anti.flowRate = parts[0] ?? ""
     }
-    if (pairs["depositionMethod"]) anti.depositionMethod = pairs["depositionMethod"]
-    if (pairs["height"]) {
-      const parts = pairs["height"].split(" ")
+    if (pairs.depositionMethod) anti.depositionMethod = pairs.depositionMethod
+    if (pairs.height) {
+      const parts = pairs.height.split(" ")
       anti.height = parts[0] ?? ""
-      anti.heightUnit = (parts[1] === "cm" ? "cm" : "mm") as AntisolventState["heightUnit"]
+      anti.heightUnit = (
+        parts[1] === "cm" ? "cm" : "mm"
+      ) as AntisolventState["heightUnit"]
     }
-    if (pairs["pressure"]) {
-      const parts = pairs["pressure"].split(" ")
+    if (pairs.pressure) {
+      const parts = pairs.pressure.split(" ")
       anti.pressure = parts[0] ?? ""
-      anti.pressureUnit = (parts[1] === "Psi" ? "Psi" : "Pa") as AntisolventState["pressureUnit"]
+      anti.pressureUnit = (
+        parts[1] === "Psi" ? "Psi" : "Pa"
+      ) as AntisolventState["pressureUnit"]
     }
     base.antisolvent = anti
   } else if (type === "Vacuum") {
     const vac = defaultVacuum()
-    if (pairs["height"]) {
-      const parts = pairs["height"].split(" ")
+    if (pairs.height) {
+      const parts = pairs.height.split(" ")
       vac.height = parts[0] ?? ""
-      vac.heightUnit = (parts[1] === "cm" ? "cm" : "mm") as VacuumState["heightUnit"]
+      vac.heightUnit = (
+        parts[1] === "cm" ? "cm" : "mm"
+      ) as VacuumState["heightUnit"]
     }
-    if (pairs["baseArea"]) {
-      const parts = pairs["baseArea"].split(" ")
+    if (pairs.baseArea) {
+      const parts = pairs.baseArea.split(" ")
       vac.baseArea = parts[0] ?? ""
-      vac.baseAreaUnit = (parts[1] === "m2" ? "m2" : "cm2") as VacuumState["baseAreaUnit"]
+      vac.baseAreaUnit = (
+        parts[1] === "m2" ? "m2" : "cm2"
+      ) as VacuumState["baseAreaUnit"]
     }
-    if (pairs["pumpModel"]) vac.pumpModel = pairs["pumpModel"]
-    if (pairs["deadVolume"]) {
-      const parts = pairs["deadVolume"].split(" ")
+    if (pairs.pumpModel) vac.pumpModel = pairs.pumpModel
+    if (pairs.deadVolume) {
+      const parts = pairs.deadVolume.split(" ")
       vac.deadVolume = parts[0] ?? ""
     }
-    if (pairs["evacuationTime"]) {
-      const parts = pairs["evacuationTime"].split(" ")
+    if (pairs.evacuationTime) {
+      const parts = pairs.evacuationTime.split(" ")
       vac.evacuationTime = parts[0] ?? ""
     }
     base.vacuum = vac
@@ -287,7 +318,13 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
-function GasForm({ state, onChange }: { state: GasState; onChange: (s: GasState) => void }) {
+function GasForm({
+  state,
+  onChange,
+}: {
+  state: GasState
+  onChange: (s: GasState) => void
+}) {
   function set(patch: Partial<GasState>) {
     onChange({ ...state, ...patch })
   }
@@ -311,7 +348,9 @@ function GasForm({ state, onChange }: { state: GasState; onChange: (s: GasState)
           <NumberInput
             size="xs"
             value={state.flowRate !== "" ? Number(state.flowRate) : ""}
-            onChange={(v) => set({ flowRate: typeof v === "number" ? String(v) : "" })}
+            onChange={(v) =>
+              set({ flowRate: typeof v === "number" ? String(v) : "" })
+            }
             placeholder="Flow rate"
             style={{ flex: 1 }}
             min={0}
@@ -320,7 +359,9 @@ function GasForm({ state, onChange }: { state: GasState; onChange: (s: GasState)
             size="xs"
             data={["Slm", "m/s"]}
             value={state.flowRateUnit}
-            onChange={(v) => set({ flowRateUnit: (v ?? "Slm") as GasState["flowRateUnit"] })}
+            onChange={(v) =>
+              set({ flowRateUnit: (v ?? "Slm") as GasState["flowRateUnit"] })
+            }
             style={{ width: 70 }}
           />
         </Group>
@@ -332,7 +373,9 @@ function GasForm({ state, onChange }: { state: GasState; onChange: (s: GasState)
           <NumberInput
             size="xs"
             value={state.pressure !== "" ? Number(state.pressure) : ""}
-            onChange={(v) => set({ pressure: typeof v === "number" ? String(v) : "" })}
+            onChange={(v) =>
+              set({ pressure: typeof v === "number" ? String(v) : "" })
+            }
             placeholder="Value"
             style={{ flex: 1 }}
             min={0}
@@ -341,7 +384,9 @@ function GasForm({ state, onChange }: { state: GasState; onChange: (s: GasState)
             size="xs"
             data={["Pa", "Psi"]}
             value={state.pressureUnit}
-            onChange={(v) => set({ pressureUnit: (v ?? "Pa") as GasState["pressureUnit"] })}
+            onChange={(v) =>
+              set({ pressureUnit: (v ?? "Pa") as GasState["pressureUnit"] })
+            }
             style={{ width: 70 }}
           />
         </Group>
@@ -353,7 +398,9 @@ function GasForm({ state, onChange }: { state: GasState; onChange: (s: GasState)
           <NumberInput
             size="xs"
             value={state.height !== "" ? Number(state.height) : ""}
-            onChange={(v) => set({ height: typeof v === "number" ? String(v) : "" })}
+            onChange={(v) =>
+              set({ height: typeof v === "number" ? String(v) : "" })
+            }
             placeholder="Value"
             style={{ flex: 1 }}
             min={0}
@@ -362,7 +409,9 @@ function GasForm({ state, onChange }: { state: GasState; onChange: (s: GasState)
             size="xs"
             data={["mm", "cm"]}
             value={state.heightUnit}
-            onChange={(v) => set({ heightUnit: (v ?? "mm") as GasState["heightUnit"] })}
+            onChange={(v) =>
+              set({ heightUnit: (v ?? "mm") as GasState["heightUnit"] })
+            }
             style={{ width: 70 }}
           />
         </Group>
@@ -374,7 +423,9 @@ function GasForm({ state, onChange }: { state: GasState; onChange: (s: GasState)
           <NumberInput
             size="xs"
             value={state.nozzleWidth !== "" ? Number(state.nozzleWidth) : ""}
-            onChange={(v) => set({ nozzleWidth: typeof v === "number" ? String(v) : "" })}
+            onChange={(v) =>
+              set({ nozzleWidth: typeof v === "number" ? String(v) : "" })
+            }
             placeholder="Value"
             style={{ flex: 1 }}
             min={0}
@@ -384,7 +435,9 @@ function GasForm({ state, onChange }: { state: GasState; onChange: (s: GasState)
             data={["mm", "cm"]}
             value={state.nozzleWidthUnit}
             onChange={(v) =>
-              set({ nozzleWidthUnit: (v ?? "mm") as GasState["nozzleWidthUnit"] })
+              set({
+                nozzleWidthUnit: (v ?? "mm") as GasState["nozzleWidthUnit"],
+              })
             }
             style={{ width: 70 }}
           />
@@ -421,7 +474,11 @@ function AntisolventForm({
         group: "Materials",
         items: materials
           .filter((material) => isEntityOnActivePlane("material", material.id))
-          .filter((material) => (material.category ?? "chemical_compound") !== "substrate_material")
+          .filter(
+            (material) =>
+              (material.category ?? "chemical_compound") !==
+              "substrate_material",
+          )
           .map((material) => {
             const label = material.name || "Unnamed material"
             return { value: `material:${material.id}`, label }
@@ -475,7 +532,9 @@ function AntisolventForm({
         <NumberInput
           size="xs"
           value={state.flowRate !== "" ? Number(state.flowRate) : ""}
-          onChange={(v) => set({ flowRate: typeof v === "number" ? String(v) : "" })}
+          onChange={(v) =>
+            set({ flowRate: typeof v === "number" ? String(v) : "" })
+          }
           placeholder="e.g. 50"
           min={0}
         />
@@ -487,7 +546,9 @@ function AntisolventForm({
           <NumberInput
             size="xs"
             value={state.height !== "" ? Number(state.height) : ""}
-            onChange={(v) => set({ height: typeof v === "number" ? String(v) : "" })}
+            onChange={(v) =>
+              set({ height: typeof v === "number" ? String(v) : "" })
+            }
             placeholder="Value"
             style={{ flex: 1 }}
             min={0}
@@ -496,7 +557,9 @@ function AntisolventForm({
             size="xs"
             data={["mm", "cm"]}
             value={state.heightUnit}
-            onChange={(v) => set({ heightUnit: (v ?? "mm") as AntisolventState["heightUnit"] })}
+            onChange={(v) =>
+              set({ heightUnit: (v ?? "mm") as AntisolventState["heightUnit"] })
+            }
             style={{ width: 70 }}
           />
         </Group>
@@ -508,7 +571,9 @@ function AntisolventForm({
           <NumberInput
             size="xs"
             value={state.pressure !== "" ? Number(state.pressure) : ""}
-            onChange={(v) => set({ pressure: typeof v === "number" ? String(v) : "" })}
+            onChange={(v) =>
+              set({ pressure: typeof v === "number" ? String(v) : "" })
+            }
             placeholder="Value"
             style={{ flex: 1 }}
             min={0}
@@ -518,7 +583,9 @@ function AntisolventForm({
             data={["Pa", "Psi"]}
             value={state.pressureUnit}
             onChange={(v) =>
-              set({ pressureUnit: (v ?? "Pa") as AntisolventState["pressureUnit"] })
+              set({
+                pressureUnit: (v ?? "Pa") as AntisolventState["pressureUnit"],
+              })
             }
             style={{ width: 70 }}
           />
@@ -528,7 +595,13 @@ function AntisolventForm({
   )
 }
 
-function VacuumForm({ state, onChange }: { state: VacuumState; onChange: (s: VacuumState) => void }) {
+function VacuumForm({
+  state,
+  onChange,
+}: {
+  state: VacuumState
+  onChange: (s: VacuumState) => void
+}) {
   function set(patch: Partial<VacuumState>) {
     onChange({ ...state, ...patch })
   }
@@ -541,7 +614,9 @@ function VacuumForm({ state, onChange }: { state: VacuumState; onChange: (s: Vac
           <NumberInput
             size="xs"
             value={state.height !== "" ? Number(state.height) : ""}
-            onChange={(v) => set({ height: typeof v === "number" ? String(v) : "" })}
+            onChange={(v) =>
+              set({ height: typeof v === "number" ? String(v) : "" })
+            }
             placeholder="Value"
             style={{ flex: 1 }}
             min={0}
@@ -550,7 +625,9 @@ function VacuumForm({ state, onChange }: { state: VacuumState; onChange: (s: Vac
             size="xs"
             data={["mm", "cm"]}
             value={state.heightUnit}
-            onChange={(v) => set({ heightUnit: (v ?? "mm") as VacuumState["heightUnit"] })}
+            onChange={(v) =>
+              set({ heightUnit: (v ?? "mm") as VacuumState["heightUnit"] })
+            }
             style={{ width: 70 }}
           />
         </Group>
@@ -562,7 +639,9 @@ function VacuumForm({ state, onChange }: { state: VacuumState; onChange: (s: Vac
           <NumberInput
             size="xs"
             value={state.baseArea !== "" ? Number(state.baseArea) : ""}
-            onChange={(v) => set({ baseArea: typeof v === "number" ? String(v) : "" })}
+            onChange={(v) =>
+              set({ baseArea: typeof v === "number" ? String(v) : "" })
+            }
             placeholder="Value"
             style={{ flex: 1 }}
             min={0}
@@ -571,7 +650,9 @@ function VacuumForm({ state, onChange }: { state: VacuumState; onChange: (s: Vac
             size="xs"
             data={["cm2", "m2"]}
             value={state.baseAreaUnit}
-            onChange={(v) => set({ baseAreaUnit: (v ?? "cm2") as VacuumState["baseAreaUnit"] })}
+            onChange={(v) =>
+              set({ baseAreaUnit: (v ?? "cm2") as VacuumState["baseAreaUnit"] })
+            }
             style={{ width: 70 }}
           />
         </Group>
@@ -592,7 +673,9 @@ function VacuumForm({ state, onChange }: { state: VacuumState; onChange: (s: Vac
         <NumberInput
           size="xs"
           value={state.deadVolume !== "" ? Number(state.deadVolume) : ""}
-          onChange={(v) => set({ deadVolume: typeof v === "number" ? String(v) : "" })}
+          onChange={(v) =>
+            set({ deadVolume: typeof v === "number" ? String(v) : "" })
+          }
           placeholder="e.g. 0.005"
           min={0}
           decimalScale={6}
@@ -603,8 +686,12 @@ function VacuumForm({ state, onChange }: { state: VacuumState; onChange: (s: Vac
         <FieldLabel>Evacuation Time (s)</FieldLabel>
         <NumberInput
           size="xs"
-          value={state.evacuationTime !== "" ? Number(state.evacuationTime) : ""}
-          onChange={(v) => set({ evacuationTime: typeof v === "number" ? String(v) : "" })}
+          value={
+            state.evacuationTime !== "" ? Number(state.evacuationTime) : ""
+          }
+          onChange={(v) =>
+            set({ evacuationTime: typeof v === "number" ? String(v) : "" })
+          }
           placeholder="e.g. 60"
           min={0}
         />
@@ -624,10 +711,17 @@ export interface QuenchingModalProps {
   onApply: (value: string) => void
 }
 
-export function QuenchingModal({ opened, initialValue, onClose, onApply }: QuenchingModalProps) {
+export function QuenchingModal({
+  opened,
+  initialValue,
+  onClose,
+  onApply,
+}: QuenchingModalProps) {
   const [type, setType] = useState<QuenchingType>("Gas")
   const [gas, setGas] = useState<GasState>(defaultGas())
-  const [antisolvent, setAntisolvent] = useState<AntisolventState>(defaultAntisolvent())
+  const [antisolvent, setAntisolvent] = useState<AntisolventState>(
+    defaultAntisolvent(),
+  )
   const [vacuum, setVacuum] = useState<VacuumState>(defaultVacuum())
 
   // Reset form state whenever the modal opens
@@ -648,7 +742,9 @@ export function QuenchingModal({ opened, initialValue, onClose, onApply }: Quenc
 
   // DEBUG: onClose is intentionally suppressed to isolate unexpected close behaviour.
   // The modal can only be dismissed via Apply.
-  function noOp() {/* intentionally empty */}
+  function noOp() {
+    /* intentionally empty */
+  }
 
   return (
     <Modal
@@ -661,7 +757,11 @@ export function QuenchingModal({ opened, initialValue, onClose, onApply }: Quenc
       closeOnEscape={false}
       withinPortal
     >
-      <Stack data-quenching-modal="true" gap="md" onClick={(e) => e.stopPropagation()}>
+      <Stack
+        data-quenching-modal="true"
+        gap="md"
+        onClick={(e) => e.stopPropagation()}
+      >
         <SegmentedControl
           data={["Gas", "Antisolvent", "Vacuum"]}
           value={type}
@@ -674,7 +774,9 @@ export function QuenchingModal({ opened, initialValue, onClose, onApply }: Quenc
         {type === "Antisolvent" && (
           <AntisolventForm state={antisolvent} onChange={setAntisolvent} />
         )}
-        {type === "Vacuum" && <VacuumForm state={vacuum} onChange={setVacuum} />}
+        {type === "Vacuum" && (
+          <VacuumForm state={vacuum} onChange={setVacuum} />
+        )}
 
         <Group justify="flex-end" mt="xs">
           <Button variant="default" onClick={onClose}>
@@ -695,7 +797,9 @@ export function QuenchingModal({ opened, initialValue, onClose, onApply }: Quenc
 export interface DryingMethodInputProps {
   label: string
   param?: { value: string; mode: "constant" | "variation" }
-  onChange: (param: { value: string; mode: "constant" | "variation" } | undefined) => void
+  onChange: (
+    param: { value: string; mode: "constant" | "variation" } | undefined,
+  ) => void
 }
 
 /** Render a compact human-readable summary of a quenching string. */
@@ -712,32 +816,36 @@ function summariseQuenchingValue(
     pairs[segment.slice(0, idx).trim()] = segment.slice(idx + 1).trim()
   })
 
-  const type = pairs["type"]
+  const type = pairs.type
   if (!type) return value
 
   const parts: string[] = [`D/Q: ${type}`]
   if (type === "Gas") {
-    if (pairs["gasType"]) parts.push(pairs["gasType"])
-    if (pairs["flowRate"]) parts.push(`${pairs["flowRate"]}`)
-    if (pairs["pressure"]) parts.push(`${pairs["pressure"]}`)
-    if (pairs["height"]) parts.push(`h=${pairs["height"]}`)
-    if (pairs["nozzleForm"]) parts.push(pairs["nozzleForm"])
+    if (pairs.gasType) parts.push(pairs.gasType)
+    if (pairs.flowRate) parts.push(`${pairs.flowRate}`)
+    if (pairs.pressure) parts.push(`${pairs.pressure}`)
+    if (pairs.height) parts.push(`h=${pairs.height}`)
+    if (pairs.nozzleForm) parts.push(pairs.nozzleForm)
   } else if (type === "Antisolvent") {
-    const media = pairs["media"] || pairs["material"]
+    const media = pairs.media || pairs.material
     if (media) parts.push(getMediaLabel(media, materials, solutions))
-    if (pairs["depositionMethod"]) parts.push(pairs["depositionMethod"])
-    if (pairs["flowRate"]) parts.push(`${pairs["flowRate"]}`)
-    if (pairs["height"]) parts.push(`h=${pairs["height"]}`)
+    if (pairs.depositionMethod) parts.push(pairs.depositionMethod)
+    if (pairs.flowRate) parts.push(`${pairs.flowRate}`)
+    if (pairs.height) parts.push(`h=${pairs.height}`)
   } else if (type === "Vacuum") {
-    if (pairs["height"]) parts.push(`h=${pairs["height"]}`)
-    if (pairs["evacuationTime"]) parts.push(`t=${pairs["evacuationTime"]}`)
-    if (pairs["pumpModel"]) parts.push(pairs["pumpModel"])
+    if (pairs.height) parts.push(`h=${pairs.height}`)
+    if (pairs.evacuationTime) parts.push(`t=${pairs.evacuationTime}`)
+    if (pairs.pumpModel) parts.push(pairs.pumpModel)
   }
 
   return parts.join(" | ")
 }
 
-export function DryingMethodInput({ label, param, onChange }: DryingMethodInputProps) {
+export function DryingMethodInput({
+  label,
+  param,
+  onChange,
+}: DryingMethodInputProps) {
   const [modalOpen, setModalOpen] = useState(false)
   const { materials, solutions } = useAppContext()
 

@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react"
 
 import { AuthLayout } from "@/components/Common/AuthLayout"
 import { Button } from "@/components/ui/button"
-import { setKeycloak, getKeycloak } from "@/lib/keycloakInstance"
 import { redirectIfAuthenticated } from "@/lib/auth"
+import { getKeycloak, setKeycloak } from "@/lib/keycloakInstance"
 
 export const Route = createFileRoute("/login")({
   component: Login,
@@ -64,7 +64,7 @@ function Login() {
     setLoading(true)
     // Redirect to NOMAD Keycloak; after login Keycloak redirects back to /login
     // where keycloak.init() (on next mount) processes the auth code.
-    getKeycloak()?.login({ redirectUri: window.location.origin + "/login" })
+    getKeycloak()?.login({ redirectUri: `${window.location.origin}/login` })
   }
 
   return (

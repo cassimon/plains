@@ -36,15 +36,21 @@ import {
   IconX,
 } from "@tabler/icons-react"
 import { useBlocker } from "@tanstack/react-router"
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { OpenAPI } from "../client/core/OpenAPI"
 import { NomadService } from "../client/sdk.gen"
-import { getTokenSync } from "../lib/keycloakInstance"
 import type {
   NomadConfigResponse,
-  NomadUploadRequest,
   NomadUploadResponse,
 } from "../client/types.gen"
+import { getTokenSync } from "../lib/keycloakInstance"
 import {
   type CanvasCollectionElement,
   type DeviceGroup,
@@ -59,6 +65,35 @@ import {
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
+
+// Type for NOMAD upload request (not exported in generated types because it's a Form field)
+type NomadUploadRequest = {
+  experiment_id: string
+  experiment_name: string
+  substrates: Array<{
+    name: string
+    notes?: string
+  }>
+  measurement_files: Array<{
+    fileName: string
+    fileType: string
+    deviceName?: string
+    cell?: string
+    pixel?: string
+    value?: number
+    voc?: number
+    jsc?: number
+    ff?: number
+    user?: string
+    measurementDate?: string
+  }>
+  device_groups: Array<{
+    name: string
+    substrate_name?: string
+  }>
+  notes?: string
+  custom_metadata?: Record<string, any>
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // File Parsing Utilities (ported from Streamlit app)
@@ -217,7 +252,9 @@ function parseTxtContent(
     }
 
     // Extract Jsc (mA/cm²) — also catches EQE-integrated Jsc
-    const jscMatch = line.match(/(?:integrated\s+)?jsc[:\s=]*(\d+\.?\d*)\s*(?:ma\/cm2?|ma)?/i)
+    const jscMatch = line.match(
+      /(?:integrated\s+)?jsc[:\s=]*(\d+\.?\d*)\s*(?:ma\/cm2?|ma)?/i,
+    )
     if (jscMatch) {
       jsc = parseFloat(jscMatch[1])
     }
@@ -268,9 +305,7 @@ function parseTxtContent(
 
 /** Compute similarity score between two strings (0-1) */
 /** Parse a name into components: base name, numeric indices, and letter indices */
-function parseNameComponents(
-  name: string,
-): {
+function parseNameComponents(name: string): {
   baseName: string
   numericIndices: number[]
   letterIndices: string[]
@@ -298,7 +333,7 @@ function parseNameComponents(
   // Remove all numbers from base name
   baseName = baseName.replace(/\d+/g, "")
   // Clean up underscores and dashes
-  baseName = baseName.replace(/[_\-]+/g, "_").replace(/^_+|_+$/g, "")
+  baseName = baseName.replace(/[_-]+/g, "_").replace(/^_+|_+$/g, "")
 
   return { baseName, numericIndices, letterIndices }
 }
@@ -456,12 +491,18 @@ function groupFilesBySubstrateMatch(
 
   // First pass: group files by substrate names found in them
   for (const file of files) {
-    const matchedSubstrates = findSubstrateNamesInFile(file.fileName, substrates)
+    const matchedSubstrates = findSubstrateNamesInFile(
+      file.fileName,
+      substrates,
+    )
     if (matchedSubstrates.length > 0) {
       // Use the highest confidence match
       const best = matchedSubstrates[0]
       const key = best.id
-      const existing = groupsBySubstrate.get(key) ?? { files: [], confidence: 0 }
+      const existing = groupsBySubstrate.get(key) ?? {
+        files: [],
+        confidence: 0,
+      }
       existing.files.push(file)
       existing.confidence = Math.max(existing.confidence, best.confidence)
       groupsBySubstrate.set(key, existing)
@@ -469,7 +510,10 @@ function groupFilesBySubstrateMatch(
   }
 
   // Convert to DeviceGroups with substrate assignments
-  for (const [substrateId, { files: groupFiles, confidence }] of groupsBySubstrate) {
+  for (const [
+    substrateId,
+    { files: groupFiles, confidence },
+  ] of groupsBySubstrate) {
     const substrate = substrates.find((s) => s.id === substrateId)
     groups.push({
       id: crypto.randomUUID(),
@@ -482,7 +526,9 @@ function groupFilesBySubstrateMatch(
 
   // Second pass: create groups for files without substrate matches (using device name extraction)
   const assignedFileIds = new Set(
-    Array.from(groupsBySubstrate.values()).flatMap((g) => g.files.map((f) => f.id)),
+    Array.from(groupsBySubstrate.values()).flatMap((g) =>
+      g.files.map((f) => f.id),
+    ),
   )
   const unassignedFiles = files.filter((f) => !assignedFileIds.has(f.id))
 
@@ -702,7 +748,11 @@ function SubstrateCard({
           </div>
         </Group>
 
-        <Badge size="xs" variant="light" color={files.length > 0 ? "green" : "gray"}>
+        <Badge
+          size="xs"
+          variant="light"
+          color={files.length > 0 ? "green" : "gray"}
+        >
           {files.length} file{files.length !== 1 ? "s" : ""}
         </Badge>
       </Group>
@@ -714,7 +764,9 @@ function SubstrateCard({
               <Checkbox
                 size="xs"
                 checked={allSelected}
-                indeterminate={selectedCount > 0 && selectedCount < files.length}
+                indeterminate={
+                  selectedCount > 0 && selectedCount < files.length
+                }
                 onChange={(e) => onToggleSelectAll(e.currentTarget.checked)}
                 aria-label={`Select all files in ${substrate.name}`}
               />
@@ -728,7 +780,11 @@ function SubstrateCard({
                 variant="light"
                 disabled={selectedCount === 0}
                 onClick={() =>
-                  onUnmatchFiles(files.filter((f) => selectedFileIds.has(f.id)).map((f) => f.id))
+                  onUnmatchFiles(
+                    files
+                      .filter((f) => selectedFileIds.has(f.id))
+                      .map((f) => f.id),
+                  )
                 }
               >
                 Move {selectedCount} to unmatched
@@ -739,7 +795,11 @@ function SubstrateCard({
                 variant="light"
                 disabled={selectedCount === 0}
                 onClick={() =>
-                  onDeleteFiles(files.filter((f) => selectedFileIds.has(f.id)).map((f) => f.id))
+                  onDeleteFiles(
+                    files
+                      .filter((f) => selectedFileIds.has(f.id))
+                      .map((f) => f.id),
+                  )
                 }
               >
                 Delete {selectedCount}
@@ -760,7 +820,7 @@ function SubstrateCard({
             </Table.Thead>
             <Table.Tbody>
               {files.map((file) => (
-                <Table.Tr 
+                <Table.Tr
                   key={file.id}
                   draggable
                   onDragStart={(e) => {
@@ -860,13 +920,21 @@ function ResultsDetail({
   onUpdateResults: (results: ExperimentResults) => void
   onUpdateExperiment: (experiment: Experiment) => void
 }) {
-  const [expandedSubstrates, setExpandedSubstrates] = useState<Set<string>>(new Set())
-  const [expandedUnmatchedGroups, setExpandedUnmatchedGroups] = useState<Set<string>>(new Set())
-  const [selectedUnmatchedFileIds, setSelectedUnmatchedFileIds] = useState<Set<string>>(new Set())
-  const [selectedSubstrateFileIdsBySubstrate, setSelectedSubstrateFileIdsBySubstrate] = useState<
-    Record<string, Set<string>>
-  >({})
-  const [batchAssignTargetSubstrateId, setBatchAssignTargetSubstrateId] = useState<string | null>(null)
+  const [expandedSubstrates, setExpandedSubstrates] = useState<Set<string>>(
+    new Set(),
+  )
+  const [expandedUnmatchedGroups, setExpandedUnmatchedGroups] = useState<
+    Set<string>
+  >(new Set())
+  const [selectedUnmatchedFileIds, setSelectedUnmatchedFileIds] = useState<
+    Set<string>
+  >(new Set())
+  const [
+    selectedSubstrateFileIdsBySubstrate,
+    setSelectedSubstrateFileIdsBySubstrate,
+  ] = useState<Record<string, Set<string>>>({})
+  const [batchAssignTargetSubstrateId, setBatchAssignTargetSubstrateId] =
+    useState<string | null>(null)
   const seenUnmatchedGroupIdsRef = useRef<Set<string>>(new Set())
   const { materials, processes } = useAppContext()
   const theme = useMantineTheme()
@@ -1003,7 +1071,7 @@ function ResultsDetail({
       const key = `nomad_archive:${experiment.id}`
       const v = sessionStorage.getItem(key)
       if (v) setLastArchivePath(v)
-    } catch (e) {
+    } catch (_e) {
       // ignore sessionStorage errors in restrictive environments
     }
   }, [experiment.id])
@@ -1051,7 +1119,7 @@ function ResultsDetail({
       const token =
         typeof OpenAPI.TOKEN === "function"
           ? await OpenAPI.TOKEN({} as any)
-          : OpenAPI.TOKEN ?? undefined
+          : (OpenAPI.TOKEN ?? undefined)
 
       await fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/archive/discard`, {
         method: "POST",
@@ -1218,12 +1286,13 @@ function ResultsDetail({
           return category !== null
         }),
       ])
-      ;
 
       // Upload dropped files to create a temporary archive on the server
-      (async () => {
+      ;(async () => {
         try {
-          const filesToSend = droppedFiles.filter((f) => getFileCategory(f.name) !== null)
+          const filesToSend = droppedFiles.filter(
+            (f) => getFileCategory(f.name) !== null,
+          )
           if (filesToSend.length === 0) return
 
           const form = new FormData()
@@ -1236,7 +1305,7 @@ function ResultsDetail({
           const token =
             typeof OpenAPI.TOKEN === "function"
               ? await OpenAPI.TOKEN({} as any)
-              : OpenAPI.TOKEN ?? undefined
+              : (OpenAPI.TOKEN ?? undefined)
 
           const res = await fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/files`, {
             method: "POST",
@@ -1262,7 +1331,7 @@ function ResultsDetail({
             try {
               const key = `nomad_archive:${experiment.id}`
               sessionStorage.setItem(key, data.archive_path)
-            } catch (e) {
+            } catch (_e) {
               // ignore
             }
             setLastArchivePath(data.archive_path)
@@ -1286,29 +1355,39 @@ function ResultsDetail({
 
       // Group files by device name while preserving existing ungrouped files
       const allFiles = [...results.files, ...newFiles]
-      
+
       // Step 1: Try intelligent substrate matching (group by substrate names found in files)
       // This function returns BOTH substrate-matched groups AND unmatched groups (grouped by device name)
       const allGroups = groupFilesBySubstrateMatch(
         newFiles,
         experiment.substrates,
       )
-      
+
       // Step 2: Separate matched from unmatched groups
-      const matchedSubstrateGroups = allGroups.filter(g => g.assignedSubstrateId !== null)
-      const unmatchedSubstrateGroups = allGroups.filter(g => g.assignedSubstrateId === null)
-      
+      const matchedSubstrateGroups = allGroups.filter(
+        (g) => g.assignedSubstrateId !== null,
+      )
+      const unmatchedSubstrateGroups = allGroups.filter(
+        (g) => g.assignedSubstrateId === null,
+      )
+
       // Step 3: Get available substrates (not yet assigned)
-      const assignedSubstrateIds = new Set(matchedSubstrateGroups.map(g => g.assignedSubstrateId).filter(Boolean))
-      const availableSubstrates = experiment.substrates.filter(s => !assignedSubstrateIds.has(s.id))
-      
+      const assignedSubstrateIds = new Set(
+        matchedSubstrateGroups
+          .map((g) => g.assignedSubstrateId)
+          .filter(Boolean),
+      )
+      const availableSubstrates = experiment.substrates.filter(
+        (s) => !assignedSubstrateIds.has(s.id),
+      )
+
       // Step 4: Fuzzy match unmatched groups to available substrates
       const matchedRemainingGroups = matchGroupsToSubstrates(
         unmatchedSubstrateGroups,
         availableSubstrates,
         "fuzzy",
       )
-      
+
       // Step 5: Combine all groups and keep prior manual review state
       const matchedGroups = [
         ...results.deviceGroups,
@@ -1331,6 +1410,8 @@ function ResultsDetail({
       results,
       onUpdateResults,
       matchGroupsToSubstrates,
+      experiment.id,
+      experiment.name,
     ],
   )
 
@@ -1421,12 +1502,19 @@ function ResultsDetail({
         }))
         .filter((g) => g.files.length > 0)
 
-      const unmatchedGroups = retainedGroups.filter((g) => !g.assignedSubstrateId)
+      const unmatchedGroups = retainedGroups.filter(
+        (g) => !g.assignedSubstrateId,
+      )
       const matchedGroups = retainedGroups.filter((g) => g.assignedSubstrateId)
 
       for (const file of filesToMove) {
-        const targetGroupName = getAutoUnmatchedGroupName(file, experiment.substrates)
-        const existing = unmatchedGroups.find((g) => g.deviceName === targetGroupName)
+        const targetGroupName = getAutoUnmatchedGroupName(
+          file,
+          experiment.substrates,
+        )
+        const existing = unmatchedGroups.find(
+          (g) => g.deviceName === targetGroupName,
+        )
         if (existing) {
           existing.files = [...existing.files, file]
         } else {
@@ -1574,7 +1662,8 @@ function ResultsDetail({
   }))
 
   const buildNomadUploadRequest = useCallback((): NomadUploadRequest => {
-    const linkedProcess = processes.find((p) => p.id === experiment.processId) ?? null
+    const linkedProcess =
+      processes.find((p) => p.id === experiment.processId) ?? null
     return {
       experiment_id: experiment.id,
       experiment_name: experiment.name,
@@ -1597,17 +1686,11 @@ function ResultsDetail({
         measurementDate: f.measurementDate,
       })),
       device_groups: results.deviceGroups.map((g) => ({
-        id: g.id,
-        deviceName: g.deviceName,
-        assignedSubstrateId: g.assignedSubstrateId,
-        files: g.files.map((f) => ({
-          fileName: f.fileName,
-          fileType: f.fileType,
-          deviceName: f.deviceName,
-          cell: f.cell,
-          pixel: f.pixel,
-          value: f.value,
-        })),
+        name: g.deviceName,
+        substrate_name: g.assignedSubstrateId
+          ? experiment?.substrates.find((s) => s.id === g.assignedSubstrateId)
+              ?.name
+          : undefined,
       })),
     }
   }, [experiment, processes, results.deviceGroups, results.files, substrates])
@@ -1633,7 +1716,7 @@ function ResultsDetail({
       const token =
         typeof OpenAPI.TOKEN === "function"
           ? await OpenAPI.TOKEN({} as any)
-          : OpenAPI.TOKEN ?? undefined
+          : (OpenAPI.TOKEN ?? undefined)
 
       const res = await fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/metadata`, {
         method: "POST",
@@ -1654,9 +1737,9 @@ function ResultsDetail({
       }
 
       const data = await res.json()
-      
+
       setReviewConfirmed(true)
-      
+
       notifications.show({
         title: "Upload Prepared",
         message: `Archive ready with ${data.metadata_file_count || 0} YAML metadata files`,
@@ -1693,7 +1776,7 @@ function ResultsDetail({
 
       const formData = new FormData()
       formData.append("request_json", JSON.stringify(requestData))
-      
+
       // Use pre-created archive if available, otherwise upload files directly
       if (lastArchivePath) {
         formData.append("archive_path", lastArchivePath)
@@ -1706,14 +1789,17 @@ function ResultsDetail({
       const token =
         typeof OpenAPI.TOKEN === "function"
           ? await OpenAPI.TOKEN({} as any)
-          : OpenAPI.TOKEN ?? undefined
-      const response = await fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/nomad`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
+          : (OpenAPI.TOKEN ?? undefined)
+      const response = await fetch(
+        `${OpenAPI.BASE}/api/v1/nomad/upload/nomad`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
         },
-        body: formData,
-      })
+      )
 
       const result: NomadUploadResponse = await response.json()
       if (!result.success) {
@@ -1770,7 +1856,8 @@ function ResultsDetail({
     } catch (err) {
       notifications.show({
         title: "Upload Error",
-        message: err instanceof Error ? err.message : "Failed to upload to NOMAD",
+        message:
+          err instanceof Error ? err.message : "Failed to upload to NOMAD",
         color: "red",
       })
     } finally {
@@ -1785,6 +1872,7 @@ function ResultsDetail({
     onUpdateResults,
     results,
     uploadedFiles,
+    experiment,
   ])
 
   const openExperimentMetadataPreview = useCallback(async () => {
@@ -1804,7 +1892,7 @@ function ResultsDetail({
       const token =
         typeof OpenAPI.TOKEN === "function"
           ? await OpenAPI.TOKEN({} as any)
-          : OpenAPI.TOKEN ?? undefined
+          : (OpenAPI.TOKEN ?? undefined)
 
       const res = await fetch(`${OpenAPI.BASE}/api/v1/nomad/metadata/preview`, {
         method: "POST",
@@ -1834,7 +1922,10 @@ function ResultsDetail({
             <Stack gap="md">
               <Alert color="blue" title="Archive Preview">
                 <Text size="sm">
-                  Archive contains {data.total_file_count} files total: {data.metadata_count} metadata files and {data.total_file_count - data.metadata_count} measurement files.
+                  Archive contains {data.total_file_count} files total:{" "}
+                  {data.metadata_count} metadata files and{" "}
+                  {data.total_file_count - data.metadata_count} measurement
+                  files.
                 </Text>
               </Alert>
 
@@ -1843,23 +1934,27 @@ function ResultsDetail({
                 <>
                   <Title order={4}>Metadata Files (YAML)</Title>
                   <Accordion variant="separated">
-                    {Object.entries(data.yaml_files).map(([filename, content]) => (
-                      <Accordion.Item key={filename} value={filename}>
-                        <Accordion.Control>
-                          <Group gap="xs">
-                            <IconFile size={16} />
-                            <Text size="sm" fw={500}>{filename}</Text>
-                          </Group>
-                        </Accordion.Control>
-                        <Accordion.Panel>
-                          <ScrollArea h={300}>
-                            <Code block style={{ fontSize: '11px' }}>
-                              {String(content)}
-                            </Code>
-                          </ScrollArea>
-                        </Accordion.Panel>
-                      </Accordion.Item>
-                    ))}
+                    {Object.entries(data.yaml_files).map(
+                      ([filename, content]) => (
+                        <Accordion.Item key={filename} value={filename}>
+                          <Accordion.Control>
+                            <Group gap="xs">
+                              <IconFile size={16} />
+                              <Text size="sm" fw={500}>
+                                {filename}
+                              </Text>
+                            </Group>
+                          </Accordion.Control>
+                          <Accordion.Panel>
+                            <ScrollArea h={300}>
+                              <Code block style={{ fontSize: "11px" }}>
+                                {String(content)}
+                              </Code>
+                            </ScrollArea>
+                          </Accordion.Panel>
+                        </Accordion.Item>
+                      ),
+                    )}
                   </Accordion>
                 </>
               )}
@@ -1869,11 +1964,15 @@ function ResultsDetail({
               <Title order={4}>Measurement Files</Title>
               <Stack gap="xs">
                 {data.all_files
-                  .filter((f: string) => !f.endsWith('.yaml') && !f.endsWith('.yml'))
+                  .filter(
+                    (f: string) => !f.endsWith(".yaml") && !f.endsWith(".yml"),
+                  )
                   .map((filename: string) => (
                     <Group key={filename} gap="xs">
                       <IconFile size={14} />
-                      <Text size="xs" c="dimmed">{filename}</Text>
+                      <Text size="xs" c="dimmed">
+                        {filename}
+                      </Text>
                     </Group>
                   ))}
               </Stack>
@@ -1886,9 +1985,7 @@ function ResultsDetail({
       notifications.show({
         title: "Preview Error",
         message:
-          err instanceof Error
-            ? err.message
-            : "Failed to load archive preview",
+          err instanceof Error ? err.message : "Failed to load archive preview",
         color: "red",
       })
     }
@@ -1960,15 +2057,21 @@ function ResultsDetail({
       return next
     })
   }, [experiment.substrates, results.deviceGroups, unmatchedGroups])
-  
+
   // Get files for each substrate
   const getSubstrateFiles = (substrateId: string) => {
-    const groups = matchedGroups.filter((g) => g.assignedSubstrateId === substrateId)
+    const groups = matchedGroups.filter(
+      (g) => g.assignedSubstrateId === substrateId,
+    )
     return groups.flatMap((g) => g.files)
   }
-  
-  const totalUnmatchedFiles = unmatchedGroups.reduce((sum, g) => sum + g.files.length, 0)
-  const allFilesMatched = results.files.length > 0 && unmatchedGroups.length === 0
+
+  const totalUnmatchedFiles = unmatchedGroups.reduce(
+    (sum, g) => sum + g.files.length,
+    0,
+  )
+  const allFilesMatched =
+    results.files.length > 0 && unmatchedGroups.length === 0
   const canOpenUpload = allFilesMatched && reviewConfirmed
 
   useEffect(() => {
@@ -1983,16 +2086,15 @@ function ResultsDetail({
     }
   }, [reviewConfirmed, totalUnmatchedFiles])
 
-  const instructionText =
-    preparingUpload
-      ? "Preparing upload..."
-      : workflowStep === 1
-        ? "Drag and drop files here"
-        : workflowStep === 2
-          ? totalUnmatchedFiles > 0
-            ? "You have to assign unmatched files by drag and drop"
-            : "Review all matched files"
-          : "Upload to NOMAD"
+  const instructionText = preparingUpload
+    ? "Preparing upload..."
+    : workflowStep === 1
+      ? "Drag and drop files here"
+      : workflowStep === 2
+        ? totalUnmatchedFiles > 0
+          ? "You have to assign unmatched files by drag and drop"
+          : "Review all matched files"
+        : "Upload to NOMAD"
 
   const goToStep = (step: 1 | 2 | 3) => {
     if (step === 1) {
@@ -2039,22 +2141,41 @@ function ResultsDetail({
         )}
       </Group>
 
-      <ScrollArea style={{ flex: 1 }} p="md" viewportRef={reviewScrollViewportRef}>
+      <ScrollArea
+        style={{ flex: 1 }}
+        p="md"
+        viewportRef={reviewScrollViewportRef}
+      >
         <Stack gap="lg">
           {nomadUploadHistory.length > 0 && (
-            <Alert icon={<IconCheck size={16} />} color="green" radius="md" title="NOMAD Uploads">
+            <Alert
+              icon={<IconCheck size={16} />}
+              color="green"
+              radius="md"
+              title="NOMAD Uploads"
+            >
               <Stack gap="xs">
                 {nomadUploadHistory.map((upload) => (
-                  <Group key={upload.uploadId} justify="space-between" wrap="nowrap">
+                  <Group
+                    key={upload.uploadId}
+                    justify="space-between"
+                    wrap="nowrap"
+                  >
                     <Text size="sm">
-                      <Text span fw={600}>Upload ID:</Text> <Code>{upload.uploadId}</Code>
+                      <Text span fw={600}>
+                        Upload ID:
+                      </Text>{" "}
+                      <Code>{upload.uploadId}</Code>
                     </Text>
                     <Button
                       size="xs"
                       variant="light"
                       leftSection={<IconExternalLink size={14} />}
                       onClick={() => {
-                        const nomadUrl = nomadConfig?.url?.replace("/api/v1", "")
+                        const nomadUrl = nomadConfig?.url?.replace(
+                          "/api/v1",
+                          "",
+                        )
                         if (!nomadUrl) {
                           return
                         }
@@ -2086,567 +2207,730 @@ function ResultsDetail({
 
           {isResultsCardOpen && (
             <Paper withBorder radius="md" p="md">
-          {isResultsCardOpen && (
-            <>
-              <Paper withBorder p="xs" radius="md" style={{ background: "var(--mantine-color-gray-0)" }}>
-                <Group justify="space-between" align="center">
-                  <Text
-                    size="sm"
-                    fw={600}
-                    c={workflowStep === 2 && totalUnmatchedFiles > 0 ? "red" : undefined}
+              {isResultsCardOpen && (
+                <>
+                  <Paper
+                    withBorder
+                    p="xs"
+                    radius="md"
+                    style={{ background: "var(--mantine-color-gray-0)" }}
                   >
-                    {instructionText}
-                  </Text>
-                  <Group gap="xs">
-                    {workflowStep === 1 && (
-                      <Button size="xs" disabled={results.files.length === 0} onClick={() => goToStep(2)}>
-                        Next
-                      </Button>
-                    )}
-                    {workflowStep === 2 && totalUnmatchedFiles > 0 && (
-                      <Button size="xs" disabled>
-                        Assign unmatched first
-                      </Button>
-                    )}
-                    {workflowStep === 2 && totalUnmatchedFiles === 0 && (
-                      <Button
-                        size="xs"
-                        color="green"
-                        onClick={() => {
-                          void (async () => {
-                            if (reviewConfirmed) {
-                              setWorkflowStep(3)
-                              return
-                            }
-
-                            const prepared = await handlePrepareUpload()
-                            if (prepared) {
-                              setWorkflowStep(3)
-                            }
-                          })()
-                        }}
-                        loading={preparingUpload}
-                        disabled={preparingUpload}
-                      >
-                        {preparingUpload
-                          ? "Preparing upload..."
-                          : "Confirm review and proceed"}
-                      </Button>
-                    )}
-                    {workflowStep === 3 && (
-                      <Button
-                        size="xs"
-                        color="green"
-                        leftSection={
-                          nomadUploading ? (
-                            <Loader size={14} color="white" />
-                          ) : (
-                            <IconCloudUpload size={14} />
-                          )
+                    <Group justify="space-between" align="center">
+                      <Text
+                        size="sm"
+                        fw={600}
+                        c={
+                          workflowStep === 2 && totalUnmatchedFiles > 0
+                            ? "red"
+                            : undefined
                         }
-                        disabled={nomadUploading || !nomadConfig?.enabled || !canOpenUpload}
-                        onClick={handleUploadToNomad}
                       >
-                        {nomadUploading ? "Uploading..." : "Upload to NOMAD"}
-                      </Button>
-                    )}
-                  </Group>
-                </Group>
-              </Paper>
-
-
-              <Divider label="Pipeline" labelPosition="center" />
-
-              <Group align="flex-start" wrap="nowrap" gap="md">
-                <Paper withBorder p="sm" radius="md" style={{ width: 230, flexShrink: 0 }}>
-                  <Stack gap="xs">
-                    <Text size="sm" fw={700}>Process Flow</Text>
-                    <Button
-                      size="xs"
-                      variant={workflowStep === 1 ? "filled" : "light"}
-                      onClick={() => goToStep(1)}
-                    >
-                      1. File Upload
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant={workflowStep === 2 ? "filled" : "light"}
-                      disabled={results.files.length === 0}
-                      onClick={() => goToStep(2)}
-                    >
-                      2. Review
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant={workflowStep === 3 ? "filled" : "light"}
-                      disabled={!canOpenUpload}
-                      onClick={() => goToStep(3)}
-                    >
-                      3. Upload to NOMAD
-                    </Button>
-                  </Stack>
-                </Paper>
-
-                <Box style={{ flex: 1, minWidth: 0 }}>
-                {workflowStep === 1 && (
-                  <Stack gap="xs">
-                    <Dropzone
-                      onDrop={handleDrop}
-                      accept={[
-                        MIME_TYPES.png,
-                        MIME_TYPES.jpeg,
-                        MIME_TYPES.gif,
-                        "text/plain",
-                        "application/pdf",
-                        "application/msword",
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        "application/zip",
-                        "application/x-7z-compressed",
-                        "image/tiff",
-                      ]}
-                      maxSize={50 * 1024 ** 2}
-                      style={{
-                        borderStyle: "dashed",
-                        borderWidth: 2,
-                        borderColor:
-                          results.files.length > 0
-                            ? "var(--mantine-color-green-4)"
-                            : "var(--mantine-color-gray-4)",
-                        background:
-                          results.files.length > 0
-                            ? "var(--mantine-color-green-0)"
-                            : "var(--mantine-color-gray-0)",
-                      }}
-                    >
-                      <Group
-                        justify="center"
-                        gap="xl"
-                        mih={120}
-                        style={{ pointerEvents: "none" }}
-                      >
-                        <Dropzone.Accept>
-                          <IconUpload
-                            size={48}
-                            color={theme.colors.blue[6]}
-                            stroke={1.5}
-                          />
-                        </Dropzone.Accept>
-                        <Dropzone.Reject>
-                          <IconX size={48} color={theme.colors.red[6]} stroke={1.5} />
-                        </Dropzone.Reject>
-                        <Dropzone.Idle>
-                          {results.files.length > 0 ? (
-                            <IconCheck
-                              size={48}
-                              color={theme.colors.green[6]}
-                              stroke={1.5}
-                            />
-                          ) : (
-                            <IconUpload
-                              size={48}
-                              color={theme.colors.gray[4]}
-                              stroke={1.5}
-                            />
-                          )}
-                        </Dropzone.Idle>
-
-                        <div>
-                          <Text size="lg" inline fw={500}>
-                            {results.files.length > 0
-                              ? `${results.files.length} files uploaded`
-                              : nomadUploadHistory.length > 0
-                                ? "Add Files"
-                                : "Drop Results here"}
-                          </Text>
-                          <Text size="sm" c="dimmed" inline mt={7}>
-                            {results.files.length > 0
-                              ? "Drop more files to add them"
-                              : nomadUploadHistory.length > 0
-                                ? "Start a new upload cycle (Upload -> Review -> NOMAD)"
-                                : "Drag & drop measurement files (.txt, images, documents)"}
-                          </Text>
-                        </div>
-                      </Group>
-                    </Dropzone>
-
-                    {lastArchivePath && (
-                      <Text size="xs" c="dimmed">
-                        Last created archive: {lastArchivePath}
+                        {instructionText}
                       </Text>
-                    )}
-                  </Stack>
-                )}
-                <Group
-                  align="flex-start"
-                  grow
-                  wrap="nowrap"
-                  onDragOverCapture={handleReviewDragOverCapture}
-                  onWheelCapture={handleReviewWheelWhileDragging}
-                  style={{ display: workflowStep === 2 ? undefined : "none" }}
-                >
-                {totalUnmatchedFiles > 0 && (
-                <Paper
-                  withBorder
-                  p="sm"
-                  radius="md"
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    borderColor: "var(--mantine-color-red-4)",
-                    background: "var(--mantine-color-red-0)",
-                  }}
-                >
-                  <Stack gap="sm">
-                    <Group justify="space-between" align="center">
                       <Group gap="xs">
-                        <Text size="sm" fw={600}>
-                          Unmatched Files
-                        </Text>
-                        <Badge size="xs" variant="light" color={totalUnmatchedFiles > 0 ? "orange" : "green"}>
-                          {totalUnmatchedFiles}
-                        </Badge>
-                      </Group>
-                    </Group>
-
-                    <Stack gap="sm">
-                        <Group justify="space-between" align="center">
-                          <Text size="xs" c="dimmed">
-                            Drag individual files or groups onto a substrate, or mark files for batch assignment.
-                          </Text>
-                          <Group gap="xs" wrap="nowrap">
-                            <Select
-                              size="xs"
-                              placeholder="Batch assign to..."
-                              value={batchAssignTargetSubstrateId}
-                              onChange={setBatchAssignTargetSubstrateId}
-                              data={substrates.map((s) => ({
-                                value: s.id,
-                                label: s.name,
-                              }))}
-                              style={{ minWidth: 180 }}
-                            />
-                            <Button
-                              size="xs"
-                              variant="light"
-                              disabled={
-                                !batchAssignTargetSubstrateId ||
-                                selectedUnmatchedFileIds.size === 0
-                              }
-                              onClick={handleBatchAssignSelectedFiles}
-                            >
-                              Assign {selectedUnmatchedFileIds.size} selected
-                            </Button>
-                          </Group>
-                        </Group>
-
-                        {/* Automatically Grouped Files */}
-                        {unmatchedGroups.length > 0 && (
-                          <Paper withBorder p="sm" radius="md">
-                            <Text size="xs" fw={600} mb="xs" c="dimmed">
-                              Automatically Grouped Files
-                            </Text>
-                            <Table striped>
-                              <Table.Thead>
-                                <Table.Tr>
-                                  <Table.Th style={{ width: 36 }} />
-                                  <Table.Th>Group Name</Table.Th>
-                                  <Table.Th>Files</Table.Th>
-                                  <Table.Th>Match Score</Table.Th>
-                                  <Table.Th style={{ width: 180 }}>Assign to</Table.Th>
-                                </Table.Tr>
-                              </Table.Thead>
-                              <Table.Tbody>
-                                {unmatchedGroups.map((group) => {
-                                  const expanded = expandedUnmatchedGroups.has(group.id)
-                                  const allInGroupSelected =
-                                    group.files.length > 0 &&
-                                    group.files.every((f) => selectedUnmatchedFileIds.has(f.id))
-
-                                  return (
-                                    <Fragment key={group.id}>
-                                      <Table.Tr
-                                        draggable
-                                        onDragStart={(e) => {
-                                          e.dataTransfer.setData("text/plain", `group:${group.id}`)
-                                          e.dataTransfer.effectAllowed = "move"
-                                        }}
-                                        style={{ cursor: "grab" }}
-                                      >
-                                        <Table.Td>
-                                          <ActionIcon
-                                            variant="subtle"
-                                            size="sm"
-                                            onClick={() => toggleUnmatchedGroupExpand(group.id)}
-                                          >
-                                            {expanded ? (
-                                              <IconChevronDown size={14} />
-                                            ) : (
-                                              <IconChevronRight size={14} />
-                                            )}
-                                          </ActionIcon>
-                                        </Table.Td>
-                                        <Table.Td>
-                                          <Group gap={4} wrap="nowrap">
-                                            <IconFile size={14} style={{ flexShrink: 0 }} />
-                                            <Text size="xs" fw={500}>
-                                              {group.deviceName || "(Unknown Device)"}
-                                            </Text>
-                                          </Group>
-                                        </Table.Td>
-                                        <Table.Td>
-                                          <Badge size="xs" variant="light">
-                                            {group.files.length}
-                                          </Badge>
-                                        </Table.Td>
-                                        <Table.Td>
-                                          {group.matchScore !== undefined ? (
-                                            <Badge
-                                              size="xs"
-                                              color={
-                                                group.matchScore > 0.8
-                                                  ? "green"
-                                                  : group.matchScore > 0.5
-                                                    ? "yellow"
-                                                    : "red"
-                                              }
-                                            >
-                                              {(group.matchScore * 100).toFixed(0)}%
-                                            </Badge>
-                                          ) : (
-                                            <Text size="xs" c="dimmed">—</Text>
-                                          )}
-                                        </Table.Td>
-                                        <Table.Td>
-                                          <Select
-                                            size="xs"
-                                            placeholder="Select substrate..."
-                                            value={null}
-                                            onChange={(v) =>
-                                              v && handleAssignGroupToSubstrate(group.id, v)
-                                            }
-                                            data={substrates.map((s) => ({
-                                              value: s.id,
-                                              label: s.name,
-                                            }))}
-                                          />
-                                        </Table.Td>
-                                      </Table.Tr>
-                                      {expanded && (
-                                        <Table.Tr>
-                                          <Table.Td colSpan={5}>
-                                            <Table striped>
-                                              <Table.Thead>
-                                                <Table.Tr>
-                                                  <Table.Th style={{ width: 36 }}>
-                                                    <Checkbox
-                                                      size="xs"
-                                                      checked={allInGroupSelected}
-                                                      onChange={(e) => {
-                                                        const checked =
-                                                          e.currentTarget.checked
-                                                        for (const file of group.files) {
-                                                          toggleSelectUnmatchedFile(
-                                                            file.id,
-                                                            checked,
-                                                          )
-                                                        }
-                                                      }}
-                                                      aria-label={`Select all files in ${group.deviceName}`}
-                                                    />
-                                                  </Table.Th>
-                                                  <Table.Th>File</Table.Th>
-                                                  <Table.Th>Type</Table.Th>
-                                                  <Table.Th>Device</Table.Th>
-                                                </Table.Tr>
-                                              </Table.Thead>
-                                              <Table.Tbody>
-                                                {group.files.map((file) => (
-                                                  <Table.Tr
-                                                    key={file.id}
-                                                    draggable
-                                                    onDragStart={(e) => {
-                                                      e.dataTransfer.setData(
-                                                        "text/plain",
-                                                        file.id,
-                                                      )
-                                                      e.dataTransfer.effectAllowed = "move"
-                                                    }}
-                                                    style={{ cursor: "grab" }}
-                                                  >
-                                                    <Table.Td>
-                                                      <Checkbox
-                                                        size="xs"
-                                                        checked={selectedUnmatchedFileIds.has(file.id)}
-                                                        onChange={(e) =>
-                                                          toggleSelectUnmatchedFile(
-                                                            file.id,
-                                                            e.currentTarget.checked,
-                                                          )
-                                                        }
-                                                        aria-label={`Select file ${file.fileName}`}
-                                                      />
-                                                    </Table.Td>
-                                                    <Table.Td>
-                                                      <Text size="xs">{file.fileName}</Text>
-                                                    </Table.Td>
-                                                    <Table.Td>
-                                                      <FileTypeBadge type={file.fileType} />
-                                                    </Table.Td>
-                                                    <Table.Td>
-                                                      <Text size="xs">{file.deviceName || "—"}</Text>
-                                                    </Table.Td>
-                                                  </Table.Tr>
-                                                ))}
-                                              </Table.Tbody>
-                                            </Table>
-                                          </Table.Td>
-                                        </Table.Tr>
-                                      )}
-                                    </Fragment>
-                                  )
-                                })}
-                              </Table.Tbody>
-                            </Table>
-                          </Paper>
+                        {workflowStep === 1 && (
+                          <Button
+                            size="xs"
+                            disabled={results.files.length === 0}
+                            onClick={() => goToStep(2)}
+                          >
+                            Next
+                          </Button>
                         )}
-                      </Stack>
-                  </Stack>
-                </Paper>
-                )}
+                        {workflowStep === 2 && totalUnmatchedFiles > 0 && (
+                          <Button size="xs" disabled>
+                            Assign unmatched first
+                          </Button>
+                        )}
+                        {workflowStep === 2 && totalUnmatchedFiles === 0 && (
+                          <Button
+                            size="xs"
+                            color="green"
+                            onClick={() => {
+                              void (async () => {
+                                if (reviewConfirmed) {
+                                  setWorkflowStep(3)
+                                  return
+                                }
 
-                <Paper
-                  withBorder
-                  p="sm"
-                  radius="md"
-                  style={{ flex: 1, minWidth: 0 }}
-                >
-                  <Stack gap="sm">
-                    <Group justify="space-between" align="center">
-                      <Group gap="xs">
-                        <Text size="sm" fw={600}>
-                          Substrates
-                        </Text>
-                        <Badge size="xs" variant="light">
-                          {experiment.substrates.length}
-                        </Badge>
+                                const prepared = await handlePrepareUpload()
+                                if (prepared) {
+                                  setWorkflowStep(3)
+                                }
+                              })()
+                            }}
+                            loading={preparingUpload}
+                            disabled={preparingUpload}
+                          >
+                            {preparingUpload
+                              ? "Preparing upload..."
+                              : "Confirm review and proceed"}
+                          </Button>
+                        )}
+                        {workflowStep === 3 && (
+                          <Button
+                            size="xs"
+                            color="green"
+                            leftSection={
+                              nomadUploading ? (
+                                <Loader size={14} color="white" />
+                              ) : (
+                                <IconCloudUpload size={14} />
+                              )
+                            }
+                            disabled={
+                              nomadUploading ||
+                              !nomadConfig?.enabled ||
+                              !canOpenUpload
+                            }
+                            onClick={handleUploadToNomad}
+                          >
+                            {nomadUploading
+                              ? "Uploading..."
+                              : "Upload to NOMAD"}
+                          </Button>
+                        )}
                       </Group>
                     </Group>
+                  </Paper>
 
-                    {experiment.substrates.length === 0 ? (
-                      <Text size="sm" c="dimmed" ta="center" py="md">
-                        No substrates in this experiment.
-                      </Text>
-                    ) : (
-                      <Stack gap="sm">
-                        {experiment.substrates.map((substrate) => {
-                          const substrateMaterial = materials.find(
-                            (m) => m.id === substrate.substrateMaterialId
-                          )
-                          const files = getSubstrateFiles(substrate.id)
-                          return (
-                            <SubstrateCard
-                              key={substrate.id}
-                              substrate={substrate}
-                              substrateMaterial={substrateMaterial}
-                              files={files}
-                              onUnmatchFile={(fileId) => handleUnmatchFile(fileId, substrate.id)}
-                              onUnmatchFiles={(fileIds) => {
-                                moveFilesToUnmatched(fileIds)
-                                setSelectedSubstrateFileIdsBySubstrate((prev) => ({
-                                  ...prev,
-                                  [substrate.id]: new Set<string>(),
-                                }))
-                              }}
-                              onDeleteFiles={(fileIds) => {
-                                handleDeleteFiles(fileIds)
-                                setSelectedSubstrateFileIdsBySubstrate((prev) => ({
-                                  ...prev,
-                                  [substrate.id]: new Set<string>(),
-                                }))
-                              }}
-                              onDropFile={(fileId) => handleAssignFileToSubstrate(fileId, substrate.id)}
-                              onDropGroup={(groupId) => handleAssignGroupToSubstrate(groupId, substrate.id)}
-                              onDragEnter={() => setDropTargetGroupId(substrate.id)}
-                              onDragLeave={() =>
-                                setDropTargetGroupId((prev) =>
-                                  prev === substrate.id ? null : prev,
-                                )
-                              }
-                              isDropTarget={dropTargetGroupId === substrate.id}
-                              expanded={expandedSubstrates.has(substrate.id)}
-                              onToggleExpand={() => toggleSubstrateExpand(substrate.id)}
-                              selectedFileIds={selectedSubstrateFileIdsBySubstrate[substrate.id] ?? new Set<string>()}
-                              onToggleSelectFile={(fileId, checked) =>
-                                toggleSelectSubstrateFile(substrate.id, fileId, checked)
-                              }
-                              onToggleSelectAll={(checked) =>
-                                toggleSelectAllSubstrateFiles(
-                                  substrate.id,
-                                  files.map((f) => f.id),
-                                  checked,
-                                )
-                              }
-                            />
-                          )
-                        })}
-                      </Stack>
-                    )}
-                  </Stack>
-                </Paper>
-              </Group>
-                {workflowStep === 3 && (
-                  <Paper withBorder p="md" radius="md">
-                    <Stack gap="sm">
-                      {results.files.length > 0 && (
-                        <Alert title="Unfinished Upload" color="blue">
-                          <Text size="sm">
-                            You have {results.files.length} file{results.files.length !== 1 ? "s" : ""} ready to upload to NOMAD.
-                          </Text>
-                        </Alert>
-                      )}
-                      
-                      <Text size="sm">
-                        Ready to upload {results.files.length} file
-                        {results.files.length !== 1 ? "s" : ""} to NOMAD.
-                      </Text>
-                      <Text size="xs" c="dimmed">
-                        If needed, use Process Flow to go back and add more files.
-                      </Text>
+                  <Divider label="Pipeline" labelPosition="center" />
 
-                      <Group wrap="wrap" gap="xs">
+                  <Group align="flex-start" wrap="nowrap" gap="md">
+                    <Paper
+                      withBorder
+                      p="sm"
+                      radius="md"
+                      style={{ width: 230, flexShrink: 0 }}
+                    >
+                      <Stack gap="xs">
+                        <Text size="sm" fw={700}>
+                          Process Flow
+                        </Text>
                         <Button
                           size="xs"
-                          variant="default"
-                          onClick={openExperimentMetadataPreview}
-                          disabled={!reviewConfirmed}
+                          variant={workflowStep === 1 ? "filled" : "light"}
+                          onClick={() => goToStep(1)}
                         >
-                          Review NOMAD Upload
+                          1. File Upload
                         </Button>
-                      </Group>
+                        <Button
+                          size="xs"
+                          variant={workflowStep === 2 ? "filled" : "light"}
+                          disabled={results.files.length === 0}
+                          onClick={() => goToStep(2)}
+                        >
+                          2. Review
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant={workflowStep === 3 ? "filled" : "light"}
+                          disabled={!canOpenUpload}
+                          onClick={() => goToStep(3)}
+                        >
+                          3. Upload to NOMAD
+                        </Button>
+                      </Stack>
+                    </Paper>
 
-                      <Button
-                        size="sm"
-                        color="green"
-                        leftSection={
-                          nomadUploading ? (
-                            <Loader size={14} color="white" />
-                          ) : (
-                            <IconCloudUpload size={14} />
-                          )
-                        }
-                        disabled={nomadUploading || !nomadConfig?.enabled || !canOpenUpload}
-                        onClick={handleUploadToNomad}
-                        fullWidth
+                    <Box style={{ flex: 1, minWidth: 0 }}>
+                      {workflowStep === 1 && (
+                        <Stack gap="xs">
+                          <Dropzone
+                            onDrop={handleDrop}
+                            accept={[
+                              MIME_TYPES.png,
+                              MIME_TYPES.jpeg,
+                              MIME_TYPES.gif,
+                              "text/plain",
+                              "application/pdf",
+                              "application/msword",
+                              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                              "application/zip",
+                              "application/x-7z-compressed",
+                              "image/tiff",
+                            ]}
+                            maxSize={50 * 1024 ** 2}
+                            style={{
+                              borderStyle: "dashed",
+                              borderWidth: 2,
+                              borderColor:
+                                results.files.length > 0
+                                  ? "var(--mantine-color-green-4)"
+                                  : "var(--mantine-color-gray-4)",
+                              background:
+                                results.files.length > 0
+                                  ? "var(--mantine-color-green-0)"
+                                  : "var(--mantine-color-gray-0)",
+                            }}
+                          >
+                            <Group
+                              justify="center"
+                              gap="xl"
+                              mih={120}
+                              style={{ pointerEvents: "none" }}
+                            >
+                              <Dropzone.Accept>
+                                <IconUpload
+                                  size={48}
+                                  color={theme.colors.blue[6]}
+                                  stroke={1.5}
+                                />
+                              </Dropzone.Accept>
+                              <Dropzone.Reject>
+                                <IconX
+                                  size={48}
+                                  color={theme.colors.red[6]}
+                                  stroke={1.5}
+                                />
+                              </Dropzone.Reject>
+                              <Dropzone.Idle>
+                                {results.files.length > 0 ? (
+                                  <IconCheck
+                                    size={48}
+                                    color={theme.colors.green[6]}
+                                    stroke={1.5}
+                                  />
+                                ) : (
+                                  <IconUpload
+                                    size={48}
+                                    color={theme.colors.gray[4]}
+                                    stroke={1.5}
+                                  />
+                                )}
+                              </Dropzone.Idle>
+
+                              <div>
+                                <Text size="lg" inline fw={500}>
+                                  {results.files.length > 0
+                                    ? `${results.files.length} files uploaded`
+                                    : nomadUploadHistory.length > 0
+                                      ? "Add Files"
+                                      : "Drop Results here"}
+                                </Text>
+                                <Text size="sm" c="dimmed" inline mt={7}>
+                                  {results.files.length > 0
+                                    ? "Drop more files to add them"
+                                    : nomadUploadHistory.length > 0
+                                      ? "Start a new upload cycle (Upload -> Review -> NOMAD)"
+                                      : "Drag & drop measurement files (.txt, images, documents)"}
+                                </Text>
+                              </div>
+                            </Group>
+                          </Dropzone>
+
+                          {lastArchivePath && (
+                            <Text size="xs" c="dimmed">
+                              Last created archive: {lastArchivePath}
+                            </Text>
+                          )}
+                        </Stack>
+                      )}
+                      <Group
+                        align="flex-start"
+                        grow
+                        wrap="nowrap"
+                        onDragOverCapture={handleReviewDragOverCapture}
+                        onWheelCapture={handleReviewWheelWhileDragging}
+                        style={{
+                          display: workflowStep === 2 ? undefined : "none",
+                        }}
                       >
-                        {nomadUploading ? "Uploading..." : "Upload to NOMAD"}
-                      </Button>
-                    </Stack>
-                  </Paper>
-                )}
-                </Box>
-              </Group>
-            </>
-          )}
+                        {totalUnmatchedFiles > 0 && (
+                          <Paper
+                            withBorder
+                            p="sm"
+                            radius="md"
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              borderColor: "var(--mantine-color-red-4)",
+                              background: "var(--mantine-color-red-0)",
+                            }}
+                          >
+                            <Stack gap="sm">
+                              <Group justify="space-between" align="center">
+                                <Group gap="xs">
+                                  <Text size="sm" fw={600}>
+                                    Unmatched Files
+                                  </Text>
+                                  <Badge
+                                    size="xs"
+                                    variant="light"
+                                    color={
+                                      totalUnmatchedFiles > 0
+                                        ? "orange"
+                                        : "green"
+                                    }
+                                  >
+                                    {totalUnmatchedFiles}
+                                  </Badge>
+                                </Group>
+                              </Group>
+
+                              <Stack gap="sm">
+                                <Group justify="space-between" align="center">
+                                  <Text size="xs" c="dimmed">
+                                    Drag individual files or groups onto a
+                                    substrate, or mark files for batch
+                                    assignment.
+                                  </Text>
+                                  <Group gap="xs" wrap="nowrap">
+                                    <Select
+                                      size="xs"
+                                      placeholder="Batch assign to..."
+                                      value={batchAssignTargetSubstrateId}
+                                      onChange={setBatchAssignTargetSubstrateId}
+                                      data={substrates.map((s) => ({
+                                        value: s.id,
+                                        label: s.name,
+                                      }))}
+                                      style={{ minWidth: 180 }}
+                                    />
+                                    <Button
+                                      size="xs"
+                                      variant="light"
+                                      disabled={
+                                        !batchAssignTargetSubstrateId ||
+                                        selectedUnmatchedFileIds.size === 0
+                                      }
+                                      onClick={handleBatchAssignSelectedFiles}
+                                    >
+                                      Assign {selectedUnmatchedFileIds.size}{" "}
+                                      selected
+                                    </Button>
+                                  </Group>
+                                </Group>
+
+                                {/* Automatically Grouped Files */}
+                                {unmatchedGroups.length > 0 && (
+                                  <Paper withBorder p="sm" radius="md">
+                                    <Text size="xs" fw={600} mb="xs" c="dimmed">
+                                      Automatically Grouped Files
+                                    </Text>
+                                    <Table striped>
+                                      <Table.Thead>
+                                        <Table.Tr>
+                                          <Table.Th style={{ width: 36 }} />
+                                          <Table.Th>Group Name</Table.Th>
+                                          <Table.Th>Files</Table.Th>
+                                          <Table.Th>Match Score</Table.Th>
+                                          <Table.Th style={{ width: 180 }}>
+                                            Assign to
+                                          </Table.Th>
+                                        </Table.Tr>
+                                      </Table.Thead>
+                                      <Table.Tbody>
+                                        {unmatchedGroups.map((group) => {
+                                          const expanded =
+                                            expandedUnmatchedGroups.has(
+                                              group.id,
+                                            )
+                                          const allInGroupSelected =
+                                            group.files.length > 0 &&
+                                            group.files.every((f) =>
+                                              selectedUnmatchedFileIds.has(
+                                                f.id,
+                                              ),
+                                            )
+
+                                          return (
+                                            <Fragment key={group.id}>
+                                              <Table.Tr
+                                                draggable
+                                                onDragStart={(e) => {
+                                                  e.dataTransfer.setData(
+                                                    "text/plain",
+                                                    `group:${group.id}`,
+                                                  )
+                                                  e.dataTransfer.effectAllowed =
+                                                    "move"
+                                                }}
+                                                style={{ cursor: "grab" }}
+                                              >
+                                                <Table.Td>
+                                                  <ActionIcon
+                                                    variant="subtle"
+                                                    size="sm"
+                                                    onClick={() =>
+                                                      toggleUnmatchedGroupExpand(
+                                                        group.id,
+                                                      )
+                                                    }
+                                                  >
+                                                    {expanded ? (
+                                                      <IconChevronDown
+                                                        size={14}
+                                                      />
+                                                    ) : (
+                                                      <IconChevronRight
+                                                        size={14}
+                                                      />
+                                                    )}
+                                                  </ActionIcon>
+                                                </Table.Td>
+                                                <Table.Td>
+                                                  <Group gap={4} wrap="nowrap">
+                                                    <IconFile
+                                                      size={14}
+                                                      style={{ flexShrink: 0 }}
+                                                    />
+                                                    <Text size="xs" fw={500}>
+                                                      {group.deviceName ||
+                                                        "(Unknown Device)"}
+                                                    </Text>
+                                                  </Group>
+                                                </Table.Td>
+                                                <Table.Td>
+                                                  <Badge
+                                                    size="xs"
+                                                    variant="light"
+                                                  >
+                                                    {group.files.length}
+                                                  </Badge>
+                                                </Table.Td>
+                                                <Table.Td>
+                                                  {group.matchScore !==
+                                                  undefined ? (
+                                                    <Badge
+                                                      size="xs"
+                                                      color={
+                                                        group.matchScore > 0.8
+                                                          ? "green"
+                                                          : group.matchScore >
+                                                              0.5
+                                                            ? "yellow"
+                                                            : "red"
+                                                      }
+                                                    >
+                                                      {(
+                                                        group.matchScore * 100
+                                                      ).toFixed(0)}
+                                                      %
+                                                    </Badge>
+                                                  ) : (
+                                                    <Text size="xs" c="dimmed">
+                                                      —
+                                                    </Text>
+                                                  )}
+                                                </Table.Td>
+                                                <Table.Td>
+                                                  <Select
+                                                    size="xs"
+                                                    placeholder="Select substrate..."
+                                                    value={null}
+                                                    onChange={(v) =>
+                                                      v &&
+                                                      handleAssignGroupToSubstrate(
+                                                        group.id,
+                                                        v,
+                                                      )
+                                                    }
+                                                    data={substrates.map(
+                                                      (s) => ({
+                                                        value: s.id,
+                                                        label: s.name,
+                                                      }),
+                                                    )}
+                                                  />
+                                                </Table.Td>
+                                              </Table.Tr>
+                                              {expanded && (
+                                                <Table.Tr>
+                                                  <Table.Td colSpan={5}>
+                                                    <Table striped>
+                                                      <Table.Thead>
+                                                        <Table.Tr>
+                                                          <Table.Th
+                                                            style={{
+                                                              width: 36,
+                                                            }}
+                                                          >
+                                                            <Checkbox
+                                                              size="xs"
+                                                              checked={
+                                                                allInGroupSelected
+                                                              }
+                                                              onChange={(e) => {
+                                                                const checked =
+                                                                  e
+                                                                    .currentTarget
+                                                                    .checked
+                                                                for (const file of group.files) {
+                                                                  toggleSelectUnmatchedFile(
+                                                                    file.id,
+                                                                    checked,
+                                                                  )
+                                                                }
+                                                              }}
+                                                              aria-label={`Select all files in ${group.deviceName}`}
+                                                            />
+                                                          </Table.Th>
+                                                          <Table.Th>
+                                                            File
+                                                          </Table.Th>
+                                                          <Table.Th>
+                                                            Type
+                                                          </Table.Th>
+                                                          <Table.Th>
+                                                            Device
+                                                          </Table.Th>
+                                                        </Table.Tr>
+                                                      </Table.Thead>
+                                                      <Table.Tbody>
+                                                        {group.files.map(
+                                                          (file) => (
+                                                            <Table.Tr
+                                                              key={file.id}
+                                                              draggable
+                                                              onDragStart={(
+                                                                e,
+                                                              ) => {
+                                                                e.dataTransfer.setData(
+                                                                  "text/plain",
+                                                                  file.id,
+                                                                )
+                                                                e.dataTransfer.effectAllowed =
+                                                                  "move"
+                                                              }}
+                                                              style={{
+                                                                cursor: "grab",
+                                                              }}
+                                                            >
+                                                              <Table.Td>
+                                                                <Checkbox
+                                                                  size="xs"
+                                                                  checked={selectedUnmatchedFileIds.has(
+                                                                    file.id,
+                                                                  )}
+                                                                  onChange={(
+                                                                    e,
+                                                                  ) =>
+                                                                    toggleSelectUnmatchedFile(
+                                                                      file.id,
+                                                                      e
+                                                                        .currentTarget
+                                                                        .checked,
+                                                                    )
+                                                                  }
+                                                                  aria-label={`Select file ${file.fileName}`}
+                                                                />
+                                                              </Table.Td>
+                                                              <Table.Td>
+                                                                <Text size="xs">
+                                                                  {
+                                                                    file.fileName
+                                                                  }
+                                                                </Text>
+                                                              </Table.Td>
+                                                              <Table.Td>
+                                                                <FileTypeBadge
+                                                                  type={
+                                                                    file.fileType
+                                                                  }
+                                                                />
+                                                              </Table.Td>
+                                                              <Table.Td>
+                                                                <Text size="xs">
+                                                                  {file.deviceName ||
+                                                                    "—"}
+                                                                </Text>
+                                                              </Table.Td>
+                                                            </Table.Tr>
+                                                          ),
+                                                        )}
+                                                      </Table.Tbody>
+                                                    </Table>
+                                                  </Table.Td>
+                                                </Table.Tr>
+                                              )}
+                                            </Fragment>
+                                          )
+                                        })}
+                                      </Table.Tbody>
+                                    </Table>
+                                  </Paper>
+                                )}
+                              </Stack>
+                            </Stack>
+                          </Paper>
+                        )}
+
+                        <Paper
+                          withBorder
+                          p="sm"
+                          radius="md"
+                          style={{ flex: 1, minWidth: 0 }}
+                        >
+                          <Stack gap="sm">
+                            <Group justify="space-between" align="center">
+                              <Group gap="xs">
+                                <Text size="sm" fw={600}>
+                                  Substrates
+                                </Text>
+                                <Badge size="xs" variant="light">
+                                  {experiment.substrates.length}
+                                </Badge>
+                              </Group>
+                            </Group>
+
+                            {experiment.substrates.length === 0 ? (
+                              <Text size="sm" c="dimmed" ta="center" py="md">
+                                No substrates in this experiment.
+                              </Text>
+                            ) : (
+                              <Stack gap="sm">
+                                {experiment.substrates.map((substrate) => {
+                                  const substrateMaterial = materials.find(
+                                    (m) =>
+                                      m.id === substrate.substrateMaterialId,
+                                  )
+                                  const files = getSubstrateFiles(substrate.id)
+                                  return (
+                                    <SubstrateCard
+                                      key={substrate.id}
+                                      substrate={substrate}
+                                      substrateMaterial={substrateMaterial}
+                                      files={files}
+                                      onUnmatchFile={(fileId) =>
+                                        handleUnmatchFile(fileId, substrate.id)
+                                      }
+                                      onUnmatchFiles={(fileIds) => {
+                                        moveFilesToUnmatched(fileIds)
+                                        setSelectedSubstrateFileIdsBySubstrate(
+                                          (prev) => ({
+                                            ...prev,
+                                            [substrate.id]: new Set<string>(),
+                                          }),
+                                        )
+                                      }}
+                                      onDeleteFiles={(fileIds) => {
+                                        handleDeleteFiles(fileIds)
+                                        setSelectedSubstrateFileIdsBySubstrate(
+                                          (prev) => ({
+                                            ...prev,
+                                            [substrate.id]: new Set<string>(),
+                                          }),
+                                        )
+                                      }}
+                                      onDropFile={(fileId) =>
+                                        handleAssignFileToSubstrate(
+                                          fileId,
+                                          substrate.id,
+                                        )
+                                      }
+                                      onDropGroup={(groupId) =>
+                                        handleAssignGroupToSubstrate(
+                                          groupId,
+                                          substrate.id,
+                                        )
+                                      }
+                                      onDragEnter={() =>
+                                        setDropTargetGroupId(substrate.id)
+                                      }
+                                      onDragLeave={() =>
+                                        setDropTargetGroupId((prev) =>
+                                          prev === substrate.id ? null : prev,
+                                        )
+                                      }
+                                      isDropTarget={
+                                        dropTargetGroupId === substrate.id
+                                      }
+                                      expanded={expandedSubstrates.has(
+                                        substrate.id,
+                                      )}
+                                      onToggleExpand={() =>
+                                        toggleSubstrateExpand(substrate.id)
+                                      }
+                                      selectedFileIds={
+                                        selectedSubstrateFileIdsBySubstrate[
+                                          substrate.id
+                                        ] ?? new Set<string>()
+                                      }
+                                      onToggleSelectFile={(fileId, checked) =>
+                                        toggleSelectSubstrateFile(
+                                          substrate.id,
+                                          fileId,
+                                          checked,
+                                        )
+                                      }
+                                      onToggleSelectAll={(checked) =>
+                                        toggleSelectAllSubstrateFiles(
+                                          substrate.id,
+                                          files.map((f) => f.id),
+                                          checked,
+                                        )
+                                      }
+                                    />
+                                  )
+                                })}
+                              </Stack>
+                            )}
+                          </Stack>
+                        </Paper>
+                      </Group>
+                      {workflowStep === 3 && (
+                        <Paper withBorder p="md" radius="md">
+                          <Stack gap="sm">
+                            {results.files.length > 0 && (
+                              <Alert title="Unfinished Upload" color="blue">
+                                <Text size="sm">
+                                  You have {results.files.length} file
+                                  {results.files.length !== 1 ? "s" : ""} ready
+                                  to upload to NOMAD.
+                                </Text>
+                              </Alert>
+                            )}
+
+                            <Text size="sm">
+                              Ready to upload {results.files.length} file
+                              {results.files.length !== 1 ? "s" : ""} to NOMAD.
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              If needed, use Process Flow to go back and add
+                              more files.
+                            </Text>
+
+                            <Group wrap="wrap" gap="xs">
+                              <Button
+                                size="xs"
+                                variant="default"
+                                onClick={openExperimentMetadataPreview}
+                                disabled={!reviewConfirmed}
+                              >
+                                Review NOMAD Upload
+                              </Button>
+                            </Group>
+
+                            <Button
+                              size="sm"
+                              color="green"
+                              leftSection={
+                                nomadUploading ? (
+                                  <Loader size={14} color="white" />
+                                ) : (
+                                  <IconCloudUpload size={14} />
+                                )
+                              }
+                              disabled={
+                                nomadUploading ||
+                                !nomadConfig?.enabled ||
+                                !canOpenUpload
+                              }
+                              onClick={handleUploadToNomad}
+                              fullWidth
+                            >
+                              {nomadUploading
+                                ? "Uploading..."
+                                : "Upload to NOMAD"}
+                            </Button>
+                          </Stack>
+                        </Paper>
+                      )}
+                    </Box>
+                  </Group>
+                </>
+              )}
             </Paper>
           )}
         </Stack>
@@ -2679,30 +2963,33 @@ export function ResultsPage() {
     string | null
   >(() => lastSelectedByKind.experiment ?? null)
 
-  const discardArchiveForExperiment = useCallback(async (experimentId: string) => {
-    try {
-      const key = `nomad_archive:${experimentId}`
-      const archivePath = sessionStorage.getItem(key)
-      if (!archivePath) {
-        return
-      }
+  const discardArchiveForExperiment = useCallback(
+    async (experimentId: string) => {
+      try {
+        const key = `nomad_archive:${experimentId}`
+        const archivePath = sessionStorage.getItem(key)
+        if (!archivePath) {
+          return
+        }
 
-      const form = new FormData()
-      form.append("archive_path", archivePath)
-      const token =
-        typeof OpenAPI.TOKEN === "function"
-          ? await OpenAPI.TOKEN({} as any)
-          : OpenAPI.TOKEN ?? undefined
-      await fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/archive/discard`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        body: form,
-      })
-      sessionStorage.removeItem(key)
-    } catch (_e) {
-      // best effort cleanup
-    }
-  }, [])
+        const form = new FormData()
+        form.append("archive_path", archivePath)
+        const token =
+          typeof OpenAPI.TOKEN === "function"
+            ? await OpenAPI.TOKEN({} as any)
+            : (OpenAPI.TOKEN ?? undefined)
+        await fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/archive/discard`, {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          body: form,
+        })
+        sessionStorage.removeItem(key)
+      } catch (_e) {
+        // best effort cleanup
+      }
+    },
+    [],
+  )
 
   const getInProgressExperimentIds = useCallback((): string[] => {
     const inProgress = new Set<string>()
@@ -2784,7 +3071,9 @@ export function ResultsPage() {
         (!!activeResult && activeResult.files.length > 0) ||
         (() => {
           try {
-            return !!sessionStorage.getItem(`nomad_archive:${selectedExperimentId}`)
+            return !!sessionStorage.getItem(
+              `nomad_archive:${selectedExperimentId}`,
+            )
           } catch (_e) {
             return false
           }
@@ -2837,7 +3126,8 @@ export function ResultsPage() {
     }
     processedPendingRequestIdsRef.current.add(pendingCollectionLink.requestId)
 
-    const { collectionId, planeId, selectedExperimentId } = pendingCollectionLink
+    const { collectionId, planeId, selectedExperimentId } =
+      pendingCollectionLink
     setPendingCollectionLink(null)
 
     if (selectedExperimentId) {
@@ -2858,7 +3148,6 @@ export function ResultsPage() {
       selectExperiment(linkedExperimentId)
     }
   }, [
-    experiments,
     pendingCollectionLink,
     planes,
     setPendingCollectionLink,
@@ -2987,7 +3276,7 @@ export function ResultsPage() {
     ) {
       selectExperiment(null)
     }
-  }, [selectedExperimentId, visibleExperiments])
+  }, [selectedExperimentId, visibleExperiments, selectExperiment])
 
   return (
     <Box style={{ display: "flex", height: "calc(100vh - 60px)" }}>
@@ -3062,9 +3351,13 @@ export function ResultsPage() {
               </Paper>
             ) : (
               visibleExperiments.map((exp) => {
-                const expResults = results.find((r) => r.experimentId === exp.id)
+                const expResults = results.find(
+                  (r) => r.experimentId === exp.id,
+                )
                 const hasUnfinishedUpload =
-                  !!expResults && expResults.files.length > 0 && !exp.hasCompletedUpload
+                  !!expResults &&
+                  expResults.files.length > 0 &&
+                  !exp.hasCompletedUpload
                 return (
                   <ExperimentListItem
                     key={exp.id}

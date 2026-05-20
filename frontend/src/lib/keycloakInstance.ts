@@ -6,7 +6,7 @@
  * access/refresh tokens internally; we only expose typed accessors.
  */
 
-import Keycloak from "keycloak-js"
+import type Keycloak from "keycloak-js"
 
 let _keycloak: Keycloak | null = null
 
@@ -74,7 +74,7 @@ export function logout(): void {
   const kc = _keycloak
   clearKeycloak()
   if (kc?.authenticated) {
-    kc.logout({ redirectUri: window.location.origin + "/login" })
+    kc.logout({ redirectUri: `${window.location.origin}/login` })
   } else {
     window.location.href = "/login"
   }

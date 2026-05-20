@@ -33,11 +33,15 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react"
-import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { DependencyBlockModal } from "../components/DependencyBlockModal"
-import { SelectCollectionModal, type CollectionConfirmParams } from "../components/SelectCollectionModal"
 import {
+  type CollectionConfirmParams,
+  SelectCollectionModal,
+} from "../components/SelectCollectionModal"
+import {
+  type CanvasCollectionElement,
   getDependentLocations,
   type Material,
   newComponent,
@@ -46,7 +50,6 @@ import {
   type SolutionComponent,
   useAppContext,
   useEntityCollection,
-  type CanvasCollectionElement,
 } from "../store/AppContext"
 
 function toDateTimeLocalValue(isoValue: string | undefined): string {
@@ -101,7 +104,10 @@ type ComponentRowProps = {
   onCancel: () => void
   buffer: SolutionComponent | null
   onBufferChange: (b: SolutionComponent) => void
-  groupedComponentOptions: { group: string; items: { value: string; label: string }[] }[]
+  groupedComponentOptions: {
+    group: string
+    items: { value: string; label: string }[]
+  }[]
   solutionIdSet: Set<string>
   materialUnitById?: Map<string, "mg" | "ml">
   componentColorMap?: Map<string, string>
@@ -131,14 +137,27 @@ function ComponentRow({
             value={buffer.materialId || buffer.solutionId || null}
             onChange={(v) => {
               if (!v) {
-                onBufferChange({ ...buffer, materialId: "", solutionId: undefined })
+                onBufferChange({
+                  ...buffer,
+                  materialId: "",
+                  solutionId: undefined,
+                })
                 return
               }
               if (solutionIdSet.has(v)) {
-                onBufferChange({ ...buffer, solutionId: v, materialId: undefined })
+                onBufferChange({
+                  ...buffer,
+                  solutionId: v,
+                  materialId: undefined,
+                })
               } else {
                 const unit = materialUnitById?.get(v) ?? buffer.unit
-                onBufferChange({ ...buffer, materialId: v, solutionId: undefined, unit })
+                onBufferChange({
+                  ...buffer,
+                  materialId: v,
+                  solutionId: undefined,
+                  unit,
+                })
               }
             }}
             data={groupedComponentOptions}
@@ -223,12 +242,22 @@ function ComponentRow({
           {editing ? (
             <>
               <Tooltip label="Save">
-                <ActionIcon size="sm" variant="subtle" color="green" onClick={onCommit}>
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="green"
+                  onClick={onCommit}
+                >
                   <IconCheck size={14} />
                 </ActionIcon>
               </Tooltip>
               <Tooltip label="Cancel">
-                <ActionIcon size="sm" variant="subtle" color="gray" onClick={onCancel}>
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="gray"
+                  onClick={onCancel}
+                >
                   <IconX size={14} />
                 </ActionIcon>
               </Tooltip>
@@ -236,12 +265,22 @@ function ComponentRow({
           ) : (
             <>
               <Tooltip label="Edit">
-                <ActionIcon size="sm" variant="subtle" color="blue" onClick={onStartEdit}>
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="blue"
+                  onClick={onStartEdit}
+                >
                   <IconPencil size={14} />
                 </ActionIcon>
               </Tooltip>
               <Tooltip label="Delete">
-                <ActionIcon size="sm" variant="subtle" color="red" onClick={onDelete}>
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="red"
+                  onClick={onDelete}
+                >
                   <IconTrash size={14} />
                 </ActionIcon>
               </Tooltip>
@@ -260,7 +299,10 @@ type SolutionCardProps = {
   onUpdate: (s: Solution) => void
   onDelete: () => void
   onCopy: () => void
-  groupedComponentOptions: { group: string; items: { value: string; label: string }[] }[]
+  groupedComponentOptions: {
+    group: string
+    items: { value: string; label: string }[]
+  }[]
   solutionIdSet: Set<string>
   solventIdSet: Set<string>
   materialUnitById?: Map<string, "mg" | "ml">
@@ -342,7 +384,7 @@ function SolutionCard({
       setEditingComponentId(null)
       setComponentBuffer(null)
     }
-  }, [isSelected])
+  }, [isSelected, commitOpenEditsBeforeClose, open, solution.name])
 
   const handleToggleOpen = (newOpen: boolean) => {
     if (newOpen) {
@@ -368,8 +410,11 @@ function SolutionCard({
   const [creationTimeBuffer, setCreationTimeBuffer] = useState(
     toDateTimeLocalValue(solution.creationTime),
   )
-  const [editingComponentId, setEditingComponentId] = useState<string | null>(null)
-  const [componentBuffer, setComponentBuffer] = useState<SolutionComponent | null>(null)
+  const [editingComponentId, setEditingComponentId] = useState<string | null>(
+    null,
+  )
+  const [componentBuffer, setComponentBuffer] =
+    useState<SolutionComponent | null>(null)
 
   useEffect(() => {
     onEditingChange?.(solution.id, editingName || editingComponentId !== null)
@@ -465,7 +510,12 @@ function SolutionCard({
 
   const cancelComponent = (id: string) => {
     const original = solution.components.find((c) => c.id === id)
-    if (original && !original.materialId && !original.solutionId && !original.amount) {
+    if (
+      original &&
+      !original.materialId &&
+      !original.solutionId &&
+      !original.amount
+    ) {
       onUpdate({
         ...solution,
         components: solution.components.filter((c) => c.id !== id),
@@ -489,7 +539,9 @@ function SolutionCard({
       p="sm"
       mb="sm"
       style={{
-        borderLeft: collectionColor ? `6px solid ${collectionColor}` : undefined,
+        borderLeft: collectionColor
+          ? `6px solid ${collectionColor}`
+          : undefined,
       }}
     >
       <Group justify="space-between" wrap="nowrap">
@@ -501,7 +553,11 @@ function SolutionCard({
             onClick={() => handleToggleOpen(!open)}
             aria-label={open ? "Collapse" : "Expand"}
           >
-            {open ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
+            {open ? (
+              <IconChevronDown size={16} />
+            ) : (
+              <IconChevronRight size={16} />
+            )}
           </ActionIcon>
 
           {editingName ? (
@@ -521,7 +577,12 @@ function SolutionCard({
                 style={{ width: rem(240) }}
               />
               <Tooltip label="Auto-generate name from components">
-                <ActionIcon size="sm" variant="subtle" color="violet" onClick={generateName}>
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="violet"
+                  onClick={generateName}
+                >
                   <IconSparkles size={14} />
                 </ActionIcon>
               </Tooltip>
@@ -635,7 +696,9 @@ function SolutionCard({
                   group.group === "Solution"
                     ? {
                         ...group,
-                        items: group.items.filter((opt) => opt.value !== solution.id),
+                        items: group.items.filter(
+                          (opt) => opt.value !== solution.id,
+                        ),
                       }
                     : group,
                 )
@@ -653,7 +716,9 @@ function SolutionCard({
                     }}
                     onCommit={commitComponent}
                     onCancel={() => cancelComponent(comp.id)}
-                    buffer={editingComponentId === comp.id ? componentBuffer : null}
+                    buffer={
+                      editingComponentId === comp.id ? componentBuffer : null
+                    }
                     onBufferChange={setComponentBuffer}
                     groupedComponentOptions={filteredGrouped}
                     solutionIdSet={filteredSolutionIdSet}
@@ -712,14 +777,18 @@ export function SolutionsPage() {
   const [selectedSolutionId, setSelectedSolutionId] = useState<string | null>(
     () => lastSelectedByKind.solution ?? null,
   )
-  const [editingSolutionId, setEditingSolutionId] = useState<string | null>(null)
+  const [editingSolutionId, setEditingSolutionId] = useState<string | null>(
+    null,
+  )
   const processedPendingRequestIdsRef = useRef<Set<string>>(new Set())
   const returnToRef = useRef<string | null>(null)
   const returnSolutionIdRef = useRef<string | null>(null)
   const returnToProcessIdRef = useRef<string | null>(null)
   const navigate = useNavigate()
   const [collectionModalOpen, setCollectionModalOpen] = useState(false)
-  const [autoAddComponentId, setAutoAddComponentId] = useState<string | null>(null)
+  const [autoAddComponentId, setAutoAddComponentId] = useState<string | null>(
+    null,
+  )
 
   const selectSolution = (id: string | null) => {
     setSelectedSolutionId(id)
@@ -741,7 +810,13 @@ export function SolutionsPage() {
     }
 
     setActiveEntity({ kind: "solution", id: editingSolutionId })
-  }, [editingSolutionId, isEntityVisible, setActiveEntity, solutions])
+  }, [
+    editingSolutionId,
+    isEntityVisible,
+    setActiveEntity,
+    solutions,
+    activeEntity?.kind,
+  ])
 
   useEffect(() => {
     if (activeEntity?.kind !== "solution") return
@@ -752,7 +827,9 @@ export function SolutionsPage() {
   const materialOptions = useMemo(
     () =>
       materials
-        .filter((m) => (m.category ?? "chemical_compound") !== "substrate_material")
+        .filter(
+          (m) => (m.category ?? "chemical_compound") !== "substrate_material",
+        )
         .filter((m) => m.type !== "solvent")
         .filter((m) => isEntityOnActivePlane("material", m.id))
         .map((m) => ({
@@ -765,7 +842,9 @@ export function SolutionsPage() {
   const solventOptions = useMemo(
     () =>
       materials
-        .filter((m) => (m.category ?? "chemical_compound") !== "substrate_material")
+        .filter(
+          (m) => (m.category ?? "chemical_compound") !== "substrate_material",
+        )
         .filter((m) => m.type === "solvent")
         .filter((m) => isEntityOnActivePlane("material", m.id))
         .map((m) => ({
@@ -778,7 +857,8 @@ export function SolutionsPage() {
   const materialUnitById = useMemo(() => {
     const map = new Map<string, "mg" | "ml">()
     for (const material of materials) {
-      if ((material.category ?? "chemical_compound") === "substrate_material") continue
+      if ((material.category ?? "chemical_compound") === "substrate_material")
+        continue
       map.set(material.id, getDefaultUnitForMaterial(material))
     }
     return map
@@ -824,9 +904,15 @@ export function SolutionsPage() {
 
   const groupedComponentOptions = useMemo(
     () => [
-      ...(materialOptions.length > 0 ? [{ group: "Material", items: materialOptions }] : []),
-      ...(solventOptions.length > 0 ? [{ group: "Solvent", items: solventOptions }] : []),
-      ...(allSolutionOptions.length > 0 ? [{ group: "Solution", items: allSolutionOptions }] : []),
+      ...(materialOptions.length > 0
+        ? [{ group: "Material", items: materialOptions }]
+        : []),
+      ...(solventOptions.length > 0
+        ? [{ group: "Solvent", items: solventOptions }]
+        : []),
+      ...(allSolutionOptions.length > 0
+        ? [{ group: "Solution", items: allSolutionOptions }]
+        : []),
     ],
     [materialOptions, solventOptions, allSolutionOptions],
   )
@@ -846,7 +932,9 @@ export function SolutionsPage() {
     return s ? s.name || id : id
   }
 
-  const visibleSolutions = solutions.filter((s) => isEntityVisible("solution", s.id))
+  const visibleSolutions = solutions.filter((s) =>
+    isEntityVisible("solution", s.id),
+  )
 
   useEffect(() => {
     if (
@@ -855,14 +943,18 @@ export function SolutionsPage() {
     ) {
       selectSolution(null)
     }
-  }, [selectedSolutionId, visibleSolutions])
+  }, [selectedSolutionId, visibleSolutions, selectSolution])
 
   const handleSolutionEditingChange = (id: string, isEditing: boolean) => {
     setEditingSolutionId((current) => {
       if (isEditing) return id
       return current === id ? null : current
     })
-    if (!isEditing && id === returnSolutionIdRef.current && returnToRef.current) {
+    if (
+      !isEditing &&
+      id === returnSolutionIdRef.current &&
+      returnToRef.current
+    ) {
       const route = returnToRef.current
       returnToRef.current = null
       returnSolutionIdRef.current = null
@@ -902,11 +994,16 @@ export function SolutionsPage() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: run once on pendingCollectionLink change
   useEffect(() => {
-    if (!pendingCollectionLink || pendingCollectionLink.kind !== "solution") return
-    if (processedPendingRequestIdsRef.current.has(pendingCollectionLink.requestId)) return
+    if (!pendingCollectionLink || pendingCollectionLink.kind !== "solution")
+      return
+    if (
+      processedPendingRequestIdsRef.current.has(pendingCollectionLink.requestId)
+    )
+      return
     processedPendingRequestIdsRef.current.add(pendingCollectionLink.requestId)
 
-    const { collectionId, planeId, processAttachment, returnTo } = pendingCollectionLink
+    const { collectionId, planeId, processAttachment, returnTo } =
+      pendingCollectionLink
     setPendingCollectionLink(null)
 
     const s = newSolution()
@@ -921,7 +1018,10 @@ export function SolutionsPage() {
       }
     }
 
-    if (processAttachment?.target === "step-solution" && processAttachment.stepId) {
+    if (
+      processAttachment?.target === "step-solution" &&
+      processAttachment.stepId
+    ) {
       setProcesses((prev) =>
         prev.map((process) =>
           process.id === processAttachment.processId
@@ -970,14 +1070,20 @@ export function SolutionsPage() {
       ...original,
       id: crypto.randomUUID(),
       name: `Copy of ${original.name}`,
-      components: original.components.map((c) => ({ ...c, id: crypto.randomUUID() })),
+      components: original.components.map((c) => ({
+        ...c,
+        id: crypto.randomUUID(),
+      })),
     }
     setSolutions((prev) => [...prev, copied])
     const owner = getEntityCollection("solution", id)
     if (owner) {
       updateElement(owner.plane.id, {
         ...owner.collection,
-        refs: [...owner.collection.refs, { kind: "solution" as const, id: copied.id }],
+        refs: [
+          ...owner.collection.refs,
+          { kind: "solution" as const, id: copied.id },
+        ],
       })
     }
   }
@@ -994,7 +1100,10 @@ export function SolutionsPage() {
       modals.open({
         title: "Cannot delete solution",
         children: (
-          <DependencyBlockModal itemName={sol?.name ?? id} dependents={dependents} />
+          <DependencyBlockModal
+            itemName={sol?.name ?? id}
+            dependents={dependents}
+          />
         ),
       })
       return
@@ -1060,7 +1169,10 @@ export function SolutionsPage() {
                   if (group) {
                     group.items.push(solution)
                   } else {
-                    groups.set(plane.id, { planeName: plane.name, items: [solution] })
+                    groups.set(plane.id, {
+                      planeName: plane.name,
+                      items: [solution],
+                    })
                   }
                 } else {
                   orphans.push(solution)
@@ -1091,7 +1203,9 @@ export function SolutionsPage() {
                       onDelete={() => deleteSolution(solution.id)}
                       onCopy={() => copySolution(solution.id)}
                       {...sharedCardProps}
-                      collectionColor={getEntityColor("solution", solution.id) ?? undefined}
+                      collectionColor={
+                        getEntityColor("solution", solution.id) ?? undefined
+                      }
                       isSelected={selectedSolutionId === solution.id}
                       onSelect={selectSolution}
                       autoAddComponent={autoAddComponentId === solution.id}
@@ -1124,7 +1238,9 @@ export function SolutionsPage() {
                       onDelete={() => deleteSolution(solution.id)}
                       onCopy={() => copySolution(solution.id)}
                       {...sharedCardProps}
-                      collectionColor={getEntityColor("solution", solution.id) ?? undefined}
+                      collectionColor={
+                        getEntityColor("solution", solution.id) ?? undefined
+                      }
                       isSelected={selectedSolutionId === solution.id}
                       onSelect={selectSolution}
                       autoAddComponent={autoAddComponentId === solution.id}
@@ -1143,7 +1259,9 @@ export function SolutionsPage() {
                 onDelete={() => deleteSolution(solution.id)}
                 onCopy={() => copySolution(solution.id)}
                 {...sharedCardProps}
-                collectionColor={getEntityColor("solution", solution.id) ?? undefined}
+                collectionColor={
+                  getEntityColor("solution", solution.id) ?? undefined
+                }
                 isSelected={selectedSolutionId === solution.id}
                 onSelect={selectSolution}
                 autoAddComponent={autoAddComponentId === solution.id}

@@ -4,5 +4,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router"
 // exchange internally.  Redirect back to / so the app can re-initialise.
 export const Route = createFileRoute("/auth/nomad/callback")({
   component: () => null,
-  beforeLoad: () => { throw redirect({ to: "/" }) },
+  beforeLoad: () => {
+    throw redirect({ to: "/" })
+  },
 })

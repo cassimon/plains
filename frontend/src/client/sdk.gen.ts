@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { ExperimentsReadExperimentsData, ExperimentsReadExperimentsResponse, ExperimentsCreateItemData, ExperimentsCreateItemResponse, ExperimentsReadExperimentData, ExperimentsReadExperimentResponse, ExperimentsUpdateItemData, ExperimentsUpdateItemResponse, ExperimentsDeleteExperimentData, ExperimentsDeleteExperimentResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, MaterialsReadMaterialsData, MaterialsReadMaterialsResponse, MaterialsCreateMaterialData, MaterialsCreateMaterialResponse, MaterialsReadMaterialData, MaterialsReadMaterialResponse, MaterialsUpdateMaterialData, MaterialsUpdateMaterialResponse, MaterialsDeleteMaterialData, MaterialsDeleteMaterialResponse, NomadGetNomadConfigResponse, NomadPreviewNomadMetadataData, NomadPreviewNomadMetadataResponse, NomadUploadFilesForNomadData, NomadUploadFilesForNomadResponse, NomadUploadToNomadEndpointData, NomadUploadToNomadEndpointResponse, NomadCheckUploadStatusData, NomadCheckUploadStatusResponse, NomadTestNomadAuthResponse, PlanesReadPlanesData, PlanesReadPlanesResponse, PlanesCreatePlaneData, PlanesCreatePlaneResponse, PlanesReadPlaneData, PlanesReadPlaneResponse, PlanesUpdatePlaneData, PlanesUpdatePlaneResponse, PlanesDeletePlaneData, PlanesDeletePlaneResponse, PlanesCreateElementData, PlanesCreateElementResponse, PlanesUpdateElementData, PlanesUpdateElementResponse, PlanesDeleteElementData, PlanesDeleteElementResponse, PrivateCreateUserData, PrivateCreateUserResponse, ResultsReadResultsData, ResultsReadResultsResponse, ResultsCreateResultData, ResultsCreateResultResponse, ResultsReadResultData, ResultsReadResultResponse, ResultsUpdateResultData, ResultsUpdateResultResponse, ResultsDeleteResultData, ResultsDeleteResultResponse, SolutionsReadSolutionsData, SolutionsReadSolutionsResponse, SolutionsCreateItemData, SolutionsCreateItemResponse, SolutionsReadSolutionData, SolutionsReadSolutionResponse, SolutionsUpdateItemData, SolutionsUpdateItemResponse, SolutionsDeleteSolutionData, SolutionsDeleteSolutionResponse, StateReadStateResponse, StateUpdateStateData, StateUpdateStateResponse, StateGetBulkStateResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { ExperimentsReadExperimentsData, ExperimentsReadExperimentsResponse, ExperimentsCreateItemData, ExperimentsCreateItemResponse, ExperimentsReadExperimentData, ExperimentsReadExperimentResponse, ExperimentsUpdateItemData, ExperimentsUpdateItemResponse, ExperimentsDeleteExperimentData, ExperimentsDeleteExperimentResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginAuthConfigResponse, MaterialsReadMaterialsData, MaterialsReadMaterialsResponse, MaterialsCreateMaterialData, MaterialsCreateMaterialResponse, MaterialsReadMaterialData, MaterialsReadMaterialResponse, MaterialsUpdateMaterialData, MaterialsUpdateMaterialResponse, MaterialsDeleteMaterialData, MaterialsDeleteMaterialResponse, NomadGetNomadConfigResponse, NomadUploadFilesForNomadData, NomadUploadFilesForNomadResponse, NomadAddMetadataToArchiveData, NomadAddMetadataToArchiveResponse, NomadPreviewMetadataFromArchiveData, NomadPreviewMetadataFromArchiveResponse, NomadDiscardUploadedArchiveData, NomadDiscardUploadedArchiveResponse, NomadUploadToNomadEndpointData, NomadUploadToNomadEndpointResponse, NomadCheckUploadStatusData, NomadCheckUploadStatusResponse, NomadTestNomadAuthResponse, PlanesReadPlanesData, PlanesReadPlanesResponse, PlanesCreatePlaneData, PlanesCreatePlaneResponse, PlanesReadPlaneData, PlanesReadPlaneResponse, PlanesUpdatePlaneData, PlanesUpdatePlaneResponse, PlanesDeletePlaneData, PlanesDeletePlaneResponse, PlanesSharePlaneData, PlanesSharePlaneResponse, PlanesUnsharePlaneData, PlanesUnsharePlaneResponse, PlanesSearchUsersData, PlanesSearchUsersResponse, PlanesCreateElementData, PlanesCreateElementResponse, PlanesUpdateElementData, PlanesUpdateElementResponse, PlanesDeleteElementData, PlanesDeleteElementResponse, PrivateCreateUserData, PrivateCreateUserResponse, ResultsReadResultsData, ResultsReadResultsResponse, ResultsCreateResultData, ResultsCreateResultResponse, ResultsReadResultData, ResultsReadResultResponse, ResultsUpdateResultData, ResultsUpdateResultResponse, ResultsDeleteResultData, ResultsDeleteResultResponse, SolutionsReadSolutionsData, SolutionsReadSolutionsResponse, SolutionsCreateItemData, SolutionsCreateItemResponse, SolutionsReadSolutionData, SolutionsReadSolutionResponse, SolutionsUpdateItemData, SolutionsUpdateItemResponse, SolutionsDeleteSolutionData, SolutionsDeleteSolutionResponse, StateReadStateResponse, StateUpdateStateData, StateUpdateStateResponse, StateGetBulkStateResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class ExperimentsService {
     /**
@@ -229,97 +229,23 @@ export class ItemsService {
 
 export class LoginService {
     /**
-     * Login Access Token
-     * OAuth2 compatible token login, get an access token for future requests
-     * @param data The data for the request.
-     * @param data.formData
-     * @returns Token Successful Response
+     * Auth Config
+     * Return Keycloak configuration so the frontend can initialise keycloak-js.
+     *
+     * The response contains:
+     * - ``keycloak_url``: the Keycloak server base URL (before ``/realms/``)
+     * - ``keycloak_realm``: the realm name
+     * - ``keycloak_client_id``: the OAuth2 client id (public PKCE client)
+     *
+     * This endpoint is intentionally unauthenticated so the login page can
+     * fetch it before any token is available.
+     * @returns AuthConfig Successful Response
      * @throws ApiError
      */
-    public static loginAccessToken(data: LoginLoginAccessTokenData): CancelablePromise<LoginLoginAccessTokenResponse> {
+    public static authConfig(): CancelablePromise<LoginAuthConfigResponse> {
         return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/v1/login/access-token',
-            formData: data.formData,
-            mediaType: 'application/x-www-form-urlencoded',
-            errors: {
-                422: 'Validation Error'
-            }
-        });
-    }
-    
-    /**
-     * Test Token
-     * Test access token
-     * @returns UserPublic Successful Response
-     * @throws ApiError
-     */
-    public static testToken(): CancelablePromise<LoginTestTokenResponse> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/v1/login/test-token'
-        });
-    }
-    
-    /**
-     * Recover Password
-     * Password Recovery
-     * @param data The data for the request.
-     * @param data.email
-     * @returns Message Successful Response
-     * @throws ApiError
-     */
-    public static recoverPassword(data: LoginRecoverPasswordData): CancelablePromise<LoginRecoverPasswordResponse> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/v1/password-recovery/{email}',
-            path: {
-                email: data.email
-            },
-            errors: {
-                422: 'Validation Error'
-            }
-        });
-    }
-    
-    /**
-     * Reset Password
-     * Reset password
-     * @param data The data for the request.
-     * @param data.requestBody
-     * @returns Message Successful Response
-     * @throws ApiError
-     */
-    public static resetPassword(data: LoginResetPasswordData): CancelablePromise<LoginResetPasswordResponse> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/v1/reset-password/',
-            body: data.requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: 'Validation Error'
-            }
-        });
-    }
-    
-    /**
-     * Recover Password Html Content
-     * HTML Content for Password Recovery
-     * @param data The data for the request.
-     * @param data.email
-     * @returns string Successful Response
-     * @throws ApiError
-     */
-    public static recoverPasswordHtmlContent(data: LoginRecoverPasswordHtmlContentData): CancelablePromise<LoginRecoverPasswordHtmlContentResponse> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/v1/password-recovery-html-content/{email}',
-            path: {
-                email: data.email
-            },
-            errors: {
-                422: 'Validation Error'
-            }
+            method: 'GET',
+            url: '/api/v1/auth/config'
         });
     }
 }
@@ -453,37 +379,19 @@ export class NomadService {
     }
     
     /**
-     * Preview Nomad Metadata
-     * Preview the NOMAD metadata JSON that would be generated.
-     *
-     * This allows users to review the metadata before uploading.
-     * @param data The data for the request.
-     * @param data.requestBody
-     * @returns NomadMetadataPreview Successful Response
-     * @throws ApiError
-     */
-    public static previewNomadMetadata(data: NomadPreviewNomadMetadataData): CancelablePromise<NomadPreviewNomadMetadataResponse> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/v1/nomad/metadata/preview',
-            body: data.requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: 'Validation Error'
-            }
-        });
-    }
-    
-    /**
      * Upload Files For Nomad
      * Upload files and create a temporary secure zip archive.
      *
      * Files are:
      * 1. Validated for safety
      * 2. Compressed into a zip archive
-     * 3. Stored temporarily for later NOMAD upload
+     * 3. Optionally combined with NOMAD metadata YAML files (if request_json provided)
+     * 4. Stored temporarily for later NOMAD upload
      *
      * Returns the archive ID for use in the upload step.
+     *
+     * If request_json is provided, YAML metadata files will be generated and included
+     * in the archive. This allows the frontend to prepare the upload earlier in the workflow.
      * @param data The data for the request.
      * @param data.formData
      * @returns unknown Successful Response
@@ -495,6 +403,86 @@ export class NomadService {
             url: '/api/v1/nomad/upload/files',
             formData: data.formData,
             mediaType: 'multipart/form-data',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Add Metadata To Archive
+     * Add NOMAD metadata YAML files to an existing archive.
+     *
+     * This endpoint generates metadata from the provided request and adds
+     * the YAML files to an existing zip archive without re-uploading the
+     * measurement files.
+     *
+     * Args:
+     * archive_path: Path to the existing zip archive
+     * request_json: JSON string containing NomadUploadRequest data
+     *
+     * Returns:
+     * Dict with success status, archive info, and metadata file count
+     * @param data The data for the request.
+     * @param data.formData
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static addMetadataToArchive(data: NomadAddMetadataToArchiveData): CancelablePromise<NomadAddMetadataToArchiveResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/nomad/upload/metadata',
+            formData: data.formData,
+            mediaType: 'application/x-www-form-urlencoded',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Preview Metadata From Archive
+     * Preview NOMAD metadata YAML files from an existing archive.
+     *
+     * This endpoint reads all .yaml files from the archive and returns
+     * their content for review before uploading to NOMAD.
+     *
+     * Args:
+     * archive_path: Path to the zip archive containing YAML files
+     *
+     * Returns:
+     * Dict with yaml_files (dict of filename -> content), file_list, and metadata_count
+     * @param data The data for the request.
+     * @param data.formData
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static previewMetadataFromArchive(data: NomadPreviewMetadataFromArchiveData): CancelablePromise<NomadPreviewMetadataFromArchiveResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/nomad/metadata/preview',
+            formData: data.formData,
+            mediaType: 'application/x-www-form-urlencoded',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Discard Uploaded Archive
+     * Discard a previously created temporary archive from /upload/files.
+     * @param data The data for the request.
+     * @param data.formData
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static discardUploadedArchive(data: NomadDiscardUploadedArchiveData): CancelablePromise<NomadDiscardUploadedArchiveResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/nomad/upload/archive/discard',
+            formData: data.formData,
+            mediaType: 'application/x-www-form-urlencoded',
             errors: {
                 422: 'Validation Error'
             }
@@ -577,7 +565,7 @@ export class NomadService {
 export class PlanesService {
     /**
      * Read Planes
-     * Retrieve planes for current user.
+     * Retrieve planes owned by or shared with current user.
      * @param data The data for the request.
      * @param data.skip
      * @param data.limit
@@ -600,7 +588,7 @@ export class PlanesService {
     
     /**
      * Create Plane
-     * Create new plane with optional elements.
+     * Create new plane with optional elements (private by default).
      * @param data The data for the request.
      * @param data.requestBody
      * @returns PlanePublic Successful Response
@@ -641,7 +629,7 @@ export class PlanesService {
     
     /**
      * Update Plane
-     * Update plane name.
+     * Update plane name (owner only).
      * @param data The data for the request.
      * @param data.id
      * @param data.requestBody
@@ -665,7 +653,7 @@ export class PlanesService {
     
     /**
      * Delete Plane
-     * Delete plane and all its elements.
+     * Delete plane and all its elements (owner only).
      * @param data The data for the request.
      * @param data.id
      * @returns unknown Successful Response
@@ -677,6 +665,76 @@ export class PlanesService {
             url: '/api/v1/planes/{id}',
             path: {
                 id: data.id
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Share Plane
+     * Share plane with another user (owner only).
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.requestBody
+     * @returns PlanePublic Successful Response
+     * @throws ApiError
+     */
+    public static sharePlane(data: PlanesSharePlaneData): CancelablePromise<PlanesSharePlaneResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/planes/{id}/share',
+            path: {
+                id: data.id
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Unshare Plane
+     * Remove user from plane sharing (owner only).
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.userId
+     * @returns PlanePublic Successful Response
+     * @throws ApiError
+     */
+    public static unsharePlane(data: PlanesUnsharePlaneData): CancelablePromise<PlanesUnsharePlaneResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/planes/{id}/share/{user_id}',
+            path: {
+                id: data.id,
+                user_id: data.userId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Search Users
+     * Search users by email or full name for sharing.
+     * @param data The data for the request.
+     * @param data.q
+     * @param data.limit
+     * @returns UserPublic Successful Response
+     * @throws ApiError
+     */
+    public static searchUsers(data: PlanesSearchUsersData = {}): CancelablePromise<PlanesSearchUsersResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/planes/search-users/',
+            query: {
+                q: data.q,
+                limit: data.limit
             },
             errors: {
                 422: 'Validation Error'
@@ -736,7 +794,7 @@ export class PlanesService {
     
     /**
      * Delete Element
-     * Delete canvas element.
+     * Delete canvas element (owner or shared user).
      * @param data The data for the request.
      * @param data.planeId
      * @param data.elementId

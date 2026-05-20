@@ -27,6 +27,10 @@ import {
 import * as React from "react"
 import { useCallback, useRef, useState } from "react"
 import {
+  type CollectionConfirmParams,
+  SelectCollectionModal,
+} from "../components/SelectCollectionModal"
+import {
   type CanvasCollectionElement,
   type Experiment,
   getExperimentStatus,
@@ -39,7 +43,6 @@ import {
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
-import { SelectCollectionModal, type CollectionConfirmParams } from "../components/SelectCollectionModal"
 
 type SubstrateGeneratorConfig = {
   namePrefix: string
@@ -202,19 +205,25 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
           placeholder="e.g. sample"
           size="sm"
           value={generatorConfig.namePrefix}
-          onChange={(e) => onChangeGeneratorConfig({ namePrefix: e.currentTarget.value })}
+          onChange={(e) =>
+            onChangeGeneratorConfig({ namePrefix: e.currentTarget.value })
+          }
           style={{ flex: 1, minWidth: 180 }}
         />
         <Checkbox
           label="Include Date"
           checked={generatorConfig.includeDate}
-          onChange={(e) => onChangeGeneratorConfig({ includeDate: e.currentTarget.checked })}
+          onChange={(e) =>
+            onChangeGeneratorConfig({ includeDate: e.currentTarget.checked })
+          }
         />
         <Checkbox
           label="Include Experiment Name"
           checked={generatorConfig.includeExperimentName}
           onChange={(e) =>
-            onChangeGeneratorConfig({ includeExperimentName: e.currentTarget.checked })
+            onChangeGeneratorConfig({
+              includeExperimentName: e.currentTarget.checked,
+            })
           }
         />
         <NumberInput
@@ -223,7 +232,9 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
           min={1}
           max={200}
           value={generatorConfig.addCount}
-          onChange={(v) => onChangeGeneratorConfig({ addCount: Number(v) || 1 })}
+          onChange={(v) =>
+            onChangeGeneratorConfig({ addCount: Number(v) || 1 })
+          }
           style={{ width: 120 }}
         />
       </Group>
@@ -270,7 +281,11 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
         ))}
       </Group>
       {substrateMaterialOptions.length === 0 && (
-        <Alert color="yellow" mt="sm" title="No substrate materials in selected process">
+        <Alert
+          color="yellow"
+          mt="sm"
+          title="No substrate materials in selected process"
+        >
           Add substrate materials in the process first.
         </Alert>
       )}
@@ -293,7 +308,9 @@ function RecipeSelectionModal({
   onSelect: (processId: string) => void
   onClose: () => void
 }) {
-  const [selectedProcessId, setSelectedProcessId] = useState<string | null>(null)
+  const [selectedProcessId, setSelectedProcessId] = useState<string | null>(
+    null,
+  )
 
   const handleConfirm = () => {
     if (selectedProcessId) {
@@ -312,34 +329,32 @@ function RecipeSelectionModal({
     >
       <Stack gap="md">
         <Text size="sm" c="dimmed">
-          Choose which recipe/process this experiment will follow. You can change
-          this later.
+          Choose which recipe/process this experiment will follow. You can
+          change this later.
         </Text>
 
-        <>
-          {processes.length === 0 ? (
-            <Alert
-              icon={<IconInfoCircle size={16} />}
-              title="No Processes Available"
-              color="yellow"
-            >
-              Please create a process first before creating an experiment.
-            </Alert>
-          ) : (
-            <Select
-              label="Process"
-              placeholder="Select a process..."
-              searchable
-              data={processes.map((p) => ({
-                value: p.id,
-                label: p.name,
-              }))}
-              value={selectedProcessId}
-              onChange={setSelectedProcessId}
-              size="sm"
-            />
-          )}
-        </>
+        {processes.length === 0 ? (
+          <Alert
+            icon={<IconInfoCircle size={16} />}
+            title="No Processes Available"
+            color="yellow"
+          >
+            Please create a process first before creating an experiment.
+          </Alert>
+        ) : (
+          <Select
+            label="Process"
+            placeholder="Select a process..."
+            searchable
+            data={processes.map((p) => ({
+              value: p.id,
+              label: p.name,
+            }))}
+            value={selectedProcessId}
+            onChange={setSelectedProcessId}
+            size="sm"
+          />
+        )}
 
         <Group justify="flex-end" gap="sm">
           <Button variant="outline" onClick={onClose}>
@@ -431,7 +446,9 @@ function ExperimentGrid({
 }) {
   const [variationTarget, setVariationTarget] = useState<string | null>(null)
   const [variationParam, setVariationParam] = useState<string | null>(null)
-  const [selectedSubstrateIds, setSelectedSubstrateIds] = useState<Set<string>>(new Set())
+  const [selectedSubstrateIds, setSelectedSubstrateIds] = useState<Set<string>>(
+    new Set(),
+  )
   const nameInputRefs = React.useRef<Array<HTMLInputElement | null>>([])
 
   const stepDisplayById = React.useMemo(() => {
@@ -452,7 +469,9 @@ function ExperimentGrid({
   }, [materialNameById, process.stages, solutionNameById])
 
   React.useEffect(() => {
-    const validIds = new Set(experiment.substrates.map((substrate) => substrate.id))
+    const validIds = new Set(
+      experiment.substrates.map((substrate) => substrate.id),
+    )
     setSelectedSubstrateIds((prev) => {
       let changed = false
       const next = new Set<string>()
@@ -504,9 +523,15 @@ function ExperimentGrid({
             }
           | undefined
 
-        for (let stageIdx = 0; stageIdx < process.stages.length; stageIdx += 1) {
+        for (
+          let stageIdx = 0;
+          stageIdx < process.stages.length;
+          stageIdx += 1
+        ) {
           const stage = process.stages[stageIdx]
-          const step = stage.alternatives.find((candidate) => candidate.id === stepId)
+          const step = stage.alternatives.find(
+            (candidate) => candidate.id === stepId,
+          )
           if (step) {
             match = {
               stageIndex: stageIdx,
@@ -521,7 +546,8 @@ function ExperimentGrid({
 
         const columnKey = `${stepId}:${paramDef.key}`
         if (!columns.has(columnKey)) {
-          const stepLabel = stepDisplayById.get(stepId) ?? "Deposition: Material"
+          const stepLabel =
+            stepDisplayById.get(stepId) ?? "Deposition: Material"
           columns.set(columnKey, {
             stageIndex: match.stageIndex,
             stepId,
@@ -553,7 +579,11 @@ function ExperimentGrid({
     if (!Number.isFinite(stageIndex)) {
       return null
     }
-    return process.stages[stageIndex]?.alternatives.find((step) => step.id === stepId) ?? null
+    return (
+      process.stages[stageIndex]?.alternatives.find(
+        (step) => step.id === stepId,
+      ) ?? null
+    )
   }, [process.stages, variationTarget])
 
   const variationParamOptions = React.useMemo(() => {
@@ -573,7 +603,10 @@ function ExperimentGrid({
     }).map(({ key, label }) => ({ value: key, label }))
   }, [selectedVariationStep])
 
-  const getStageSelection = (substrateId: string, stageIndex: number): string | null => {
+  const getStageSelection = (
+    substrateId: string,
+    stageIndex: number,
+  ): string | null => {
     const substrate = experiment.substrates.find((s) => s.id === substrateId)
     const stored = substrate?.parameterValues?.[`stageSelection:${stageIndex}`]
     if (stored) {
@@ -609,10 +642,17 @@ function ExperimentGrid({
       next.delete(substrateId)
       return next
     })
-    onUpdate({ ...experiment, numSubstrates: newSubstrates.length, substrates: newSubstrates })
+    onUpdate({
+      ...experiment,
+      numSubstrates: newSubstrates.length,
+      substrates: newSubstrates,
+    })
   }
 
-  const handleToggleSubstrateSelection = (substrateId: string, checked: boolean) => {
+  const handleToggleSubstrateSelection = (
+    substrateId: string,
+    checked: boolean,
+  ) => {
     setSelectedSubstrateIds((prev) => {
       const next = new Set(prev)
       if (checked) {
@@ -625,7 +665,9 @@ function ExperimentGrid({
   }
 
   const handleSelectAllSubstrates = () => {
-    setSelectedSubstrateIds(new Set(experiment.substrates.map((substrate) => substrate.id)))
+    setSelectedSubstrateIds(
+      new Set(experiment.substrates.map((substrate) => substrate.id)),
+    )
   }
 
   const handleSelectNoSubstrates = () => {
@@ -640,7 +682,8 @@ function ExperimentGrid({
       title: "Delete selected substrates?",
       children: (
         <Text size="sm">
-          Remove {selectedSubstrateIds.size} selected substrate{selectedSubstrateIds.size !== 1 ? "s" : ""} from this experiment?
+          Remove {selectedSubstrateIds.size} selected substrate
+          {selectedSubstrateIds.size !== 1 ? "s" : ""} from this experiment?
         </Text>
       ),
       labels: { confirm: "Delete", cancel: "Cancel" },
@@ -662,7 +705,8 @@ function ExperimentGrid({
   const buildDefaultStageValues = () => {
     const values: Record<string, string> = {}
     process.stages.forEach((stage, idx) => {
-      values[`stageSelection:${idx}`] = nextStepDefaults[idx] ?? stage.alternatives[0]?.id ?? "SKIP"
+      values[`stageSelection:${idx}`] =
+        nextStepDefaults[idx] ?? stage.alternatives[0]?.id ?? "SKIP"
     })
     return values
   }
@@ -676,41 +720,57 @@ function ExperimentGrid({
     })
   }
 
-  const handleSubstrateNameChange = useCallback((substrateId: string, name: string) => {
-    onUpdate({
-      ...experiment,
-      substrates: experiment.substrates.map((substrate) =>
-        substrate.id === substrateId ? { ...substrate, name } : substrate,
-      ),
-    })
-  }, [experiment, onUpdate])
+  const handleSubstrateNameChange = useCallback(
+    (substrateId: string, name: string) => {
+      onUpdate({
+        ...experiment,
+        substrates: experiment.substrates.map((substrate) =>
+          substrate.id === substrateId ? { ...substrate, name } : substrate,
+        ),
+      })
+    },
+    [experiment, onUpdate],
+  )
 
-  const handleSubstrateMaterialChange = useCallback((substrateId: string, materialId: string | null) => {
-    onUpdate({
-      ...experiment,
-      substrates: experiment.substrates.map((substrate) =>
-        substrate.id === substrateId
-          ? { ...substrate, substrateMaterialId: materialId ?? undefined }
-          : substrate,
-      ),
-    })
-  }, [experiment, onUpdate])
+  const handleSubstrateMaterialChange = useCallback(
+    (substrateId: string, materialId: string | null) => {
+      onUpdate({
+        ...experiment,
+        substrates: experiment.substrates.map((substrate) =>
+          substrate.id === substrateId
+            ? { ...substrate, substrateMaterialId: materialId ?? undefined }
+            : substrate,
+        ),
+      })
+    },
+    [experiment, onUpdate],
+  )
 
   const handleDuplicateSubstrate = (substrateId: string) => {
-    const source = experiment.substrates.find((substrate) => substrate.id === substrateId)
+    const source = experiment.substrates.find(
+      (substrate) => substrate.id === substrateId,
+    )
     if (!source) return
     const duplicateIndex = experiment.substrates.length + 1
     const duplicate = {
       ...source,
       id: crypto.randomUUID(),
-      name: buildGeneratedSubstrateName(duplicateIndex, experiment, generatorConfig),
+      name: buildGeneratedSubstrateName(
+        duplicateIndex,
+        experiment,
+        generatorConfig,
+      ),
       parameterValues: {
         ...buildDefaultStageValues(),
         ...(source.parameterValues ?? {}),
       },
     }
     const newSubstrates = [...experiment.substrates, duplicate]
-    onUpdate({ ...experiment, numSubstrates: newSubstrates.length, substrates: newSubstrates })
+    onUpdate({
+      ...experiment,
+      numSubstrates: newSubstrates.length,
+      substrates: newSubstrates,
+    })
   }
 
   const handleAddVariation = () => {
@@ -718,7 +778,9 @@ function ExperimentGrid({
     const [stageIndexRaw, stepId] = variationTarget.split(":")
     const stageIndex = Number(stageIndexRaw)
     const paramKey = variationParam as ProcessParameterKey
-    const targetStep = process.stages[stageIndex]?.alternatives.find((step) => step.id === stepId)
+    const targetStep = process.stages[stageIndex]?.alternatives.find(
+      (step) => step.id === stepId,
+    )
     if (!targetStep) return
 
     const baseValue = targetStep[paramKey]?.value ?? ""
@@ -740,7 +802,10 @@ function ExperimentGrid({
                   : {
                       ...step,
                       [paramKey]: {
-                        ...(step[paramKey] ?? { value: baseValue, mode: "variation" }),
+                        ...(step[paramKey] ?? {
+                          value: baseValue,
+                          mode: "variation",
+                        }),
                         value: step[paramKey]?.value ?? baseValue,
                         mode: "variation",
                       },
@@ -759,7 +824,8 @@ function ExperimentGrid({
           ...(hasVariationColumn
             ? {}
             : {
-                [variationKey]: substrate.parameterValues?.[variationKey] ?? baseValue,
+                [variationKey]:
+                  substrate.parameterValues?.[variationKey] ?? baseValue,
               }),
         },
       })),
@@ -771,9 +837,7 @@ function ExperimentGrid({
     setVariationParam(null)
   }
 
-  const removeVariationColumn = (
-    column: (typeof variationColumns)[number],
-  ) => {
+  const removeVariationColumn = (column: (typeof variationColumns)[number]) => {
     const key = `${column.stepId}:${column.paramKey}`
     const targetStep = process.stages[column.stageIndex]?.alternatives.find(
       (step) => step.id === column.stepId,
@@ -824,7 +888,8 @@ function ExperimentGrid({
         title: "Delete parameter variation?",
         children: (
           <Text size="sm">
-            Some variation values differ from the default process value. Delete this variation column and discard those changes?
+            Some variation values differ from the default process value. Delete
+            this variation column and discard those changes?
           </Text>
         ),
         labels: { confirm: "Delete", cancel: "Cancel" },
@@ -837,38 +902,44 @@ function ExperimentGrid({
     applyRemoval()
   }
 
-  const handleProcessingTimeChange = useCallback((stageKey: string, value: string) => {
-    onUpdate({
-      ...experiment,
-      processingTimes: {
-        ...(experiment.processingTimes ?? {}),
-        [stageKey]: value,
-      },
-    })
-  }, [experiment, onUpdate])
+  const handleProcessingTimeChange = useCallback(
+    (stageKey: string, value: string) => {
+      onUpdate({
+        ...experiment,
+        processingTimes: {
+          ...(experiment.processingTimes ?? {}),
+          [stageKey]: value,
+        },
+      })
+    },
+    [experiment, onUpdate],
+  )
 
-  const handleVariationValueChange = useCallback((
-    substrateId: string,
-    stepId: string,
-    paramKey: ProcessParameterKey,
-    value: string,
-  ) => {
-    const key = `${stepId}:${paramKey}`
-    onUpdate({
-      ...experiment,
-      substrates: experiment.substrates.map((substrate) =>
-        substrate.id !== substrateId
-          ? substrate
-          : {
-              ...substrate,
-              parameterValues: {
-                ...(substrate.parameterValues ?? {}),
-                [key]: value,
+  const handleVariationValueChange = useCallback(
+    (
+      substrateId: string,
+      stepId: string,
+      paramKey: ProcessParameterKey,
+      value: string,
+    ) => {
+      const key = `${stepId}:${paramKey}`
+      onUpdate({
+        ...experiment,
+        substrates: experiment.substrates.map((substrate) =>
+          substrate.id !== substrateId
+            ? substrate
+            : {
+                ...substrate,
+                parameterValues: {
+                  ...(substrate.parameterValues ?? {}),
+                  [key]: value,
+                },
               },
-            },
-      ),
-    })
-  }, [experiment, onUpdate])
+        ),
+      })
+    },
+    [experiment, onUpdate],
+  )
 
   const isVariationCellEditable = (
     substrateId: string,
@@ -881,426 +952,457 @@ function ExperimentGrid({
 
   const allSelected =
     experiment.substrates.length > 0 &&
-    experiment.substrates.every((substrate) => selectedSubstrateIds.has(substrate.id))
-  const partiallySelected =
-    selectedSubstrateIds.size > 0 && !allSelected
+    experiment.substrates.every((substrate) =>
+      selectedSubstrateIds.has(substrate.id),
+    )
+  const partiallySelected = selectedSubstrateIds.size > 0 && !allSelected
 
   return (
     <>
       {experiment.substrates.length > 0 && (
-      <Group align="flex-start" wrap="nowrap" gap="md" mb="lg">
-        <Box style={{ overflowX: "auto", flex: 1 }}>
-        <Group justify="space-between" mb="xs">
-          <Group gap="xs">
-            <Button size="xs" variant="light" onClick={handleSelectAllSubstrates}>
-              Select All
-            </Button>
-            <Button size="xs" variant="default" onClick={handleSelectNoSubstrates}>
-              Select None
-            </Button>
-          </Group>
-          <Group gap="xs">
-            <Text size="xs" c="dimmed">
-              {selectedSubstrateIds.size} selected
-            </Text>
-            <Button
-              size="xs"
-              color="red"
-              variant="light"
-              disabled={selectedSubstrateIds.size === 0}
-              onClick={handleDeleteSelectedSubstrates}
+        <Group align="flex-start" wrap="nowrap" gap="md" mb="lg">
+          <Box style={{ overflowX: "auto", flex: 1 }}>
+            <Group justify="space-between" mb="xs">
+              <Group gap="xs">
+                <Button
+                  size="xs"
+                  variant="light"
+                  onClick={handleSelectAllSubstrates}
+                >
+                  Select All
+                </Button>
+                <Button
+                  size="xs"
+                  variant="default"
+                  onClick={handleSelectNoSubstrates}
+                >
+                  Select None
+                </Button>
+              </Group>
+              <Group gap="xs">
+                <Text size="xs" c="dimmed">
+                  {selectedSubstrateIds.size} selected
+                </Text>
+                <Button
+                  size="xs"
+                  color="red"
+                  variant="light"
+                  disabled={selectedSubstrateIds.size === 0}
+                  onClick={handleDeleteSelectedSubstrates}
+                >
+                  Delete Selected
+                </Button>
+              </Group>
+            </Group>
+            <table
+              style={{
+                borderCollapse: "collapse",
+                width: "100%",
+                fontSize: "14px",
+              }}
             >
-              Delete Selected
-            </Button>
-          </Group>
-        </Group>
-        <table
-          style={{
-            borderCollapse: "collapse",
-            width: "100%",
-            fontSize: "14px",
-          }}
-        >
-          <thead>
-            <tr style={{ background: "var(--mantine-color-gray-1)" }}>
-              <th
-                style={{
-                  padding: "12px 8px",
-                  textAlign: "center",
-                  fontWeight: 600,
-                  borderBottom: "2px solid var(--mantine-color-gray-3)",
-                  minWidth: "46px",
-                }}
-              >
-                <Checkbox
-                  checked={allSelected}
-                  indeterminate={partiallySelected}
-                  onChange={(e) => {
-                    if (e.currentTarget.checked) {
-                      handleSelectAllSubstrates()
-                    } else {
-                      handleSelectNoSubstrates()
-                    }
-                  }}
-                  aria-label="Select all substrates"
-                />
-              </th>
-              <th
-                style={{
-                  padding: "12px 8px",
-                  textAlign: "left",
-                  fontWeight: 600,
-                  borderBottom: "2px solid var(--mantine-color-gray-3)",
-                  minWidth: "150px",
-                }}
-              >
-                Substrate
-              </th>
-              <th
-                style={{
-                  padding: "12px 8px",
-                  textAlign: "left",
-                  fontWeight: 600,
-                  borderBottom: "2px solid var(--mantine-color-gray-3)",
-                  minWidth: "170px",
-                }}
-              >
-                Material
-              </th>
-              {process.stages.map((stage, idx) => {
-                return (
+              <thead>
+                <tr style={{ background: "var(--mantine-color-gray-1)" }}>
                   <th
-                    key={`stage-${idx}`}
+                    style={{
+                      padding: "12px 8px",
+                      textAlign: "center",
+                      fontWeight: 600,
+                      borderBottom: "2px solid var(--mantine-color-gray-3)",
+                      minWidth: "46px",
+                    }}
+                  >
+                    <Checkbox
+                      checked={allSelected}
+                      indeterminate={partiallySelected}
+                      onChange={(e) => {
+                        if (e.currentTarget.checked) {
+                          handleSelectAllSubstrates()
+                        } else {
+                          handleSelectNoSubstrates()
+                        }
+                      }}
+                      aria-label="Select all substrates"
+                    />
+                  </th>
+                  <th
                     style={{
                       padding: "12px 8px",
                       textAlign: "left",
                       fontWeight: 600,
                       borderBottom: "2px solid var(--mantine-color-gray-3)",
-                      minWidth: "180px",
+                      minWidth: "150px",
                     }}
                   >
-                    <Group justify="space-between" gap="xs">
-                      <Text size="sm">#{idx + 1} Step</Text>
-                      {stage.alternatives.length > 1 && (
-                        <Badge size="xs" variant="light" color="orange">
-                          {stage.alternatives.length} options
-                        </Badge>
-                      )}
-                    </Group>
+                    Substrate
                   </th>
-                )
-              })}
-              {variationColumns.map((column) => (
-                <th
-                  key={`variation-col-${column.stepId}-${column.paramKey}`}
-                  style={{
-                    padding: "12px 8px",
-                    textAlign: "left",
-                    fontWeight: 600,
-                    borderBottom: "2px solid var(--mantine-color-gray-3)",
-                    minWidth: "190px",
-                  }}
-                >
-                    <Group justify="space-between" gap="xs" wrap="nowrap">
-                      <Text size="sm">{column.label}</Text>
-                      <Tooltip label="Delete variation column">
-                        <ActionIcon
-                          size="xs"
-                          variant="subtle"
-                          color="red"
-                          onClick={() => removeVariationColumn(column)}
-                        >
-                          <IconTrash size={12} />
-                        </ActionIcon>
-                      </Tooltip>
-                    </Group>
-                </th>
-              ))}
-              <th
-                style={{
-                  padding: "12px 8px",
-                  textAlign: "center",
-                  fontWeight: 600,
-                  borderBottom: "2px solid var(--mantine-color-gray-3)",
-                  minWidth: "80px",
-                }}
-              >
-                Action
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {experiment.substrates.map((substrate) => (
-              <tr
-                key={substrate.id}
-                style={{
-                  borderBottom: "1px solid var(--mantine-color-gray-2)",
-                }}
-              >
-                <td
-                  style={{
-                    padding: "8px 8px",
-                    textAlign: "center",
-                    background: "var(--mantine-color-gray-0)",
-                  }}
-                >
-                  <Checkbox
-                    checked={selectedSubstrateIds.has(substrate.id)}
-                    onChange={(e) =>
-                      handleToggleSubstrateSelection(
-                        substrate.id,
-                        e.currentTarget.checked,
-                      )
-                    }
-                    aria-label={`Select substrate ${substrate.name}`}
-                  />
-                </td>
-                <td
-                  style={{
-                    padding: "12px 8px",
-                    fontWeight: 500,
-                    background: "var(--mantine-color-gray-0)",
-                  }}
-                >
-                  <DeferredTextInput
-                    ref={(node) => {
-                      nameInputRefs.current[experiment.substrates.findIndex((s) => s.id === substrate.id)] = node
-                    }}
-                    size="xs"
-                    value={substrate.name}
-                    onBlur={(value) => handleSubstrateNameChange(substrate.id, value)}
-                    onFocus={(e) => e.currentTarget.select()}
-                    onKeyDown={(e) => {
-                      const currentIndex = experiment.substrates.findIndex((s) => s.id === substrate.id)
-                      if (e.key === "Enter") {
-                        e.preventDefault()
-                        const value = e.currentTarget.value
-                        handleSubstrateNameChange(substrate.id, value)
-                        focusNameInput(currentIndex + 1)
-                      }
-                      if (e.key === "Tab") {
-                        e.preventDefault()
-                        focusNameInput(e.shiftKey ? currentIndex - 1 : currentIndex + 1)
-                      }
-                    }}
-                    styles={{ input: { fontWeight: 500 } }}
-                  />
-                </td>
-
-                <td
-                  style={{
-                    padding: "8px 4px",
-                    background: "var(--mantine-color-gray-0)",
-                  }}
-                >
-                  <Select
-                    size="xs"
-                    placeholder="Select material"
-                    data={substrateMaterialOptions}
-                    value={substrate.substrateMaterialId ?? null}
-                    onChange={(value) =>
-                      handleSubstrateMaterialChange(substrate.id, value)
-                    }
-                  />
-                </td>
-
-                {process.stages.map((stage, stageIdx) => (
-                  <td
-                    key={`${substrate.id}-stage-${stageIdx}`}
+                  <th
                     style={{
-                      padding: "8px 4px",
+                      padding: "12px 8px",
+                      textAlign: "left",
+                      fontWeight: 600,
+                      borderBottom: "2px solid var(--mantine-color-gray-3)",
+                      minWidth: "170px",
                     }}
                   >
-                    <ProcessStepSelector
-                      alternatives={stage.alternatives}
-                      materialNameById={materialNameById}
-                      solutionNameById={solutionNameById}
-                      defaultStepId={stage.alternatives[0]?.id ?? null}
-                      selectedStepId={getStageSelection(substrate.id, stageIdx)}
-                      onSelect={(stepId) =>
-                        handleStepSelect(substrate.id, stageIdx, stepId)
-                      }
-                    />
-                  </td>
-                ))}
-
-                {variationColumns.map((column) => {
-                  const key = `${column.stepId}:${column.paramKey}`
-                  const editable = isVariationCellEditable(
-                    substrate.id,
-                    column.stageIndex,
-                    column.stepId,
-                  )
-                  return (
-                    <td
-                      key={`${substrate.id}-${key}`}
+                    Material
+                  </th>
+                  {process.stages.map((stage, idx) => {
+                    return (
+                      <th
+                        key={`stage-${idx}`}
+                        style={{
+                          padding: "12px 8px",
+                          textAlign: "left",
+                          fontWeight: 600,
+                          borderBottom: "2px solid var(--mantine-color-gray-3)",
+                          minWidth: "180px",
+                        }}
+                      >
+                        <Group justify="space-between" gap="xs">
+                          <Text size="sm">#{idx + 1} Step</Text>
+                          {stage.alternatives.length > 1 && (
+                            <Badge size="xs" variant="light" color="orange">
+                              {stage.alternatives.length} options
+                            </Badge>
+                          )}
+                        </Group>
+                      </th>
+                    )
+                  })}
+                  {variationColumns.map((column) => (
+                    <th
+                      key={`variation-col-${column.stepId}-${column.paramKey}`}
                       style={{
-                        padding: "8px 4px",
+                        padding: "12px 8px",
+                        textAlign: "left",
+                        fontWeight: 600,
+                        borderBottom: "2px solid var(--mantine-color-gray-3)",
+                        minWidth: "190px",
+                      }}
+                    >
+                      <Group justify="space-between" gap="xs" wrap="nowrap">
+                        <Text size="sm">{column.label}</Text>
+                        <Tooltip label="Delete variation column">
+                          <ActionIcon
+                            size="xs"
+                            variant="subtle"
+                            color="red"
+                            onClick={() => removeVariationColumn(column)}
+                          >
+                            <IconTrash size={12} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    </th>
+                  ))}
+                  <th
+                    style={{
+                      padding: "12px 8px",
+                      textAlign: "center",
+                      fontWeight: 600,
+                      borderBottom: "2px solid var(--mantine-color-gray-3)",
+                      minWidth: "80px",
+                    }}
+                  >
+                    Action
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {experiment.substrates.map((substrate) => (
+                  <tr
+                    key={substrate.id}
+                    style={{
+                      borderBottom: "1px solid var(--mantine-color-gray-2)",
+                    }}
+                  >
+                    <td
+                      style={{
+                        padding: "8px 8px",
+                        textAlign: "center",
+                        background: "var(--mantine-color-gray-0)",
+                      }}
+                    >
+                      <Checkbox
+                        checked={selectedSubstrateIds.has(substrate.id)}
+                        onChange={(e) =>
+                          handleToggleSubstrateSelection(
+                            substrate.id,
+                            e.currentTarget.checked,
+                          )
+                        }
+                        aria-label={`Select substrate ${substrate.name}`}
+                      />
+                    </td>
+                    <td
+                      style={{
+                        padding: "12px 8px",
+                        fontWeight: 500,
+                        background: "var(--mantine-color-gray-0)",
                       }}
                     >
                       <DeferredTextInput
+                        ref={(node) => {
+                          nameInputRefs.current[
+                            experiment.substrates.findIndex(
+                              (s) => s.id === substrate.id,
+                            )
+                          ] = node
+                        }}
                         size="xs"
-                        value={substrate.parameterValues?.[key] ?? ""}
-                        disabled={!editable}
-                        styles={!editable ? { input: { opacity: 0.55 } } : undefined}
+                        value={substrate.name}
                         onBlur={(value) =>
-                          handleVariationValueChange(
-                            substrate.id,
-                            column.stepId,
-                            column.paramKey,
-                            value,
+                          handleSubstrateNameChange(substrate.id, value)
+                        }
+                        onFocus={(e) => e.currentTarget.select()}
+                        onKeyDown={(e) => {
+                          const currentIndex = experiment.substrates.findIndex(
+                            (s) => s.id === substrate.id,
                           )
+                          if (e.key === "Enter") {
+                            e.preventDefault()
+                            const value = e.currentTarget.value
+                            handleSubstrateNameChange(substrate.id, value)
+                            focusNameInput(currentIndex + 1)
+                          }
+                          if (e.key === "Tab") {
+                            e.preventDefault()
+                            focusNameInput(
+                              e.shiftKey ? currentIndex - 1 : currentIndex + 1,
+                            )
+                          }
+                        }}
+                        styles={{ input: { fontWeight: 500 } }}
+                      />
+                    </td>
+
+                    <td
+                      style={{
+                        padding: "8px 4px",
+                        background: "var(--mantine-color-gray-0)",
+                      }}
+                    >
+                      <Select
+                        size="xs"
+                        placeholder="Select material"
+                        data={substrateMaterialOptions}
+                        value={substrate.substrateMaterialId ?? null}
+                        onChange={(value) =>
+                          handleSubstrateMaterialChange(substrate.id, value)
                         }
                       />
                     </td>
-                  )
-                })}
 
-                <td
-                  style={{
-                    padding: "8px 4px",
-                    textAlign: "center",
-                  }}
-                >
-                  <Group justify="center" gap={2} wrap="nowrap">
-                    <Tooltip label="Duplicate substrate">
-                      <ActionIcon
-                        size="sm"
-                        variant="subtle"
-                        color="teal"
-                        onClick={() => handleDuplicateSubstrate(substrate.id)}
+                    {process.stages.map((stage, stageIdx) => (
+                      <td
+                        key={`${substrate.id}-stage-${stageIdx}`}
+                        style={{
+                          padding: "8px 4px",
+                        }}
                       >
-                        <IconCopy size={14} />
-                      </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label="Remove substrate">
-                      <ActionIcon
-                        size="sm"
-                        variant="subtle"
-                        color="red"
-                        onClick={() => handleRemoveSubstrate(substrate.id)}
-                      >
-                        <IconTrash size={14} />
-                      </ActionIcon>
-                    </Tooltip>
-                  </Group>
-                </td>
-              </tr>
-            ))}
+                        <ProcessStepSelector
+                          alternatives={stage.alternatives}
+                          materialNameById={materialNameById}
+                          solutionNameById={solutionNameById}
+                          defaultStepId={stage.alternatives[0]?.id ?? null}
+                          selectedStepId={getStageSelection(
+                            substrate.id,
+                            stageIdx,
+                          )}
+                          onSelect={(stepId) =>
+                            handleStepSelect(substrate.id, stageIdx, stepId)
+                          }
+                        />
+                      </td>
+                    ))}
 
-            <tr style={{ background: "var(--mantine-color-gray-0)" }}>
-              <td
-                style={{
-                  borderTop: "2px solid var(--mantine-color-gray-2)",
-                }}
-              />
-              <td
-                style={{
-                  padding: "10px 8px",
-                  fontWeight: 600,
-                  borderTop: "2px solid var(--mantine-color-gray-2)",
-                }}
-              >
-                Processing Times
-              </td>
-              <td
-                style={{
-                  borderTop: "2px solid var(--mantine-color-gray-2)",
-                }}
-              />
-              {process.stages.map((stage, idx) => {
-                const processingKey = `stage:${idx}`
-                return (
-                <td
-                  key={`processing-time-${stage.index}-${idx}`}
-                  style={{
-                    padding: "8px 4px",
-                    borderTop: "2px solid var(--mantine-color-gray-2)",
-                  }}
-                >
-                  <DeferredTextInput
-                    size="xs"
-                    type="datetime-local"
-                    value={experiment.processingTimes?.[processingKey] ?? ""}
-                    onBlur={(value) =>
-                      handleProcessingTimeChange(processingKey, value)
-                    }
+                    {variationColumns.map((column) => {
+                      const key = `${column.stepId}:${column.paramKey}`
+                      const editable = isVariationCellEditable(
+                        substrate.id,
+                        column.stageIndex,
+                        column.stepId,
+                      )
+                      return (
+                        <td
+                          key={`${substrate.id}-${key}`}
+                          style={{
+                            padding: "8px 4px",
+                          }}
+                        >
+                          <DeferredTextInput
+                            size="xs"
+                            value={substrate.parameterValues?.[key] ?? ""}
+                            disabled={!editable}
+                            styles={
+                              !editable
+                                ? { input: { opacity: 0.55 } }
+                                : undefined
+                            }
+                            onBlur={(value) =>
+                              handleVariationValueChange(
+                                substrate.id,
+                                column.stepId,
+                                column.paramKey,
+                                value,
+                              )
+                            }
+                          />
+                        </td>
+                      )
+                    })}
+
+                    <td
+                      style={{
+                        padding: "8px 4px",
+                        textAlign: "center",
+                      }}
+                    >
+                      <Group justify="center" gap={2} wrap="nowrap">
+                        <Tooltip label="Duplicate substrate">
+                          <ActionIcon
+                            size="sm"
+                            variant="subtle"
+                            color="teal"
+                            onClick={() =>
+                              handleDuplicateSubstrate(substrate.id)
+                            }
+                          >
+                            <IconCopy size={14} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Remove substrate">
+                          <ActionIcon
+                            size="sm"
+                            variant="subtle"
+                            color="red"
+                            onClick={() => handleRemoveSubstrate(substrate.id)}
+                          >
+                            <IconTrash size={14} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    </td>
+                  </tr>
+                ))}
+
+                <tr style={{ background: "var(--mantine-color-gray-0)" }}>
+                  <td
+                    style={{
+                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                    }}
                   />
-                </td>
-                )
-              })}
-              {variationColumns.map((column) => (
-                <td
-                  key={`processing-variation-${column.stepId}-${column.paramKey}`}
-                  style={{
-                    borderTop: "2px solid var(--mantine-color-gray-2)",
-                  }}
-                />
-              ))}
-              <td
-                style={{
-                  borderTop: "2px solid var(--mantine-color-gray-2)",
-                }}
-              />
-            </tr>
-          </tbody>
-          </table>
-        </Box>
+                  <td
+                    style={{
+                      padding: "10px 8px",
+                      fontWeight: 600,
+                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                    }}
+                  >
+                    Processing Times
+                  </td>
+                  <td
+                    style={{
+                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                    }}
+                  />
+                  {process.stages.map((stage, idx) => {
+                    const processingKey = `stage:${idx}`
+                    return (
+                      <td
+                        key={`processing-time-${stage.index}-${idx}`}
+                        style={{
+                          padding: "8px 4px",
+                          borderTop: "2px solid var(--mantine-color-gray-2)",
+                        }}
+                      >
+                        <DeferredTextInput
+                          size="xs"
+                          type="datetime-local"
+                          value={
+                            experiment.processingTimes?.[processingKey] ?? ""
+                          }
+                          onBlur={(value) =>
+                            handleProcessingTimeChange(processingKey, value)
+                          }
+                        />
+                      </td>
+                    )
+                  })}
+                  {variationColumns.map((column) => (
+                    <td
+                      key={`processing-variation-${column.stepId}-${column.paramKey}`}
+                      style={{
+                        borderTop: "2px solid var(--mantine-color-gray-2)",
+                      }}
+                    />
+                  ))}
+                  <td
+                    style={{
+                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                    }}
+                  />
+                </tr>
+              </tbody>
+            </table>
+          </Box>
 
-        <Paper
-          withBorder
-          p="md"
-          radius="md"
-          style={{ width: 320, background: "var(--mantine-color-blue-0)" }}
-        >
-          <Text size="sm" fw={600} mb="xs">
-            Add Parameter Variation
-          </Text>
-          <Text size="xs" c="dimmed" mb="sm">
-            Create variation columns for selected process steps.
-          </Text>
-          <Stack gap="sm">
-            <Select
-              placeholder="Select step..."
-              searchable
-              value={variationTarget}
-              onChange={setVariationTarget}
-              data={process.stages.flatMap((stage, idx) =>
-                buildStageStepOptions(
-                  stage.alternatives,
-                  materialNameById,
-                  solutionNameById,
-                )
-                  .filter((option) => option.value !== "SKIP")
-                  .map((option) => ({
-                    value: `${idx}:${option.value}`,
-                    label: `#${idx + 1} Step - ${option.label}`,
-                  })),
-              )}
-              size="sm"
-            />
-            <Select
-              placeholder="Select parameter..."
-              value={variationParam}
-              onChange={setVariationParam}
-              data={variationParamOptions}
-              size="sm"
-            />
-            <Button
-              size="sm"
-              disabled={!variationTarget || !variationParam}
-              onClick={handleAddVariation}
-            >
-              Add Variation
-            </Button>
-          </Stack>
-        </Paper>
-      </Group>
+          <Paper
+            withBorder
+            p="md"
+            radius="md"
+            style={{ width: 320, background: "var(--mantine-color-blue-0)" }}
+          >
+            <Text size="sm" fw={600} mb="xs">
+              Add Parameter Variation
+            </Text>
+            <Text size="xs" c="dimmed" mb="sm">
+              Create variation columns for selected process steps.
+            </Text>
+            <Stack gap="sm">
+              <Select
+                placeholder="Select step..."
+                searchable
+                value={variationTarget}
+                onChange={setVariationTarget}
+                data={process.stages.flatMap((stage, idx) =>
+                  buildStageStepOptions(
+                    stage.alternatives,
+                    materialNameById,
+                    solutionNameById,
+                  )
+                    .filter((option) => option.value !== "SKIP")
+                    .map((option) => ({
+                      value: `${idx}:${option.value}`,
+                      label: `#${idx + 1} Step - ${option.label}`,
+                    })),
+                )}
+                size="sm"
+              />
+              <Select
+                placeholder="Select parameter..."
+                value={variationParam}
+                onChange={setVariationParam}
+                data={variationParamOptions}
+                size="sm"
+              />
+              <Button
+                size="sm"
+                disabled={!variationTarget || !variationParam}
+                onClick={handleAddVariation}
+              >
+                Add Variation
+              </Button>
+            </Stack>
+          </Paper>
+        </Group>
       )}
 
       {experiment.substrates.length === 0 && (
         <Text size="sm" c="dimmed" ta="center" py="md">
-          No substrates added yet. Use the substrate buttons above to get started.
+          No substrates added yet. Use the substrate buttons above to get
+          started.
         </Text>
       )}
     </>
@@ -1338,18 +1440,19 @@ export default function ExperimentsPage() {
   )
   const [recipeModalOpen, setRecipeModalOpen] = useState(false)
   const [collectionModalOpen, setCollectionModalOpen] = useState(false)
-  const [newExperimentProcessId, setNewExperimentProcessId] = useState<string | null>(
-    null,
-  )
-  const [generatorConfig, setGeneratorConfig] = useState<SubstrateGeneratorConfig>({
-    namePrefix: "substrate",
-    includeDate: false,
-    includeExperimentName: false,
-    addCount: 5,
-  })
-  const [nextStepDefaults, setNextStepDefaults] = useState<Record<number, string>>(
-    {},
-  )
+  const [newExperimentProcessId, setNewExperimentProcessId] = useState<
+    string | null
+  >(null)
+  const [generatorConfig, setGeneratorConfig] =
+    useState<SubstrateGeneratorConfig>({
+      namePrefix: "substrate",
+      includeDate: false,
+      includeExperimentName: false,
+      addCount: 5,
+    })
+  const [nextStepDefaults, setNextStepDefaults] = useState<
+    Record<number, string>
+  >({})
 
   // Track processed pending request IDs to avoid double-firing
   const processedPendingRequestIdsRef = useRef(new Set<string>())
@@ -1359,7 +1462,9 @@ export default function ExperimentsPage() {
     if (!pendingCollectionLink || pendingCollectionLink.kind !== "experiment") {
       return
     }
-    if (processedPendingRequestIdsRef.current.has(pendingCollectionLink.requestId)) {
+    if (
+      processedPendingRequestIdsRef.current.has(pendingCollectionLink.requestId)
+    ) {
       return
     }
     processedPendingRequestIdsRef.current.add(pendingCollectionLink.requestId)
@@ -1391,20 +1496,23 @@ export default function ExperimentsPage() {
     setPendingCollectionLink,
     processes,
     setExperiments,
-    setSelectedExpId,
     planes,
     updateElement,
   ])
 
   const selectedExperiment = experiments.find((e) => e.id === selectedExpId)
   const selectedProcess =
-    selectedExperiment && processes.find((p) => p.id === selectedExperiment.processId)
+    selectedExperiment &&
+    processes.find((p) => p.id === selectedExperiment.processId)
   const materialNameById = React.useMemo(
     () =>
       new Map(
         materials.map((material) => [
           material.id,
-          material.name || material.inventoryLabel || material.casNumber || material.id,
+          material.name ||
+            material.inventoryLabel ||
+            material.casNumber ||
+            material.id,
         ]),
       ),
     [materials],
@@ -1412,7 +1520,10 @@ export default function ExperimentsPage() {
   const solutionNameById = React.useMemo(
     () =>
       new Map(
-        solutions.map((solution) => [solution.id, solution.name || solution.id]),
+        solutions.map((solution) => [
+          solution.id,
+          solution.name || solution.id,
+        ]),
       ),
     [solutions],
   )
@@ -1425,7 +1536,11 @@ export default function ExperimentsPage() {
       const material = materials.find((m: Material) => m.id === id)
       return {
         value: id,
-        label: material?.name || material?.inventoryLabel || material?.casNumber || "Unnamed substrate",
+        label:
+          material?.name ||
+          material?.inventoryLabel ||
+          material?.casNumber ||
+          "Unnamed substrate",
         heightMm: material?.heightMm ?? "",
       }
     })
@@ -1463,14 +1578,20 @@ export default function ExperimentsPage() {
   }, [selectedExpId, setActiveEntity, updateLastSelected])
 
   // Create new experiment
-  const doAddExperiment = ({ planeId, collection }: CollectionConfirmParams) => {
+  const doAddExperiment = ({
+    planeId,
+    collection,
+  }: CollectionConfirmParams) => {
     if (!newExperimentProcessId) return
     const newExp = newExperiment(newExperimentProcessId)
     setExperiments((prev) => [...prev, newExp])
     setSelectedExpId(newExp.id)
     updateElement(planeId, {
       ...collection,
-      refs: [...collection.refs, { kind: "experiment" as const, id: newExp.id }],
+      refs: [
+        ...collection.refs,
+        { kind: "experiment" as const, id: newExp.id },
+      ],
     })
   }
 
@@ -1480,7 +1601,11 @@ export default function ExperimentsPage() {
       const plane = planes.find((p) => p.id === activePlaneId)
       const col = plane?.elements.find((e) => e.id === activeCollectionId)
       if (col && col.type === "collection") {
-        doAddExperiment({ planeId: activePlaneId, collectionId: activeCollectionId, collection: col as CanvasCollectionElement })
+        doAddExperiment({
+          planeId: activePlaneId,
+          collectionId: activeCollectionId,
+          collection: col as CanvasCollectionElement,
+        })
         return
       }
     }
@@ -1500,51 +1625,69 @@ export default function ExperimentsPage() {
   }
 
   // Update experiment
-  const handleUpdateExperiment = useCallback((exp: Experiment) => {
-    setExperiments((prev) => prev.map((e) => (e.id === exp.id ? exp : e)))
-  }, [setExperiments])
+  const handleUpdateExperiment = useCallback(
+    (exp: Experiment) => {
+      setExperiments((prev) => prev.map((e) => (e.id === exp.id ? exp : e)))
+    },
+    [setExperiments],
+  )
 
-  const handleUpdateProcess = useCallback((updatedProcess: Process) => {
-    setProcesses((prev) =>
-      prev.map((process) => (process.id === updatedProcess.id ? updatedProcess : process)),
-    )
-  }, [setProcesses])
-
-  const handleAddSubstratesForMaterial = useCallback((materialId: string) => {
-    if (!selectedExperiment || !selectedProcess) {
-      return
-    }
-
-    const count = Math.max(1, generatorConfig.addCount)
-    const buildDefaultStageValues = () => {
-      const values: Record<string, string> = {}
-      selectedProcess.stages.forEach((stage, idx) => {
-        const selected = nextStepDefaults[idx] ?? stage.alternatives[0]?.id ?? "SKIP"
-        values[`stageSelection:${idx}`] = selected
-      })
-      return values
-    }
-
-    const newSubstrates = [
-      ...selectedExperiment.substrates,
-      ...Array.from({ length: count }, (_, i) => ({
-        id: crypto.randomUUID(),
-        name: buildGeneratedSubstrateName(
-          selectedExperiment.substrates.length + i + 1,
-          selectedExperiment,
-          generatorConfig,
+  const handleUpdateProcess = useCallback(
+    (updatedProcess: Process) => {
+      setProcesses((prev) =>
+        prev.map((process) =>
+          process.id === updatedProcess.id ? updatedProcess : process,
         ),
-        substrateMaterialId: materialId,
-        parameterValues: buildDefaultStageValues(),
-      })),
-    ]
+      )
+    },
+    [setProcesses],
+  )
 
-    handleUpdateExperiment({
-      ...selectedExperiment,
-      numSubstrates: newSubstrates.length,
-      substrates: newSubstrates,
-    })
-  }, [selectedExperiment, selectedProcess, generatorConfig, nextStepDefaults, handleUpdateExperiment])
+  const handleAddSubstratesForMaterial = useCallback(
+    (materialId: string) => {
+      if (!selectedExperiment || !selectedProcess) {
+        return
+      }
+
+      const count = Math.max(1, generatorConfig.addCount)
+      const buildDefaultStageValues = () => {
+        const values: Record<string, string> = {}
+        selectedProcess.stages.forEach((stage, idx) => {
+          const selected =
+            nextStepDefaults[idx] ?? stage.alternatives[0]?.id ?? "SKIP"
+          values[`stageSelection:${idx}`] = selected
+        })
+        return values
+      }
+
+      const newSubstrates = [
+        ...selectedExperiment.substrates,
+        ...Array.from({ length: count }, (_, i) => ({
+          id: crypto.randomUUID(),
+          name: buildGeneratedSubstrateName(
+            selectedExperiment.substrates.length + i + 1,
+            selectedExperiment,
+            generatorConfig,
+          ),
+          substrateMaterialId: materialId,
+          parameterValues: buildDefaultStageValues(),
+        })),
+      ]
+
+      handleUpdateExperiment({
+        ...selectedExperiment,
+        numSubstrates: newSubstrates.length,
+        substrates: newSubstrates,
+      })
+    },
+    [
+      selectedExperiment,
+      selectedProcess,
+      generatorConfig,
+      nextStepDefaults,
+      handleUpdateExperiment,
+    ],
+  )
 
   // Delete experiment
   const handleDeleteExperiment = (expId: string) => {
@@ -1589,7 +1732,7 @@ export default function ExperimentsPage() {
 
     // Filter to only visible experiments
     const visibleExperiments = experiments.filter((exp) =>
-      isEntityVisible("experiment", exp.id)
+      isEntityVisible("experiment", exp.id),
     )
 
     for (const exp of visibleExperiments) {
@@ -1630,331 +1773,353 @@ export default function ExperimentsPage() {
 
   return (
     <>
-    <Group gap={0} align="flex-start" style={{ height: "100%" }}>
-      {/* Left Sidebar - Experiment List */}
-      <Box
-        style={{
-          width: "16%",
-          minWidth: 220,
-          background: "var(--mantine-color-gray-0)",
-          borderRight: "1px solid var(--mantine-color-gray-2)",
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-        }}
-      >
-        <Stack gap="sm" p="md" style={{ flex: 1, overflowY: "auto" }}>
-          <Select
-            label="Process"
-            placeholder="Select process..."
-            size="xs"
-            searchable
-            data={processes
-              .filter((process) => isEntityVisible("process", process.id))
-              .map((process) => ({
-                value: process.id,
-                label: process.name || "Untitled",
-              }))}
-            value={newExperimentProcessId}
-            onChange={setNewExperimentProcessId}
-          />
+      <Group gap={0} align="flex-start" style={{ height: "100%" }}>
+        {/* Left Sidebar - Experiment List */}
+        <Box
+          style={{
+            width: "16%",
+            minWidth: 220,
+            background: "var(--mantine-color-gray-0)",
+            borderRight: "1px solid var(--mantine-color-gray-2)",
+            display: "flex",
+            flexDirection: "column",
+            height: "100%",
+          }}
+        >
+          <Stack gap="sm" p="md" style={{ flex: 1, overflowY: "auto" }}>
+            <Select
+              label="Process"
+              placeholder="Select process..."
+              size="xs"
+              searchable
+              data={processes
+                .filter((process) => isEntityVisible("process", process.id))
+                .map((process) => ({
+                  value: process.id,
+                  label: process.name || "Untitled",
+                }))}
+              value={newExperimentProcessId}
+              onChange={setNewExperimentProcessId}
+            />
 
-          <Button
-            fullWidth
-            leftSection={<IconPlus size={16} />}
-            onClick={handleNewExperiment}
-            disabled={!newExperimentProcessId || processes.length === 0}
-          >
-            New Experiment
-          </Button>
-
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase">
-            Experiments ({experiments.length})
-          </Text>
-
-          <Stack gap="xs">
-            {groupedExperiments.map((group) => (
-              <React.Fragment key={`process-group-${group.processId}`}>
-                <Text size="xs" fw={700} c="dimmed" tt="uppercase" mt="xs">
-                  {group.processName}
-                </Text>
-                {group.items.map((exp) => {
-                  const status = getExperimentStatus(exp)
-                  const isSelected = exp.id === selectedExpId
-
-                  const collectionColor = getEntityColor("experiment", exp.id)
-                  return (
-                    <Paper
-                      key={exp.id}
-                      withBorder
-                      p="sm"
-                      radius="md"
-                      style={{
-                        cursor: "pointer",
-                        background: isSelected
-                          ? "var(--mantine-color-blue-0)"
-                          : undefined,
-                        borderLeft: isSelected
-                          ? "4px solid var(--mantine-color-blue-4)"
-                          : collectionColor
-                            ? `4px solid ${collectionColor}`
-                            : undefined,
-                        paddingLeft: collectionColor ? "calc(var(--mantine-spacing-sm) - 3px)" : undefined,
-                      }}
-                      onClick={() => setSelectedExpId(exp.id)}
-                    >
-                      <Group justify="space-between" wrap="nowrap">
-                        <Box style={{ flex: 1, minWidth: 0 }}>
-                          <Group gap="xs" mb={4}>
-                            <Text size="sm" fw={600} truncate>
-                              {exp.name || "Untitled"}
-                            </Text>
-                            <Badge
-                              size="xs"
-                              color={
-                                status === "finished"
-                                  ? "green"
-                                  : status === "ready"
-                                    ? "yellow"
-                                    : "red"
-                              }
-                              variant="dot"
-                            >
-                              {status === "finished"
-                                ? "Finished"
-                                : status === "ready"
-                                  ? "Ready"
-                                  : "Incomplete"}
-                            </Badge>
-                          </Group>
-                          <Group gap="xs">
-                            <Text size="xs" c="dimmed">
-                              {exp.date || "No date"}
-                            </Text>
-                            <Text size="xs" c="dimmed">
-                              •
-                            </Text>
-                            <Text size="xs" c="dimmed">
-                              {exp.substrates.length} substrate
-                              {exp.substrates.length !== 1 ? "s" : ""}
-                            </Text>
-                          </Group>
-                        </Box>
-
-                        <Group gap={2} wrap="nowrap">
-                          <ActionIcon
-                            size="sm"
-                            variant="subtle"
-                            color="teal"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleCopyExperiment(exp)
-                            }}
-                          >
-                            <IconCopy size={14} />
-                          </ActionIcon>
-                          <ActionIcon
-                            size="sm"
-                            variant="subtle"
-                            color="red"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDeleteExperiment(exp.id)
-                            }}
-                          >
-                            <IconTrash size={14} />
-                          </ActionIcon>
-                        </Group>
-                      </Group>
-                    </Paper>
-                  )
-                })}
-              </React.Fragment>
-            ))}
-          </Stack>
-        </Stack>
-      </Box>
-
-      {/* Main Content Area */}
-      <Box style={{ flex: 1, height: "100%", overflowY: "auto", padding: "2rem" }}>
-        {!selectedExperiment ? (
-          <Stack gap="md" align="center" justify="center" style={{ height: "100%" }}>
-            <IconPlus size={48} color="var(--mantine-color-gray-4)" />
-            <Text size="lg" fw={500} c="dimmed">
-              Select or create an experiment to get started
-            </Text>
-          </Stack>
-        ) : !selectedProcess ? (
-          <Stack gap="md" align="center" justify="center" style={{ height: "100%" }}>
-            <Alert
-              icon={<IconInfoCircle size={16} />}
-              title="No Recipe Selected"
-              color="yellow"
+            <Button
+              fullWidth
+              leftSection={<IconPlus size={16} />}
+              onClick={handleNewExperiment}
+              disabled={!newExperimentProcessId || processes.length === 0}
             >
-              Please select a recipe for this experiment to continue.
-            </Alert>
-            <Button onClick={() => setRecipeModalOpen(true)}>
-              Select Recipe
+              New Experiment
             </Button>
-          </Stack>
-        ) : (
-          <Stack gap="md">
-            {/* Header with title and meta info */}
-            <Group justify="space-between" align="flex-start">
-              <Paper
-                withBorder
-                p="sm"
-                radius="md"
-                style={{ flex: 1, background: "var(--mantine-color-gray-1)" }}
-              >
-                <SimpleGrid cols={4} spacing="sm">
-                  <TextInput
-                    label="Experiment Name"
-                    placeholder="Name"
-                    size="sm"
-                    value={selectedExperiment.name}
-                    onChange={(e) =>
-                      handleUpdateExperiment({
-                        ...selectedExperiment,
-                        name: e.currentTarget.value,
-                      })
-                    }
-                  />
 
-                  <Box>
-                    <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                      Date of Execution
-                    </Text>
+            <Text size="xs" fw={600} c="dimmed" tt="uppercase">
+              Experiments ({experiments.length})
+            </Text>
+
+            <Stack gap="xs">
+              {groupedExperiments.map((group) => (
+                <React.Fragment key={`process-group-${group.processId}`}>
+                  <Text size="xs" fw={700} c="dimmed" tt="uppercase" mt="xs">
+                    {group.processName}
+                  </Text>
+                  {group.items.map((exp) => {
+                    const status = getExperimentStatus(exp)
+                    const isSelected = exp.id === selectedExpId
+
+                    const collectionColor = getEntityColor("experiment", exp.id)
+                    return (
+                      <Paper
+                        key={exp.id}
+                        withBorder
+                        p="sm"
+                        radius="md"
+                        style={{
+                          cursor: "pointer",
+                          background: isSelected
+                            ? "var(--mantine-color-blue-0)"
+                            : undefined,
+                          borderLeft: isSelected
+                            ? "4px solid var(--mantine-color-blue-4)"
+                            : collectionColor
+                              ? `4px solid ${collectionColor}`
+                              : undefined,
+                          paddingLeft: collectionColor
+                            ? "calc(var(--mantine-spacing-sm) - 3px)"
+                            : undefined,
+                        }}
+                        onClick={() => setSelectedExpId(exp.id)}
+                      >
+                        <Group justify="space-between" wrap="nowrap">
+                          <Box style={{ flex: 1, minWidth: 0 }}>
+                            <Group gap="xs" mb={4}>
+                              <Text size="sm" fw={600} truncate>
+                                {exp.name || "Untitled"}
+                              </Text>
+                              <Badge
+                                size="xs"
+                                color={
+                                  status === "finished"
+                                    ? "green"
+                                    : status === "ready"
+                                      ? "yellow"
+                                      : "red"
+                                }
+                                variant="dot"
+                              >
+                                {status === "finished"
+                                  ? "Finished"
+                                  : status === "ready"
+                                    ? "Ready"
+                                    : "Incomplete"}
+                              </Badge>
+                            </Group>
+                            <Group gap="xs">
+                              <Text size="xs" c="dimmed">
+                                {exp.date || "No date"}
+                              </Text>
+                              <Text size="xs" c="dimmed">
+                                •
+                              </Text>
+                              <Text size="xs" c="dimmed">
+                                {exp.substrates.length} substrate
+                                {exp.substrates.length !== 1 ? "s" : ""}
+                              </Text>
+                            </Group>
+                          </Box>
+
+                          <Group gap={2} wrap="nowrap">
+                            <ActionIcon
+                              size="sm"
+                              variant="subtle"
+                              color="teal"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleCopyExperiment(exp)
+                              }}
+                            >
+                              <IconCopy size={14} />
+                            </ActionIcon>
+                            <ActionIcon
+                              size="sm"
+                              variant="subtle"
+                              color="red"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteExperiment(exp.id)
+                              }}
+                            >
+                              <IconTrash size={14} />
+                            </ActionIcon>
+                          </Group>
+                        </Group>
+                      </Paper>
+                    )
+                  })}
+                </React.Fragment>
+              ))}
+            </Stack>
+          </Stack>
+        </Box>
+
+        {/* Main Content Area */}
+        <Box
+          style={{
+            flex: 1,
+            height: "100%",
+            overflowY: "auto",
+            padding: "2rem",
+          }}
+        >
+          {!selectedExperiment ? (
+            <Stack
+              gap="md"
+              align="center"
+              justify="center"
+              style={{ height: "100%" }}
+            >
+              <IconPlus size={48} color="var(--mantine-color-gray-4)" />
+              <Text size="lg" fw={500} c="dimmed">
+                Select or create an experiment to get started
+              </Text>
+            </Stack>
+          ) : !selectedProcess ? (
+            <Stack
+              gap="md"
+              align="center"
+              justify="center"
+              style={{ height: "100%" }}
+            >
+              <Alert
+                icon={<IconInfoCircle size={16} />}
+                title="No Recipe Selected"
+                color="yellow"
+              >
+                Please select a recipe for this experiment to continue.
+              </Alert>
+              <Button onClick={() => setRecipeModalOpen(true)}>
+                Select Recipe
+              </Button>
+            </Stack>
+          ) : (
+            <Stack gap="md">
+              {/* Header with title and meta info */}
+              <Group justify="space-between" align="flex-start">
+                <Paper
+                  withBorder
+                  p="sm"
+                  radius="md"
+                  style={{ flex: 1, background: "var(--mantine-color-gray-1)" }}
+                >
+                  <SimpleGrid cols={4} spacing="sm">
                     <TextInput
-                      type="date"
-                      value={selectedExperiment.date}
+                      label="Experiment Name"
+                      placeholder="Name"
+                      size="sm"
+                      value={selectedExperiment.name}
                       onChange={(e) =>
                         handleUpdateExperiment({
                           ...selectedExperiment,
-                          date: e.currentTarget.value,
+                          name: e.currentTarget.value,
                         })
                       }
-                      size="sm"
                     />
-                  </Box>
 
-                  <Box>
-                    <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                      Status
-                    </Text>
-                    <Badge
-                      size="lg"
-                      color={
-                        getExperimentStatus(selectedExperiment) === "finished"
-                          ? "green"
-                          : getExperimentStatus(selectedExperiment) === "ready"
-                            ? "blue"
-                            : "yellow"
-                      }
-                    >
-                      {getExperimentStatus(selectedExperiment)}
-                    </Badge>
-                  </Box>
+                    <Box>
+                      <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+                        Date of Execution
+                      </Text>
+                      <TextInput
+                        type="date"
+                        value={selectedExperiment.date}
+                        onChange={(e) =>
+                          handleUpdateExperiment({
+                            ...selectedExperiment,
+                            date: e.currentTarget.value,
+                          })
+                        }
+                        size="sm"
+                      />
+                    </Box>
 
-                  <Paper
-                    withBorder
-                    p="xs"
-                    radius="sm"
-                    style={{ background: "var(--mantine-color-blue-0)" }}
-                  >
-                    <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                      Recipe / Process
-                    </Text>
-                    <Group gap="xs">
-                      <Badge color="blue" variant="filled" size="lg">
-                        {selectedProcess.name}
-                      </Badge>
-                      <Button
-                        size="xs"
-                        variant="subtle"
-                        onClick={() => setRecipeModalOpen(true)}
+                    <Box>
+                      <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+                        Status
+                      </Text>
+                      <Badge
+                        size="lg"
+                        color={
+                          getExperimentStatus(selectedExperiment) === "finished"
+                            ? "green"
+                            : getExperimentStatus(selectedExperiment) ===
+                                "ready"
+                              ? "blue"
+                              : "yellow"
+                        }
                       >
-                        Change
-                      </Button>
-                    </Group>
-                  </Paper>
-                </SimpleGrid>
-              </Paper>
-            </Group>
+                        {getExperimentStatus(selectedExperiment)}
+                      </Badge>
+                    </Box>
 
-            {/* Intent/Description */}
-            <Box>
-              <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                Intent / Description
-              </Text>
-              <TextInput
-                placeholder="What is the purpose of this experiment?"
-                value={selectedExperiment.description}
-                onChange={(e) =>
-                  handleUpdateExperiment({
-                    ...selectedExperiment,
-                    description: e.currentTarget.value,
-                  })
-                }
-              />
-            </Box>
+                    <Paper
+                      withBorder
+                      p="xs"
+                      radius="sm"
+                      style={{ background: "var(--mantine-color-blue-0)" }}
+                    >
+                      <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+                        Recipe / Process
+                      </Text>
+                      <Group gap="xs">
+                        <Badge color="blue" variant="filled" size="lg">
+                          {selectedProcess.name}
+                        </Badge>
+                        <Button
+                          size="xs"
+                          variant="subtle"
+                          onClick={() => setRecipeModalOpen(true)}
+                        >
+                          Change
+                        </Button>
+                      </Group>
+                    </Paper>
+                  </SimpleGrid>
+                </Paper>
+              </Group>
 
-            <Divider />
+              {/* Intent/Description */}
+              <Box>
+                <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+                  Intent / Description
+                </Text>
+                <TextInput
+                  placeholder="What is the purpose of this experiment?"
+                  value={selectedExperiment.description}
+                  onChange={(e) =>
+                    handleUpdateExperiment({
+                      ...selectedExperiment,
+                      description: e.currentTarget.value,
+                    })
+                  }
+                />
+              </Box>
 
-            {/* Substrate Management */}
-            <SubstrateNameGenerator
-              process={selectedProcess}
-              substrateMaterialOptions={substrateMaterialOptions}
-              materialNameById={materialNameById}
-              solutionNameById={solutionNameById}
-              generatorConfig={generatorConfig}
-              onChangeGeneratorConfig={(patch) =>
-                setGeneratorConfig((prev) => ({ ...prev, ...patch }))
-              }
-              nextStepDefaults={nextStepDefaults}
-              onChangeNextStepDefault={(stageIndex, value) =>
-                setNextStepDefaults((prev) => ({ ...prev, [stageIndex]: value }))
-              }
-              onAddSubstratesForMaterial={handleAddSubstratesForMaterial}
-            />
+              <Divider />
 
-            {/* Main Grid */}
-            <Paper withBorder p="md" radius="md">
-              <Text size="sm" fw={600} mb="md">
-                Experiment Steps Grid
-              </Text>
-              <ExperimentGrid
-                experiment={selectedExperiment}
+              {/* Substrate Management */}
+              <SubstrateNameGenerator
                 process={selectedProcess}
                 substrateMaterialOptions={substrateMaterialOptions}
                 materialNameById={materialNameById}
                 solutionNameById={solutionNameById}
                 generatorConfig={generatorConfig}
+                onChangeGeneratorConfig={(patch) =>
+                  setGeneratorConfig((prev) => ({ ...prev, ...patch }))
+                }
                 nextStepDefaults={nextStepDefaults}
-                onUpdate={handleUpdateExperiment}
-                onUpdateProcess={handleUpdateProcess}
+                onChangeNextStepDefault={(stageIndex, value) =>
+                  setNextStepDefaults((prev) => ({
+                    ...prev,
+                    [stageIndex]: value,
+                  }))
+                }
+                onAddSubstratesForMaterial={handleAddSubstratesForMaterial}
               />
-            </Paper>
 
-          </Stack>
-        )}
-      </Box>
+              {/* Main Grid */}
+              <Paper withBorder p="md" radius="md">
+                <Text size="sm" fw={600} mb="md">
+                  Experiment Steps Grid
+                </Text>
+                <ExperimentGrid
+                  experiment={selectedExperiment}
+                  process={selectedProcess}
+                  substrateMaterialOptions={substrateMaterialOptions}
+                  materialNameById={materialNameById}
+                  solutionNameById={solutionNameById}
+                  generatorConfig={generatorConfig}
+                  nextStepDefaults={nextStepDefaults}
+                  onUpdate={handleUpdateExperiment}
+                  onUpdateProcess={handleUpdateProcess}
+                />
+              </Paper>
+            </Stack>
+          )}
+        </Box>
 
-      {/* Recipe Selection Modal */}
-      <RecipeSelectionModal
-        isOpen={recipeModalOpen}
-        processes={processes}
-        onSelect={handleRecipeSelect}
-        onClose={() => setRecipeModalOpen(false)}
+        {/* Recipe Selection Modal */}
+        <RecipeSelectionModal
+          isOpen={recipeModalOpen}
+          processes={processes}
+          onSelect={handleRecipeSelect}
+          onClose={() => setRecipeModalOpen(false)}
+        />
+      </Group>
+
+      <SelectCollectionModal
+        opened={collectionModalOpen}
+        onClose={() => setCollectionModalOpen(false)}
+        onConfirm={doAddExperiment}
+        confirmLabel="Add Experiment"
       />
-    </Group>
-
-    <SelectCollectionModal
-      opened={collectionModalOpen}
-      onClose={() => setCollectionModalOpen(false)}
-      onConfirm={doAddExperiment}
-      confirmLabel="Add Experiment"
-    />
-  </>
+    </>
   )
 }

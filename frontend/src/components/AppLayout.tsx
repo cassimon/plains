@@ -149,7 +149,8 @@ export function AppLayout() {
     } else if (activeEntity.kind === "solution") {
       name = solutions.find((s) => s.id === activeEntity.id)?.name ?? null
     } else if (activeEntity.kind === "process") {
-      name = derivedProcesses.find((p) => p.id === activeEntity.id)?.name ?? null
+      name =
+        derivedProcesses.find((p) => p.id === activeEntity.id)?.name ?? null
     }
     const iconPath =
       activeEntity.kind === "experiment"
@@ -213,7 +214,7 @@ export function AppLayout() {
               style={{ display: "flex", alignItems: "center" }}
             >
               <Text fw={600} size="lg">
-                {activePlane?.name ?? "Overview & Data Sharing"}
+                {activePlane?.name ?? "General"}
               </Text>
             </UnstyledButton>
             {/* Plane dropdown chevron only */}
@@ -240,7 +241,7 @@ export function AppLayout() {
                     setActiveCollectionId(null)
                   }}
                 >
-                  Overview & Data Sharing
+                  General
                 </Menu.Item>
                 <Menu.Divider />
                 {planes.map((p) => (

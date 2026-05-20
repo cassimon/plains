@@ -80,9 +80,9 @@ def read_planes(
             )
             .order_by(col(Plane.created_at).desc())
             .offset(skip)
-           _has_plane_access(plane, current_user):
-        raise HTTPException(status_code=403, detail="Not enough permissions")
-    return _populate_shared_with(plane) session.exec(statement).all()
+            .limit(limit)
+        )
+        planes = session.exec(statement).all()
     planes_public = [_populate_shared_with(plane) for plane in planes]
     return PlanesPublic(data=planes_public, count=count)
 
@@ -93,9 +93,9 @@ def read_plane(session: SessionDep, current_user: CurrentUser, id: uuid.UUID) ->
     plane = session.get(Plane, id)
     if not plane:
         raise HTTPException(status_code=404, detail="Plane not found")
-    if not current_user.is_superuser and plane.owner_id != current_user.id:
+    if not _has_plane_access(plane, current_user):
         raise HTTPException(status_code=403, detail="Not enough permissions")
-    return plane
+    return _populate_shared_with(plane)
 
 
 @router.post("/", response_model=PlanePublic)
@@ -153,7 +153,8 @@ def update_plane(
 
 
 @router.delete("/{id}")
-def delete_plane(session: SessionDep, cu (owner only)."""
+def delete_plane(session: SessionDep, current_user: CurrentUser, id: uuid.UUID) -> Any:
+    """Delete plane and all its elements (owner only)."""
     plane = session.get(Plane, id)
     if not plane:
         raise HTTPException(status_code=404, detail="Plane not found")
@@ -171,11 +172,11 @@ def delete_plane(session: SessionDep, cu (owner only)."""
 def share_plane(
     *,
     session: SessionDep,
-    current_user: CurrentUs (owner or shared user)."""
-    plane = session.get(Plane, plane_id)
-    if not plane:
-        raise HTTPException(status_code=404, detail="Plane not found")
-    if not _has_plane_access(plane, current_user)
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    share_in: PlaneShareCreate,
+) -> Any:
+    """Share plane with another user (owner only)."""
     plane = session.get(Plane, id)
     if not plane:
         raise HTTPException(status_code=404, detail="Plane not found")
@@ -203,11 +204,11 @@ def share_plane(
     
     # Create share
     share = PlaneShare(plane_id=id, user_id=share_in.user_id)
-    session.add(share) (owner or shared user)."""
-    plane = session.get(Plane, plane_id)
-    if not plane:
-        raise HTTPException(status_code=404, detail="Plane not found")
-    if not _has_plane_access(plane, current_user)
+    session.add(share)
+    session.commit()
+    session.refresh(plane)
+    return _populate_shared_with(plane)
+
 
 @router.delete("/{id}/share/{user_id}", response_model=PlanePublic)
 def unshare_plane(
@@ -264,7 +265,6 @@ def search_users(
     )
     users = session.exec(statement).all()
     return [UserPublic.model_validate(user) for user in users]
-    return {"ok": True}
 
 
 # ── Canvas Element Sub-routes ────────────────────────────────────────────────

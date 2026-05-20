@@ -158,7 +158,8 @@ export function apiSolutionToSolution(api: ApiSolution): Solution {
     id: api.id,
     name: api.name,
     handling: api.handling ?? "",
-    creationTime: api.creation_time ?? api.created_at ?? new Date().toISOString(),
+    creationTime:
+      api.creation_time ?? api.created_at ?? new Date().toISOString(),
     components: api.components.map((c) => ({
       id: c.id,
       materialId: c.material_id,

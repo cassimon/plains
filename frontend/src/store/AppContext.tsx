@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { getTokenSync } from "../lib/keycloakInstance"
 import {
   type AppSnapshot,
   type BackendAdapter,
@@ -15,7 +16,6 @@ import {
   InMemoryBackend,
   UNLOAD_BACKUP_KEY,
 } from "./backend"
-import { getTokenSync } from "../lib/keycloakInstance"
 
 // ── Material ────────────────────────────────────────────────────────────────
 
@@ -716,7 +716,13 @@ export type CanvasLineElement = {
  * to Materials, Solutions, Processes, and other app entities.
  */
 export type CollectionRef = {
-  kind: "material" | "solution" | "experiment" | "result" | "analysis" | "process"
+  kind:
+    | "material"
+    | "solution"
+    | "experiment"
+    | "result"
+    | "analysis"
+    | "process"
   id: string
 }
 
@@ -744,8 +750,13 @@ export type Plane = {
   sharedWith?: Array<{ id: string; email: string; full_name: string | null }>
 }
 
-export function newPlane(name?: string): Plane {
-  return { id: crypto.randomUUID(), name: name ?? "New Plane", elements: [] }
+export function newPlane(name?: string, ownerId?: string): Plane {
+  return {
+    id: crypto.randomUUID(),
+    name: name ?? "New Plane",
+    elements: [],
+    ownerId,
+  }
 }
 
 function newTextElement(position: Vec2): CanvasTextElement {
@@ -920,9 +931,10 @@ type AppContextValue = {
   results: ExperimentResults[]
   setResults: React.Dispatch<React.SetStateAction<ExperimentResults[]>>
   planes: Plane[]
+  setPlanes: React.Dispatch<React.SetStateAction<Plane[]>>
 
   // ── Plane repository ──────────────────────────────────────────────────────
-  addPlane: (name?: string) => Plane
+  addPlane: (name?: string, userId?: string) => Plane
   updatePlane: (plane: Plane) => void
   deletePlane: (id: string) => void
 
@@ -1025,12 +1037,20 @@ type AppContextValue = {
     id: string
   } | null
   setActiveEntity: (
-    e: { kind: "experiment" | "material" | "solution" | "process"; id: string } | null,
+    e: {
+      kind: "experiment" | "material" | "solution" | "process"
+      id: string
+    } | null,
   ) => void
 
   /** Last-selected entity ID per kind — restored when navigating back to a page */
-  lastSelectedByKind: Partial<Record<"experiment" | "material" | "solution" | "process", string>>
-  updateLastSelected: (kind: "experiment" | "material" | "solution" | "process", id: string) => void
+  lastSelectedByKind: Partial<
+    Record<"experiment" | "material" | "solution" | "process", string>
+  >
+  updateLastSelected: (
+    kind: "experiment" | "material" | "solution" | "process",
+    id: string,
+  ) => void
 
   /** Immediately persist the current state (call before logout). */
   flushSave: () => Promise<void>
@@ -1125,7 +1145,14 @@ export function AppProvider({
     results,
     planes,
   })
-  stateRef.current = { materials, solutions, experiments, processes, results, planes }
+  stateRef.current = {
+    materials,
+    solutions,
+    experiments,
+    processes,
+    results,
+    planes,
+  }
   const dirtyRef = useRef(false)
   const saveTimeoutRef = useRef<number | null>(null)
   const hydratedRef = useRef(false)
@@ -1205,7 +1232,10 @@ export function AppProvider({
       if (snapshot.planes.length > 0) {
         setPlanes(snapshot.planes)
         setActivePlaneId((current) => {
-          if (current && snapshot.planes.some((plane) => plane.id === current)) {
+          if (
+            current &&
+            snapshot.planes.some((plane) => plane.id === current)
+          ) {
             return current
           }
           const persisted = readPersistedActivePlaneId()
@@ -1237,7 +1267,7 @@ export function AppProvider({
     }
     scheduleSave()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded, scheduleSave, materials, solutions, experiments, processes, results, planes])
+  }, [loaded, scheduleSave])
 
   // ── Periodic safety flush + unload / visibility watchdog ──────────────────
 
@@ -1317,8 +1347,8 @@ export function AppProvider({
 
   // ── Plane mutations ────────────────────────────────────────────────────────
 
-  const addPlane = useCallback((name?: string): Plane => {
-    const p = newPlane(name)
+  const addPlane = useCallback((name?: string, userId?: string): Plane => {
+    const p = newPlane(name, userId)
     setPlanes((prev) => [...prev, p])
     return p
   }, [])
@@ -1547,6 +1577,7 @@ export function AppProvider({
         results,
         setResults,
         planes,
+        setPlanes,
         addPlane,
         updatePlane,
         deletePlane,
