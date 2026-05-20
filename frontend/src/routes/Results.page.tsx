@@ -71,13 +71,13 @@ type NomadUploadRequest = {
   experiment_id: string
   experiment_name: string
   substrates: Array<{
+    id: string
     name: string
-    notes?: string
   }>
   measurement_files: Array<{
     fileName: string
     fileType: string
-    deviceName?: string
+    deviceName: string
     cell?: string
     pixel?: string
     value?: number
@@ -88,8 +88,22 @@ type NomadUploadRequest = {
     measurementDate?: string
   }>
   device_groups: Array<{
-    name: string
-    substrate_name?: string
+    id: string
+    deviceName: string
+    assignedSubstrateId?: string
+    files?: Array<{
+      fileName: string
+      fileType: string
+      deviceName: string
+      cell?: string
+      pixel?: string
+      value?: number
+      voc?: number
+      jsc?: number
+      ff?: number
+      user?: string
+      measurementDate?: string
+    }>
   }>
   notes?: string
   custom_metadata?: Record<string, any>
