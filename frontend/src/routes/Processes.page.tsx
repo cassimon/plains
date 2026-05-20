@@ -307,7 +307,7 @@ function ProcessParamInput({
             }}
             style={{ justifyContent: "flex-start" }}
           >
-            {`as: ${source.name} of ${source.origin}`}
+            {`${source.param.value}${unit ? ` ${unit}` : ""}`}
           </Button>
         ))}
       </Group>
@@ -2642,7 +2642,7 @@ export function ProcessesPage() {
     (
       key: ProcessParameterKey,
     ): Array<{ name: string; origin: string; param: ProcessParam }> => {
-      if (!selectedProcess || !selectedStep || selectedStageIndex < 0) {
+      if (!selectedProcess || !selectedStep) {
         return []
       }
       const seen = new Set<string>()
@@ -2652,9 +2652,12 @@ export function ProcessesPage() {
         param: ProcessParam
       }> = []
 
-      for (let i = selectedStageIndex - 1; i >= 0; i--) {
+      for (let i = 0; i < selectedProcess.stages.length; i++) {
         const stage = selectedProcess.stages[i]
         for (const step of stage.alternatives) {
+          if (step.id === selectedStep.id) {
+            continue
+          }
           const stepParam = step[key]
           if (!stepParam || !stepParam.value) {
             continue
@@ -2687,7 +2690,7 @@ export function ProcessesPage() {
 
       return suggestions
     },
-    [materials, selectedProcess, selectedStageIndex, selectedStep, solutions],
+    [materials, selectedProcess, selectedStep, solutions],
   )
 
   const displayedStages = useMemo(() => {
@@ -2883,6 +2886,12 @@ export function ProcessesPage() {
         const value = step[key]?.value?.trim()
         if (!value) {
           return []
+        }
+        if (key === "dryingMethod") {
+          // Keep card preview concise: show only quenching type in collapsed cards.
+          const typeMatch = value.match(/(?:^|\|)type=([^|]+)/)
+          const typeLabel = typeMatch?.[1]?.trim()
+          return [typeLabel ? `${label}: ${typeLabel}` : `${label}: Set`]
         }
         return [`${label}: ${value}${unit ? ` ${unit}` : ""}`]
       },

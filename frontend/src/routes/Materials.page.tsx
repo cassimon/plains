@@ -293,7 +293,7 @@ export function MaterialsPage() {
     string | null
   >(null)
   const [pubChemUpdateField, setPubChemUpdateField] = useState<
-    "casNumber" | "stateAtRt" | null
+    "casNumber" | "stateAtRt" | "pubchemCid" | null
   >(null)
   const [pubChemUpdateMaterialId, setPubChemUpdateMaterialId] = useState<
     string | null
@@ -610,7 +610,7 @@ export function MaterialsPage() {
 
   const openFieldSearchModal = (
     material: Material,
-    field: "casNumber" | "stateAtRt",
+    field: "casNumber" | "stateAtRt" | "pubchemCid",
   ) => {
     const name =
       editBuffer && editBuffer.id === material.id
@@ -692,6 +692,18 @@ export function MaterialsPage() {
     const field = pubChemUpdateField
     const materialId = pubChemUpdateMaterialId
     if (!field || !materialId) return
+
+    // For pubchemCid field, just set the CID directly without fetching details
+    if (field === "pubchemCid") {
+      setEditBuffer((prev) => {
+        if (!prev || prev.id !== materialId) return prev
+        return { ...prev, pubchemCid: result.cid }
+      })
+      setPubChemModalOpen(false)
+      setPubChemUpdateField(null)
+      setPubChemUpdateMaterialId(null)
+      return
+    }
 
     setPubChemImportingCid(result.cid)
     try {
@@ -1196,8 +1208,7 @@ export function MaterialsPage() {
           <Button
             size="xs"
             variant="light"
-            onClick={() => void searchCidByMaterialName(material)}
-            loading={pubChemCidSearchingId === material.id}
+            onClick={() => openFieldSearchModal(material, "pubchemCid")}
           >
             Search Name...
           </Button>
@@ -1510,7 +1521,7 @@ export function MaterialsPage() {
         }}
         title={
           pubChemUpdateField
-            ? `Search PubChem for ${pubChemUpdateField === "casNumber" ? "CAS Number" : "State at RT"}`
+            ? `Search PubChem for ${pubChemUpdateField === "casNumber" ? "CAS Number" : pubChemUpdateField === "stateAtRt" ? "State at RT" : "CID"}`
             : `Import ${CATEGORY_LABEL[pubChemCategory]} from PubChem`
         }
         size="lg"

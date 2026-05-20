@@ -367,6 +367,7 @@ function SolutionCard({
     }
   }
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: commitOpenEditsBeforeClose should not trigger re-run
   useEffect(() => {
     const nextOpen = Boolean(isSelected)
 
@@ -384,7 +385,7 @@ function SolutionCard({
       setEditingComponentId(null)
       setComponentBuffer(null)
     }
-  }, [isSelected, commitOpenEditsBeforeClose, open, solution.name])
+  }, [isSelected, open])
 
   const handleToggleOpen = (newOpen: boolean) => {
     if (newOpen) {
@@ -428,6 +429,14 @@ function SolutionCard({
     setStorageBuffer(solution.storage ?? "")
     setCreationTimeBuffer(toDateTimeLocalValue(solution.creationTime))
   }, [solution.creationTime, solution.handling, solution.storage])
+
+  useEffect(() => {
+    // Sync nameBuffer with solution.name when it changes externally
+    // (e.g., after generateName or after the parent updates the solution)
+    if (!editingName) {
+      setNameBuffer(solution.name)
+    }
+  }, [solution.name, editingName])
 
   const generateName = () => {
     const solutes: string[] = []
@@ -566,6 +575,7 @@ function SolutionCard({
                 size="xs"
                 value={nameBuffer}
                 onChange={(e) => setNameBuffer(e.currentTarget.value)}
+                onBlur={commitName}
                 onFocus={(e) => e.currentTarget.select()}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") commitName()

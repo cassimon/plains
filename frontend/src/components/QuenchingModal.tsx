@@ -57,8 +57,7 @@ interface AntisolventState {
   depositionMethod: string
   height: string
   heightUnit: "mm" | "cm"
-  pressure: string
-  pressureUnit: "Pa" | "Psi"
+  volume: string
 }
 
 interface VacuumState {
@@ -97,8 +96,7 @@ function defaultAntisolvent(): AntisolventState {
     depositionMethod: "",
     height: "",
     heightUnit: "mm",
-    pressure: "",
-    pressureUnit: "Pa",
+    volume: "",
   }
 }
 
@@ -173,8 +171,7 @@ function buildQuenchingString(
       parts.push(`depositionMethod=${antisolvent.depositionMethod}`)
     if (antisolvent.height)
       parts.push(`height=${antisolvent.height} ${antisolvent.heightUnit}`)
-    if (antisolvent.pressure)
-      parts.push(`pressure=${antisolvent.pressure} ${antisolvent.pressureUnit}`)
+    if (antisolvent.volume) parts.push(`volume=${antisolvent.volume} mL`)
   } else if (type === "Vacuum") {
     if (vacuum.height)
       parts.push(`height=${vacuum.height} ${vacuum.heightUnit}`)
@@ -267,12 +264,14 @@ function parseQuenchingValue(value: string): {
         parts[1] === "cm" ? "cm" : "mm"
       ) as AntisolventState["heightUnit"]
     }
-    if (pairs.pressure) {
+    if (pairs.volume) {
+      const parts = pairs.volume.split(" ")
+      anti.volume = parts[0] ?? ""
+    }
+    // Backward compatibility for older saved values that used pressure.
+    if (!anti.volume && pairs.pressure) {
       const parts = pairs.pressure.split(" ")
-      anti.pressure = parts[0] ?? ""
-      anti.pressureUnit = (
-        parts[1] === "Psi" ? "Psi" : "Pa"
-      ) as AntisolventState["pressureUnit"]
+      anti.volume = parts[0] ?? ""
     }
     base.antisolvent = anti
   } else if (type === "Vacuum") {
@@ -566,30 +565,16 @@ function AntisolventForm({
       </Box>
 
       <Box>
-        <FieldLabel>Pressure</FieldLabel>
-        <Group gap="xs" align="flex-end">
-          <NumberInput
-            size="xs"
-            value={state.pressure !== "" ? Number(state.pressure) : ""}
-            onChange={(v) =>
-              set({ pressure: typeof v === "number" ? String(v) : "" })
-            }
-            placeholder="Value"
-            style={{ flex: 1 }}
-            min={0}
-          />
-          <ModalSelect
-            size="xs"
-            data={["Pa", "Psi"]}
-            value={state.pressureUnit}
-            onChange={(v) =>
-              set({
-                pressureUnit: (v ?? "Pa") as AntisolventState["pressureUnit"],
-              })
-            }
-            style={{ width: 70 }}
-          />
-        </Group>
+        <FieldLabel>Volume (mL)</FieldLabel>
+        <NumberInput
+          size="xs"
+          value={state.volume !== "" ? Number(state.volume) : ""}
+          onChange={(v) =>
+            set({ volume: typeof v === "number" ? String(v) : "" })
+          }
+          placeholder="e.g. 0.2"
+          min={0}
+        />
       </Box>
     </SimpleGrid>
   )
