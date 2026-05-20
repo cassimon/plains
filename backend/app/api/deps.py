@@ -31,12 +31,18 @@ def _require_token(
         HTTPAuthorizationCredentials | None, Depends(_http_bearer)
     ],
 ) -> str:
+    logger.info("[Auth] _require_token called")
+    logger.info(f"[Auth] Credentials present: {credentials is not None}")
+    
     if not credentials or not credentials.credentials:
+        logger.error("[Auth] No credentials in Authorization header")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    logger.info("[Auth] Token extracted from Authorization header")
     return credentials.credentials
 
 
@@ -49,9 +55,14 @@ def get_current_user(session: SessionDep, token: TokenDep) -> User:
     On first login the user record is created automatically from the JWT claims.
     The token is verified against the NOMAD JWKS endpoint (RS256, issuer check).
     """
+    logger.info("[Auth] get_current_user called, token received")
+    
     claims = security.verify_nomad_token(token)
     nomad_sub = claims.get("sub")
+    logger.info(f"[Auth] Token verified, nomad_sub: {nomad_sub}")
+    
     if not nomad_sub:
+        logger.error("[Auth] Token missing subject claim")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token: missing subject claim",
@@ -59,9 +70,12 @@ def get_current_user(session: SessionDep, token: TokenDep) -> User:
 
     user = session.exec(select(User).where(User.nomad_sub == nomad_sub)).first()
     if not user:
+        email = claims.get("email")
+        name = claims.get("name")
+        logger.info(f"[Auth] Creating new user: {email}")
         user = User(
-            email=claims.get("email"),
-            full_name=claims.get("name"),
+            email=email,
+            full_name=name,
             nomad_sub=nomad_sub,
             is_active=True,
             is_superuser=False,
@@ -69,11 +83,15 @@ def get_current_user(session: SessionDep, token: TokenDep) -> User:
         session.add(user)
         session.commit()
         session.refresh(user)
-        logger.info("Auto-created user from NOMAD token: %s", user.email)
+        logger.info(f"[Auth] Auto-created user from NOMAD token: {email}")
+    else:
+        logger.info(f"[Auth] Found existing user: {user.email}")
 
     if not user.is_active:
+        logger.error(f"[Auth] User is inactive: {user.email}")
         raise HTTPException(status_code=400, detail="Inactive user")
 
+    logger.info(f"[Auth] Returning user: {user.email}")
     return user
 
 

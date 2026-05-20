@@ -12,14 +12,22 @@ const isAuthError = (error: unknown) => {
 }
 
 export const ensureAuthenticated = async () => {
-  if (!isLoggedIn()) {
+  console.log("[Auth] ensureAuthenticated called")
+  const loggedIn = isLoggedIn()
+  console.log("[Auth] isLoggedIn():", loggedIn)
+  if (!loggedIn) {
+    console.log("[Auth] Not logged in, redirecting to /login")
     throw redirect({ to: "/login" })
   }
 
   try {
-    await UsersService.readUserMe()
+    console.log("[Auth] Calling UsersService.readUserMe()")
+    const user = await UsersService.readUserMe()
+    console.log("[Auth] readUserMe() succeeded, user:", user.email)
   } catch (error) {
+    console.error("[Auth] readUserMe() failed:", error)
     if (isAuthError(error)) {
+      console.log("[Auth] Auth error detected, clearing auth and redirecting to /login")
       clearAuth()
       throw redirect({ to: "/login" })
     }
@@ -28,15 +36,23 @@ export const ensureAuthenticated = async () => {
 }
 
 export const redirectIfAuthenticated = async () => {
-  if (!isLoggedIn()) {
+  console.log("[Auth] redirectIfAuthenticated called")
+  const loggedIn = isLoggedIn()
+  console.log("[Auth] isLoggedIn():", loggedIn)
+  if (!loggedIn) {
+    console.log("[Auth] Not logged in, staying on login page")
     return
   }
 
   try {
+    console.log("[Auth] Already logged in, verifying with readUserMe()")
     await UsersService.readUserMe()
+    console.log("[Auth] User verified, redirecting to /")
     throw redirect({ to: "/" })
   } catch (error) {
+    console.error("[Auth] readUserMe() failed:", error)
     if (isAuthError(error)) {
+      console.log("[Auth] Auth error, clearing and staying on login")
       clearAuth()
       return
     }

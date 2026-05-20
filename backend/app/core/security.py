@@ -56,35 +56,54 @@ def verify_nomad_token(token: str) -> dict[str, Any]:
     Verify a Keycloak RS256 JWT against the central NOMAD JWKS endpoint and
     return the decoded claims.  Raises HTTP 401 on any verification failure.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info("[Auth] verify_nomad_token called")
+    logger.info(f"[Auth] NOMAD_OAUTH_ENABLED: {settings.NOMAD_OAUTH_ENABLED}")
+    
     if not settings.NOMAD_OAUTH_ENABLED:
+        logger.error("[Auth] NOMAD OAuth is not enabled")
         raise HTTPException(
             status_code=400,
             detail="NOMAD OAuth is not enabled",
         )
 
     issuer = settings.NOMAD_KEYCLOAK_REALM_URL
+    logger.info(f"[Auth] Expected issuer: {issuer}")
+    logger.info(f"[Auth] JWKS URL: {issuer}/protocol/openid-connect/certs")
+    logger.info(f"[Auth] Audience verification: {settings.NOMAD_OAUTH_VERIFY_AUDIENCE}")
+    
     try:
         jwks_client = _get_jwks_client()
+        logger.info("[Auth] JWKS client initialized")
+        
         signing_key = jwks_client.get_signing_key_from_jwt(token)
+        logger.info("[Auth] Signing key retrieved from JWT")
+        
         decode_kwargs: dict[str, Any] = {
             "algorithms": ["RS256"],
             "issuer": issuer,
         }
         if settings.NOMAD_OAUTH_VERIFY_AUDIENCE:
-            decode_kwargs["audience"] = (
-                settings.NOMAD_OAUTH_AUDIENCE or settings.NOMAD_OAUTH_CLIENT_ID
-            )
+            audience = settings.NOMAD_OAUTH_AUDIENCE or settings.NOMAD_OAUTH_CLIENT_ID
+            decode_kwargs["audience"] = audience
+            logger.info(f"[Auth] Will verify audience: {audience}")
         else:
             decode_kwargs["options"] = {"verify_aud": False}
+            logger.info("[Auth] Audience verification disabled")
 
         claims = jwt.decode(token, signing_key.key, **decode_kwargs)
+        logger.info(f"[Auth] Token verified successfully, subject: {claims.get('sub')}")
         return claims
     except jwt.InvalidTokenError as e:
+        logger.error(f"[Auth] Invalid token error: {str(e)}")
         raise HTTPException(
             status_code=401,
             detail=f"Invalid NOMAD token: {str(e)}",
         )
     except Exception as e:
+        logger.error(f"[Auth] Token verification failed: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=401,
             detail=f"Token verification failed: {str(e)}",

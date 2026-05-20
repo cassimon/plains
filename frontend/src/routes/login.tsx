@@ -27,19 +27,26 @@ function Login() {
   const initDone = useRef(false)
 
   useEffect(() => {
-    if (initDone.current) return
+    if (initDone.current) {
+      console.log("[Login] useEffect: initDone already true, skipping")
+      return
+    }
     initDone.current = true
+    console.log("[Login] useEffect: Starting keycloak initialization")
 
     ;(async () => {
       try {
+        console.log("[Login] Fetching auth config from backend")
         const res = await fetch(
           `${import.meta.env.VITE_API_URL}/api/v1/auth/config`,
         )
         if (!res.ok) {
+          console.error("[Login] Auth config fetch failed:", res.status)
           setError("Auth configuration unavailable.")
           return
         }
         const cfg = await res.json()
+        console.log("[Login] Auth config received")
         const keycloak = new Keycloak({
           url: cfg.keycloak_url,
           realm: cfg.keycloak_realm,
@@ -48,22 +55,35 @@ function Login() {
         // No onLoad — keycloak.init() exchanges a ?code= in the URL if present
         // (i.e. when Keycloak redirects back after login) but never redirects
         // the page on its own.
+        console.log("[Login] Calling keycloak.init()")
         const authenticated = await keycloak.init({
           checkLoginIframe: false,
         })
+        console.log("[Login] keycloak.init() completed, authenticated:", authenticated)
         setKeycloak(keycloak)
-        if (authenticated) navigate({ to: "/" })
+        console.log("[Login] Keycloak instance stored globally")
+        if (authenticated) {
+          console.log("[Login] User is authenticated, navigating to /")
+          navigate({ to: "/" })
+        } else {
+          console.log("[Login] User is NOT authenticated, staying on login page")
+        }
       } catch (err) {
-        console.error("Keycloak init failed:", err)
+        console.error("[Login] Keycloak init failed:", err)
         setError("Could not reach the NOMAD auth service.")
       }
     })()
   }, [navigate])
 
   const handleLogin = () => {
+    console.log("[Login] handleLogin clicked")
+    const kc = getKeycloak()
+    console.log("[Login] Keycloak instance available:", !!kc)
+    console.log("[Login] Already authenticated:", kc?.authenticated)
     setLoading(true)
     // Redirect to NOMAD Keycloak; after login Keycloak redirects back to /login
     // where keycloak.init() (on next mount) processes the auth code.
+    console.log("[Login] Calling keycloak.login()")
     getKeycloak()?.login({ redirectUri: `${window.location.origin}/login` })
   }
 
