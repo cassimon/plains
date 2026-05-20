@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  Alert,
   Badge,
   Box,
   Button,
@@ -5195,6 +5196,10 @@ function PlaneCanvas({
             const targetPlane = planes.find(
               (p) => p.id === transferDialog.targetPlaneId,
             )
+            const sourceSharedWith = plane.sharedWith ?? []
+            const targetSharedWith = targetPlane?.sharedWith ?? []
+            const userLabel = (u: { email: string; full_name: string | null }) =>
+              u.full_name || u.email
             return (
               <Stack gap="md">
                 <Text size="sm">
@@ -5209,6 +5214,27 @@ function PlaneCanvas({
                   </Text>
                   ?
                 </Text>
+                {targetSharedWith.length > 0 && (
+                  <Alert color="yellow" variant="light">
+                    <Text size="sm">
+                      Moving to a shared plane will grant access to:{" "}
+                      <strong>
+                        {targetSharedWith.map(userLabel).join(", ")}
+                      </strong>
+                    </Text>
+                  </Alert>
+                )}
+                {sourceSharedWith.length > 0 && (
+                  <Alert color="orange" variant="light">
+                    <Text size="sm">
+                      Moving away from a shared plane means:{" "}
+                      <strong>
+                        {sourceSharedWith.map(userLabel).join(", ")}
+                      </strong>{" "}
+                      will lose access to these items.
+                    </Text>
+                  </Alert>
+                )}
                 <Group justify="flex-end" gap="sm">
                   <Button
                     variant="default"
@@ -5260,14 +5286,30 @@ function PlaneTabLabel({
   onRename,
   onClose,
   canClose,
+  autoStartEdit = false,
 }: {
   plane: Plane
   onRename: (name: string) => void
   onClose: () => void
   canClose: boolean
+  autoStartEdit?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [buf, setBuf] = useState(plane.name)
+
+  // Keep buf in sync when the plane name is changed externally (e.g. via card inline edit)
+  useEffect(() => {
+    if (!editing) {
+      setBuf(plane.name)
+    }
+  }, [plane.name, editing])
+
+  // Trigger edit mode once when autoStartEdit becomes true
+  useEffect(() => {
+    if (autoStartEdit) {
+      setEditing(true)
+    }
+  }, [autoStartEdit])
 
   const commit = () => {
     onRename(buf.trim() || plane.name)
@@ -5280,6 +5322,7 @@ function PlaneTabLabel({
         size="xs"
         value={buf}
         autoFocus
+        onFocus={(e) => { e.currentTarget?.select() }}
         onChange={(e) => setBuf(e.currentTarget.value)}
         onBlur={commit}
         onKeyDown={(e) => {
@@ -5298,12 +5341,15 @@ function PlaneTabLabel({
   }
 
   return (
-    <Group gap={4} wrap="nowrap">
-      <Text
-        size="sm"
-        onDoubleClick={() => setEditing(true)}
-        style={{ cursor: "text" }}
+    <Group gap={6} wrap="nowrap">
+      <Badge
+        size="xs"
+        color={(plane.sharedWith?.length ?? 0) > 0 ? "red" : "green"}
+        variant="light"
       >
+        {(plane.sharedWith?.length ?? 0) > 0 ? "s" : "p"}
+      </Badge>
+      <Text size="sm" onDoubleClick={() => setEditing(true)} style={{ cursor: "text" }}>
         {plane.name}
       </Text>
       {canClose && (
@@ -5329,9 +5375,11 @@ function PlaneTabLabel({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function WelcomePlaneView() {
-  const { planes, addPlane, setActivePlaneId, setPlanes } = useAppContext()
+  const { planes, addPlane, setActivePlaneId, setPlanes, flushSave } =
+    useAppContext()
   const { user } = useAuth()
   const [sharingPlaneId, setSharingPlaneId] = useState<string | null>(null)
+  const [newPlaneEditingId, setNewPlaneEditingId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [debouncedQuery] = useDebouncedValue(searchQuery, 300)
   const [searchResults, setSearchResults] = useState<
@@ -5339,6 +5387,11 @@ function WelcomePlaneView() {
   >([])
   const [isSearching, setIsSearching] = useState(false)
   const [hoveredPlaneId, setHoveredPlaneId] = useState<string | null>(null)
+  const planesRef = useRef(planes)
+
+  useEffect(() => {
+    planesRef.current = planes
+  }, [planes])
 
   /** Count items referenced by collections on a given plane */
   const getPlaneItemCounts = (plane: Plane) => {
@@ -5364,11 +5417,14 @@ function WelcomePlaneView() {
 
   const handleAddPlane = () => {
     const p = addPlane(`Plane ${planes.length + 1}`, user?.id)
-    setActivePlaneId(p.id)
+    setActivePlaneId(null)
+    setNewPlaneEditingId(p.id)
   }
 
-  const handleOpenShareModal = (planeId: string, e: MouseEvent) => {
+  const handleOpenShareModal = async (planeId: string, e: MouseEvent) => {
     e.stopPropagation()
+    // Ensure plane is saved to backend before opening share modal
+    await flushSave()
     setSharingPlaneId(planeId)
     setSearchQuery("")
     setSearchResults([])
@@ -5380,17 +5436,22 @@ function WelcomePlaneView() {
     setSearchResults([])
   }
 
-  const reloadPlanes = async () => {
+  const reloadPlanes = useCallback(async () => {
     try {
+      const currentPlaneById = new Map(
+        planesRef.current.map((plane) => [plane.id, plane]),
+      )
       const response = await PlanesService.readPlanes({})
       if (response.data) {
         // Convert PlanePublic (API) to Plane (AppContext)
         const convertedPlanes = response.data.map((apiPlane) => {
           // Create ApiPlane compatible object for the converter
+          const currentPlane = currentPlaneById.get(apiPlane.id)
           const apiPlaneCompat = {
             id: apiPlane.id,
             name: apiPlane.name,
             owner_id: apiPlane.owner_id,
+            owner: currentPlane?.owner,
             created_at: apiPlane.created_at ?? null,
             elements: (apiPlane.elements ?? []).map((e) => ({
               id: e.id,
@@ -5416,11 +5477,17 @@ function WelcomePlaneView() {
     } catch (error) {
       console.error("Failed to reload planes:", error)
     }
-  }
+  }, [setPlanes])
+
+  useEffect(() => {
+    void reloadPlanes()
+  }, [reloadPlanes])
 
   const handleShareWithUser = async (userId: string) => {
     if (!sharingPlaneId) return
     try {
+      // Ensure plane is persisted to backend before sharing
+      await flushSave()
       await PlanesService.sharePlane({
         id: sharingPlaneId,
         requestBody: { user_id: userId },
@@ -5435,6 +5502,8 @@ function WelcomePlaneView() {
 
   const handleRemoveShare = async (planeId: string, userId: string) => {
     try {
+      // Ensure plane state is persisted before modifying shares
+      await flushSave()
       await PlanesService.unsharePlane({
         id: planeId,
         userId: userId,
@@ -5444,6 +5513,8 @@ function WelcomePlaneView() {
       console.error("Failed to remove share:", error)
     }
   }
+
+  const sharingPlane = planes.find((p) => p.id === sharingPlaneId)
 
   // Search users when debounced query changes
   useEffect(() => {
@@ -5457,7 +5528,14 @@ function WelcomePlaneView() {
       limit: 10,
     })
       .then((users) => {
-        setSearchResults(users)
+        // Filter out current user and users already shared with
+        const alreadySharedIds = new Set(
+          sharingPlane?.sharedWith?.map((u) => u.id) ?? [],
+        )
+        const filtered = users.filter(
+          (u) => u.id !== user?.id && !alreadySharedIds.has(u.id),
+        )
+        setSearchResults(filtered)
       })
       .catch((error) => {
         console.error("Failed to search users:", error)
@@ -5466,22 +5544,143 @@ function WelcomePlaneView() {
       .finally(() => {
         setIsSearching(false)
       })
-  }, [debouncedQuery])
-
-  const sharingPlane = planes.find((p) => p.id === sharingPlaneId)
-  const isOwner = (plane: Plane) => {
-    // Debug: Check if we have user and plane data
-    console.log('[Share Debug]', {
-      userId: user?.id,
-      planeId: plane.id,
-      planeName: plane.name,
-      planeOwnerId: plane.ownerId,
-      isOwner: plane.ownerId === user?.id,
-      userExists: !!user,
-    })
-    return plane.ownerId === user?.id
-  }
+  }, [debouncedQuery, user?.id, sharingPlane?.sharedWith])
+  const isOwner = (plane: Plane) => plane.ownerId === user?.id
   const isShared = (plane: Plane) => (plane.sharedWith?.length ?? 0) > 0
+  const ownerLabel = (plane: Plane) =>
+    plane.owner?.full_name || plane.owner?.email || "Unknown user"
+
+  const renderPlaneCard = (plane: Plane) => {
+    const counts = getPlaneItemCounts(plane)
+    const sharedWith = plane.sharedWith ?? []
+    const badgeColor = isShared(plane) ? "red" : "green"
+    const badgeLabel = isShared(plane) ? "Shared" : "Private"
+    const isNewlyCreated = newPlaneEditingId === plane.id
+
+    return (
+      <Paper
+        key={plane.id}
+        withBorder
+        shadow="sm"
+        p="md"
+        style={{
+          width: 220,
+          cursor: "pointer",
+          transition: "box-shadow 150ms ease",
+          position: "relative",
+        }}
+        onMouseEnter={() => setHoveredPlaneId(plane.id)}
+        onMouseLeave={() => setHoveredPlaneId(null)}
+        onClick={() => setActivePlaneId(plane.id)}
+      >
+        {isOwner(plane) && (
+          <ActionIcon
+            variant="subtle"
+            color={hoveredPlaneId === plane.id ? "blue" : "gray"}
+            size="sm"
+            onClick={(e) => handleOpenShareModal(plane.id, e)}
+            style={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              zIndex: 10,
+            }}
+            title="Share this plane"
+          >
+            <IconShare size={16} />
+          </ActionIcon>
+        )}
+
+        <Group justify="space-between" mb="xs" pr={isOwner(plane) ? 24 : 0}>
+          {isNewlyCreated ? (
+            <TextInput
+              size="xs"
+              value={plane.name}
+              autoFocus
+              onFocus={(e) => { e.currentTarget?.select() }}
+              onChange={(e) => {
+                const value = e.currentTarget.value
+                setPlanes((prev) =>
+                  prev.map((current) =>
+                    current.id === plane.id
+                      ? { ...current, name: value }
+                      : current,
+                  ),
+                )
+              }}
+              onBlur={() => setNewPlaneEditingId(null)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setNewPlaneEditingId(null)
+                }
+                if (e.key === "Escape") {
+                  setNewPlaneEditingId(null)
+                }
+              }}
+              style={{ flex: 1, minWidth: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <Text fw={600} size="md">
+              {plane.name}
+            </Text>
+          )}
+          <Badge size="xs" color={badgeColor} variant="light">
+            {badgeLabel}
+          </Badge>
+        </Group>
+
+        {sharedWith.length > 0 && (
+          <Text size="xs" c="dimmed" mb="xs">
+            Shared with: {sharedWith.map((u) => u.full_name || u.email).join(", ")}
+          </Text>
+        )}
+
+        <Stack gap={4}>
+          <Group gap={6}>
+            <IconBox size={14} color="var(--mantine-color-teal-6)" />
+            <Text size="xs" c="dimmed">
+              {counts.materials} material{counts.materials !== 1 ? "s" : ""}
+            </Text>
+          </Group>
+          <Group gap={6}>
+            <IconFlask size={14} color="var(--mantine-color-blue-6)" />
+            <Text size="xs" c="dimmed">
+              {counts.solutions} solution{counts.solutions !== 1 ? "s" : ""}
+            </Text>
+          </Group>
+          <Group gap={6}>
+            <IconPlayerPlay size={14} color="var(--mantine-color-grape-6)" />
+            <Text size="xs" c="dimmed">
+              {counts.experiments} experiment
+              {counts.experiments !== 1 ? "s" : ""}
+            </Text>
+          </Group>
+          <Group gap={6}>
+            <IconFolderPlus size={14} color="var(--mantine-color-gray-6)" />
+            <Text size="xs" c="dimmed">
+              {counts.collections} collection{counts.collections !== 1 ? "s" : ""}
+            </Text>
+          </Group>
+        </Stack>
+      </Paper>
+    )
+  }
+
+  const ownedPlanes = planes.filter(isOwner)
+  const sharedPlanes = planes.filter((plane) => !isOwner(plane))
+  const sharedByGroups = sharedPlanes.reduce<
+    Array<{ label: string; planes: Plane[] }>
+  >((groups, plane) => {
+    const label = ownerLabel(plane)
+    const current = groups.find((group) => group.label === label)
+    if (current) {
+      current.planes.push(plane)
+    } else {
+      groups.push({ label, planes: [plane] })
+    }
+    return groups
+  }, [])
 
   return (
     <Box p="xl">
@@ -5492,106 +5691,29 @@ function WelcomePlaneView() {
         Share planes with other users to grant full read and write access to all
         data and collections
       </Text>
-      <Group gap="md" wrap="wrap" mb="lg">
-        {planes.map((plane) => {
-          const counts = getPlaneItemCounts(plane)
-          const owner = isOwner(plane)
-          const shared = isShared(plane)
-          return (
-            <Paper
-              key={plane.id}
-              withBorder
-              shadow="sm"
-              p="md"
-              style={{
-                width: 220,
-                cursor: "pointer",
-                transition: "box-shadow 150ms ease",
-                position: "relative",
-              }}
-              onMouseEnter={() => setHoveredPlaneId(plane.id)}
-              onMouseLeave={() => setHoveredPlaneId(null)}
-              onClick={() => setActivePlaneId(plane.id)}
-            >
-              {/* Share icon - always visible for owners */}
-              {/* Show if: owner, OR if user is logged in and plane has no ownerId (default owner) */}
-              {(owner || (user && !plane.ownerId)) && (
-                <ActionIcon
-                  variant="subtle"
-                  color={hoveredPlaneId === plane.id ? "blue" : "gray"}
-                  size="sm"
-                  onClick={(e) => handleOpenShareModal(plane.id, e)}
-                  style={{
-                    position: "absolute",
-                    top: 8,
-                    right: 8,
-                    zIndex: 10,
-                  }}
-                  title="Share this plane"
-                >
-                  <IconShare size={16} />
-                </ActionIcon>
-              )}
-              
-              <Group justify="space-between" mb="xs" pr={owner ? 24 : 0}>
-                <Text fw={600} size="md">
-                  {plane.name}
-                </Text>
-                {shared && (
-                  <Badge
-                    size="xs"
-                    color={owner ? "blue" : "green"}
-                    variant="light"
-                  >
-                    {owner ? "Shared" : "Shared with me"}
-                  </Badge>
-                )}
-                {!shared && owner && (
-                  <Badge size="xs" color="gray" variant="light">
-                    Private
-                  </Badge>
-                )}
-              </Group>
-              <Stack gap={4}>
-                <Group gap={6}>
-                  <IconBox size={14} color="var(--mantine-color-teal-6)" />
-                  <Text size="xs" c="dimmed">
-                    {counts.materials} material
-                    {counts.materials !== 1 ? "s" : ""}
-                  </Text>
-                </Group>
-                <Group gap={6}>
-                  <IconFlask size={14} color="var(--mantine-color-blue-6)" />
-                  <Text size="xs" c="dimmed">
-                    {counts.solutions} solution
-                    {counts.solutions !== 1 ? "s" : ""}
-                  </Text>
-                </Group>
-                <Group gap={6}>
-                  <IconPlayerPlay
-                    size={14}
-                    color="var(--mantine-color-grape-6)"
-                  />
-                  <Text size="xs" c="dimmed">
-                    {counts.experiments} experiment
-                    {counts.experiments !== 1 ? "s" : ""}
-                  </Text>
-                </Group>
-                <Group gap={6}>
-                  <IconFolderPlus
-                    size={14}
-                    color="var(--mantine-color-gray-6)"
-                  />
-                  <Text size="xs" c="dimmed">
-                    {counts.collections} collection
-                    {counts.collections !== 1 ? "s" : ""}
-                  </Text>
-                </Group>
-              </Stack>
-            </Paper>
-          )
-        })}
-        {/* Add plane card */}
+      <Stack gap="xl" mb="lg">
+        {ownedPlanes.length > 0 && (
+          <Stack gap="sm">
+            <Text size="sm" fw={600} c="dimmed">
+              My planes
+            </Text>
+            <Group gap="md" wrap="wrap">
+              {ownedPlanes.map(renderPlaneCard)}
+            </Group>
+          </Stack>
+        )}
+
+        {sharedByGroups.map((group) => (
+          <Stack gap="sm" key={group.label}>
+            <Text size="sm" fw={600} c="dimmed">
+              Shared by {group.label}
+            </Text>
+            <Group gap="md" wrap="wrap">
+              {group.planes.map(renderPlaneCard)}
+            </Group>
+          </Stack>
+        ))}
+
         <Paper
           withBorder
           shadow="sm"
@@ -5614,7 +5736,7 @@ function WelcomePlaneView() {
             </Text>
           </Stack>
         </Paper>
-      </Group>
+      </Stack>
 
       {/* Share Modal */}
       <Modal
@@ -5637,42 +5759,37 @@ function WelcomePlaneView() {
             rightSection={isSearching ? <Loader size="xs" /> : null}
           />
 
+          {searchQuery.length >= 2 && searchResults.length === 0 && !isSearching && (
+            <Text size="xs" c="dimmed" ta="center" py="md">
+              No users found. Users already shared with or yourself are excluded.
+            </Text>
+          )}
+
           {searchResults.length > 0 && (
             <Stack gap="xs">
               <Text size="xs" fw={600} c="dimmed">
                 Search Results
               </Text>
-              {searchResults.map((searchUser) => {
-                const alreadyShared = sharingPlane?.sharedWith?.some(
-                  (u) => u.id === searchUser.id,
-                )
-                return (
-                  <Paper key={searchUser.id} p="xs" withBorder>
-                    <Group justify="space-between">
-                      <Stack gap={0}>
-                        <Text size="sm">
-                          {searchUser.full_name || "No name"}
-                        </Text>
-                        <Text size="xs" c="dimmed">
-                          {searchUser.email}
-                        </Text>
-                      </Stack>
-                      {alreadyShared ? (
-                        <Badge size="sm" color="green">
-                          Shared
-                        </Badge>
-                      ) : (
-                        <Button
-                          size="xs"
-                          onClick={() => handleShareWithUser(searchUser.id)}
-                        >
-                          Share
-                        </Button>
-                      )}
-                    </Group>
-                  </Paper>
-                )
-              })}
+              {searchResults.map((searchUser) => (
+                <Paper key={searchUser.id} p="xs" withBorder>
+                  <Group justify="space-between">
+                    <Stack gap={0}>
+                      <Text size="sm">
+                        {searchUser.full_name || "No name"}
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        {searchUser.email}
+                      </Text>
+                    </Stack>
+                    <Button
+                      size="xs"
+                      onClick={() => handleShareWithUser(searchUser.id)}
+                    >
+                      Share
+                    </Button>
+                  </Group>
+                </Paper>
+              ))}
             </Stack>
           )}
 
@@ -5733,6 +5850,9 @@ export function OrganizationPage() {
   const [hoveredPlaneTabId, setHoveredPlaneTabId] = useState<string | null>(
     null,
   )
+  const [newPlaneEditingId, setNewPlaneEditingId] = useState<string | null>(
+    null,
+  )
 
   // Keep the user on a concrete plane; if the current plane disappears,
   // fall back to the first available plane.
@@ -5744,13 +5864,50 @@ export function OrganizationPage() {
 
   const handleAddPlane = () => {
     const p = addPlane(`Plane ${planes.length + 1}`, user?.id)
-    setActivePlaneId(p.id)
+    setActivePlaneId(null)
+    setNewPlaneEditingId(p.id)
   }
 
   const handleDeletePlane = (id: string) => {
-    if (planes.length <= 1) {
+    const target = planes.find((p) => p.id === id)
+    if (!target) return
+
+    const isOwned = !target.ownerId || target.ownerId === user?.id
+
+    if (!isOwned) {
+      // Non-owner: offer to leave the shared plane
+      modals.openConfirmModal({
+        title: "Leave shared plane",
+        children: (
+          <Text size="sm">
+            Leave <strong>"{target.name}"</strong>? You will lose access to this
+            shared plane. The owner's data won't be affected.
+          </Text>
+        ),
+        labels: { confirm: "Leave", cancel: "Cancel" },
+        confirmProps: { color: "orange" },
+        onConfirm: async () => {
+          try {
+            await PlanesService.unsharePlane({ id, userId: user!.id })
+          } catch {
+            // Best-effort — remove from local view regardless
+          }
+          deletePlane(id)
+          if (activePlaneId === id) {
+            const remainingPlanes = planes.filter((p) => p.id !== id)
+            setActivePlaneId(remainingPlanes[0]?.id ?? null)
+          }
+        },
+      })
       return
     }
+
+    // Owner: block deleting the last owned plane
+    const ownedCount = planes.filter(
+      (p) => !p.ownerId || p.ownerId === user?.id,
+    ).length
+    if (ownedCount <= 1) return
+
     modals.openConfirmModal({
       title: "Delete plane",
       children: <Text size="sm">Delete this plane and all its content?</Text>,
@@ -5759,7 +5916,7 @@ export function OrganizationPage() {
       onConfirm: () => {
         deletePlane(id)
         if (activePlaneId === id) {
-          const remainingPlanes = planes.filter((plane) => plane.id !== id)
+          const remainingPlanes = planes.filter((p) => p.id !== id)
           setActivePlaneId(remainingPlanes[0]?.id ?? null)
         }
       },
@@ -5828,7 +5985,14 @@ export function OrganizationPage() {
                     plane={p}
                     onRename={(name) => updatePlane({ ...p, name })}
                     onClose={() => handleDeletePlane(p.id)}
-                    canClose={planes.length > 1}
+                    canClose={
+                      !p.ownerId || p.ownerId === user?.id
+                        ? planes.filter(
+                            (q) => !q.ownerId || q.ownerId === user?.id,
+                          ).length > 1
+                        : true // non-owner can always leave
+                    }
+                    autoStartEdit={newPlaneEditingId === p.id}
                   />
                 </Tabs.Tab>
               ))}

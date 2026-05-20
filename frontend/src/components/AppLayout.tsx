@@ -2,6 +2,7 @@ import {
   ActionIcon,
   AppShell,
   Avatar,
+  Badge,
   ColorSwatch,
   Group,
   Menu,
@@ -250,7 +251,18 @@ export function AppLayout() {
                     fw={p.id === activePlaneId ? 700 : undefined}
                     onClick={() => setActivePlaneId(p.id)}
                   >
-                    {p.name}
+                    <Group justify="space-between" wrap="nowrap" gap="xs">
+                      <Text size="sm" style={{ flex: 1 }}>
+                        {p.name}
+                      </Text>
+                      <Badge
+                        size="xs"
+                        color={(p.sharedWith?.length ?? 0) > 0 ? "red" : "green"}
+                        variant="light"
+                      >
+                        {(p.sharedWith?.length ?? 0) > 0 ? "s" : "p"}
+                      </Badge>
+                    </Group>
                   </Menu.Item>
                 ))}
               </Menu.Dropdown>

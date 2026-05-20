@@ -747,6 +747,7 @@ export type Plane = {
   name: string
   elements: CanvasElement[]
   ownerId?: string
+  owner?: { id: string; email: string; full_name: string | null }
   sharedWith?: Array<{ id: string; email: string; full_name: string | null }>
 }
 
@@ -1266,8 +1267,7 @@ export function AppProvider({
       return
     }
     scheduleSave()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded, scheduleSave])
+  }, [loaded, scheduleSave, materials, solutions, experiments, processes, results, planes])
 
   // ── Periodic safety flush + unload / visibility watchdog ──────────────────
 

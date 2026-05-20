@@ -116,6 +116,11 @@ export interface ApiPlane {
   id: string
   name: string
   owner_id: string
+  owner?: {
+    id: string
+    email: string
+    full_name: string | null
+  }
   created_at: string | null
   elements: ApiCanvasElement[]
   shared_with?: Array<{
@@ -232,6 +237,7 @@ export function apiPlaneToPlane(api: ApiPlane): Plane {
     id: api.id,
     name: api.name,
     ownerId: api.owner_id,
+    owner: api.owner,
     sharedWith: api.shared_with ?? [],
     elements: api.elements.map((e) => {
       // Parse content as JSON for collection elements

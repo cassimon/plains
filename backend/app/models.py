@@ -535,6 +535,7 @@ class PlaneSharePublic(SQLModel):
 class PlanePublic(PlaneBase):
     id: uuid.UUID
     owner_id: uuid.UUID
+    owner: UserPublic
     created_at: datetime | None = None
     elements: list[CanvasElementPublic]
     shared_with: list[UserPublic] = []

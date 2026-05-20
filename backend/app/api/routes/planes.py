@@ -38,9 +38,16 @@ def _has_plane_access(plane: Plane, user: User) -> bool:
 def _populate_shared_with(plane: Plane) -> PlanePublic:
     """Convert Plane to PlanePublic with shared_with users populated."""
     shared_users = [UserPublic.model_validate(share.user) for share in plane.shared_with]
-    plane_dict = plane.model_dump()
-    plane_dict["shared_with"] = shared_users
-    return PlanePublic.model_validate(plane_dict)
+    elements = [CanvasElementPublic.model_validate(el) for el in plane.elements]
+    return PlanePublic(
+        id=plane.id,
+        name=plane.name,
+        owner_id=plane.owner_id,
+        owner=UserPublic.model_validate(plane.owner),
+        created_at=plane.created_at,
+        elements=elements,
+        shared_with=shared_users,
+    )
 
 
 @router.get("/", response_model=PlanesPublic)

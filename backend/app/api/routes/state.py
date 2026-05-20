@@ -26,6 +26,7 @@ from app.models import (
     Plane,
     PlaneShare,
     CanvasElement,
+    UserPublic,
 )
 
 logger = logging.getLogger(__name__)
@@ -179,7 +180,23 @@ def read_state(session: SessionDep, current_user: CurrentUser) -> Any:
                         "size": {"x": el.width, "y": el.height},
                         "content": el.content or "", "color": el.color,
                     })
-            planes_out.append({"id": str(p.id), "name": p.name, "elements": elems})
+            planes_out.append(
+                {
+                    "id": str(p.id),
+                    "name": p.name,
+                    "ownerId": str(p.owner_id),
+                    "owner": (
+                        UserPublic.model_validate(p.owner).model_dump()
+                        if p.owner
+                        else None
+                    ),
+                    "elements": elems,
+                    "sharedWith": [
+                        UserPublic.model_validate(share.user).model_dump()
+                        for share in p.shared_with
+                    ],
+                }
+            )
 
     data = {
         "materials": materials_out,
