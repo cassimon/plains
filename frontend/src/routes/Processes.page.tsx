@@ -392,6 +392,241 @@ type StackLayer = {
 
 const LAYER_TYPE_OPTIONS = ["ETL", "HTL", "absorber", "contact", "interlayer"]
 
+// Based on NOMAD perovskite schema ion lists (ion_vars.py).
+const NOMAD_PEROVSKITE_A_IONS = new Set([
+  "MA",
+  "FA",
+  "Cs",
+  "Rb",
+  "K",
+  "Na",
+  "GU",
+  "NH4",
+  "BA",
+  "PEA",
+  "EA",
+  "DMA",
+  "TMA",
+  "PMA",
+  "AVA",
+  "5-AVA",
+  "HA",
+  "CHMA",
+  "Ada",
+  "Anyl",
+  "A43",
+  "BI",
+])
+
+const NOMAD_PEROVSKITE_B_IONS = new Set([
+  "Fe",
+  "Nb",
+  "Ag",
+  "Te",
+  "Ni",
+  "Hg",
+  "Pt",
+  "Ba",
+  "Al",
+  "Eu",
+  "Ca",
+  "Co",
+  "Y",
+  "Ti",
+  "Zn",
+  "Au",
+  "In",
+  "Sr",
+  "Sn",
+  "Sb",
+  "Ge",
+  "Bi",
+  "Mg",
+  "Cu",
+  "Cr",
+  "Pb",
+  "Mn",
+  "Sm",
+  "La",
+  "Tb",
+])
+
+const NOMAD_PEROVSKITE_X_IONS = new Set([
+  "Cl",
+  "BF4",
+  "S",
+  "O",
+  "Br",
+  "F",
+  "I",
+  "SCN",
+  "PF6",
+])
+
+const PEROVSKITE_A_FORMULA_SUGGESTIONS = [
+  "FA1",
+  "MA1",
+  "Cs1",
+  "FA0.9MA0.1",
+  "Cs0.05FA0.79MA0.16",
+  "Cs0.1FA0.9",
+]
+
+const PEROVSKITE_B_FORMULA_SUGGESTIONS = [
+  "Pb1",
+  "Sn1",
+  "Pb0.8Sn0.2",
+  "Pb0.5Sn0.5",
+  "Pb0.9Ge0.1",
+]
+
+const PEROVSKITE_X_FORMULA_SUGGESTIONS = [
+  "I1",
+  "Br1",
+  "Cl1",
+  "I0.75Br0.25",
+  "I0.5Br0.5",
+  "Br0.2I0.8",
+]
+
+type PerovskiteSite = "A" | "B" | "X"
+
+type PerovskiteLayerValidation = {
+  aErrors: string[]
+  bErrors: string[]
+  xErrors: string[]
+  errors: string[]
+}
+
+function normalizePerovskiteIonToken(token: string): string {
+  if (token.startsWith("(") && token.endsWith(")")) {
+    return token.slice(1, -1)
+  }
+  return token
+}
+
+function parsePerovskiteSiteFormula(rawValue: string): {
+  components: Array<{ ion: string; coefficient: number }>
+  parseError?: string
+} {
+  const compact = rawValue.replace(/\s+/g, "")
+  if (!compact) {
+    return { components: [] }
+  }
+
+  const componentRegex = /(\([^)]+\)|[A-Za-z][A-Za-z0-9+-]*)(\d+(?:\.\d+)?|\.\d+)/g
+  const components: Array<{ ion: string; coefficient: number }> = []
+  let consumedUntil = 0
+
+  let match = componentRegex.exec(compact)
+  while (match) {
+    if (match.index !== consumedUntil) {
+      return {
+        components: [],
+        parseError:
+          "Invalid formula syntax. Use Ion+coefficient blocks, e.g. Cs0.1FA0.9",
+      }
+    }
+    const coefficient = Number(match[2])
+    if (!Number.isFinite(coefficient)) {
+      return {
+        components: [],
+        parseError: `Invalid coefficient \"${match[2]}\"`,
+      }
+    }
+    components.push({
+      ion: normalizePerovskiteIonToken(match[1]),
+      coefficient,
+    })
+    consumedUntil = componentRegex.lastIndex
+    match = componentRegex.exec(compact)
+  }
+
+  if (consumedUntil !== compact.length) {
+    return {
+      components: [],
+      parseError:
+        "Invalid formula syntax. Use Ion+coefficient blocks, e.g. I0.75Br0.25",
+    }
+  }
+
+  return { components }
+}
+
+function validatePerovskiteSiteFormula(
+  site: PerovskiteSite,
+  rawValue: string,
+  allowedIons: Set<string>,
+): string[] {
+  const value = rawValue.trim()
+  if (!value) return []
+
+  const { components, parseError } = parsePerovskiteSiteFormula(value)
+  if (parseError) {
+    return [`${site}: ${parseError}`]
+  }
+
+  const errors: string[] = []
+  let sum = 0
+
+  for (const component of components) {
+    if (component.coefficient <= 0) {
+      errors.push(
+        `${site}: coefficient for ${component.ion} must be > 0 (got ${component.coefficient}).`,
+      )
+    }
+
+    if (!allowedIons.has(component.ion)) {
+      const caseInsensitiveMatch = Array.from(allowedIons).find(
+        (candidate) => candidate.toLowerCase() === component.ion.toLowerCase(),
+      )
+      if (caseInsensitiveMatch) {
+        errors.push(
+          `${site}: ${component.ion} is not valid in NOMAD. Did you mean ${caseInsensitiveMatch}?`,
+        )
+      } else {
+        errors.push(
+          `${site}: ${component.ion} is not in the NOMAD ${site}-site ion list.`,
+        )
+      }
+    }
+
+    sum += component.coefficient
+  }
+
+  if (Math.abs(sum - 1) > 1e-3) {
+    errors.push(`${site}: coefficients must sum to 1 (got ${sum.toFixed(3)}).`)
+  }
+
+  return errors
+}
+
+function validatePerovskiteLayerComposition(
+  layer: Pick<StackLayer, "perovskiteA" | "perovskiteB" | "perovskiteX">,
+): PerovskiteLayerValidation {
+  const aErrors = validatePerovskiteSiteFormula(
+    "A",
+    layer.perovskiteA,
+    NOMAD_PEROVSKITE_A_IONS,
+  )
+  const bErrors = validatePerovskiteSiteFormula(
+    "B",
+    layer.perovskiteB,
+    NOMAD_PEROVSKITE_B_IONS,
+  )
+  const xErrors = validatePerovskiteSiteFormula(
+    "X",
+    layer.perovskiteX,
+    NOMAD_PEROVSKITE_X_IONS,
+  )
+  return {
+    aErrors,
+    bErrors,
+    xErrors,
+    errors: [...aErrors, ...bErrors, ...xErrors],
+  }
+}
+
 function getMaterialTypeStr(step: ProcessStep, materials: Material[]): string {
   if (step.materialId) {
     const mat = materials.find((m) => m.id === step.materialId)
@@ -720,7 +955,7 @@ function ResultingStacks({
 }: ResultingStacksProps) {
   const LAYER_HEIGHT = 42
   const PEROVSKITE_LAYER_HEIGHT = 92
-  const PEROVSKITE_EDIT_LAYER_HEIGHT = 124
+  const PEROVSKITE_EDIT_LAYER_HEIGHT = 144
   const SUBSTRATE_HEIGHT = 50
   const [editingLayerKey, setEditingLayerKey] = useState<string | null>(null)
   const [expandedFields, setExpandedFields] = useState<
@@ -1101,10 +1336,16 @@ function ResultingStacks({
                         const isPerovskiteLayer = layer.name
                           .toLowerCase()
                           .includes("perovskite")
+                        const perovskiteValidation = isPerovskiteLayer
+                          ? validatePerovskiteLayerComposition(layer)
+                          : null
+                        const hasPerovskiteErrors =
+                          (perovskiteValidation?.errors.length ?? 0) > 0
                         const layerHeight = isPerovskiteLayer
                           ? isEditing
                             ? PEROVSKITE_EDIT_LAYER_HEIGHT
-                            : PEROVSKITE_LAYER_HEIGHT
+                            : PEROVSKITE_LAYER_HEIGHT +
+                              (hasPerovskiteErrors ? 16 : 0)
                           : LAYER_HEIGHT
 
                         return (
@@ -1277,12 +1518,27 @@ function ResultingStacks({
                                           )
                                         }
                                         onClick={(e) => e.stopPropagation()}
-                                        style={inLayerFieldInputStyle}
+                                        aria-invalid={
+                                          (perovskiteValidation?.aErrors.length ??
+                                            0) > 0
+                                        }
+                                        style={{
+                                          ...inLayerFieldInputStyle,
+                                          border:
+                                            (perovskiteValidation?.aErrors
+                                              .length ?? 0) > 0
+                                              ? "1px solid #ff8787"
+                                              : inLayerFieldInputStyle.border,
+                                        }}
                                       />
                                       <datalist
                                         id={`pvk-a-${stack.combination}-${layerIdx}`}
                                       >
-                                        <option value="Cs0.1FA0.9" />
+                                        {PEROVSKITE_A_FORMULA_SUGGESTIONS.map(
+                                          (option) => (
+                                            <option key={option} value={option} />
+                                          ),
+                                        )}
                                       </datalist>
                                     </Box>
                                     <Box style={{ flex: 1 }}>
@@ -1310,12 +1566,27 @@ function ResultingStacks({
                                           )
                                         }
                                         onClick={(e) => e.stopPropagation()}
-                                        style={inLayerFieldInputStyle}
+                                        aria-invalid={
+                                          (perovskiteValidation?.bErrors.length ??
+                                            0) > 0
+                                        }
+                                        style={{
+                                          ...inLayerFieldInputStyle,
+                                          border:
+                                            (perovskiteValidation?.bErrors
+                                              .length ?? 0) > 0
+                                              ? "1px solid #ff8787"
+                                              : inLayerFieldInputStyle.border,
+                                        }}
                                       />
                                       <datalist
                                         id={`pvk-b-${stack.combination}-${layerIdx}`}
                                       >
-                                        <option value="Sn0.2Pb0.8" />
+                                        {PEROVSKITE_B_FORMULA_SUGGESTIONS.map(
+                                          (option) => (
+                                            <option key={option} value={option} />
+                                          ),
+                                        )}
                                       </datalist>
                                     </Box>
                                     <Box style={{ flex: 1 }}>
@@ -1343,15 +1614,42 @@ function ResultingStacks({
                                           )
                                         }
                                         onClick={(e) => e.stopPropagation()}
-                                        style={inLayerFieldInputStyle}
+                                        aria-invalid={
+                                          (perovskiteValidation?.xErrors.length ??
+                                            0) > 0
+                                        }
+                                        style={{
+                                          ...inLayerFieldInputStyle,
+                                          border:
+                                            (perovskiteValidation?.xErrors
+                                              .length ?? 0) > 0
+                                              ? "1px solid #ff8787"
+                                              : inLayerFieldInputStyle.border,
+                                        }}
                                       />
                                       <datalist
                                         id={`pvk-x-${stack.combination}-${layerIdx}`}
                                       >
-                                        <option value="I0.75BR0.25" />
+                                        {PEROVSKITE_X_FORMULA_SUGGESTIONS.map(
+                                          (option) => (
+                                            <option key={option} value={option} />
+                                          ),
+                                        )}
                                       </datalist>
                                     </Box>
                                   </Box>
+                                  {hasPerovskiteErrors && (
+                                    <Text
+                                      size="9px"
+                                      c="#ffd8d8"
+                                      ta="left"
+                                      style={{ lineHeight: 1.2 }}
+                                    >
+                                      {perovskiteValidation?.errors
+                                        .slice(0, 2)
+                                        .join(" ")}
+                                    </Text>
+                                  )}
                                 </Box>
                               ) : isPerovskiteLayer ? (
                                 <Box
@@ -1375,7 +1673,9 @@ function ResultingStacks({
                                   </Text>
                                   <Text
                                     size="xs"
-                                    c="white"
+                                    c={
+                                      hasPerovskiteErrors ? "#ffd8d8" : "white"
+                                    }
                                     ta="center"
                                     style={{
                                       opacity: 0.9,
@@ -1386,6 +1686,16 @@ function ResultingStacks({
                                     {layer.perovskiteB || "-"} X:{" "}
                                     {layer.perovskiteX || "-"}
                                   </Text>
+                                  {hasPerovskiteErrors && (
+                                    <Text
+                                      size="9px"
+                                      c="#ffd8d8"
+                                      ta="center"
+                                      style={{ lineHeight: 1.2 }}
+                                    >
+                                      {perovskiteValidation?.errors[0]}
+                                    </Text>
+                                  )}
                                 </Box>
                               ) : isEditing ? (
                                 <Box style={{ width: "100%" }}>
