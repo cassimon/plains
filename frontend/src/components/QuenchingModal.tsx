@@ -788,7 +788,7 @@ export interface DryingMethodInputProps {
 }
 
 /** Render a compact human-readable summary of a quenching string. */
-function summariseQuenchingValue(
+export function summariseQuenchingValue(
   value: string,
   materials: Array<{ id: string; name: string }>,
   solutions: Array<{ id: string; name: string }>,
