@@ -466,6 +466,7 @@ type GeneratedStack = {
   layers: StackLayer[]
   combination: number // for identifying which alternative combo this represents
   architecture?: string
+  buildDevice?: "Yes" | "No"
   pixelAreaCm2?: string
   numberOfPixels?: string
 }
@@ -678,6 +679,7 @@ function generateStackCombinations(
         layers,
         combination: combinationCounter,
         architecture: "Unknown",
+        buildDevice: "Yes",
         pixelAreaCm2: "",
         numberOfPixels: "4",
       })
@@ -699,7 +701,7 @@ type ResultingStacksProps = {
   ) => void
   onStackFieldChange: (
     stackIdx: number,
-    field: "architecture" | "pixelAreaCm2" | "numberOfPixels",
+    field: "architecture" | "buildDevice" | "pixelAreaCm2" | "numberOfPixels",
     value: string,
   ) => void
   onDelete: (combination: number) => void
@@ -871,24 +873,20 @@ function ResultingStacks({
                     </select>
                   </Box>
 
-                  {/* Pixel area */}
+                  {/* Build Device selector */}
                   <Box style={{ width: 100 }}>
                     <Text size="10px" c="dimmed" mb={2}>
-                      Area (cm²)
+                      Build Device
                     </Text>
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      value={stack.pixelAreaCm2 || ""}
+                    <select
+                      value={stack.buildDevice || "Yes"}
                       onChange={(e) =>
                         onStackFieldChange(
                           stackIdx,
-                          "pixelAreaCm2",
-                          e.currentTarget.value,
+                          "buildDevice",
+                          e.currentTarget.value as "Yes" | "No",
                         )
                       }
-                      placeholder="—"
                       style={{
                         width: "100%",
                         fontSize: 11,
@@ -898,41 +896,79 @@ function ResultingStacks({
                         background: "white",
                         color: "#333",
                         outline: "none",
-                        textAlign: "right",
                       }}
-                    />
+                    >
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
                   </Box>
 
-                  {/* Number of pixels */}
-                  <Box style={{ width: 80 }}>
-                    <Text size="10px" c="dimmed" mb={2}>
-                      # Pixels
-                    </Text>
-                    <input
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={stack.numberOfPixels || "4"}
-                      onChange={(e) =>
-                        onStackFieldChange(
-                          stackIdx,
-                          "numberOfPixels",
-                          e.currentTarget.value,
-                        )
-                      }
-                      style={{
-                        width: "100%",
-                        fontSize: 11,
-                        border: "1px solid #dee2e6",
-                        borderRadius: 4,
-                        padding: "4px 6px",
-                        background: "white",
-                        color: "#333",
-                        outline: "none",
-                        textAlign: "right",
-                      }}
-                    />
-                  </Box>
+                  {/* Pixel area - only show if buildDevice is Yes */}
+                  {stack.buildDevice !== "No" && (
+                    <Box style={{ width: 100 }}>
+                      <Text size="10px" c="dimmed" mb={2}>
+                        Area (cm²)
+                      </Text>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={stack.pixelAreaCm2 || ""}
+                        onChange={(e) =>
+                          onStackFieldChange(
+                            stackIdx,
+                            "pixelAreaCm2",
+                            e.currentTarget.value,
+                          )
+                        }
+                        placeholder="—"
+                        style={{
+                          width: "100%",
+                          fontSize: 11,
+                          border: "1px solid #dee2e6",
+                          borderRadius: 4,
+                          padding: "4px 6px",
+                          background: "white",
+                          color: "#333",
+                          outline: "none",
+                          textAlign: "right",
+                        }}
+                      />
+                    </Box>
+                  )}
+
+                  {/* Number of pixels - only show if buildDevice is Yes */}
+                  {stack.buildDevice !== "No" && (
+                    <Box style={{ width: 80 }}>
+                      <Text size="10px" c="dimmed" mb={2}>
+                        # Pixels
+                      </Text>
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={stack.numberOfPixels || "4"}
+                        onChange={(e) =>
+                          onStackFieldChange(
+                            stackIdx,
+                            "numberOfPixels",
+                            e.currentTarget.value,
+                          )
+                        }
+                        style={{
+                          width: "100%",
+                          fontSize: 11,
+                          border: "1px solid #dee2e6",
+                          borderRadius: 4,
+                          padding: "4px 6px",
+                          background: "white",
+                          color: "#333",
+                          outline: "none",
+                          textAlign: "right",
+                        }}
+                      />
+                    </Box>
+                  )}
                 </Group>
               </Box>
 
@@ -1460,8 +1496,11 @@ function ResultingStacks({
                 // Add stack-level parameters
                 if (stack.architecture && stack.architecture !== "Unknown")
                   paramCount++
-                if (stack.pixelAreaCm2) paramCount++
-                if (stack.numberOfPixels) paramCount++
+                // Only count device parameters if buildDevice is Yes
+                if (stack.buildDevice !== "No") {
+                  if (stack.pixelAreaCm2) paramCount++
+                  if (stack.numberOfPixels) paramCount++
+                }
 
                 return paramCount > 0 ? (
                   <Box
@@ -1997,7 +2036,7 @@ export function ProcessesPage() {
 
   const handleUpdateStackField = (
     stackIdx: number,
-    field: "architecture" | "pixelAreaCm2" | "numberOfPixels",
+    field: "architecture" | "buildDevice" | "pixelAreaCm2" | "numberOfPixels",
     value: string,
   ) => {
     if (!selectedProcess) return

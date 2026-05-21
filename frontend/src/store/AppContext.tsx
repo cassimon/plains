@@ -174,6 +174,7 @@ export type ProcessGeneratedStack = {
   layers: ProcessGeneratedStackLayer[]
   combination: number
   architecture?: string
+  buildDevice?: "Yes" | "No"
   pixelAreaCm2?: string
   numberOfPixels?: string
 }

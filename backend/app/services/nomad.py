@@ -1112,22 +1112,29 @@ def create_nomad_metadata_yaml(
         add_e: list,
         substrate: dict[str, Any] | None,
         jv_sec: dict[str, Any],
-        cell_area: float,
+        cell_area: float | None,
         substrate_ref: str | None = None,
         deposition_ref: str | None = None,
     ) -> dict[str, Any]:
-        """Assemble the PerovskiteSolarCell data dict."""
+        """Assemble the PerovskiteSolarCell data dict.
+        
+        Args:
+            cell_area: Device area in cm². If None, area_total is not included.
+        """
+        cell_dict: dict[str, Any] = {
+            "stack_sequence": cell_stack_sequence,
+            "architecture": architecture_nomad,
+        }
+        if cell_area is not None:
+            cell_dict["area_total"] = cell_area
+        
         d: dict[str, Any] = {
             "m_def": "nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.PerovskiteSolarCellSample",
             "ref": {
                 "free_text_comment": comment or "",
                 "name_of_person_entering_the_data": user_name,
             },
-            "cell": {
-                "stack_sequence": cell_stack_sequence,
-                "architecture": architecture_nomad,
-                "area_total": cell_area,
-            },
+            "cell": cell_dict,
             "substrate": {
                 "stack_sequence": substrate_layer_name,
                 "thickness": "nan",
@@ -1304,6 +1311,14 @@ def create_nomad_metadata_yaml(
         n = len(active_stacks)
         return active_stacks[sub_idx % n] if n > 0 else None
 
+    def _should_build_device_for_substrate(sub_idx: int) -> bool:
+        """Check if buildDevice is Yes (or not set, defaulting to Yes)."""
+        stack = _stack_for_substrate(sub_idx)
+        if isinstance(stack, dict):
+            build_device = str(stack.get("buildDevice") or "Yes").strip()
+            return build_device != "No"
+        return True
+
     def _num_pixels_for_substrate(sub_idx: int) -> int:
         stack = _stack_for_substrate(sub_idx)
         if isinstance(stack, dict):
@@ -1316,7 +1331,10 @@ def create_nomad_metadata_yaml(
                 pass
         return max(devices_per_substrate, 1)
 
-    def _cell_area_for_substrate(sub_idx: int) -> float:
+    def _cell_area_for_substrate(sub_idx: int) -> float | None:
+        """Return cell area if buildDevice is Yes, otherwise None."""
+        if not _should_build_device_for_substrate(sub_idx):
+            return None
         stack = _stack_for_substrate(sub_idx)
         if isinstance(stack, dict):
             raw = str(stack.get("pixelAreaCm2") or "").strip()
