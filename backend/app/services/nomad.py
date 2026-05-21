@@ -1019,6 +1019,62 @@ def create_nomad_metadata_yaml(
 
         return " | ".join(ion_layers), " | ".join(coeff_layers), len(ion_layers)
 
+    def _is_image_file(filename: str) -> bool:
+        """Check if a file is an image based on extension."""
+        lower = filename.lower()
+        return bool(lower.endswith(('.png', '.jpg', '.jpeg', '.tiff', '.tif', '.gif', '.webp', '.bmp')))
+    
+    def _is_document_file(filename: str) -> bool:
+        """Check if a file is a document based on extension."""
+        lower = filename.lower()
+        return bool(lower.endswith(('.pdf', '.doc', '.docx', '.odt', '.rtf')))
+    
+    def _extract_images_from_files(files: list[dict[str, Any]]) -> list[dict[str, str]]:
+        """Extract image files and format them for NOMAD schema.
+        
+        Args:
+            files: List of measurement file dicts with 'fileName' field
+            
+        Returns:
+            List of dicts with 'image' and 'caption' fields
+        """
+        images = []
+        for f in files:
+            filename = f.get("fileName", "")
+            if not filename or not _is_image_file(filename):
+                continue
+            
+            # Use filename without extension as caption
+            caption = Path(filename).stem.replace('_', ' ').replace('-', ' ')
+            images.append({
+                "image": filename,
+                "caption": caption,
+            })
+        return images
+    
+    def _extract_documents_from_files(files: list[dict[str, Any]]) -> list[dict[str, str]]:
+        """Extract document files and format them for NOMAD schema.
+        
+        Args:
+            files: List of measurement file dicts with 'fileName' field
+            
+        Returns:
+            List of dicts with 'document' and 'title' fields
+        """
+        documents = []
+        for f in files:
+            filename = f.get("fileName", "")
+            if not filename or not _is_document_file(filename):
+                continue
+            
+            # Use filename without extension as title
+            title = Path(filename).stem.replace('_', ' ').replace('-', ' ')
+            documents.append({
+                "document": filename,
+                "title": title,
+            })
+        return documents
+
     def _resolve_media_reference(media_ref: str) -> str:
         """Resolve a media reference like 'material:id' or 'solution:id' to the actual name."""
         if not media_ref or ":" not in media_ref:
@@ -1315,11 +1371,13 @@ def create_nomad_metadata_yaml(
         cell_area: float | None,
         substrate_ref: str | None = None,
         deposition_ref: str | None = None,
+        group_files: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Assemble the PerovskiteSolarCell data dict.
         
         Args:
             cell_area: Device area in cm². If None, area_total is not included.
+            group_files: Optional list of measurement files for this device group
         """
         cell_dict: dict[str, Any] = {
             "stack_sequence": cell_stack_sequence,
@@ -1506,6 +1564,17 @@ def create_nomad_metadata_yaml(
             d["add"] = _build_section(add_e, substrate, thickness_key="thickness_list")
 
         d["jv"] = jv_sec
+        
+        # Add images and documents if files are provided
+        if group_files:
+            images = _extract_images_from_files(group_files)
+            if images:
+                d["images"] = images
+            
+            documents = _extract_documents_from_files(group_files)
+            if documents:
+                d["documents"] = documents
+        
         return d
 
     def _stack_for_substrate(sub_idx: int) -> dict[str, Any] | None:
@@ -1931,6 +2000,7 @@ def create_nomad_metadata_yaml(
                 cell_area=cell_area,
                 substrate_ref=substrate_ref,
                 deposition_ref=deposition_ref,
+                group_files=group_files,
             )
             archives[sample_fname] = {"data": sample_data}
 
