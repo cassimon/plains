@@ -572,12 +572,168 @@ def create_nomad_metadata_yaml(
             )
         return aggregated
 
+    def _extract_numeric_from_amount(amount_str: str) -> str:
+        """Extract numeric value from amount string like '1.0 ml' -> '1.0'."""
+        if not amount_str or amount_str == "Unknown":
+            return "nan"
+        # Try to extract the first numeric value from the string
+        import re
+        match = re.search(r"([0-9]+\.?[0-9]*)", amount_str)
+        if match:
+            value = match.group(1)
+            # Format to remove trailing zeros and decimal point if integer
+            try:
+                float_val = float(value)
+                if float_val.is_integer():
+                    return str(int(float_val))
+                return value
+            except ValueError:
+                return "nan"
+        return "nan"
+
+    def _format_mixing_ratios(solvent_components: list[dict[str, str]]) -> str:
+        """Format solvent volumes as mixing ratios.
+        
+        Returns:
+            - '1' for single solvent or no solvents
+            - 'V1; V2; V3' for multiple solvents
+            - 'nan' for unknown
+        """
+        if not solvent_components:
+            return "1"  # Non-solvent process
+        
+        if len(solvent_components) == 1:
+            # Single solvent - return '1'
+            return "1"
+        
+        # Multiple solvents - extract volumes
+        volumes: list[str] = []
+        for item in solvent_components:
+            amount = item.get("amount", "Unknown")
+            # Handle cases where amount might be comma-separated (multiple measurements)
+            if "," in amount:
+                # Take the first value if multiple
+                amount = amount.split(",")[0].strip()
+            numeric = _extract_numeric_from_amount(amount)
+            volumes.append(numeric)
+        
+        # If all are nan, return nan
+        if all(v == "nan" for v in volumes):
+            return "nan"
+        
+        return "; ".join(volumes)
+
+    def _calculate_concentrations_mg_ml(
+        compound_components: list[dict[str, str]],
+        solvent_components: list[dict[str, str]],
+    ) -> str:
+        """Calculate concentration in mg/ml for each compound.
+        
+        Args:
+            compound_components: List of compound dicts with 'amount' field
+            solvent_components: List of solvent dicts with 'amount' field
+            
+        Returns:
+            Formatted concentration string (e.g., "50.5 mg/ml" or "50.5 mg/ml; 10.2 mg/ml")
+            Returns "none" for pure solvents, "nan" for unknown
+        """
+        import re
+        
+        # Calculate total solvent volume in ml
+        total_volume_ml = 0.0
+        for solvent in solvent_components:
+            amount_str = solvent.get("amount", "Unknown")
+            if amount_str == "Unknown":
+                continue
+            # Handle comma-separated values (take first)
+            if "," in amount_str:
+                amount_str = amount_str.split(",")[0].strip()
+            
+            # Parse number and unit
+            match = re.match(r'([0-9.]+)\s*([a-zA-Zµμ]+)', amount_str)
+            if not match:
+                continue
+            value_str, unit = match.groups()
+            try:
+                value_float = float(value_str)
+            except ValueError:
+                continue
+            
+            # Convert to ml
+            unit_lower = unit.lower()
+            if unit_lower in ('ml', 'milliliter', 'millilitre'):
+                total_volume_ml += value_float
+            elif unit_lower in ('l', 'liter', 'litre'):
+                total_volume_ml += value_float * 1000
+            elif unit_lower in ('µl', 'μl', 'ul', 'microliter', 'microlitre'):
+                total_volume_ml += value_float / 1000
+        
+        # If no solvent volume, return appropriate value
+        if total_volume_ml == 0:
+            if not compound_components:
+                return "none"  # Pure solvents or gas phase
+            return "nan"  # Cannot calculate
+        
+        # Calculate concentration for each compound
+        concentrations = []
+        for compound in compound_components:
+            amount_str = compound.get("amount", "Unknown")
+            if amount_str == "Unknown":
+                concentrations.append("nan")
+                continue
+            
+            # Handle comma-separated values (take first)
+            if "," in amount_str:
+                amount_str = amount_str.split(",")[0].strip()
+            
+            # Parse number and unit
+            match = re.match(r'([0-9.]+)\s*([a-zA-Zµμ]+)', amount_str)
+            if not match:
+                concentrations.append("nan")
+                continue
+            
+            value_str, unit = match.groups()
+            try:
+                value_float = float(value_str)
+            except ValueError:
+                concentrations.append("nan")
+                continue
+            
+            # Convert to mg
+            mass_mg = None
+            unit_lower = unit.lower()
+            if unit_lower in ('mg', 'milligram'):
+                mass_mg = value_float
+            elif unit_lower in ('g', 'gram'):
+                mass_mg = value_float * 1000
+            elif unit_lower in ('µg', 'μg', 'ug', 'microgram'):
+                mass_mg = value_float / 1000
+            elif unit_lower in ('kg', 'kilogram'):
+                mass_mg = value_float * 1000000
+            # For molar units (M, mM) or other units, we can't convert without molecular weight
+            else:
+                concentrations.append("nan")
+                continue
+            
+            if mass_mg is not None:
+                concentration = mass_mg / total_volume_ml
+                # Format with appropriate precision (4 decimal places)
+                concentrations.append(f"{concentration:.4f} mg/ml")
+            else:
+                concentrations.append("nan")
+        
+        if not concentrations:
+            return "none"
+        
+        return "; ".join(concentrations)
+
     def _layer_solution_metadata(step: dict[str, Any]) -> dict[str, str]:
         if not _is_liquid_deposition(step):
             return {
                 "solvents": "Unknown",
                 "solvents_supplier": "Unknown",
                 "solvents_purity": "Unknown",
+                "solvents_mixing_ratios": "1",
                 "compounds": "Unknown",
                 "compounds_supplier": "Unknown",
                 "compounds_purity": "Unknown",
@@ -596,6 +752,7 @@ def create_nomad_metadata_yaml(
             "solvents_purity": _format_layer_token_list(
                 [item["purity"] for item in solvent_components],
             ),
+            "solvents_mixing_ratios": _format_mixing_ratios(solvent_components),
             "compounds": _format_layer_token_list([item["name"] for item in compound_components]),
             "compounds_supplier": _format_layer_token_list(
                 [item["supplier"] for item in compound_components],
@@ -603,9 +760,7 @@ def create_nomad_metadata_yaml(
             "compounds_purity": _format_layer_token_list(
                 [item["purity"] for item in compound_components],
             ),
-            "concentrations": _format_layer_token_list(
-                [item["amount"] for item in compound_components],
-            ),
+            "concentrations": _calculate_concentrations_mg_ml(compound_components, solvent_components),
         }
 
     def _quenching_solution_metadata(solution_id: str) -> dict[str, str]:
@@ -626,14 +781,13 @@ def create_nomad_metadata_yaml(
         media_names = [item["name"] for item in solvent_components]
         media_amounts = [item["amount"] for item in solvent_components]
         additive_names = [item["name"] for item in compound_components]
-        additive_amounts = [item["amount"] for item in compound_components]
 
         return {
             "media": _format_layer_token_list(media_names) or _clean_value(solution.get("name")),
             "volume": _format_layer_token_list(media_amounts),
             "mixing_ratios": _format_layer_token_list(media_amounts),
             "additives_compounds": _format_layer_token_list(additive_names),
-            "additives_concentrations": _format_layer_token_list(additive_amounts),
+            "additives_concentrations": _calculate_concentrations_mg_ml(compound_components, solvent_components),
         }
 
     def _join_layer_solution_field(
@@ -865,6 +1019,30 @@ def create_nomad_metadata_yaml(
 
         return " | ".join(ion_layers), " | ".join(coeff_layers), len(ion_layers)
 
+    def _resolve_media_reference(media_ref: str) -> str:
+        """Resolve a media reference like 'material:id' or 'solution:id' to the actual name."""
+        if not media_ref or ":" not in media_ref:
+            return media_ref
+        
+        parts = media_ref.split(":", 1)
+        if len(parts) != 2:
+            return media_ref
+        
+        kind, ref_id = parts
+        kind = kind.strip().lower()
+        ref_id = ref_id.strip()
+        
+        if kind == "material":
+            material = materials_by_id.get(ref_id)
+            if material and isinstance(material, dict):
+                return _material_name(material, ref_id)
+        elif kind == "solution":
+            solution = solutions_by_id.get(ref_id)
+            if solution and isinstance(solution, dict):
+                return _clean_value(solution.get("name"), default=f"Solution {ref_id}")
+        
+        return media_ref
+
     def _parse_quenching_string(value: str) -> dict[str, Any]:
         """Parse a structured quenching string (type=Gas|gasType=N2|...) into NOMAD schema structure.
         
@@ -903,24 +1081,31 @@ def create_nomad_metadata_yaml(
                 gas_params["gas_type"] = pairs["gasType"]
             if pairs.get("pressure"):
                 try:
-                    gas_params["pressure"] = float(pairs["pressure"])
-                except (ValueError, TypeError):
+                    # Extract numeric value (may have unit like "100000 Pa")
+                    pressure_val = pairs["pressure"].split()[0]
+                    gas_params["pressure"] = float(pressure_val)
+                except (ValueError, TypeError, IndexError):
                     pass
             if pairs.get("flowRate"):
                 try:
-                    gas_params["flow_rate"] = float(pairs["flowRate"])
-                except (ValueError, TypeError):
+                    # Extract numeric value (may have unit like "10 Slm")
+                    flow_val = pairs["flowRate"].split()[0]
+                    gas_params["flow_rate"] = float(flow_val)
+                except (ValueError, TypeError, IndexError):
                     pass
             if pairs.get("height"):
                 try:
-                    # Convert to cm (schema expects cm)
-                    gas_params["height"] = float(pairs["height"])
-                except (ValueError, TypeError):
+                    # Extract numeric value (may have unit like "10 mm")
+                    height_val = pairs["height"].split()[0]
+                    gas_params["height"] = float(height_val)
+                except (ValueError, TypeError, IndexError):
                     pass
             if pairs.get("nozzleWidth"):
                 try:
-                    gas_params["nozzle_width"] = float(pairs["nozzleWidth"])
-                except (ValueError, TypeError):
+                    # Extract numeric value (may have unit like "5 mm")
+                    nozzle_val = pairs["nozzleWidth"].split()[0]
+                    gas_params["nozzle_width"] = float(nozzle_val)
+                except (ValueError, TypeError, IndexError):
                     pass
             if pairs.get("nozzleForm"):
                 gas_params["nozzle_form"] = pairs["nozzleForm"]
@@ -932,23 +1117,30 @@ def create_nomad_metadata_yaml(
             antisolvent_params: dict[str, Any] = {}
             media = pairs.get("media", "") or pairs.get("material", "")
             if media:
-                antisolvent_params["media"] = media
+                # Resolve material:id or solution:id to actual name
+                antisolvent_params["media"] = _resolve_media_reference(media)
             if pairs.get("depositionMethod"):
                 antisolvent_params["deposition_method"] = pairs["depositionMethod"]
             if pairs.get("flowRate"):
                 try:
-                    antisolvent_params["flow_rate"] = float(pairs["flowRate"])
-                except (ValueError, TypeError):
+                    # Extract numeric value (may have unit like "100 ul/s")
+                    flow_val = pairs["flowRate"].split()[0]
+                    antisolvent_params["flow_rate"] = float(flow_val)
+                except (ValueError, TypeError, IndexError):
                     pass
             if pairs.get("height"):
                 try:
-                    antisolvent_params["height"] = float(pairs["height"])
-                except (ValueError, TypeError):
+                    # Extract numeric value (may have unit like "10 mm")
+                    height_val = pairs["height"].split()[0]
+                    antisolvent_params["height"] = float(height_val)
+                except (ValueError, TypeError, IndexError):
                     pass
             if pairs.get("volume"):
                 try:
-                    antisolvent_params["volume"] = float(pairs["volume"])
-                except (ValueError, TypeError):
+                    # Extract numeric value (may have unit like "200 mL")
+                    vol_val = pairs["volume"].split()[0]
+                    antisolvent_params["volume"] = float(vol_val)
+                except (ValueError, TypeError, IndexError):
                     pass
             
             if antisolvent_params:
@@ -958,25 +1150,33 @@ def create_nomad_metadata_yaml(
             vacuum_params: dict[str, Any] = {}
             if pairs.get("height"):
                 try:
-                    vacuum_params["height"] = float(pairs["height"])
-                except (ValueError, TypeError):
+                    # Extract numeric value (may have unit like "10 mm")
+                    height_val = pairs["height"].split()[0]
+                    vacuum_params["height"] = float(height_val)
+                except (ValueError, TypeError, IndexError):
                     pass
             if pairs.get("baseArea"):
                 try:
-                    vacuum_params["base_area"] = float(pairs["baseArea"])
-                except (ValueError, TypeError):
+                    # Extract numeric value (may have unit like "100 cm2")
+                    area_val = pairs["baseArea"].split()[0]
+                    vacuum_params["base_area"] = float(area_val)
+                except (ValueError, TypeError, IndexError):
                     pass
             if pairs.get("pumpModel"):
                 vacuum_params["pump_model"] = pairs["pumpModel"]
             if pairs.get("deadVolume"):
                 try:
-                    vacuum_params["dead_volume"] = float(pairs["deadVolume"])
-                except (ValueError, TypeError):
+                    # Extract numeric value (may have unit like "0.001 m3")
+                    vol_val = pairs["deadVolume"].split()[0]
+                    vacuum_params["dead_volume"] = float(vol_val)
+                except (ValueError, TypeError, IndexError):
                     pass
             if pairs.get("evacuationTime"):
                 try:
-                    vacuum_params["evacuation_time"] = float(pairs["evacuationTime"])
-                except (ValueError, TypeError):
+                    # Extract numeric value (may have unit like "30 s")
+                    time_val = pairs["evacuationTime"].split()[0]
+                    vacuum_params["evacuation_time"] = float(time_val)
+                except (ValueError, TypeError, IndexError):
                     pass
             
             if vacuum_params:
@@ -1199,6 +1399,7 @@ def create_nomad_metadata_yaml(
                 "solvents": _join_layer_solution_field(absorber_e, "solvents"),
                 "solvents_supplier": _join_layer_solution_field(absorber_e, "solvents_supplier"),
                 "solvents_purity": _join_layer_solution_field(absorber_e, "solvents_purity"),
+                "solvents_mixing_ratios": _join_layer_solution_field(absorber_e, "solvents_mixing_ratios"),
                 "compounds": _join_layer_solution_field(absorber_e, "compounds"),
                 "compounds_supplier": _join_layer_solution_field(absorber_e, "compounds_supplier"),
                 "compounds_purity": _join_layer_solution_field(absorber_e, "compounds_purity"),
@@ -1253,7 +1454,7 @@ def create_nomad_metadata_yaml(
                 "synthesis_atmosphere_pressure_partial": "Unknown",
                 "synthesis_atmosphere_relative_humidity": "Unknown",
                 "solvents": absorber_solution_meta["solvents"],
-                "solvents_mixing_ratios": "Unknown",
+                "solvents_mixing_ratios": absorber_solution_meta["solvents_mixing_ratios"],
                 "solvents_supplier": absorber_solution_meta["solvents_supplier"],
                 "solvents_purity": absorber_solution_meta["solvents_purity"],
                 "reaction_solutions_compounds": absorber_solution_meta["compounds"],

@@ -383,3 +383,148 @@ def test_vacuum_quenching_parameters():
     assert vacuum_params["pump_model"] == "EdwardsPump"
     assert vacuum_params["dead_volume"] == 0.001
     assert vacuum_params["evacuation_time"] == 30
+
+
+def test_antisolvent_quenching_with_units_and_media_reference():
+    """Test antisolvent quenching with units (frontend format) and material reference."""
+    owner_id = uuid.uuid4()
+    experiment_id = str(uuid.uuid4())
+    material_id = "b5fc5eb1-0923-4aca-b39e-8f7f6123c4a3"
+
+    experiment = SimpleNamespace(
+        id=uuid.UUID(experiment_id),
+        owner_id=owner_id,
+        name="Antisolvent quenching with units test",
+        description="Testing antisolvent with units",
+        device_type="n-i-p",
+        frontend_data=None,
+    )
+
+    materials = [
+        {
+            "id": "mat-substrate",
+            "name": "FTO glass",
+            "type": "substrate",
+            "stateAtRt": "solid",
+            "supplier": "Pilkington",
+            "heightMm": "1.1",
+        },
+        {
+            "id": "mat-perovskite",
+            "name": "MAPbI3",
+            "type": "perovskite",
+            "stateAtRt": "solid",
+        },
+        {
+            "id": material_id,
+            "name": "Chlorobenzene",
+            "type": "solvent",
+            "stateAtRt": "liquid",
+            "supplier": "Sigma-Aldrich",
+            "purity": "99.8%",
+        },
+    ]
+    
+    user_state = SimpleNamespace(
+        data={
+            "materials": materials,
+            "solutions": [],
+            "processes": [],
+        }
+    )
+
+    # Frontend format with units and material reference
+    quenching_string = f"type=Antisolvent|media=material:{material_id}|depositionMethod=drip|flowRate=100 ul/s|height=10 mm|volume=200 mL"
+
+    process_snapshot = {
+        "id": "process-1",
+        "substrateDimensionsById": {
+            "mat-substrate": {
+                "lengthCm": "2",
+                "widthCm": "2",
+            }
+        },
+        "stages": [
+            {
+                "index": 0,
+                "alternatives": [
+                    {
+                        "id": "step-perovskite",
+                        "name": "Perovskite deposition",
+                        "stepCategory": "wet_deposition",
+                        "materialId": "mat-perovskite",
+                        "depositionMethod": {"value": "Spin coating", "mode": "constant"},
+                        "dryingMethod": {
+                            "value": quenching_string,
+                            "mode": "constant",
+                        },
+                    }
+                ],
+            }
+        ],
+        "generatedStacks": [
+            {
+                "combination": 1,
+                "numberOfPixels": "4",
+                "pixelAreaCm2": "0.09",
+                "layers": [
+                    {
+                        "id": "substrate-layer",
+                        "name": "substrate: Glass/FTO",
+                        "isSubstrate": True,
+                    },
+                    {
+                        "id": "step-perovskite",
+                        "name": "MAPbI3",
+                        "isSubstrate": False,
+                        "layerType": "absorber",
+                        "thicknessNm": "450",
+                        "bandgapEv": "1.55",
+                        "perovskiteA": "MA",
+                        "perovskiteB": "Pb",
+                        "perovskiteX": "I",
+                    },
+                ],
+            }
+        ],
+    }
+
+    experiment_snapshot = {
+        "name": "Antisolvent quenching test",
+        "description": "Testing antisolvent with units",
+        "architecture": "n-i-p",
+        "substrateMaterial": "Glass/FTO",
+        "processId": "process-1",
+        "substrates": [{"id": "sub-1", "name": "Substrate 1"}],
+        "devicesPerSubstrate": 4,
+        "deviceArea": 0.09,
+    }
+
+    session = _FakeSession([experiment, user_state])
+
+    result = create_nomad_metadata_yaml(
+        experiment_id=experiment_id,
+        user_name="Test User",
+        session=session,
+        experiment_snapshot=experiment_snapshot,
+        process_snapshot=process_snapshot,
+    )
+
+    sample_archives = [k for k in result.keys() if "sample.archive.yaml" in k]
+    assert len(sample_archives) > 0
+    
+    sample_data = result[sample_archives[0]]["data"]
+    quenching_params = sample_data["perovskite_deposition"]["quenching_parameters"]
+    
+    assert "antisolvent" in quenching_params, "No antisolvent quenching parameters"
+    
+    antisolvent_params = quenching_params["antisolvent"]
+    
+    # Media should be resolved to material name, not the ID
+    assert antisolvent_params["media"] == "Chlorobenzene", f"Expected 'Chlorobenzene', got {antisolvent_params['media']}"
+    assert antisolvent_params["deposition_method"] == "drip"
+    # Numeric values should be extracted from strings with units
+    assert antisolvent_params["flow_rate"] == 100.0
+    assert antisolvent_params["height"] == 10.0
+    assert antisolvent_params["volume"] == 200.0
+
