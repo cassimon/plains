@@ -1047,7 +1047,7 @@ def create_nomad_metadata_yaml(
             # Use filename without extension as caption
             caption = Path(filename).stem.replace('_', ' ').replace('-', ' ')
             images.append({
-                "image": filename,
+                "image": "../upload/raw/" + filename,
                 "caption": caption,
             })
         return images
@@ -1070,7 +1070,7 @@ def create_nomad_metadata_yaml(
             # Use filename without extension as title
             title = Path(filename).stem.replace('_', ' ').replace('-', ' ')
             documents.append({
-                "document": filename,
+                "document": "../upload/raw/" + filename,
                 "title": title,
             })
         return documents
@@ -1359,6 +1359,8 @@ def create_nomad_metadata_yaml(
         return None
 
     def _build_sample_data(
+        sample_name: str,
+        sample_lab_id: str,
         substrate_layer_name: str,
         cell_stack_sequence: str,
         etl_e: list,
@@ -1388,6 +1390,8 @@ def create_nomad_metadata_yaml(
         
         d: dict[str, Any] = {
             "m_def": "nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.PerovskiteSolarCellSample",
+            "name": sample_name,
+            "lab_id": sample_lab_id,
             "ref": {
                 "free_text_comment": comment or "",
                 "name_of_person_entering_the_data": user_name,
@@ -1980,14 +1984,27 @@ def create_nomad_metadata_yaml(
             sample_filenames.append(sample_fname)
 
             group_files: list[dict[str, Any]] = []
+            group: dict[str, Any] | None = None
             if dev_idx < len(substrate_groups):
-                group_files = list(substrate_groups[dev_idx].get("files") or [])
+                group = substrate_groups[dev_idx]
+                group_files = list(group.get("files") or [])
+
+            sample_name = str(
+                (group or {}).get("deviceName")
+                or f"{str(substrate.get('name') or substrate_id)} device {dev_idx + 1}"
+            )
+            sample_lab_id = str(
+                (group or {}).get("id")
+                or f"{substrate_id}_dev{dev_idx + 1}"
+            )
 
             best_jv = _best_jv(group_files)
             best_ipce = _best_ipce(group_files)
             jv_sec = _jv_section(best_jv, best_ipce)
 
             sample_data = _build_sample_data(
+                sample_name,
+                sample_lab_id,
                 sub_layer,
                 stack_seq,
                 etl_e,

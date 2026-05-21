@@ -181,6 +181,8 @@ def test_create_nomad_metadata_yaml_uses_solution_components_for_wet_layers():
 
     sample_archive = archives["sub-1_dev1_sample.archive.yaml"]["data"]
 
+    assert sample_archive["name"] == "sub-1 device 1"
+    assert sample_archive["lab_id"] == "sub-1_dev1"
     assert sample_archive["substrate"]["stack_sequence"] == "Glass | ITO"
     assert sample_archive["substrate"]["area"] == 4.0
     assert sample_archive["substrate"]["thickness"] == 1.1
@@ -437,6 +439,11 @@ def test_create_nomad_metadata_yaml_generates_substrate_and_deposition_and_per_p
         sample_data = archives[sample_file]["data"]
         assert sample_data["substrate_entity"] == substrate_ref
         assert sample_data["deposition_routine"] == deposition_ref
+
+    assert archives["sub-1_dev1_sample.archive.yaml"]["data"]["name"] == "dev-1"
+    assert archives["sub-1_dev1_sample.archive.yaml"]["data"]["lab_id"] == "group-1"
+    assert archives["sub-1_dev4_sample.archive.yaml"]["data"]["name"] == "dev-4"
+    assert archives["sub-1_dev4_sample.archive.yaml"]["data"]["lab_id"] == "group-4"
 
     expected_sample_refs = {
         f"../upload/raw/{sample_file}#/data" for sample_file in sample_files
