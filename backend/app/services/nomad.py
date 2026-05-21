@@ -866,89 +866,122 @@ def create_nomad_metadata_yaml(
         return " | ".join(ion_layers), " | ".join(coeff_layers), len(ion_layers)
 
     def _parse_quenching_string(value: str) -> dict[str, Any]:
-        """Parse a structured quenching string (type=Gas|gasType=N2|...) into NOMAD-friendly fields."""
+        """Parse a structured quenching string (type=Gas|gasType=N2|...) into NOMAD schema structure.
+        
+        Returns a dict with:
+          - "type": "Gas", "Antisolvent", "Vacuum", or None
+          - "gas": dict with gas quenching parameters
+          - "antisolvent": dict with antisolvent quenching parameters  
+          - "vacuum": dict with vacuum quenching parameters
+        """
         result: dict[str, Any] = {
-            "induced": False,
-            "media": "Unknown",
-            "volume": "Unknown",
-            "mixing_ratios": "Unknown",
-            "additives_compounds": "Unknown",
-            "additives_concentrations": "Unknown",
+            "type": None,
+            "gas": None,
+            "antisolvent": None,
+            "vacuum": None,
         }
         if not value or not value.strip():
             return result
+        
         pairs: dict[str, str] = {}
         for segment in value.split("|"):
             idx = segment.find("=")
             if idx == -1:
                 continue
             pairs[segment[:idx].strip()] = segment[idx + 1:].strip()
+        
         qtype = pairs.get("type", "")
         if qtype not in ("Gas", "Antisolvent", "Vacuum"):
-            # Legacy / freeform value — use as-is
-            result["induced"] = bool(value.strip())
-            result["media"] = value.strip()
+            # Legacy / freeform value — no structured quenching
             return result
 
-        def _normalize_media(raw: str) -> str:
-            media = raw.strip()
-            for prefix in ("Material:", "Solution:"):
-                if media.startswith(prefix):
-                    return media[len(prefix):].strip() or media
-            return media
+        result["type"] = qtype
 
-        result["induced"] = True
         if qtype == "Gas":
-            gas_type = pairs.get("gasType", "")
-            result["media"] = gas_type if gas_type else "Gas"
-            detail_parts: list[str] = []
-            if pairs.get("flowRate"):
-                detail_parts.append(f"Flow: {pairs['flowRate']}")
+            gas_params: dict[str, Any] = {}
+            if pairs.get("gasType"):
+                gas_params["gas_type"] = pairs["gasType"]
             if pairs.get("pressure"):
-                detail_parts.append(f"Pressure: {pairs['pressure']}")
+                try:
+                    gas_params["pressure"] = float(pairs["pressure"])
+                except (ValueError, TypeError):
+                    pass
+            if pairs.get("flowRate"):
+                try:
+                    gas_params["flow_rate"] = float(pairs["flowRate"])
+                except (ValueError, TypeError):
+                    pass
             if pairs.get("height"):
-                detail_parts.append(f"Height: {pairs['height']}")
+                try:
+                    # Convert to cm (schema expects cm)
+                    gas_params["height"] = float(pairs["height"])
+                except (ValueError, TypeError):
+                    pass
             if pairs.get("nozzleWidth"):
-                detail_parts.append(f"Nozzle width: {pairs['nozzleWidth']}")
+                try:
+                    gas_params["nozzle_width"] = float(pairs["nozzleWidth"])
+                except (ValueError, TypeError):
+                    pass
             if pairs.get("nozzleForm"):
-                detail_parts.append(f"Nozzle form: {pairs['nozzleForm']}")
-            result["volume"] = "; ".join(detail_parts) if detail_parts else "Unknown"
-        elif qtype == "Antisolvent":
-            media = pairs.get("media", "") or pairs.get("material", "")
-            media_kind, media_ref = _parse_media_reference(media)
-            if media_kind == "solution" and media_ref:
-                result.update(_quenching_solution_metadata(media_ref))
-            elif media_kind == "material" and media_ref:
-                material = materials_by_id.get(media_ref)
-                result["media"] = _material_name(material, media_ref)
-            else:
-                result["media"] = _normalize_media(media) if media else "Antisolvent"
+                gas_params["nozzle_form"] = pairs["nozzleForm"]
+            
+            if gas_params:
+                result["gas"] = gas_params
 
-            detail_parts = []
+        elif qtype == "Antisolvent":
+            antisolvent_params: dict[str, Any] = {}
+            media = pairs.get("media", "") or pairs.get("material", "")
+            if media:
+                antisolvent_params["media"] = media
             if pairs.get("depositionMethod"):
-                detail_parts.append(f"Method: {pairs['depositionMethod']}")
+                antisolvent_params["deposition_method"] = pairs["depositionMethod"]
             if pairs.get("flowRate"):
-                detail_parts.append(f"Flow: {pairs['flowRate']}")
+                try:
+                    antisolvent_params["flow_rate"] = float(pairs["flowRate"])
+                except (ValueError, TypeError):
+                    pass
             if pairs.get("height"):
-                detail_parts.append(f"Height: {pairs['height']}")
-            if pairs.get("pressure"):
-                detail_parts.append(f"Pressure: {pairs['pressure']}")
-            if result["volume"] == "Unknown":
-                result["volume"] = "; ".join(detail_parts) if detail_parts else "Unknown"
+                try:
+                    antisolvent_params["height"] = float(pairs["height"])
+                except (ValueError, TypeError):
+                    pass
+            if pairs.get("volume"):
+                try:
+                    antisolvent_params["volume"] = float(pairs["volume"])
+                except (ValueError, TypeError):
+                    pass
+            
+            if antisolvent_params:
+                result["antisolvent"] = antisolvent_params
+
         elif qtype == "Vacuum":
-            result["media"] = "Vacuum"
-            detail_parts = []
+            vacuum_params: dict[str, Any] = {}
             if pairs.get("height"):
-                detail_parts.append(f"Height: {pairs['height']}")
+                try:
+                    vacuum_params["height"] = float(pairs["height"])
+                except (ValueError, TypeError):
+                    pass
             if pairs.get("baseArea"):
-                detail_parts.append(f"Base area: {pairs['baseArea']}")
+                try:
+                    vacuum_params["base_area"] = float(pairs["baseArea"])
+                except (ValueError, TypeError):
+                    pass
             if pairs.get("pumpModel"):
-                detail_parts.append(f"Pump: {pairs['pumpModel']}")
+                vacuum_params["pump_model"] = pairs["pumpModel"]
             if pairs.get("deadVolume"):
-                detail_parts.append(f"Dead vol: {pairs['deadVolume']} m3")
+                try:
+                    vacuum_params["dead_volume"] = float(pairs["deadVolume"])
+                except (ValueError, TypeError):
+                    pass
             if pairs.get("evacuationTime"):
-                detail_parts.append(f"Evac time: {pairs['evacuationTime']} s")
-            result["volume"] = "; ".join(detail_parts) if detail_parts else "Unknown"
+                try:
+                    vacuum_params["evacuation_time"] = float(pairs["evacuationTime"])
+                except (ValueError, TypeError):
+                    pass
+            
+            if vacuum_params:
+                result["vacuum"] = vacuum_params
+
         return result
 
     def _build_section(
@@ -963,8 +996,9 @@ def create_nomad_metadata_yaml(
             dm = _get_step_param(e, "dryingMethod", substrate, "")
             if dm and dm != "Unknown":
                 qd = _parse_quenching_string(dm)
-                if qd["induced"]:
-                    quenching_parts.append(f"Quenching: {qd['media']}")
+                qtype = qd.get("type")
+                if qtype:
+                    quenching_parts.append(f"Quenching: {qtype}")
         if quenching_parts:
             procedure = f"{procedure} + {' | '.join(quenching_parts)}"
         return {
@@ -1179,6 +1213,30 @@ def create_nomad_metadata_yaml(
                 "thickness": thickness,
                 "band_gap": band_gap,
             }
+            # Build quenching_parameters subsection
+            quenching_params_section: dict[str, Any] = {}
+            quenching_data_list = [
+                _parse_quenching_string(_get_step_param(e, "dryingMethod", substrate, ""))
+                for e, _ in absorber_e
+            ]
+            
+            # Collect all gas/antisolvent/vacuum parameters
+            gas_list = [qd["gas"] for qd in quenching_data_list if qd["gas"]]
+            antisolvent_list = [qd["antisolvent"] for qd in quenching_data_list if qd["antisolvent"]]
+            vacuum_list = [qd["vacuum"] for qd in quenching_data_list if qd["vacuum"]]
+            
+            # If we have gas quenching, use the first one (or merge if multiple)
+            if gas_list:
+                quenching_params_section["gas"] = gas_list[0]
+            
+            # If we have antisolvent quenching, use the first one (or merge if multiple)
+            if antisolvent_list:
+                quenching_params_section["antisolvent"] = antisolvent_list[0]
+            
+            # If we have vacuum quenching, use the first one (or merge if multiple)
+            if vacuum_list:
+                quenching_params_section["vacuum"] = vacuum_list[0]
+
             d["perovskite_deposition"] = {
                 "number_of_deposition_steps": len(absorber_e),
                 "procedure": _join_params(absorber_e, "depositionMethod", substrate),
@@ -1199,42 +1257,6 @@ def create_nomad_metadata_yaml(
                 "reaction_solutions_age": "Unknown",
                 "reaction_solutions_temperature": "Unknown",
                 "substrate_temperature": _join_params(absorber_e, "substrateTemp", substrate),
-                "quenching_induced_crystallisation": any(
-                    _parse_quenching_string(
-                        _get_step_param(e, "dryingMethod", substrate, "")
-                    )["induced"]
-                    for e, _ in absorber_e
-                ),
-                "quenching_media": " | ".join(
-                    qd["media"]
-                    for e, _ in absorber_e
-                    for qd in [_parse_quenching_string(_get_step_param(e, "dryingMethod", substrate, ""))]
-                    if qd["induced"]
-                ) or "Unknown",
-                "quenching_media_mixing_ratios": " | ".join(
-                    qd["mixing_ratios"]
-                    for e, _ in absorber_e
-                    for qd in [_parse_quenching_string(_get_step_param(e, "dryingMethod", substrate, ""))]
-                    if qd["induced"] and qd["mixing_ratios"] != "Unknown"
-                ) or "Unknown",
-                "quenching_media_volume": " | ".join(
-                    qd["volume"]
-                    for e, _ in absorber_e
-                    for qd in [_parse_quenching_string(_get_step_param(e, "dryingMethod", substrate, ""))]
-                    if qd["induced"] and qd["volume"] != "Unknown"
-                ) or "Unknown",
-                "quenching_media_additives_compounds": " | ".join(
-                    qd["additives_compounds"]
-                    for e, _ in absorber_e
-                    for qd in [_parse_quenching_string(_get_step_param(e, "dryingMethod", substrate, ""))]
-                    if qd["induced"] and qd["additives_compounds"] != "Unknown"
-                ) or "Unknown",
-                "quenching_media_additives_concentrations": " | ".join(
-                    qd["additives_concentrations"]
-                    for e, _ in absorber_e
-                    for qd in [_parse_quenching_string(_get_step_param(e, "dryingMethod", substrate, ""))]
-                    if qd["induced"] and qd["additives_concentrations"] != "Unknown"
-                ) or "Unknown",
                 "thermal_annealing_temperature": _join_params(absorber_e, "annealingTemp", substrate),
                 "thermal_annealing_time": _join_params(absorber_e, "annealingTime", substrate),
                 "thermal_annealing_atmosphere": _join_params(absorber_e, "annealingAtmosphere", substrate),
@@ -1248,6 +1270,10 @@ def create_nomad_metadata_yaml(
                 "after_treatment_of_formed_perovskite": "false",
                 "after_treatment_of_formed_perovskite_method": "Unknown",
             }
+            
+            # Add quenching_parameters if any were found
+            if quenching_params_section:
+                d["perovskite_deposition"]["quenching_parameters"] = quenching_params_section
         else:
             d["perovskite"] = {
                 "dimension_3D": True,
@@ -1469,10 +1495,50 @@ def create_nomad_metadata_yaml(
                 if end_ts is None or timestamp > end_ts:
                     end_ts = timestamp
 
-            duration_value = _to_float(_get_step_param(step, "annealingTime", substrate, ""))
-            if duration_value is not None:
-                step_payload["duration"] = duration_value
+            # Add atmosphere
+            atmosphere = _get_step_param(step, "depositionAtmosphere", substrate, "")
+            if atmosphere and atmosphere != "Unknown":
+                step_payload["atmosphere"] = atmosphere
 
+            # Add substrate temperature
+            substrate_temp = _to_float(_get_step_param(step, "substrateTemp", substrate, ""))
+            if substrate_temp is not None:
+                step_payload["temperature"] = substrate_temp
+
+            # Add deposition parameters
+            depo_params = _get_step_param(step, "depositionParameters", substrate, "")
+            if depo_params and depo_params != "Unknown":
+                step_payload["deposition_parameters"] = depo_params
+
+            # Add solution volume
+            solution_vol = _to_float(_get_step_param(step, "solutionVolume", substrate, ""))
+            if solution_vol is not None:
+                step_payload["solution_volume"] = solution_vol
+
+            # Add drying method
+            drying_method = _get_step_param(step, "dryingMethod", substrate, "")
+            if drying_method and drying_method != "Unknown":
+                step_payload["drying_method"] = drying_method
+
+            # Add annealing parameters
+            annealing_start = _parse_datetime(_get_step_param(step, "annealingStartTime", substrate, ""))
+            if annealing_start:
+                step_payload["annealing_start_time"] = annealing_start
+
+            annealing_time = _to_float(_get_step_param(step, "annealingTime", substrate, ""))
+            if annealing_time is not None:
+                step_payload["annealing_time"] = annealing_time
+                step_payload["duration"] = annealing_time  # Also set as duration
+
+            annealing_temp = _to_float(_get_step_param(step, "annealingTemp", substrate, ""))
+            if annealing_temp is not None:
+                step_payload["annealing_temperature"] = annealing_temp
+
+            annealing_atmos = _get_step_param(step, "annealingAtmosphere", substrate, "")
+            if annealing_atmos and annealing_atmos != "Unknown":
+                step_payload["annealing_atmosphere"] = annealing_atmos
+
+            # Add material/solution
             material_payload = _step_material_payload(step)
             if material_payload:
                 step_payload["material"] = material_payload
