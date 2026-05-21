@@ -38,7 +38,7 @@ import {
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { DryingMethodInput } from "@/components/QuenchingModal"
+import { DryingMethodInput, summariseQuenchingValue } from "@/components/QuenchingModal"
 import {
   type CollectionConfirmParams,
   SelectCollectionModal,
@@ -2918,10 +2918,9 @@ export function ProcessesPage() {
           return []
         }
         if (key === "dryingMethod") {
-          // Keep card preview concise: show only quenching type in collapsed cards.
-          const typeMatch = value.match(/(?:^|\|)type=([^|]+)/)
-          const typeLabel = typeMatch?.[1]?.trim()
-          return [typeLabel ? `${label}: ${typeLabel}` : `${label}: Set`]
+          // Use full human-readable quenching summary
+          const summary = summariseQuenchingValue(value, materials, solutions)
+          return [summary || `${label}: Set`]
         }
         return [`${label}: ${value}${unit ? ` ${unit}` : ""}`]
       },
@@ -2931,7 +2930,7 @@ export function ProcessesPage() {
       return ["No parameters set"]
     }
     return lines
-  }, [])
+  }, [materials, solutions])
 
   const selectedStepParameterSections = useMemo(() => {
     if (!selectedStep) {

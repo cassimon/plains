@@ -3,6 +3,7 @@ import {
   type Process,
   type ProcessStep,
 } from "@/store/AppContext"
+import { summariseQuenchingValue } from "@/components/QuenchingModal"
 
 type NamedEntity = { id: string; name: string }
 
@@ -27,7 +28,11 @@ function sanitizeFileBaseName(rawName: string): string {
   return sanitized || fallback
 }
 
-function getParamLines(step: ProcessStep): string[] {
+function getParamLines(
+  step: ProcessStep,
+  materials: NamedEntity[],
+  solutions: NamedEntity[],
+): string[] {
   return PROCESS_PARAMETER_DEFINITIONS.flatMap(({ key, label, unit }) => {
     if (key === "depositionStartTime" || key === "annealingStartTime") {
       return []
@@ -35,6 +40,17 @@ function getParamLines(step: ProcessStep): string[] {
     const value = step[key]?.value?.trim()
     if (!value) {
       return []
+    }
+    // Format quenching parameters in human-readable form
+    if (key === "dryingMethod") {
+      const summary = summariseQuenchingValue(value, materials, solutions)
+      return [
+        summary
+          ? summary
+              .replace(/^D\/Q:\s*/, "Drying/Quenching: ")
+              .replace(/\s*\|\s*/g, ", ")
+          : `${label}: ${value}`,
+      ]
     }
     return [`${label}: ${value}${unit ? ` ${unit}` : ""}`]
   })
@@ -100,7 +116,7 @@ export function buildProcessProtocolText({
         `- Material: ${getStepSourceLabel(step, materialNameById, solutionNameById)}`,
       )
 
-      const params = getParamLines(step)
+      const params = getParamLines(step, materials, solutions)
       if (params.length > 0) {
         lines.push("- Parameters:")
         params.forEach((param) => {
@@ -263,7 +279,7 @@ export async function exportProcessProtocolAsDocx(
           }),
         )
 
-        const params = getParamLines(step)
+        const params = getParamLines(step, input.materials, input.solutions)
         if (params.length > 0) {
           children.push(new docx.Paragraph({ text: "Parameters:" }))
           params.forEach((param) => {
