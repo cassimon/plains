@@ -1371,11 +1371,9 @@ def create_nomad_metadata_yaml(
         substrate: dict[str, Any] | None,
         jv_sec: dict[str, Any],
         cell_area: float | None,
-        substrate_ref: str | None = None,
-        deposition_ref: str | None = None,
         group_files: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        """Assemble the PerovskiteSolarCell data dict.
+        """Assemble the PerovskiteSolarCellSampleArea data dict.
         
         Args:
             cell_area: Device area in cm². If None, area_total is not included.
@@ -1389,7 +1387,7 @@ def create_nomad_metadata_yaml(
             cell_dict["area_total"] = cell_area
         
         d: dict[str, Any] = {
-            "m_def": "nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.PerovskiteSolarCellSample",
+            "m_def": "nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.PerovskiteSolarCellSampleArea",
             "name": sample_name,
             "lab_id": sample_lab_id,
             "ref": {
@@ -1402,11 +1400,6 @@ def create_nomad_metadata_yaml(
                 "thickness": "nan",
             },
         }
-
-        if substrate_ref:
-            d["substrate_entity"] = substrate_ref
-        if deposition_ref:
-            d["deposition_routine"] = deposition_ref
 
         substrate_material_meta = _resolve_substrate_material(substrate)
         substrate_dimensions = _get_substrate_dimensions(substrate)
@@ -1747,7 +1740,7 @@ def create_nomad_metadata_yaml(
     ) -> dict[str, Any]:
         experiment_dt = _parse_datetime(str(exp_data.get("date") or ""))
         payload: dict[str, Any] = {
-            "m_def": "nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.SubstrateEntity",
+            "m_def": "nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.SubstrateSample",
             "name": str(substrate.get("name") or substrate.get("id") or "substrate"),
             "lab_id": str(substrate.get("id") or substrate.get("name") or "substrate"),
             "substrate": _build_substrate_section(substrate_layer_name, substrate),
@@ -1758,7 +1751,7 @@ def create_nomad_metadata_yaml(
 
     def _build_deposition_routine_data(
         substrate: dict[str, Any],
-        substrate_ref: str,
+        substrate_sample_ref: str,
     ) -> dict[str, Any]:
         selected_steps = _selected_steps_for_substrate(substrate)
         processing_times = exp_data.get("processingTimes") or {}
@@ -1841,7 +1834,7 @@ def create_nomad_metadata_yaml(
             "m_def": "nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.DepositionRoutine",
             "name": f"{str(substrate.get('name') or substrate.get('id') or 'substrate')} deposition",
             "lab_id": f"{str(substrate.get('id') or substrate.get('name') or 'substrate')}_deposition",
-            "substrate_entity": substrate_ref,
+            "samples": [{"reference": substrate_sample_ref}],
             "steps": step_payloads,
         }
 
@@ -1865,6 +1858,46 @@ def create_nomad_metadata_yaml(
             candidate = f"{stem}_{counter}.archive.yaml"
             counter += 1
         return candidate
+
+    def _write_deduplicated_depositions(
+        pending: list[tuple[str, dict[str, Any]]],
+        archives: dict[str, dict[str, Any]],
+    ) -> None:
+        """Write DepositionRoutine archives, merging identical ones.
+
+        Two routines are considered equal when their steps share the same
+        fabrication parameters and step choices (timestamps are excluded from
+        the comparison).  Identical routines are collapsed into a single YAML
+        file whose ``samples`` list references all involved SubstrateSamples.
+        """
+        import json as _json
+
+        def _steps_key(data: dict[str, Any]) -> str:
+            """Canonical, timestamp-free representation of the step list."""
+            steps = data.get("steps") or []
+            normalized = [
+                {k: v for k, v in sorted(step.items())
+                 if k not in ("timestamp", "annealing_start_time", "step_index")}
+                for step in steps
+            ]
+            return _json.dumps(normalized, sort_keys=True, default=str)
+
+        # Group by step-content key; preserve insertion order
+        groups: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+        for fname, data in pending:
+            key = _steps_key(data)
+            groups.setdefault(key, []).append((fname, data))
+
+        for items in groups.values():
+            canonical_fname, canonical_data = items[0]
+            # Collect all substrate-sample references from every duplicate
+            all_samples: list[dict[str, str]] = []
+            for _, data in items:
+                all_samples.extend(data.get("samples") or [])
+            canonical_data["samples"] = all_samples
+            archives[canonical_fname] = {"data": canonical_data}
+            # The other filenames were reserved but not written – they are simply
+            # omitted so no duplicate YAML file is created.
 
     # ── 7. Per-substrate layer grouping (shared logic) ────────────────────────
 
@@ -1938,6 +1971,8 @@ def create_nomad_metadata_yaml(
 
     # ── 9. Generate archives ──────────────────────────────────────────────────
     archives: dict[str, dict[str, Any]] = {}
+    # Deposition routines are collected here and written after deduplication.
+    _pending_depositions: list[tuple[str, dict[str, Any]]] = []
 
     for sub_idx, substrate in enumerate(substrates_list):
         if isinstance(substrate, dict):
@@ -1954,21 +1989,15 @@ def create_nomad_metadata_yaml(
             _layers_for_substrate(sub_idx, substrate)
         )
 
-        substrate_entity_fname = _reserve_archive_filename(
+        # Reserve filenames up-front so nothing collides later
+        substrate_sample_fname = _reserve_archive_filename(
             f"{sub_name_slug}_substrate.archive.yaml",
         )
-        substrate_ref = f"../upload/raw/{substrate_entity_fname}#/data"
-        archives[substrate_entity_fname] = {
-            "data": _build_substrate_entity_data(substrate, sub_layer),
-        }
+        substrate_sample_ref = f"../upload/raw/{substrate_sample_fname}#/data"
 
         deposition_fname = _reserve_archive_filename(
             f"{sub_name_slug}_deposition.archive.yaml",
         )
-        deposition_ref = f"../upload/raw/{deposition_fname}#/data"
-        archives[deposition_fname] = {
-            "data": _build_deposition_routine_data(substrate, substrate_ref),
-        }
 
         substrate_groups = groups_by_substrate.get(substrate_id, [])
         num_pixels = _num_pixels_for_substrate(sub_idx)
@@ -1977,6 +2006,7 @@ def create_nomad_metadata_yaml(
         sample_count = max(num_pixels, len(substrate_groups), 1)
         sample_filenames: list[str] = []
 
+        # ── Build PerovskiteSolarCellSampleArea archives ───────────────────
         for dev_idx in range(sample_count):
             sample_fname = _reserve_archive_filename(
                 f"{sub_name_slug}_dev{dev_idx + 1}_sample.archive.yaml",
@@ -2015,11 +2045,20 @@ def create_nomad_metadata_yaml(
                 substrate,
                 jv_sec,
                 cell_area=cell_area,
-                substrate_ref=substrate_ref,
-                deposition_ref=deposition_ref,
                 group_files=group_files,
             )
             archives[sample_fname] = {"data": sample_data}
+
+        # ── Build SubstrateSample archive (with cell_areas) ───────────────
+        substrate_sample_data = _build_substrate_entity_data(substrate, sub_layer)
+        substrate_sample_data["cell_areas"] = [
+            {"reference": f"../upload/raw/{fname}#/data"} for fname in sample_filenames
+        ]
+        archives[substrate_sample_fname] = {"data": substrate_sample_data}
+
+        # ── Collect DepositionRoutine data for later deduplication ────────
+        deposition_data = _build_deposition_routine_data(substrate, substrate_sample_ref)
+        _pending_depositions.append((deposition_fname, deposition_data))
 
         for group_idx, group in enumerate(substrate_groups):
             group_files = list(group.get("files") or [])
@@ -2057,6 +2096,9 @@ def create_nomad_metadata_yaml(
                 meas_fname = f"{meas_stem}_{counter}.archive.yaml"
                 counter += 1
             archives[meas_fname] = {"data": meas_data}
+
+    # ── 11. Write deduplicated DepositionRoutine archives ────────────────────
+    _write_deduplicated_depositions(_pending_depositions, archives)
 
     logger.info(
         f"Generated {len(archives)} NOMAD archive files for experiment {experiment_id}"
