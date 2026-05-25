@@ -1333,7 +1333,9 @@ def create_nomad_metadata_yaml(
                 "name": file_name,
                 "operator": op,
                 "jv_file": file_name,
-                "sample": f"../upload/raw/{sample_filename}#/data",
+                "samples": [
+                    {"reference": f"../upload/raw/{sample_filename}#/data"}
+                ],
             }
         if file_type in IPCE_TYPES:
             return {
@@ -1341,14 +1343,18 @@ def create_nomad_metadata_yaml(
                 "name": file_name,
                 "operator": op,
                 "eqe_file": file_name,
-                "sample": f"../upload/raw/{sample_filename}#/data",
+                "samples": [
+                    {"reference": f"../upload/raw/{sample_filename}#/data"}
+                ],
             }
         if file_type in STABILITY_TYPES:
             entry: dict[str, Any] = {
                 "m_def": "nomad_chose.schema_packages.schema_package.LabStabilityMeasurement",
                 "name": file_name,
                 "operator": op,
-                "sample": f"../upload/raw/{sample_filename}#/data",
+                "samples": [
+                    {"reference": f"../upload/raw/{sample_filename}#/data"}
+                ],
             }
             if file_type == "Stability (Tracking)":
                 entry["stability_tracking_file"] = file_name
