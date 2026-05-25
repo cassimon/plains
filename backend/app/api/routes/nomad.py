@@ -12,7 +12,6 @@ import logging
 import math
 import uuid
 import yaml
-import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -67,7 +66,6 @@ from app.services.nomad import (
     create_secure_zip,
     get_nomad_token,
     get_upload_status,
-    split_nomad_metadata_archives_for_discrete_upload,
     upload_to_nomad,
 )
 
@@ -168,63 +166,6 @@ class NomadUploadStatus(BaseModel):
     status: str | None = None
     entries: list[dict] = []
     error: str | None = None
-
-
-class NomadDiscreteArchiveResponse(BaseModel):
-    """Response with per-step archive paths and metadata counts."""
-    success: bool
-    step_archive_paths: dict[str, str]
-    metadata_counts: dict[str, int]
-
-
-def _validate_temp_archive_path(archive_path: str) -> Path:
-    """Validate that an archive path points to a file under TEMP_UPLOAD_DIR."""
-    try:
-        candidate = Path(archive_path).resolve()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Invalid archive path") from e
-
-    allowed_root = TEMP_UPLOAD_DIR.resolve()
-    if not str(candidate).startswith(str(allowed_root)):
-        raise HTTPException(status_code=403, detail="Archive path is not allowed")
-
-    if not candidate.exists():
-        raise HTTPException(status_code=404, detail="Archive not found")
-
-    return candidate
-
-
-def _serialize_archives(
-    archives: dict[str, dict[str, Any]],
-) -> list[tuple[str, str]]:
-    """Serialize archive payloads to YAML strings."""
-    return [
-        (
-            filename,
-            yaml.dump(
-                content,
-                Dumper=_QuotedDumper,
-                default_flow_style=False,
-                allow_unicode=True,
-                sort_keys=False,
-            ),
-        )
-        for filename, content in archives.items()
-    ]
-
-
-def _read_non_yaml_files_from_zip(zip_path: Path) -> list[tuple[str, bytes]]:
-    """Read non-YAML files from a zip archive for reuse in step-1 upload."""
-    file_data: list[tuple[str, bytes]] = []
-    with zipfile.ZipFile(zip_path, "r") as zipf:
-        for filename in zipf.namelist():
-            lower = filename.lower()
-            if lower.endswith(".yaml") or lower.endswith(".yml"):
-                continue
-            if filename.endswith("/"):
-                continue
-            file_data.append((Path(filename).name, zipf.read(filename)))
-    return file_data
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -459,93 +400,6 @@ async def add_metadata_to_archive(
     except Exception as e:
         logger.error(f"Failed to add metadata to archive: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to add metadata: {str(e)}")
-
-
-@router.post("/upload/steps/create", response_model=NomadDiscreteArchiveResponse)
-async def create_discrete_step_archives(
-    session: SessionDep,
-    current_user: CurrentUser,
-    archive_path: str = Form(...),
-    request_json: str = Form(...),
-) -> NomadDiscreteArchiveResponse:
-    """Create three discrete NOMAD upload archives for step-wise uploading."""
-    _require_nomad_upload_authorized(current_user)
-
-    try:
-        request = NomadUploadRequest.model_validate_json(request_json)
-    except Exception:
-        logger.error("Invalid NOMAD upload metadata", exc_info=True)
-        raise HTTPException(status_code=422, detail="Invalid upload request metadata")
-
-    source_archive = _validate_temp_archive_path(archive_path)
-
-    try:
-        experiment_snapshot = None
-        process_snapshot = None
-        if request.custom_metadata and isinstance(request.custom_metadata, dict):
-            candidate_exp = request.custom_metadata.get("experiment")
-            if isinstance(candidate_exp, dict):
-                experiment_snapshot = candidate_exp
-            proc_candidate = request.custom_metadata.get("process")
-            if isinstance(proc_candidate, dict):
-                process_snapshot = proc_candidate
-
-        measurement_files_dicts = [f.model_dump() for f in request.measurement_files]
-        device_groups_dicts = [g.model_dump() for g in request.device_groups]
-
-        all_archives = create_nomad_metadata_yaml(
-            experiment_id=request.experiment_id,
-            user_name=current_user.full_name or current_user.email,
-            session=session,
-            experiment_snapshot=experiment_snapshot,
-            process_snapshot=process_snapshot,
-            measurement_files=measurement_files_dicts,
-            device_groups=device_groups_dicts,
-        )
-        split_archives = split_nomad_metadata_archives_for_discrete_upload(all_archives)
-
-        measurement_file_data = _read_non_yaml_files_from_zip(source_archive)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        prefix = request.experiment_id[:8]
-
-        step1_yaml = _serialize_archives(split_archives["step1"])
-        step2_yaml = _serialize_archives(split_archives["step2"])
-        step3_yaml = _serialize_archives(split_archives["step3"])
-
-        step1_zip = create_secure_zip(
-            files=measurement_file_data,
-            metadata_files=step1_yaml,
-            archive_name=f"{prefix}_{ts}_step1.zip",
-        )
-        step2_zip = create_secure_zip(
-            files=[],
-            metadata_files=step2_yaml,
-            archive_name=f"{prefix}_{ts}_step2.zip",
-        )
-        step3_zip = create_secure_zip(
-            files=[],
-            metadata_files=step3_yaml,
-            archive_name=f"{prefix}_{ts}_step3.zip",
-        )
-
-        return NomadDiscreteArchiveResponse(
-            success=True,
-            step_archive_paths={
-                "step1": str(step1_zip),
-                "step2": str(step2_zip),
-                "step3": str(step3_zip),
-            },
-            metadata_counts={
-                "step1": len(step1_yaml),
-                "step2": len(step2_yaml),
-                "step3": len(step3_yaml),
-            },
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to create discrete NOMAD step archives", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to create step archives: {str(e)}")
 
 
 @router.post("/metadata/preview")
@@ -822,129 +676,6 @@ async def upload_to_nomad_endpoint(
             success=False,
             message=f"Upload failed: {e}",
         )
-
-
-@router.post("/upload/nomad/discrete", response_model=NomadUploadResponse)
-async def upload_discrete_archives_to_nomad(
-    session: SessionDep,
-    current_user: CurrentUser,
-    token: TokenDep,
-    request_json: str = Form(...),
-    step1_archive_path: str = Form(...),
-    step2_archive_path: str = Form(...),
-    step3_archive_path: str = Form(...),
-) -> NomadUploadResponse:
-    """Upload step-1/2/3 archives sequentially into the same NOMAD upload."""
-    _require_nomad_upload_authorized(current_user)
-
-    try:
-        request = NomadUploadRequest.model_validate_json(request_json)
-    except Exception:
-        logger.error("Invalid NOMAD upload metadata", exc_info=True)
-        raise HTTPException(status_code=422, detail="Invalid upload request metadata")
-
-    use_user_nomad_token = bool(settings.NOMAD_OAUTH_ENABLED and current_user.nomad_sub)
-    if not use_user_nomad_token and not settings.nomad_enabled:
-        return NomadUploadResponse(
-            success=False,
-            message="NOMAD integration is not configured. Add credentials to the NOMAD auth file (../sensitive config/.nomad_auth)",
-        )
-
-    step1_zip = _validate_temp_archive_path(step1_archive_path)
-    step2_zip = _validate_temp_archive_path(step2_archive_path)
-    step3_zip = _validate_temp_archive_path(step3_archive_path)
-
-    try:
-        if use_user_nomad_token:
-            nomad_token = token
-            logger.info("Using user's NOMAD OAuth token for discrete upload")
-        else:
-            nomad_token = get_nomad_token()
-            logger.info("Using global NOMAD credentials for discrete upload")
-
-        first_result = upload_to_nomad(
-            zip_path=step1_zip,
-            token=nomad_token,
-            upload_name=request.experiment_name,
-        )
-        upload_id = first_result.get("upload_id")
-        if not upload_id:
-            raise NomadUploadError("NOMAD did not return an upload_id in step 1")
-
-        second_result = upload_to_nomad(
-            zip_path=step2_zip,
-            token=nomad_token,
-            existing_upload_id=upload_id,
-        )
-        third_result = upload_to_nomad(
-            zip_path=step3_zip,
-            token=nomad_token,
-            existing_upload_id=upload_id,
-        )
-
-        cleanup_temp_archive(step1_zip)
-        cleanup_temp_archive(step2_zip)
-        cleanup_temp_archive(step3_zip)
-
-        try:
-            from sqlmodel import select
-
-            exp_uuid = uuid.UUID(request.experiment_id)
-            statement = select(ExperimentResults).where(
-                ExperimentResults.experiment_id == exp_uuid,
-                ExperimentResults.owner_id == current_user.id,
-            )
-            db_results = session.exec(statement).first()
-
-            if db_results:
-                merged_entry_ids = list(
-                    {
-                        *(first_result.get("entry_ids") or []),
-                        *(second_result.get("entry_ids") or []),
-                        *(third_result.get("entry_ids") or []),
-                    }
-                )
-                nomad_info = {
-                    "nomad_upload_id": upload_id,
-                    "nomad_entry_ids": merged_entry_ids,
-                    "nomad_upload_time": first_result.get("upload_create_time"),
-                    "nomad_processing_status": third_result.get("processing_status")
-                    or second_result.get("processing_status")
-                    or first_result.get("processing_status"),
-                    "nomad_uploaded_at": datetime.now(timezone.utc).isoformat(),
-                }
-
-                if db_results.frontend_data:
-                    db_results.frontend_data.update({"nomad": nomad_info})
-                else:
-                    db_results.frontend_data = {"nomad": nomad_info}
-
-                session.add(db_results)
-                session.commit()
-        except Exception as e:
-            logger.warning(f"Could not update experiment results with NOMAD info: {e}")
-
-        return NomadUploadResponse(
-            success=True,
-            upload_id=upload_id,
-            entry_ids=(third_result.get("entry_ids") or first_result.get("entry_ids") or []),
-            upload_create_time=first_result.get("upload_create_time"),
-            processing_status=(
-                third_result.get("processing_status")
-                or second_result.get("processing_status")
-                or first_result.get("processing_status")
-            ),
-            message="Successfully uploaded all 3 NOMAD steps",
-        )
-    except NomadAuthError as e:
-        logger.error(f"NOMAD auth error (discrete): {e}")
-        return NomadUploadResponse(success=False, message=str(e))
-    except NomadUploadError as e:
-        logger.error(f"NOMAD upload error (discrete): {e}")
-        return NomadUploadResponse(success=False, message=str(e))
-    except Exception as e:
-        logger.error(f"Unexpected error during discrete NOMAD upload: {e}")
-        return NomadUploadResponse(success=False, message=f"Upload failed: {e}")
 
 
 @router.get("/upload/{upload_id}/status", response_model=NomadUploadStatus)
