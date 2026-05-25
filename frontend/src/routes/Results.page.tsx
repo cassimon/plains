@@ -2054,6 +2054,29 @@ function ResultsDetail({
 
       const data = await res.json()
 
+      const downloadYamlFile = (filename: string, content: string) => {
+        try {
+          const blob = new Blob([content], {
+            type: "application/x-yaml;charset=utf-8",
+          })
+          const url = URL.createObjectURL(blob)
+          const link = document.createElement("a")
+          link.href = url
+          link.download = filename
+          document.body.appendChild(link)
+          link.click()
+          link.remove()
+          URL.revokeObjectURL(url)
+        } catch (err) {
+          notifications.show({
+            title: "Download Error",
+            message:
+              err instanceof Error ? err.message : "Failed to download YAML",
+            color: "red",
+          })
+        }
+      }
+
       modals.open({
         title: `Review NOMAD Upload Step ${step}`,
         size: "xl",
@@ -2086,6 +2109,20 @@ function ResultsDetail({
                             </Group>
                           </Accordion.Control>
                           <Accordion.Panel>
+                            <Group justify="flex-end" mb="xs">
+                              <Button
+                                size="xs"
+                                variant="light"
+                                onClick={() =>
+                                  downloadYamlFile(
+                                    String(filename),
+                                    String(content),
+                                  )
+                                }
+                              >
+                                Download .yaml
+                              </Button>
+                            </Group>
                             <ScrollArea h={300}>
                               <Code block style={{ fontSize: "11px" }}>
                                 {String(content)}
