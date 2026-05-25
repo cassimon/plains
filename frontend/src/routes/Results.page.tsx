@@ -109,6 +109,12 @@ type NomadUploadRequest = {
   custom_metadata?: Record<string, any>
 }
 
+type NomadStepArchivePaths = {
+  step1: string | null
+  step2: string | null
+  step3: string | null
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // File Parsing Utilities (ported from Streamlit app)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -959,8 +965,13 @@ function ResultsDetail({
   )
   const [nomadUploading, setNomadUploading] = useState(false)
   const [preparingUpload, setPreparingUpload] = useState(false)
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
   const [lastArchivePath, setLastArchivePath] = useState<string | null>(null)
+  const [stepArchivePaths, setStepArchivePaths] =
+    useState<NomadStepArchivePaths>({
+      step1: null,
+      step2: null,
+      step3: null,
+    })
   const [workflowStep, setWorkflowStep] = useState<1 | 2 | 3>(1)
   const [isResultsCardOpen, setIsResultsCardOpen] = useState(false)
   const [reviewConfirmed, setReviewConfirmed] = useState(false)
@@ -1092,6 +1103,34 @@ function ResultsDetail({
 
   useEffect(() => {
     try {
+      const key = `nomad_step_archives:${experiment.id}`
+      const raw = sessionStorage.getItem(key)
+      if (!raw) {
+        setStepArchivePaths({ step1: null, step2: null, step3: null })
+        return
+      }
+      const parsed = JSON.parse(raw) as Partial<NomadStepArchivePaths>
+      setStepArchivePaths({
+        step1: parsed.step1 ?? null,
+        step2: parsed.step2 ?? null,
+        step3: parsed.step3 ?? null,
+      })
+    } catch (_e) {
+      setStepArchivePaths({ step1: null, step2: null, step3: null })
+    }
+  }, [experiment.id])
+
+  useEffect(() => {
+    try {
+      const key = `nomad_step_archives:${experiment.id}`
+      sessionStorage.setItem(key, JSON.stringify(stepArchivePaths))
+    } catch (_e) {
+      // ignore sessionStorage errors
+    }
+  }, [experiment.id, stepArchivePaths])
+
+  useEffect(() => {
+    try {
       const key = `nomad_uploads:${experiment.id}`
       const raw = sessionStorage.getItem(key)
       if (!raw) {
@@ -1122,14 +1161,14 @@ function ResultsDetail({
   )
   const results = experimentResults ?? fallbackResults
 
-  const discardTemporaryArchive = useCallback(async () => {
-    if (!lastArchivePath) {
+  const discardArchiveByPath = useCallback(async (archivePath: string | null) => {
+    if (!archivePath) {
       return
     }
 
     try {
       const form = new FormData()
-      form.append("archive_path", lastArchivePath)
+      form.append("archive_path", archivePath)
       const token =
         typeof OpenAPI.TOKEN === "function"
           ? await OpenAPI.TOKEN({} as any)
@@ -1144,16 +1183,39 @@ function ResultsDetail({
       // best effort cleanup
     }
 
+  }, [])
+
+  const discardTemporaryArchive = useCallback(async () => {
+    await discardArchiveByPath(lastArchivePath)
+    await discardArchiveByPath(stepArchivePaths.step1)
+    await discardArchiveByPath(stepArchivePaths.step2)
+    await discardArchiveByPath(stepArchivePaths.step3)
+
     try {
       sessionStorage.removeItem(`nomad_archive:${experiment.id}`)
+      sessionStorage.removeItem(`nomad_step_archives:${experiment.id}`)
     } catch (_e) {
       // ignore
     }
+
     setLastArchivePath(null)
-  }, [experiment.id, lastArchivePath])
+    setStepArchivePaths({ step1: null, step2: null, step3: null })
+  }, [
+    discardArchiveByPath,
+    experiment.id,
+    lastArchivePath,
+    stepArchivePaths.step1,
+    stepArchivePaths.step2,
+    stepArchivePaths.step3,
+  ])
 
   useEffect(() => {
-    const hasInProgress = results.files.length > 0 || !!lastArchivePath
+    const hasInProgress =
+      results.files.length > 0 ||
+      !!lastArchivePath ||
+      !!stepArchivePaths.step1 ||
+      !!stepArchivePaths.step2 ||
+      !!stepArchivePaths.step3
     if (!hasInProgress) {
       return
     }
@@ -1162,10 +1224,16 @@ function ResultsDetail({
       event.preventDefault()
       event.returnValue = ""
 
-      if (lastArchivePath) {
-        const token = getTokenSync()
+      const token = getTokenSync()
+      const paths = [
+        lastArchivePath,
+        stepArchivePaths.step1,
+        stepArchivePaths.step2,
+        stepArchivePaths.step3,
+      ].filter((p): p is string => Boolean(p))
+      for (const path of paths) {
         const form = new FormData()
-        form.append("archive_path", lastArchivePath)
+        form.append("archive_path", path)
         fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/archive/discard`, {
           method: "POST",
           headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -1179,7 +1247,13 @@ function ResultsDetail({
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload)
     }
-  }, [lastArchivePath, results.files.length])
+  }, [
+    lastArchivePath,
+    results.files.length,
+    stepArchivePaths.step1,
+    stepArchivePaths.step2,
+    stepArchivePaths.step3,
+  ])
 
   const toggleSubstrateExpand = (substrateId: string) => {
     setExpandedSubstrates((prev) => {
@@ -1292,15 +1366,6 @@ function ResultsDetail({
         return
       }
 
-      // Store the actual File objects for NOMAD upload
-      setUploadedFiles((prev) => [
-        ...prev,
-        ...droppedFiles.filter((f) => {
-          const category = getFileCategory(f.name)
-          return category !== null
-        }),
-      ])
-
       // Upload dropped files to create a temporary archive on the server
       ;(async () => {
         try {
@@ -1345,10 +1410,12 @@ function ResultsDetail({
             try {
               const key = `nomad_archive:${experiment.id}`
               sessionStorage.setItem(key, data.archive_path)
+              sessionStorage.removeItem(`nomad_step_archives:${experiment.id}`)
             } catch (_e) {
               // ignore
             }
             setLastArchivePath(data.archive_path)
+            setStepArchivePaths({ step1: null, step2: null, step3: null })
           }
           notifications.show({
             title: "Files Uploaded",
@@ -1663,7 +1730,7 @@ function ResultsDetail({
       deviceGroups: [],
       updatedAt: new Date().toISOString(),
     })
-    setUploadedFiles([])
+    setStepArchivePaths({ step1: null, step2: null, step3: null })
     setWorkflowStep(1)
     setReviewConfirmed(false)
     setIsResultsCardOpen(false)
@@ -1743,13 +1810,16 @@ function ResultsDetail({
           ? await OpenAPI.TOKEN({} as any)
           : (OpenAPI.TOKEN ?? undefined)
 
-      const res = await fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/metadata`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
+      const res = await fetch(
+        `${OpenAPI.BASE}/api/v1/nomad/upload/steps/create`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
         },
-        body: formData,
-      })
+      )
 
       if (!res.ok) {
         const text = await res.text()
@@ -1761,22 +1831,44 @@ function ResultsDetail({
         return false
       }
 
-      let metadataFileCount = 0
-      try {
-        const data = (await res.json()) as { metadata_file_count?: number }
-        metadataFileCount = data.metadata_file_count || 0
-      } catch (_err) {
-        // Some successful backend/proxy paths can return an empty or
-        // non-JSON body after writing the archive. Treat the 2xx status as
-        // authoritative so the workflow can still advance.
+      const data = (await res.json()) as {
+        step_archive_paths?: {
+          step1?: string
+          step2?: string
+          step3?: string
+        }
+        metadata_counts?: {
+          step1?: number
+          step2?: number
+          step3?: number
+        }
       }
+
+      const nextPaths: NomadStepArchivePaths = {
+        step1: data.step_archive_paths?.step1 ?? null,
+        step2: data.step_archive_paths?.step2 ?? null,
+        step3: data.step_archive_paths?.step3 ?? null,
+      }
+      setStepArchivePaths(nextPaths)
+      try {
+        sessionStorage.setItem(
+          `nomad_step_archives:${experiment.id}`,
+          JSON.stringify(nextPaths),
+        )
+      } catch (_e) {
+        // ignore
+      }
+
+      const c1 = data.metadata_counts?.step1 ?? 0
+      const c2 = data.metadata_counts?.step2 ?? 0
+      const c3 = data.metadata_counts?.step3 ?? 0
 
       setReviewConfirmed(true)
       setWorkflowStep(3)
 
       notifications.show({
         title: "Upload Prepared",
-        message: `Archive ready with ${metadataFileCount} YAML metadata files`,
+        message: `Created discrete archives (step1=${c1}, step2=${c2}, step3=${c3})`,
         color: "green",
       })
       return true
@@ -1791,7 +1883,7 @@ function ResultsDetail({
     } finally {
       setPreparingUpload(false)
     }
-  }, [buildNomadUploadRequest, lastArchivePath])
+  }, [buildNomadUploadRequest, experiment.id, lastArchivePath])
 
   const handleUploadToNomad = useCallback(async () => {
     if (!nomadConfig?.enabled) {
@@ -1808,24 +1900,31 @@ function ResultsDetail({
     try {
       const requestData = buildNomadUploadRequest()
 
+      if (
+        !stepArchivePaths.step1 ||
+        !stepArchivePaths.step2 ||
+        !stepArchivePaths.step3
+      ) {
+        notifications.show({
+          title: "Upload Not Prepared",
+          message: "Please prepare NOMAD step archives first",
+          color: "orange",
+        })
+        return
+      }
+
       const formData = new FormData()
       formData.append("request_json", JSON.stringify(requestData))
-
-      // Use pre-created archive if available, otherwise upload files directly
-      if (lastArchivePath) {
-        formData.append("archive_path", lastArchivePath)
-      } else {
-        for (const file of uploadedFiles) {
-          formData.append("files", file)
-        }
-      }
+      formData.append("step1_archive_path", stepArchivePaths.step1)
+      formData.append("step2_archive_path", stepArchivePaths.step2)
+      formData.append("step3_archive_path", stepArchivePaths.step3)
 
       const token =
         typeof OpenAPI.TOKEN === "function"
           ? await OpenAPI.TOKEN({} as any)
           : (OpenAPI.TOKEN ?? undefined)
       const response = await fetch(
-        `${OpenAPI.BASE}/api/v1/nomad/upload/nomad`,
+        `${OpenAPI.BASE}/api/v1/nomad/upload/nomad/discrete`,
         {
           method: "POST",
           headers: {
@@ -1877,7 +1976,6 @@ function ResultsDetail({
         hasCompletedUpload: true,
       })
 
-      setUploadedFiles([])
       setReviewConfirmed(false)
       setIsResultsCardOpen(false)
       setWorkflowStep(1)
@@ -1900,20 +1998,28 @@ function ResultsDetail({
   }, [
     buildNomadUploadRequest,
     discardTemporaryArchive,
-    lastArchivePath,
     nomadConfig?.enabled,
     onUpdateExperiment,
     onUpdateResults,
     results,
-    uploadedFiles,
+    stepArchivePaths.step1,
+    stepArchivePaths.step2,
+    stepArchivePaths.step3,
     experiment,
   ])
 
-  const openExperimentMetadataPreview = useCallback(async () => {
-    if (!lastArchivePath) {
+  const openStepMetadataPreview = useCallback(async (step: 1 | 2 | 3) => {
+    const archivePath =
+      step === 1
+        ? stepArchivePaths.step1
+        : step === 2
+          ? stepArchivePaths.step2
+          : stepArchivePaths.step3
+
+    if (!archivePath) {
       notifications.show({
         title: "No Archive",
-        message: "Please prepare the upload first",
+        message: `Please prepare NOMAD upload step ${step} first`,
         color: "orange",
       })
       return
@@ -1921,7 +2027,7 @@ function ResultsDetail({
 
     try {
       const formData = new FormData()
-      formData.append("archive_path", lastArchivePath)
+      formData.append("archive_path", archivePath)
 
       const token =
         typeof OpenAPI.TOKEN === "function"
@@ -1949,7 +2055,7 @@ function ResultsDetail({
       const data = await res.json()
 
       modals.open({
-        title: "Review NOMAD Upload",
+        title: `Review NOMAD Upload Step ${step}`,
         size: "xl",
         children: (
           <ScrollArea>
@@ -2023,7 +2129,7 @@ function ResultsDetail({
         color: "red",
       })
     }
-  }, [lastArchivePath])
+  }, [stepArchivePaths.step1, stepArchivePaths.step2, stepArchivePaths.step3])
 
   // Separate matched groups (assigned to substrates) from unmatched
   const matchedGroups = useMemo(
@@ -2318,7 +2424,7 @@ function ResultsDetail({
                           >
                             {nomadUploading
                               ? "Uploading..."
-                              : "Upload to NOMAD"}
+                              : "Upload all 3 NOMAD steps"}
                           </Button>
                         )}
                       </Group>
@@ -2926,10 +3032,26 @@ function ResultsDetail({
                               <Button
                                 size="xs"
                                 variant="default"
-                                onClick={openExperimentMetadataPreview}
-                                disabled={!reviewConfirmed}
+                                onClick={() => void openStepMetadataPreview(1)}
+                                disabled={!reviewConfirmed || !stepArchivePaths.step1}
                               >
-                                Review NOMAD Upload
+                                NOMAD upload step 1
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="default"
+                                onClick={() => void openStepMetadataPreview(2)}
+                                disabled={!reviewConfirmed || !stepArchivePaths.step2}
+                              >
+                                NOMAD upload step 2
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="default"
+                                onClick={() => void openStepMetadataPreview(3)}
+                                disabled={!reviewConfirmed || !stepArchivePaths.step3}
+                              >
+                                NOMAD upload step 3
                               </Button>
                             </Group>
 
@@ -2953,7 +3075,7 @@ function ResultsDetail({
                             >
                               {nomadUploading
                                 ? "Uploading..."
-                                : "Upload to NOMAD"}
+                                : "Upload all 3 NOMAD steps"}
                             </Button>
                           </Stack>
                         </Paper>
@@ -2997,24 +3119,46 @@ export function ResultsPage() {
   const discardArchiveForExperiment = useCallback(
     async (experimentId: string) => {
       try {
+        const archivePaths: string[] = []
         const key = `nomad_archive:${experimentId}`
         const archivePath = sessionStorage.getItem(key)
-        if (!archivePath) {
+        if (archivePath) {
+          archivePaths.push(archivePath)
+        }
+        const stepKey = `nomad_step_archives:${experimentId}`
+        const rawStep = sessionStorage.getItem(stepKey)
+        if (rawStep) {
+          try {
+            const parsed = JSON.parse(rawStep) as Partial<NomadStepArchivePaths>
+            if (parsed.step1) archivePaths.push(parsed.step1)
+            if (parsed.step2) archivePaths.push(parsed.step2)
+            if (parsed.step3) archivePaths.push(parsed.step3)
+          } catch (_e) {
+            // ignore malformed session value
+          }
+        }
+
+        if (archivePaths.length === 0) {
           return
         }
 
-        const form = new FormData()
-        form.append("archive_path", archivePath)
         const token =
           typeof OpenAPI.TOKEN === "function"
             ? await OpenAPI.TOKEN({} as any)
             : (OpenAPI.TOKEN ?? undefined)
-        await fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/archive/discard`, {
-          method: "POST",
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          body: form,
-        })
+
+        for (const path of archivePaths) {
+          const form = new FormData()
+          form.append("archive_path", path)
+          await fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/archive/discard`, {
+            method: "POST",
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+            body: form,
+          })
+        }
+
         sessionStorage.removeItem(key)
+        sessionStorage.removeItem(stepKey)
       } catch (_e) {
         // best effort cleanup
       }
@@ -3034,12 +3178,23 @@ export function ResultsPage() {
     try {
       for (let i = 0; i < sessionStorage.length; i++) {
         const key = sessionStorage.key(i)
-        if (!key || !key.startsWith("nomad_archive:")) {
+        if (!key) {
           continue
         }
-        const experimentId = key.slice("nomad_archive:".length)
-        if (experimentId) {
-          inProgress.add(experimentId)
+
+        if (key.startsWith("nomad_archive:")) {
+          const experimentId = key.slice("nomad_archive:".length)
+          if (experimentId) {
+            inProgress.add(experimentId)
+          }
+          continue
+        }
+
+        if (key.startsWith("nomad_step_archives:")) {
+          const experimentId = key.slice("nomad_step_archives:".length)
+          if (experimentId) {
+            inProgress.add(experimentId)
+          }
         }
       }
     } catch (_e) {

@@ -2023,10 +2023,7 @@ def create_nomad_metadata_yaml(
                 (group or {}).get("deviceName")
                 or f"{str(substrate.get('name') or substrate_id)} device {dev_idx + 1}"
             )
-            sample_lab_id = str(
-                (group or {}).get("id")
-                or f"{substrate_id}_dev{dev_idx + 1}"
-            )
+            sample_lab_id = f"{substrate_id}_dev{dev_idx + 1}"
 
             best_jv = _best_jv(group_files)
             best_ipce = _best_ipce(group_files)
@@ -2106,10 +2103,117 @@ def create_nomad_metadata_yaml(
     return archives
 
 
+def split_nomad_metadata_archives_for_discrete_upload(
+    archives: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """
+    Split generated NOMAD metadata into three discrete upload steps.
+
+    Step 1:
+      - PerovskiteSolarCellSampleArea archives
+      - Measurement archives (LabJV/LabEQE/LabStability)
+      - Enforce JV defaults to 0.0 for robust first-stage linking
+
+    Step 2:
+      - SubstrateSample archives
+      - Convert cell_areas references to lab_id-only entries
+
+    Step 3:
+      - DepositionRoutine archives
+      - Convert samples references to lab_id-only entries
+    """
+    step1: dict[str, dict[str, Any]] = {}
+    step2: dict[str, dict[str, Any]] = {}
+    step3: dict[str, dict[str, Any]] = {}
+
+    sample_lab_id_by_file: dict[str, str] = {}
+    substrate_lab_id_by_file: dict[str, str] = {}
+
+    # Pass 1: gather filename -> lab_id mappings from sample and substrate archives.
+    for filename, wrapped in archives.items():
+        data = wrapped.get("data") if isinstance(wrapped, dict) else None
+        if not isinstance(data, dict):
+            continue
+        m_def = str(data.get("m_def") or "")
+        if m_def.endswith("PerovskiteSolarCellSampleArea"):
+            lab_id = str(data.get("lab_id") or "").strip()
+            if lab_id:
+                sample_lab_id_by_file[filename] = lab_id
+        elif m_def.endswith("SubstrateSample"):
+            lab_id = str(data.get("lab_id") or "").strip()
+            if lab_id:
+                substrate_lab_id_by_file[filename] = lab_id
+
+    def _file_from_reference(reference: Any) -> str:
+        text = str(reference or "").strip()
+        if not text:
+            return ""
+        text = text.replace("../upload/raw/", "")
+        return text.split("#/", 1)[0]
+
+    # Pass 2: split and adapt payloads by m_def.
+    for filename, wrapped in archives.items():
+        data = wrapped.get("data") if isinstance(wrapped, dict) else None
+        if not isinstance(data, dict):
+            continue
+
+        m_def = str(data.get("m_def") or "")
+
+        if m_def.endswith("PerovskiteSolarCellSampleArea"):
+            cloned = dict(data)
+            cloned["jv"] = {
+                "light_spectra": "AM 1.5G",
+                "default_Voc": 0.0,
+                "default_Jsc": 0.0,
+                "default_FF": 0.0,
+                "default_PCE": 0.0,
+            }
+            step1[filename] = {"data": cloned}
+            continue
+
+        if m_def.endswith("SubstrateSample"):
+            cloned = dict(data)
+            converted_cell_areas: list[dict[str, str]] = []
+            for item in (cloned.get("cell_areas") or []):
+                if not isinstance(item, dict):
+                    continue
+                ref_file = _file_from_reference(item.get("reference"))
+                sample_lab_id = sample_lab_id_by_file.get(ref_file)
+                if sample_lab_id:
+                    converted_cell_areas.append({"lab_id": sample_lab_id})
+            cloned["cell_areas"] = converted_cell_areas
+            step2[filename] = {"data": cloned}
+            continue
+
+        if m_def.endswith("DepositionRoutine"):
+            cloned = dict(data)
+            converted_samples: list[dict[str, str]] = []
+            for item in (cloned.get("samples") or []):
+                if not isinstance(item, dict):
+                    continue
+                ref_file = _file_from_reference(item.get("reference"))
+                substrate_lab_id = substrate_lab_id_by_file.get(ref_file)
+                if substrate_lab_id:
+                    converted_samples.append({"lab_id": substrate_lab_id})
+            cloned["samples"] = converted_samples
+            step3[filename] = {"data": cloned}
+            continue
+
+        if m_def.startswith("nomad_chose."):
+            step1[filename] = wrapped
+
+    return {
+        "step1": step1,
+        "step2": step2,
+        "step3": step3,
+    }
+
+
 def upload_to_nomad(
     zip_path: Path,
     token: str | None = None,
     upload_name: str | None = None,
+    existing_upload_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Upload a zip file to NOMAD.
@@ -2118,6 +2222,7 @@ def upload_to_nomad(
         zip_path: Path to the zip file to upload
         token: NOMAD auth token (fetches new one if not provided)
         upload_name: Optional name for the upload
+        existing_upload_id: Optional existing NOMAD upload ID to append data to
 
     Returns:
         Dict with upload_id, entry_ids, and other metadata from NOMAD
@@ -2135,14 +2240,15 @@ def upload_to_nomad(
     
     # ── MOCK MODE ──────────────────────────────────────────────────────
     if settings.NOMAD_MOCK_MODE:
-        mock_id = f"MOCK_{uuid.uuid4().hex[:12]}"
+        mock_id = existing_upload_id or f"MOCK_{uuid.uuid4().hex[:12]}"
         logger.info(
             "[MOCK MODE] upload_to_nomad — would POST %s with file=%s (%d bytes), "
-            "upload_name=%s. Returning fake upload_id=%s instead.",
+            "upload_name=%s, existing_upload_id=%s. Returning fake upload_id=%s instead.",
             upload_url,
             zip_path.name,
             zip_path.stat().st_size,
             upload_name,
+            existing_upload_id,
             mock_id,
         )
         return {
@@ -2159,17 +2265,45 @@ def upload_to_nomad(
             with open(zip_path, "rb") as f:
                 # Prepare multipart form data
                 files = {"file": (zip_path.name, f, "application/zip")}
-                params = {}
+                params: dict[str, str] = {}
                 if upload_name:
                     params["upload_name"] = upload_name
-                
-                response = client.post(
-                    upload_url,
-                    files=files,
-                    params=params,
-                    headers={"Authorization": f"Bearer {token}"},
-                )
+
+                headers = {"Authorization": f"Bearer {token}"}
+                response: httpx.Response | None = None
+
+                if existing_upload_id:
+                    # NOMAD API variants differ across deployments. Try the dedicated
+                    # append endpoint first, then fall back to /uploads?upload_id=...
+                    append_url = f"{upload_url}/{existing_upload_id}/raw"
+                    response = client.post(
+                        append_url,
+                        files=files,
+                        params=params,
+                        headers=headers,
+                    )
+
+                    if response.status_code not in (200, 201):
+                        fallback_params = dict(params)
+                        fallback_params["upload_id"] = existing_upload_id
+                        response = client.post(
+                            upload_url,
+                            files=files,
+                            params=fallback_params,
+                            headers=headers,
+                        )
+                else:
+                    response = client.post(
+                        upload_url,
+                        files=files,
+                        params=params,
+                        headers=headers,
+                    )
             
+            if response is None:
+                logger.error("NOMAD upload failed: no response returned")
+                raise NomadUploadError("NOMAD upload failed: no response")
+
             if response.status_code not in (200, 201):
                 logger.error(f"NOMAD upload failed: {response.status_code} - {response.text}")
                 raise NomadUploadError(f"NOMAD upload failed: {response.status_code}")
@@ -2178,7 +2312,7 @@ def upload_to_nomad(
             logger.info(f"NOMAD upload successful: {upload_data.get('upload_id')}")
             
             return {
-                "upload_id": upload_data.get("upload_id"),
+                "upload_id": upload_data.get("upload_id") or existing_upload_id,
                 "upload_create_time": upload_data.get("upload_create_time"),
                 "processing_status": upload_data.get("process_status"),
                 "entries": upload_data.get("entries", []),
