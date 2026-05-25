@@ -2424,7 +2424,7 @@ function ResultsDetail({
                           >
                             {nomadUploading
                               ? "Uploading..."
-                              : "Upload all 3 NOMAD steps"}
+                              : "Upload data to NOMAD"}
                           </Button>
                         )}
                       </Group>
@@ -3075,7 +3075,7 @@ function ResultsDetail({
                             >
                               {nomadUploading
                                 ? "Uploading..."
-                                : "Upload all 3 NOMAD steps"}
+                                : "Upload data to NOMAD"}
                             </Button>
                           </Stack>
                         </Paper>
