@@ -225,6 +225,9 @@ async def upload_files_for_nomad(
     
     if not file_data:
         raise HTTPException(status_code=400, detail="No valid files to upload")
+
+    archive_name = f"{experiment_id[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.zip"
+    archive_basename = Path(archive_name).stem
     
     # Generate YAML metadata if request metadata is provided
     archive_yaml_files: list[tuple[str, str]] = []
@@ -250,6 +253,7 @@ async def upload_files_for_nomad(
                 experiment_id=request.experiment_id,
                 user_name=current_user.full_name or current_user.email,
                 session=session,
+                upload_archive_basename=archive_basename,
                 experiment_snapshot=experiment_snapshot,
                 process_snapshot=process_snapshot,
                 measurement_files=measurement_files_dicts,
@@ -281,7 +285,7 @@ async def upload_files_for_nomad(
         zip_path = create_secure_zip(
             files=file_data,
             metadata_files=archive_yaml_files if archive_yaml_files else None,
-            archive_name=f"{experiment_id[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.zip",
+            archive_name=archive_name,
         )
         
         logger.info(f"Created temporary zip archive at {zip_path} with {len(file_data)} files + {len(archive_yaml_files)} YAML files, total size: {zip_path.stat().st_size} bytes")
@@ -361,6 +365,7 @@ async def add_metadata_to_archive(
             experiment_id=request.experiment_id,
             user_name=current_user.full_name or current_user.email,
             session=session,
+            upload_archive_basename=candidate.stem,
             experiment_snapshot=experiment_snapshot,
             process_snapshot=process_snapshot,
             measurement_files=measurement_files_dicts,
@@ -488,7 +493,7 @@ async def upload_to_nomad_endpoint(
     current_user: CurrentUser,
     token: TokenDep,  # Get the user's current auth token
     request_json: str = Form(...),
-    archive_path: str | None = None,
+    archive_path: str | None = Form(None),
     files: list[UploadFile] | None = File(None),
 ) -> NomadUploadResponse:
     """
@@ -523,6 +528,26 @@ async def upload_to_nomad_endpoint(
             success=False,
             message="NOMAD integration is not configured. Add credentials to the NOMAD auth file (../sensitive config/.nomad_auth)",
         )
+
+    validated_archive_path: Path | None = None
+    new_archive_name = f"{request.experiment_id[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.zip"
+    upload_archive_basename = Path(new_archive_name).stem
+
+    if archive_path:
+        try:
+            candidate = Path(archive_path).resolve()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail="Invalid archive path") from e
+
+        allowed_root = TEMP_UPLOAD_DIR.resolve()
+        if not str(candidate).startswith(str(allowed_root)):
+            raise HTTPException(status_code=403, detail="Archive path is not allowed")
+
+        if not candidate.exists():
+            raise HTTPException(status_code=404, detail="Archive not found")
+
+        validated_archive_path = candidate
+        upload_archive_basename = candidate.stem
     
     try:
         experiment_snapshot = None
@@ -543,6 +568,7 @@ async def upload_to_nomad_endpoint(
             experiment_id=request.experiment_id,
             user_name=current_user.full_name or current_user.email,
             session=session,
+            upload_archive_basename=upload_archive_basename,
             experiment_snapshot=experiment_snapshot,
             process_snapshot=process_snapshot,
             measurement_files=measurement_files_dicts,
@@ -566,20 +592,10 @@ async def upload_to_nomad_endpoint(
 
         # Use pre-created archive or create a new one
         if archive_path:
-            # Validate and use the pre-created archive
-            try:
-                candidate = Path(archive_path).resolve()
-            except Exception as e:
-                raise HTTPException(status_code=400, detail="Invalid archive path") from e
-
-            allowed_root = TEMP_UPLOAD_DIR.resolve()
-            if not str(candidate).startswith(str(allowed_root)):
-                raise HTTPException(status_code=403, detail="Archive path is not allowed")
-            
-            if not candidate.exists():
-                raise HTTPException(status_code=404, detail="Archive not found")
-            
-            zip_path = candidate
+            # Use already-validated pre-created archive
+            if validated_archive_path is None:
+                raise HTTPException(status_code=400, detail="Invalid archive path")
+            zip_path = validated_archive_path
             logger.info(f"Using pre-created archive at {zip_path}")
         elif files:
             # Create a new archive from uploaded files
@@ -592,7 +608,7 @@ async def upload_to_nomad_endpoint(
             zip_path = create_secure_zip(
                 files=file_data,
                 metadata_files=archive_yaml_files,
-                archive_name=f"{request.experiment_id[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.zip",
+                archive_name=new_archive_name,
             )
             logger.info(f"Created new archive at {zip_path}")
         else:

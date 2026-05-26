@@ -242,6 +242,7 @@ def create_nomad_metadata_yaml(
     experiment_id: str,
     user_name: str,
     session: Any,
+    upload_archive_basename: str | None = None,
     experiment_snapshot: dict[str, Any] | None = None,
     process_snapshot: dict[str, Any] | None = None,
     measurement_files: list[dict[str, Any]] | None = None,
@@ -400,7 +401,18 @@ def create_nomad_metadata_yaml(
     if not substrates_list:
         substrates_list = [{"id": "substrate_0", "name": "substrate_0"}]
 
+    upload_base = str(upload_archive_basename or "").strip()
+    if upload_base.lower().endswith(".zip"):
+        upload_base = upload_base[:-4]
+    upload_raw_prefix = f"../upload/raw/{upload_base}" if upload_base else "../upload/raw"
+
     # ── Helper functions ──────────────────────────────────────────────────────
+
+    def _upload_raw_reference(path: str, fragment: str | None = None) -> str:
+        ref = f"{upload_raw_prefix}/{path}"
+        if fragment:
+            return f"{ref}#{fragment}"
+        return ref
 
     def _clean_value(value: Any, default: str = "Unknown") -> str:
         text = str(value or "").strip()
@@ -1047,7 +1059,7 @@ def create_nomad_metadata_yaml(
             # Use filename without extension as caption
             caption = Path(filename).stem.replace('_', ' ').replace('-', ' ')
             images.append({
-                "image": "../upload/raw/" + filename,
+                "image": _upload_raw_reference(filename),
                 "caption": caption,
             })
         return images
@@ -1070,7 +1082,7 @@ def create_nomad_metadata_yaml(
             # Use filename without extension as title
             title = Path(filename).stem.replace('_', ' ').replace('-', ' ')
             documents.append({
-                "document": "../upload/raw/" + filename,
+                "document": _upload_raw_reference(filename),
                 "title": title,
             })
         return documents
@@ -1334,7 +1346,7 @@ def create_nomad_metadata_yaml(
                 "operator": op,
                 "jv_file": file_name,
                 "samples": [
-                    {"reference": f"../upload/raw/{sample_filename}#/data"}
+                    {"reference": _upload_raw_reference(sample_filename, "/data")}
                 ],
             }
         if file_type in IPCE_TYPES:
@@ -1344,7 +1356,7 @@ def create_nomad_metadata_yaml(
                 "operator": op,
                 "eqe_file": file_name,
                 "samples": [
-                    {"reference": f"../upload/raw/{sample_filename}#/data"}
+                    {"reference": _upload_raw_reference(sample_filename, "/data")}
                 ],
             }
         if file_type in STABILITY_TYPES:
@@ -1353,7 +1365,7 @@ def create_nomad_metadata_yaml(
                 "name": file_name,
                 "operator": op,
                 "samples": [
-                    {"reference": f"../upload/raw/{sample_filename}#/data"}
+                    {"reference": _upload_raw_reference(sample_filename, "/data")}
                 ],
             }
             if file_type == "Stability (Tracking)":
@@ -1999,7 +2011,7 @@ def create_nomad_metadata_yaml(
         substrate_sample_fname = _reserve_archive_filename(
             f"{sub_name_slug}_substrate.archive.yaml",
         )
-        substrate_sample_ref = f"../upload/raw/{substrate_sample_fname}#/data"
+        substrate_sample_ref = _upload_raw_reference(substrate_sample_fname, "/data")
 
         deposition_fname = _reserve_archive_filename(
             f"{sub_name_slug}_deposition.archive.yaml",
@@ -2058,7 +2070,7 @@ def create_nomad_metadata_yaml(
         # ── Build SubstrateSample archive (with cell_areas) ───────────────
         substrate_sample_data = _build_substrate_entity_data(substrate, sub_layer)
         substrate_sample_data["cell_areas"] = [
-            {"reference": f"../upload/raw/{fname}#/data"} for fname in sample_filenames
+            {"reference": _upload_raw_reference(fname, "/data")} for fname in sample_filenames
         ]
         archives[substrate_sample_fname] = {"data": substrate_sample_data}
 
