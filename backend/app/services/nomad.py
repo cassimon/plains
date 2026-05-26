@@ -2232,6 +2232,7 @@ def upload_to_nomad(
                         headers={
                             "Authorization": f"Bearer {token}",
                             "Content-Type": "application/zip",
+                            "Accept": "application/json"
                         },
                     )
                     if response.status_code not in (200, 201):
@@ -2258,7 +2259,7 @@ def upload_to_nomad(
                         upload_url,
                         files=files,
                         params=params,
-                        headers={"Authorization": f"Bearer {token}"},
+                        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
                     )
                     if response.status_code not in (200, 201):
                         logger.error(f"NOMAD upload failed: {response.status_code} - {response.text}")
@@ -2279,12 +2280,21 @@ def upload_to_nomad(
                         )
             
             logger.info(f"NOMAD upload successful: {result_upload_id}")
+            logger.info(f"Data: {upload_data}")
+            entries_val = upload_data.get("entries", [])
+            # NOMAD returns entries as a count (int) or a list; normalize to count
+            if isinstance(entries_val, int):
+                entries_count = entries_val
+            elif isinstance(entries_val, list):
+                entries_count = len(entries_val)
+            else:
+                entries_count = 0
+
             return {
                 "upload_id": result_upload_id,
                 "upload_create_time": upload_data.get("upload_create_time"),
                 "processing_status": upload_data.get("process_status", "PENDING"),
-                "entries": upload_data.get("entries", []),
-                "entry_ids": [e.get("entry_id") for e in upload_data.get("entries", []) if e.get("entry_id")],
+                "entries": entries_count,
             }
             
     except httpx.RequestError as e:
