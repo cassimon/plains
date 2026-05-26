@@ -618,10 +618,13 @@ export type DeviceGroup = {
 /** NOMAD upload information */
 export type NomadUploadInfo = {
   upload_id?: string
+  // Deprecated: entry_ids is no longer used, replaced by entries count
   entry_ids?: string[]
   upload_time?: string
   status?: string
   mainfile?: string
+  /** Number of entries in the upload (NOMAD API returns this as int) */
+  entries?: number
 }
 
 /** All results data for an experiment */

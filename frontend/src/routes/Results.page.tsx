@@ -1130,15 +1130,13 @@ function ResultsDetail({
         }
 
         if (newStatus !== current.nomad?.status) {
-          const entryIds = (statusResult.entries ?? [])
-            .map((e: Record<string, unknown>) => e["entry_id"] as string)
-            .filter(Boolean)
+          // NOMAD now returns entries as a count (int), not entry_ids
           onUpdateResults({
             ...current,
             nomad: {
               ...current.nomad,
               status: newStatus,
-              ...(entryIds.length > 0 ? { entry_ids: entryIds } : {}),
+              entries: typeof statusResult.entries === "number" ? statusResult.entries : undefined,
             },
             updatedAt: new Date().toISOString(),
           })
@@ -1906,7 +1904,7 @@ function ResultsDetail({
         deviceGroups: [],
         nomad: {
           upload_id: result.upload_id ?? results.nomad?.upload_id,
-          entry_ids: result.entry_ids ?? results.nomad?.entry_ids,
+          entries: typeof result.entries === "number" ? result.entries : undefined,
           upload_time: result.upload_create_time ?? results.nomad?.upload_time,
           // Keep any existing status; polling will update it once NOMAD processes
           status: result.processing_status ?? "PENDING",
@@ -2040,7 +2038,7 @@ function ResultsDetail({
                         <Accordion.Item key={filename} value={filename}>
                           <Accordion.Control>
                             <Group gap="xs">
-                              <IconFile size={16} />
+                             
                               <Text size="sm" fw={500}>
                                 {filename}
                               </Text>
@@ -2314,6 +2312,11 @@ function ResultsDetail({
                       </Text>{" "}
                       <Code>{results.nomad.upload_id}</Code>
                     </Text>
+                    {typeof results.nomad.entries === "number" && (
+                      <Text size="sm" c="dimmed">
+                        <Text span fw={600}>Entries:</Text> {results.nomad.entries}
+                      </Text>
+                    )}
                     {guiUrl && (
                       <Button
                         size="xs"
