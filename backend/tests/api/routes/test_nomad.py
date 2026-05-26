@@ -36,6 +36,8 @@ def test_upload_to_nomad_accepts_archive_path_from_form_data(
 
     def fake_upload_to_nomad(zip_path, token, upload_name):
         upload_calls.append((str(zip_path), token, upload_name))
+    def fake_upload_to_nomad(zip_path, token, upload_name, existing_upload_id=None):
+        upload_calls.append((str(zip_path), token, upload_name))
         return {
             "upload_id": "upload-123",
             "entry_ids": ["entry-1"],

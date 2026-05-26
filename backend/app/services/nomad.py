@@ -2128,14 +2128,20 @@ def upload_to_nomad(
     zip_path: Path,
     token: str | None = None,
     upload_name: str | None = None,
+    existing_upload_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Upload a zip file to NOMAD.
 
+    When *existing_upload_id* is provided the zip is streamed via
+    ``PUT /uploads/{existing_upload_id}`` so that additional data is added
+    to the same upload rather than creating a new one.
+
     Args:
         zip_path: Path to the zip file to upload
         token: NOMAD auth token (fetches new one if not provided)
-        upload_name: Optional name for the upload
+        upload_name: Optional name for the upload (ignored on re-upload)
+        existing_upload_id: Existing NOMAD upload ID to add data to
 
     Returns:
         Dict with upload_id, entry_ids, and other metadata from NOMAD
@@ -2149,14 +2155,19 @@ def upload_to_nomad(
     if not zip_path.exists():
         raise NomadUploadError(f"Zip file not found: {zip_path}")
     
-    upload_url = f"{settings.NOMAD_URL}/uploads"
-    
     # ── MOCK MODE ──────────────────────────────────────────────────────
     if settings.NOMAD_MOCK_MODE:
-        mock_id = f"MOCK_{uuid.uuid4().hex[:12]}"
+        mock_id = existing_upload_id or f"MOCK_{uuid.uuid4().hex[:12]}"
+        action = "PUT" if existing_upload_id else "POST"
+        upload_url = (
+            f"{settings.NOMAD_URL}/uploads/{existing_upload_id}"
+            if existing_upload_id
+            else f"{settings.NOMAD_URL}/uploads"
+        )
         logger.info(
-            "[MOCK MODE] upload_to_nomad — would POST %s with file=%s (%d bytes), "
+            "[MOCK MODE] upload_to_nomad — would %s %s with file=%s (%d bytes), "
             "upload_name=%s. Returning fake upload_id=%s instead.",
+            action,
             upload_url,
             zip_path.name,
             zip_path.stat().st_size,
@@ -2166,7 +2177,7 @@ def upload_to_nomad(
         return {
             "upload_id": mock_id,
             "upload_create_time": datetime.now(timezone.utc).isoformat(),
-            "processing_status": "mock",
+            "processing_status": "PENDING",
             "entries": [],
             "entry_ids": [],
         }
@@ -2175,32 +2186,48 @@ def upload_to_nomad(
     try:
         with httpx.Client(timeout=120.0) as client:
             with open(zip_path, "rb") as f:
-                # Prepare multipart form data
-                files = {"file": (zip_path.name, f, "application/zip")}
-                params = {}
-                if upload_name:
-                    params["upload_name"] = upload_name
-                
-                response = client.post(
-                    upload_url,
-                    files=files,
-                    params=params,
-                    headers={"Authorization": f"Bearer {token}"},
-                )
+                if existing_upload_id:
+                    # Add data to an existing upload via streaming PUT
+                    put_url = f"{settings.NOMAD_URL}/uploads/{existing_upload_id}"
+                    logger.info(f"Re-uploading to existing NOMAD upload {existing_upload_id}")
+                    response = client.put(
+                        put_url,
+                        content=f.read(),
+                        headers={
+                            "Authorization": f"Bearer {token}",
+                            "Content-Type": "application/zip",
+                        },
+                    )
+                    if response.status_code not in (200, 201):
+                        logger.error(f"NOMAD re-upload failed: {response.status_code} - {response.text}")
+                        raise NomadUploadError(f"NOMAD re-upload failed: {response.status_code}")
+                    upload_data = response.json()
+                    result_upload_id = upload_data.get("upload_id") or existing_upload_id
+                else:
+                    # Create a new upload
+                    upload_url = f"{settings.NOMAD_URL}/uploads"
+                    files = {"file": (zip_path.name, f, "application/zip")}
+                    params: dict[str, str] = {}
+                    if upload_name:
+                        params["upload_name"] = upload_name
+                    response = client.post(
+                        upload_url,
+                        files=files,
+                        params=params,
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+                    if response.status_code not in (200, 201):
+                        logger.error(f"NOMAD upload failed: {response.status_code} - {response.text}")
+                        raise NomadUploadError(f"NOMAD upload failed: {response.status_code}")
+                    upload_data = response.json()
+                    result_upload_id = upload_data.get("upload_id")
             
-            if response.status_code not in (200, 201):
-                logger.error(f"NOMAD upload failed: {response.status_code} - {response.text}")
-                raise NomadUploadError(f"NOMAD upload failed: {response.status_code}")
-            
-            upload_data = response.json()
-            logger.info(f"NOMAD upload successful: {upload_data.get('upload_id')}")
-            
+            logger.info(f"NOMAD upload successful: {result_upload_id}")
             return {
-                "upload_id": upload_data.get("upload_id"),
+                "upload_id": result_upload_id,
                 "upload_create_time": upload_data.get("upload_create_time"),
-                "processing_status": upload_data.get("process_status"),
+                "processing_status": upload_data.get("process_status", "PENDING"),
                 "entries": upload_data.get("entries", []),
-                # Extract entry_ids if available
                 "entry_ids": [e.get("entry_id") for e in upload_data.get("entries", []) if e.get("entry_id")],
             }
             
@@ -2229,12 +2256,12 @@ def get_upload_status(upload_id: str, token: str | None = None) -> dict[str, Any
     if settings.NOMAD_MOCK_MODE:
         logger.info(
             "[MOCK MODE] get_upload_status — would GET %s. "
-            "Returning fake 'success' status instead.",
+            "Returning fake 'SUCCESS' status instead.",
             status_url,
         )
         return {
             "upload_id": upload_id,
-            "process_status": "mock_success",
+            "process_status": "SUCCESS",
             "entries": [],
         }
     # ───────────────────────────────────────────────────────────────────

@@ -494,6 +494,7 @@ async def upload_to_nomad_endpoint(
     token: TokenDep,  # Get the user's current auth token
     request_json: str = Form(...),
     archive_path: str | None = Form(None),
+    existing_upload_id: str | None = Form(None),
     files: list[UploadFile] | None = File(None),
 ) -> NomadUploadResponse:
     """
@@ -629,6 +630,7 @@ async def upload_to_nomad_endpoint(
             zip_path=zip_path,
             token=nomad_token,
             upload_name=request.experiment_name,
+            existing_upload_id=existing_upload_id or None,
         )
         
         # Clean up temporary archive
@@ -697,18 +699,23 @@ async def upload_to_nomad_endpoint(
 @router.get("/upload/{upload_id}/status", response_model=NomadUploadStatus)
 def check_upload_status(
     current_user: CurrentUser,
+    token: TokenDep,
     upload_id: str,
 ) -> NomadUploadStatus:
     """
     Check the status of a NOMAD upload.
     
     Use this to monitor processing progress after upload.
+    Works with both OAuth user tokens and global service credentials.
     """
-    if not settings.nomad_enabled:
+    use_user_token = bool(settings.NOMAD_OAUTH_ENABLED and current_user.nomad_sub)
+    if not settings.NOMAD_MOCK_MODE and not settings.nomad_enabled and not use_user_token:
         raise HTTPException(status_code=503, detail="NOMAD integration not configured")
     
+    nomad_token: str | None = token if use_user_token else None
+    
     try:
-        status = get_upload_status(upload_id)
+        status = get_upload_status(upload_id, token=nomad_token)
         
         if "error" in status:
             return NomadUploadStatus(

@@ -27,6 +27,7 @@ import {
   IconCheck,
   IconChevronDown,
   IconChevronRight,
+  IconAlertTriangle,
   IconCloudUpload,
   IconExternalLink,
   IconFile,
@@ -964,15 +965,14 @@ function ResultsDetail({
   const [workflowStep, setWorkflowStep] = useState<1 | 2 | 3>(1)
   const [isResultsCardOpen, setIsResultsCardOpen] = useState(false)
   const [reviewConfirmed, setReviewConfirmed] = useState(false)
-  const [nomadUploadHistory, setNomadUploadHistory] = useState<
-    Array<{ uploadId: string; entryIds: string[]; uploadTime?: string }>
-  >([])
   const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(
     null,
   )
   const [isReviewDragActive, setIsReviewDragActive] = useState(false)
   const reviewScrollViewportRef = useRef<HTMLDivElement | null>(null)
   const reviewDragPositionRef = useRef<number | null>(null)
+  // Keep a ref to the latest results so polling callbacks don't stale-close
+  const resultsRef = useRef(results)
   const reviewAutoScrollRafRef = useRef<number | null>(null)
 
   const stopReviewAutoScroll = useCallback(() => {
@@ -1090,37 +1090,67 @@ function ResultsDetail({
     }
   }, [experiment.id])
 
-  useEffect(() => {
-    try {
-      const key = `nomad_uploads:${experiment.id}`
-      const raw = sessionStorage.getItem(key)
-      if (!raw) {
-        setNomadUploadHistory([])
-        return
-      }
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) {
-        setNomadUploadHistory(parsed)
-      }
-    } catch (_e) {
-      setNomadUploadHistory([])
-    }
-  }, [experiment.id])
-
-  useEffect(() => {
-    try {
-      const key = `nomad_uploads:${experiment.id}`
-      sessionStorage.setItem(key, JSON.stringify(nomadUploadHistory))
-    } catch (_e) {
-      // ignore sessionStorage errors
-    }
-  }, [experiment.id, nomadUploadHistory])
-
   const fallbackResults = useMemo(
     () => newExperimentResults(experiment.id),
     [experiment.id],
   )
   const results = experimentResults ?? fallbackResults
+  resultsRef.current = results
+
+  // ── NOMAD status polling ──────────────────────────────────────────────────
+  // Polls GET /upload/{id}/status every 5 s until the upload reaches a terminal
+  // state (SUCCESS / FAILURE / NOT_FOUND).  The effect restarts whenever the
+  // upload_id or status changes, so it automatically resumes after navigation.
+  useEffect(() => {
+    const uploadId = results.nomad?.upload_id
+    if (!uploadId) return
+
+    const status = results.nomad?.status
+    const isFinal =
+      status === "SUCCESS" ||
+      status === "FAILURE" ||
+      status === "FAILED" ||
+      status === "NOT_FOUND"
+    if (isFinal) return
+
+    const poll = async () => {
+      try {
+        const statusResult = await NomadService.checkUploadStatus({ uploadId })
+        const current = resultsRef.current
+
+        let newStatus: string
+        if (statusResult.error) {
+          // Treat HTTP 404 responses as the upload having been deleted externally
+          newStatus = statusResult.error.includes("404")
+            ? "NOT_FOUND"
+            : (status ?? "PENDING")
+        } else {
+          newStatus = statusResult.status ?? status ?? "PENDING"
+        }
+
+        if (newStatus !== current.nomad?.status) {
+          const entryIds = (statusResult.entries ?? [])
+            .map((e: Record<string, unknown>) => e["entry_id"] as string)
+            .filter(Boolean)
+          onUpdateResults({
+            ...current,
+            nomad: {
+              ...current.nomad,
+              status: newStatus,
+              ...(entryIds.length > 0 ? { entry_ids: entryIds } : {}),
+            },
+            updatedAt: new Date().toISOString(),
+          })
+        }
+      } catch (err) {
+        console.warn("NOMAD status poll failed:", err)
+      }
+    }
+
+    void poll()
+    const interval = setInterval(() => void poll(), 5_000)
+    return () => clearInterval(interval)
+  }, [results.nomad?.upload_id, results.nomad?.status, onUpdateResults])
 
   const discardTemporaryArchive = useCallback(async () => {
     if (!lastArchivePath) {
@@ -1811,6 +1841,11 @@ function ResultsDetail({
       const formData = new FormData()
       formData.append("request_json", JSON.stringify(requestData))
 
+      // Re-use the same NOMAD upload when more data is added to the experiment
+      if (results.nomad?.upload_id) {
+        formData.append("existing_upload_id", results.nomad.upload_id)
+      }
+
       // Use pre-created archive if available, otherwise upload files directly
       if (lastArchivePath) {
         formData.append("archive_path", lastArchivePath)
@@ -1845,28 +1880,19 @@ function ResultsDetail({
         return
       }
 
-      if (result.upload_id) {
-        setNomadUploadHistory((prev) => [
-          {
-            uploadId: result.upload_id as string,
-            entryIds: result.entry_ids ?? [],
-            uploadTime: result.upload_create_time ?? undefined,
-          },
-          ...prev,
-        ])
-      }
-
       await discardTemporaryArchive()
 
+      const isNewUpload = !results.nomad?.upload_id
       onUpdateResults({
         ...results,
         files: [],
         deviceGroups: [],
         nomad: {
-          upload_id: result.upload_id ?? undefined,
-          entry_ids: result.entry_ids ?? undefined,
-          upload_time: result.upload_create_time ?? undefined,
-          status: result.processing_status ?? undefined,
+          upload_id: result.upload_id ?? results.nomad?.upload_id,
+          entry_ids: result.entry_ids ?? results.nomad?.entry_ids,
+          upload_time: result.upload_create_time ?? results.nomad?.upload_time,
+          // Keep any existing status; polling will update it once NOMAD processes
+          status: result.processing_status ?? "PENDING",
         },
         updatedAt: new Date().toISOString(),
       })
@@ -1883,9 +1909,10 @@ function ResultsDetail({
       setWorkflowStep(1)
 
       notifications.show({
-        title: "Upload Successful",
-        message: `Created NOMAD upload ${result.upload_id}`,
-        color: "green",
+        title: isNewUpload ? "Upload Sent" : "Data Added to Upload",
+        message: `NOMAD is processing upload ${result.upload_id ?? results.nomad?.upload_id}. You can navigate away — the status will update when you return.`,
+        color: "blue",
+        autoClose: 6000,
       })
     } catch (err) {
       notifications.show({
@@ -2218,51 +2245,88 @@ function ResultsDetail({
         viewportRef={reviewScrollViewportRef}
       >
         <Stack gap="lg">
-          {nomadUploadHistory.length > 0 && (
-            <Alert
-              icon={<IconCheck size={16} />}
-              color="green"
-              radius="md"
-              title="NOMAD Uploads"
-            >
-              <Stack gap="xs">
-                {nomadUploadHistory.map((upload) => (
-                  <Group
-                    key={upload.uploadId}
-                    justify="space-between"
-                    wrap="nowrap"
-                  >
+          {/* ── NOMAD upload status ────────────────────────────────────────── */}
+          {results.nomad?.upload_id && (() => {
+            const nomadStatus = results.nomad?.status
+            const isSuccess = nomadStatus === "SUCCESS"
+            const isFailed =
+              nomadStatus === "FAILURE" || nomadStatus === "FAILED"
+            const isNotFound = nomadStatus === "NOT_FOUND"
+            const isProcessing = !isSuccess && !isFailed && !isNotFound
+            const guiBase = nomadConfig?.url?.replace("/api/v1", "")
+            const guiUrl = guiBase
+              ? `${guiBase}/gui/user/uploads/upload/id/${results.nomad.upload_id}`
+              : null
+
+            return (
+              <Alert
+                icon={
+                  isSuccess ? (
+                    <IconCheck size={16} />
+                  ) : isFailed || isNotFound ? (
+                    <IconAlertTriangle size={16} />
+                  ) : (
+                    <Loader size={16} />
+                  )
+                }
+                color={
+                  isSuccess
+                    ? "green"
+                    : isFailed
+                      ? "red"
+                      : isNotFound
+                        ? "yellow"
+                        : "blue"
+                }
+                radius="md"
+                title={
+                  isSuccess
+                    ? "Uploaded to NOMAD"
+                    : isFailed
+                      ? "Upload Failed"
+                      : isNotFound
+                        ? "Upload No Longer Found"
+                        : "Processing Upload…"
+                }
+              >
+                <Stack gap="xs">
+                  <Group justify="space-between" wrap="nowrap">
                     <Text size="sm">
                       <Text span fw={600}>
                         Upload ID:
                       </Text>{" "}
-                      <Code>{upload.uploadId}</Code>
+                      <Code>{results.nomad.upload_id}</Code>
                     </Text>
-                    <Button
-                      size="xs"
-                      variant="light"
-                      leftSection={<IconExternalLink size={14} />}
-                      onClick={() => {
-                        const nomadUrl = nomadConfig?.url?.replace(
-                          "/api/v1",
-                          "",
-                        )
-                        if (!nomadUrl) {
-                          return
-                        }
-                        window.open(
-                          `${nomadUrl}/user/uploads/upload/id/${upload.uploadId}`,
-                          "_blank",
-                        )
-                      }}
-                    >
-                      Open
-                    </Button>
+                    {guiUrl && (
+                      <Button
+                        size="xs"
+                        variant="light"
+                        leftSection={<IconExternalLink size={14} />}
+                        component="a"
+                        href={guiUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open in NOMAD
+                      </Button>
+                    )}
                   </Group>
-                ))}
-              </Stack>
-            </Alert>
-          )}
+                  {isProcessing && (
+                    <Text size="xs" c="dimmed">
+                      NOMAD is processing your upload. You can navigate away
+                      — status updates automatically when you return.
+                    </Text>
+                  )}
+                  {isNotFound && (
+                    <Text size="xs" c="dimmed">
+                      This upload ID was not found on the NOMAD server. It
+                      may have been deleted externally.
+                    </Text>
+                  )}
+                </Stack>
+              </Alert>
+            )
+          })()}
 
           {!isResultsCardOpen && (
             <Button
@@ -2472,15 +2536,15 @@ function ResultsDetail({
                                 <Text size="lg" inline fw={500}>
                                   {results.files.length > 0
                                     ? `${results.files.length} files uploaded`
-                                    : nomadUploadHistory.length > 0
-                                      ? "Add Files"
+                                    : results.nomad?.upload_id
+                                      ? "Add More Files"
                                       : "Drop Results here"}
                                 </Text>
                                 <Text size="sm" c="dimmed" inline mt={7}>
                                   {results.files.length > 0
                                     ? "Drop more files to add them"
-                                    : nomadUploadHistory.length > 0
-                                      ? "Start a new upload cycle (Upload -> Review -> NOMAD)"
+                                    : results.nomad?.upload_id
+                                      ? "Drag & drop additional measurement files to update the NOMAD upload"
                                       : "Drag & drop measurement files (.txt, images, documents)"}
                                 </Text>
                               </div>
