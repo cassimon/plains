@@ -34,6 +34,37 @@ logger = logging.getLogger(__name__)
 TEMP_UPLOAD_DIR = Path(tempfile.gettempdir()) / "plains_nomad_uploads"
 
 
+def _safe_json_dict(response: httpx.Response, *, context: str) -> dict[str, Any]:
+    """Best-effort JSON parsing for NOMAD responses.
+
+    Some NOMAD/proxy paths may return 2xx with empty or non-JSON bodies.
+    In that case, log and return an empty dict instead of raising.
+    """
+    try:
+        parsed = response.json()
+    except ValueError:
+        body_preview = (response.text or "").strip().replace("\n", " ")[:200]
+        logger.warning(
+            "NOMAD %s response is not JSON (status=%s, content-type=%s, body=%r)",
+            context,
+            response.status_code,
+            response.headers.get("content-type", ""),
+            body_preview,
+        )
+        return {}
+
+    if isinstance(parsed, dict):
+        return parsed
+
+    logger.warning(
+        "NOMAD %s response JSON is not an object (status=%s, type=%s)",
+        context,
+        response.status_code,
+        type(parsed).__name__,
+    )
+    return {}
+
+
 class NomadUploadError(Exception):
     """Raised when NOMAD upload fails."""
     pass
@@ -2206,11 +2237,14 @@ def upload_to_nomad(
                     if response.status_code not in (200, 201):
                         logger.error(f"NOMAD re-upload failed: {response.status_code} - {response.text}")
                         raise NomadUploadError(f"NOMAD re-upload failed: {response.status_code}")
-                    raw = response.json()
+                    raw = _safe_json_dict(response, context="re-upload")
                     upload_data = raw.get("data", raw)
+                    location = response.headers.get("location", "")
+                    location_upload_id = location.rstrip("/").split("/")[-1] if "/uploads/" in location else None
                     result_upload_id = (
                         upload_data.get("upload_id")
                         or raw.get("upload_id")
+                        or location_upload_id
                         or existing_upload_id
                     )
                 else:
@@ -2229,9 +2263,20 @@ def upload_to_nomad(
                     if response.status_code not in (200, 201):
                         logger.error(f"NOMAD upload failed: {response.status_code} - {response.text}")
                         raise NomadUploadError(f"NOMAD upload failed: {response.status_code}")
-                    raw = response.json()
+                    raw = _safe_json_dict(response, context="upload")
                     upload_data = raw.get("data", raw)
-                    result_upload_id = upload_data.get("upload_id") or raw.get("upload_id")
+                    location = response.headers.get("location", "")
+                    location_upload_id = location.rstrip("/").split("/")[-1] if "/uploads/" in location else None
+                    result_upload_id = (
+                        upload_data.get("upload_id")
+                        or raw.get("upload_id")
+                        or location_upload_id
+                    )
+
+                    if not result_upload_id:
+                        raise NomadUploadError(
+                            "NOMAD upload succeeded but response did not include upload_id"
+                        )
             
             logger.info(f"NOMAD upload successful: {result_upload_id}")
             return {
@@ -2288,7 +2333,7 @@ def get_upload_status(upload_id: str, token: str | None = None) -> dict[str, Any
                 logger.error(f"NOMAD status check failed: {response.status_code}")
                 return {"error": f"Status check failed: {response.status_code}"}
             
-            raw = response.json()
+            raw = _safe_json_dict(response, context="status")
             # NOMAD wraps GET /uploads/{id} responses in a top-level "data" key
             return raw.get("data", raw)
             
