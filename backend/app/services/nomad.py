@@ -2206,8 +2206,13 @@ def upload_to_nomad(
                     if response.status_code not in (200, 201):
                         logger.error(f"NOMAD re-upload failed: {response.status_code} - {response.text}")
                         raise NomadUploadError(f"NOMAD re-upload failed: {response.status_code}")
-                    upload_data = response.json()
-                    result_upload_id = upload_data.get("upload_id") or existing_upload_id
+                    raw = response.json()
+                    upload_data = raw.get("data", raw)
+                    result_upload_id = (
+                        upload_data.get("upload_id")
+                        or raw.get("upload_id")
+                        or existing_upload_id
+                    )
                 else:
                     # Create a new upload
                     upload_url = f"{settings.NOMAD_URL}/uploads"
@@ -2224,8 +2229,9 @@ def upload_to_nomad(
                     if response.status_code not in (200, 201):
                         logger.error(f"NOMAD upload failed: {response.status_code} - {response.text}")
                         raise NomadUploadError(f"NOMAD upload failed: {response.status_code}")
-                    upload_data = response.json()
-                    result_upload_id = upload_data.get("upload_id")
+                    raw = response.json()
+                    upload_data = raw.get("data", raw)
+                    result_upload_id = upload_data.get("upload_id") or raw.get("upload_id")
             
             logger.info(f"NOMAD upload successful: {result_upload_id}")
             return {
@@ -2282,7 +2288,9 @@ def get_upload_status(upload_id: str, token: str | None = None) -> dict[str, Any
                 logger.error(f"NOMAD status check failed: {response.status_code}")
                 return {"error": f"Status check failed: {response.status_code}"}
             
-            return response.json()
+            raw = response.json()
+            # NOMAD wraps GET /uploads/{id} responses in a top-level "data" key
+            return raw.get("data", raw)
             
     except httpx.RequestError as e:
         logger.error(f"NOMAD status request error: {e}")

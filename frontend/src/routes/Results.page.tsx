@@ -1871,6 +1871,22 @@ function ResultsDetail({
         },
       )
 
+      if (!response.ok) {
+        let errMsg = `Server error: ${response.status}`
+        try {
+          const errBody = await response.json()
+          errMsg = errBody?.detail || errBody?.message || errMsg
+        } catch (_) {
+          // ignore JSON parse failure
+        }
+        notifications.show({
+          title: "Upload Failed",
+          message: errMsg,
+          color: "red",
+        })
+        return
+      }
+
       const result: NomadUploadResponse = await response.json()
       if (!result.success) {
         notifications.show({
