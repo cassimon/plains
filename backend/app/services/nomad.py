@@ -150,6 +150,9 @@ def create_secure_zip(
         if metadata_files:
             for meta_filename, yaml_content in metadata_files:
                 safe_meta = Path(meta_filename).name
+                safe_meta = "".join(c for c in safe_meta if c.isalnum() or c in "._- ")
+                if not safe_meta:
+                    continue
                 zipf.writestr(safe_meta, yaml_content)
     
     logger.info(f"Created secure zip archive: {zip_path} ({zip_path.stat().st_size} bytes)")
@@ -401,15 +404,17 @@ def create_nomad_metadata_yaml(
     if not substrates_list:
         substrates_list = [{"id": "substrate_0", "name": "substrate_0"}]
 
-    upload_base = str(upload_archive_basename or "").strip()
-    if upload_base.lower().endswith(".zip"):
-        upload_base = upload_base[:-4]
-    upload_raw_prefix = f"../upload/raw/{upload_base}" if upload_base else "../upload/raw"
+    # NOMAD references should always point to flat files under ../upload/raw.
+    # Do not include an archive-base directory component in references.
+    upload_raw_prefix = "../upload/raw"
 
     # ── Helper functions ──────────────────────────────────────────────────────
 
     def _upload_raw_reference(path: str, fragment: str | None = None) -> str:
-        ref = f"{upload_raw_prefix}/{path}"
+        # The uploaded zip is intentionally flat, so references must use the
+        # archive entry basename (no nested directories).
+        archive_entry = Path(str(path or "")).name
+        ref = f"{upload_raw_prefix}/{archive_entry}"
         if fragment:
             return f"{ref}#{fragment}"
         return ref

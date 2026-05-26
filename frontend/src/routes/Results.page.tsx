@@ -972,7 +972,7 @@ function ResultsDetail({
   const reviewScrollViewportRef = useRef<HTMLDivElement | null>(null)
   const reviewDragPositionRef = useRef<number | null>(null)
   // Keep a ref to the latest results so polling callbacks don't stale-close
-  const resultsRef = useRef(results)
+  const resultsRef = useRef<ExperimentResults | null>(null)
   const reviewAutoScrollRafRef = useRef<number | null>(null)
 
   const stopReviewAutoScroll = useCallback(() => {
@@ -1117,6 +1117,7 @@ function ResultsDetail({
       try {
         const statusResult = await NomadService.checkUploadStatus({ uploadId })
         const current = resultsRef.current
+        if (!current) return
 
         let newStatus: string
         if (statusResult.error) {
