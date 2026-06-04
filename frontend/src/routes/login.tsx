@@ -84,7 +84,7 @@ function Login() {
     // Redirect to NOMAD Keycloak; after login Keycloak redirects back to /login
     // where keycloak.init() (on next mount) processes the auth code.
     console.log("[Login] Calling keycloak.login()")
-    getKeycloak()?.login({ redirectUri: `${window.location.origin}/login` })
+    getKeycloak()?.login({ redirectUri: `${window.location.origin}/plains/login` })
   }
 
   return (

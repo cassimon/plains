@@ -100,6 +100,7 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
     USERS_OPEN_REGISTRATION: bool = True
+    ROOT_PATH: str = ""  # e.g. "/plains" for path-prefix deployments
 
     # NOMAD Configuration
     NOMAD_URL: str = "http://localhost/nomad-oasis/api/v1"

@@ -33,14 +33,11 @@ services:
       - traefik.enable=true
       - traefik.docker.network=traefik-public
       - traefik.constraint-label=traefik-public
-      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-http.rule=Host(`adminer.${DOMAIN?Variable not set}`)
-      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-http.entrypoints=http
-      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-http.middlewares=https-redirect
-      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-https.rule=Host(`adminer.${DOMAIN?Variable not set}`)
-      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-https.entrypoints=https
-      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-https.tls=true
-      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer-https.tls.certresolver=le
       - traefik.http.services.${STACK_NAME?Variable not set}-adminer.loadbalancer.server.port=8080
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-adminer-strip.stripprefix.prefixes=/plains/adminer
+      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer.rule=Host(`${DOMAIN?Variable not set}`) && PathPrefix(`/plains/adminer`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-adminer.middlewares=${STACK_NAME?Variable not set}-adminer-strip
 
   prestart:
     image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
@@ -108,6 +105,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER?Variable not set}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
       - SENTRY_DSN=${SENTRY_DSN}
+      - ROOT_PATH=${ROOT_PATH:-}
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/utils/health-check/"]
@@ -125,45 +123,36 @@ services:
 
       - traefik.http.services.${STACK_NAME?Variable not set}-backend.loadbalancer.server.port=8000
 
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-http.rule=Host(`api.${DOMAIN?Variable not set}`)
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-http.entrypoints=http
+      - traefik.http.middlewares.${STACK_NAME?Variable not set}-plains-strip.stripprefix.prefixes=/plains
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend.rule=Host(`${DOMAIN?Variable not set}`) && PathPrefix(`/plains/api`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-backend.middlewares=${STACK_NAME?Variable not set}-plains-strip
 
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.rule=Host(`api.${DOMAIN?Variable not set}`)
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.entrypoints=https
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.tls=true
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-https.tls.certresolver=le
-
-      # Enable redirection for HTTP and HTTPS
-      - traefik.http.routers.${STACK_NAME?Variable not set}-backend-http.middlewares=https-redirect
-
-  chatbot:
-    image: '${DOCKER_IMAGE_CHATBOT:-plains-chatbot}:${TAG-latest}'
-    restart: always
-    networks:
-      - traefik-public
-      - default
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile.chatbot
-    environment:
-      - PORT=5005
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:5005/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=traefik-public
-      - traefik.constraint-label=traefik-public
-      - traefik.http.services.${STACK_NAME?Variable not set}-chatbot.loadbalancer.server.port=5005
-      - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot-http.rule=Host(`chatbot.${DOMAIN?Variable not set}`)
-      - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot-http.entrypoints=http
-      - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot-http.middlewares=https-redirect
-      - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot-https.rule=Host(`chatbot.${DOMAIN?Variable not set}`)
-      - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot-https.entrypoints=https
-      - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot-https.tls=true
-      - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot-https.tls.certresolver=le
+  # chatbot: (disabled — re-enable by uncommenting this block and the depends_on in frontend)
+  #   image: '${DOCKER_IMAGE_CHATBOT:-plains-chatbot}:${TAG-latest}'
+  #   restart: always
+  #   networks:
+  #     - traefik-public
+  #     - default
+  #   build:
+  #     context: .
+  #     dockerfile: frontend/Dockerfile.chatbot
+  #   environment:
+  #     - PORT=5005
+  #   healthcheck:
+  #     test: ["CMD", "wget", "-qO-", "http://localhost:5005/health"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 3
+  #   labels:
+  #     - traefik.enable=true
+  #     - traefik.docker.network=traefik-public
+  #     - traefik.constraint-label=traefik-public
+  #     - traefik.http.services.${STACK_NAME?Variable not set}-chatbot.loadbalancer.server.port=5005
+  #     - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot.rule=Host(`${DOMAIN?Variable not set}`) && PathPrefix(`/plains/chatbot`)
+  #     - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot.entrypoints=http
+  #     - traefik.http.middlewares.${STACK_NAME?Variable not set}-chatbot-strip.stripprefix.prefixes=/plains/chatbot
+  #     - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot.middlewares=${STACK_NAME?Variable not set}-chatbot-strip
 
   frontend:
     image: '${DOCKER_IMAGE_FRONTEND?Variable not set}:${TAG-latest}'
@@ -171,14 +160,15 @@ services:
     networks:
       - traefik-public
       - default
-    depends_on:
-      - chatbot
+    # depends_on:  # uncomment when chatbot is re-enabled
+    #   - chatbot
     build:
       context: .
       dockerfile: frontend/Dockerfile
       args:
-        - VITE_API_URL=https://api.${DOMAIN?Variable not set}
-        - VITE_RASA_SERVER_URL=https://chatbot.${DOMAIN?Variable not set}
+        - VITE_API_URL=https://${DOMAIN?Variable not set}/plains
+        - VITE_RASA_SERVER_URL=https://${DOMAIN?Variable not set}/plains/chatbot
+        - VITE_BASE_PATH=/plains/
         - NODE_ENV=production
     labels:
       - traefik.enable=true
@@ -187,16 +177,9 @@ services:
 
       - traefik.http.services.${STACK_NAME?Variable not set}-frontend.loadbalancer.server.port=80
 
-      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.rule=Host(`dashboard.${DOMAIN?Variable not set}`)
-      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.entrypoints=http
-
-      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.rule=Host(`dashboard.${DOMAIN?Variable not set}`)
-      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.entrypoints=https
-      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.tls=true
-      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-https.tls.certresolver=le
-
-      # Enable redirection for HTTP and HTTPS
-      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.middlewares=https-redirect
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend.rule=Host(`${DOMAIN?Variable not set}`) && PathPrefix(`/plains`)
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend.entrypoints=http
+      - traefik.http.routers.${STACK_NAME?Variable not set}-frontend.middlewares=${STACK_NAME?Variable not set}-plains-strip
 volumes:
   app-db-data:
 

@@ -1,0 +1,56 @@
+# Production overrides: bind service ports to localhost for nginx to proxy.
+#
+# Deploy command:
+#   docker compose -f compose.yml -f compose.prod.yml up -d
+#
+# External nginx config (add to your server block for domain.com):
+#
+#   # Backend API  — strip /plains/api, forward /api to backend
+#   location /plains/api/ {
+#       proxy_pass         http://127.0.0.1:8000/api/;
+#       proxy_http_version 1.1;
+#       proxy_set_header   Host              $host;
+#       proxy_set_header   X-Real-IP         $remote_addr;
+#       proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+#       proxy_set_header   X-Forwarded-Proto $scheme;
+#   }
+#
+#   # Adminer — strip /plains/adminer, forward / to adminer
+#   location /plains/adminer/ {
+#       proxy_pass         http://127.0.0.1:9001/;
+#       proxy_http_version 1.1;
+#       proxy_set_header   Host              $host;
+#       proxy_set_header   X-Real-IP         $remote_addr;
+#       proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+#       proxy_set_header   X-Forwarded-Proto $scheme;
+#   }
+#
+#   # Frontend SPA — strip /plains, forward / to frontend (catch-all, must be last)
+#   location /plains/ {
+#       proxy_pass         http://127.0.0.1:9000/;
+#       proxy_http_version 1.1;
+#       proxy_set_header   Host              $host;
+#       proxy_set_header   X-Real-IP         $remote_addr;
+#       proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+#       proxy_set_header   X-Forwarded-Proto $scheme;
+#   }
+#
+# Set in production .env:
+#   DOMAIN=domain.com
+#   ENVIRONMENT=production
+#   FRONTEND_HOST=https://domain.com
+#   BACKEND_CORS_ORIGINS=https://domain.com
+#   ROOT_PATH=/plains
+
+services:
+  backend:
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  frontend:
+    ports:
+      - "127.0.0.1:9000:80"
+
+  adminer:
+    ports:
+      - "127.0.0.1:9001:8080"
