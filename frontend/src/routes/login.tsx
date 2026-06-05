@@ -76,6 +76,7 @@ function Login() {
   }, [navigate])
 
   const handleLogin = () => {
+    
     console.log("[Login] handleLogin clicked")
     const kc = getKeycloak()
     console.log("[Login] Keycloak instance available:", !!kc)
@@ -85,6 +86,7 @@ function Login() {
     // where keycloak.init() (on next mount) processes the auth code.
     console.log("[Login] Calling keycloak.login()")
     getKeycloak()?.login({ redirectUri: `${window.location.origin}/plains/login` })
+
   }
 
   return (
