@@ -1559,15 +1559,22 @@ export default function ExperimentsPage() {
     }
   }, [newExperimentProcessId, processes])
 
+  // Keep a ref so effect 3 can guard against deleted experiments without
+  // taking experiments as a reactive dependency (which would cause it to fire
+  // in the same batch as setSelectedExpId, creating an infinite loop with
+  // effect 4).
+  const experimentsRef = useRef(experiments)
+  experimentsRef.current = experiments
+
   React.useEffect(() => {
     if (activeEntity?.kind !== "experiment") {
       return
     }
-    if (!experiments.some((e) => e.id === activeEntity.id)) {
+    if (!experimentsRef.current.some((e) => e.id === activeEntity.id)) {
       return
     }
     setSelectedExpId(activeEntity.id)
-  }, [activeEntity, experiments])
+  }, [activeEntity])
 
   React.useEffect(() => {
     if (!selectedExpId) {
