@@ -6,17 +6,21 @@ import { defineConfig } from "vite"
 
 // https://vitejs.dev/config/
 export default defineConfig(({ command }) => {
-  const devOpenUrl =
-    process.env.VITE_DEV_OPEN_URL || "http://localhost:81/plains/login"
-
+  const isDev = command === "serve"
+  
+  // In dev mode: serve at root with direct backend access
+  // In build mode: use /plains/ base path for deployment
+  const base = isDev ? "/" : (process.env.VITE_BASE_PATH || "/")
+  
   return {
-    base: process.env.VITE_BASE_PATH || "/",
-    server:
-      command === "serve"
-        ? {
-            open: devOpenUrl,
-          }
-        : undefined,
+    base,
+    server: isDev
+      ? {
+          port: 5173,
+          strictPort: true,
+          open: "/login",
+        }
+      : undefined,
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
