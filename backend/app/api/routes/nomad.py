@@ -164,7 +164,8 @@ class NomadUploadStatus(BaseModel):
     """Status of a NOMAD upload."""
     upload_id: str
     status: str | None = None
-    entries: list[dict] = []
+    entries: int | list[dict] | None = None
+    last_status_message: str | None = None
     error: str | None = None
 
 
@@ -717,16 +718,44 @@ def check_upload_status(
     try:
         status = get_upload_status(upload_id, token=nomad_token)
         
+        logger.info(
+            f"[NOMAD][status] Raw response for upload {upload_id}: {status}"
+        )
+        
         if "error" in status:
+            logger.warning(f"[NOMAD][status] Error in status: {status['error']}")
             return NomadUploadStatus(
                 upload_id=upload_id,
                 error=status["error"],
             )
         
+        process_status = status.get("process_status")
+        last_status_message = status.get("last_status_message")
+        entries_raw = status.get("entries")
+
+        logger.info(
+            f"[NOMAD][status] Extracted fields - process_status: {process_status}, "
+            f"last_status_message: {last_status_message}, entries: {entries_raw}"
+        )
+
+        # NOMAD completion is sometimes only reflected in last_status_message.
+        normalized_status = process_status
+        if isinstance(last_status_message, str):
+            lower_msg = last_status_message.lower()
+            if "completed successfully" in lower_msg:
+                normalized_status = "SUCCESS"
+            elif "failed" in lower_msg or "error" in lower_msg:
+                normalized_status = "FAILURE"
+
+        logger.info(
+            f"[NOMAD][status] Normalized status for {upload_id}: {normalized_status}"
+        )
+
         return NomadUploadStatus(
             upload_id=upload_id,
-            status=status.get("process_status"),
-            entries=status.get("entries", []),
+            status=normalized_status,
+            entries=entries_raw,
+            last_status_message=last_status_message,
         )
         
     except Exception as e:

@@ -1119,6 +1119,12 @@ function ResultsDetail({
         const current = resultsRef.current
         if (!current) return
 
+        console.debug("[NOMAD][poll] status response", {
+          uploadId,
+          response: statusResult,
+          previousStatus: current.nomad?.status,
+        })
+
         let newStatus: string
         if (statusResult.error) {
           // Treat HTTP 404 responses as the upload having been deleted externally
@@ -1126,10 +1132,37 @@ function ResultsDetail({
             ? "NOT_FOUND"
             : (status ?? "PENDING")
         } else {
-          newStatus = statusResult.status ?? status ?? "PENDING"
+          const rawStatusMessage = (
+            statusResult as { last_status_message?: string | null }
+          ).last_status_message
+          const normalizedMessage = (rawStatusMessage ?? "").toLowerCase()
+
+          if (normalizedMessage.includes("completed successfully")) {
+            newStatus = "SUCCESS"
+          } else if (
+            normalizedMessage.includes("failed") ||
+            normalizedMessage.includes("error")
+          ) {
+            newStatus = "FAILURE"
+          } else {
+            newStatus = statusResult.status ?? status ?? "PENDING"
+          }
+
+          console.debug("[NOMAD][poll] status normalized", {
+            uploadId,
+            rawStatus: statusResult.status,
+            rawLastStatusMessage: rawStatusMessage,
+            normalizedStatus: newStatus,
+          })
         }
 
         if (newStatus !== current.nomad?.status) {
+          console.info("[NOMAD][poll] status changed", {
+            uploadId,
+            from: current.nomad?.status,
+            to: newStatus,
+          })
+
           // NOMAD now returns entries as a count (int), not entry_ids
           onUpdateResults({
             ...current,
@@ -1139,6 +1172,11 @@ function ResultsDetail({
               entries: typeof statusResult.entries === "number" ? statusResult.entries : undefined,
             },
             updatedAt: new Date().toISOString(),
+          })
+        } else {
+          console.debug("[NOMAD][poll] status unchanged", {
+            uploadId,
+            status: newStatus,
           })
         }
       } catch (err) {
@@ -1904,7 +1942,6 @@ function ResultsDetail({
         deviceGroups: [],
         nomad: {
           upload_id: result.upload_id ?? results.nomad?.upload_id,
-          entries: typeof result.entries === "number" ? result.entries : undefined,
           upload_time: result.upload_create_time ?? results.nomad?.upload_time,
           // Keep any existing status; polling will update it once NOMAD processes
           status: result.processing_status ?? "PENDING",
@@ -3356,6 +3393,8 @@ export function ResultsPage() {
 
   const updateResults = (updatedResults: ExperimentResults) => {
     const hasFiles = updatedResults.files.length > 0
+    const hasNomadUpload = !!updatedResults.nomad?.upload_id
+    const shouldKeep = hasFiles || hasNomadUpload
     const existingForExperiment = results.find(
       (r) => r.experimentId === updatedResults.experimentId,
     )
@@ -3364,7 +3403,7 @@ export function ResultsPage() {
       .map((r) => r.id)
 
     setResults((prev) => {
-      if (!hasFiles) {
+      if (!shouldKeep) {
         return prev.filter(
           (r) => r.experimentId !== updatedResults.experimentId,
         )
@@ -3392,7 +3431,7 @@ export function ResultsPage() {
     setExperiments((prev) =>
       prev.map((e) =>
         e.id === updatedResults.experimentId
-          ? { ...e, hasResults: hasFiles || allAssigned }
+          ? { ...e, hasResults: hasFiles || allAssigned || hasNomadUpload }
           : e,
       ),
     )
@@ -3405,7 +3444,7 @@ export function ResultsPage() {
         : existingForExperiment
           ? [existingForExperiment.id]
           : [updatedResults.id],
-      hasFiles ? (existingForExperiment?.id ?? updatedResults.id) : null,
+      shouldKeep ? (existingForExperiment?.id ?? updatedResults.id) : null,
     )
   }
 

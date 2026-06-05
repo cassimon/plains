@@ -1728,9 +1728,39 @@ export default function ExperimentsPage() {
       })),
       processingTimes: { ...(exp.processingTimes ?? {}) },
       hasResults: false,
+      hasCompletedUpload: false,
     }
+
     setExperiments((prev) => [...prev, copy])
     setSelectedExpId(copy.id)
+
+    // Keep copied experiment inside the same collection(s) as the source.
+    for (const plane of planes) {
+      for (const element of plane.elements) {
+        if (element.type !== "collection") {
+          continue
+        }
+        const collection = element as CanvasCollectionElement
+        const hasSourceRef = collection.refs.some(
+          (ref) => ref.kind === "experiment" && ref.id === exp.id,
+        )
+        if (!hasSourceRef) {
+          continue
+        }
+
+        const alreadyLinked = collection.refs.some(
+          (ref) => ref.kind === "experiment" && ref.id === copy.id,
+        )
+        if (alreadyLinked) {
+          continue
+        }
+
+        updateElement(plane.id, {
+          ...collection,
+          refs: [...collection.refs, { kind: "experiment" as const, id: copy.id }],
+        })
+      }
+    }
   }
 
   const groupedExperiments = React.useMemo(() => {

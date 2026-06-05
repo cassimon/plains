@@ -264,8 +264,6 @@ export type NomadUploadResponse = {
     upload_create_time?: (string | null);
     processing_status?: (string | null);
     message?: (string | null);
-    /** Number of entries in the upload (NOMAD API returns this as int) */
-    entries?: number;
 };
 
 /**
