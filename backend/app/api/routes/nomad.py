@@ -182,7 +182,7 @@ def get_nomad_config(current_user: CurrentUser) -> NomadConfigResponse:
     allowing the frontend to display appropriate UI elements.
     """
     return NomadConfigResponse(
-        enabled=settings.nomad_enabled,
+        enabled=settings.nomad_enabled or bool(settings.NOMAD_OAUTH_ENABLED and current_user.nomad_sub),
         url=settings.NOMAD_URL,
         use_global_auth=settings.NOMAD_USE_GLOBAL_AUTH,
         has_credentials=bool(settings.NOMAD_USERNAME and settings.NOMAD_PASSWORD),
