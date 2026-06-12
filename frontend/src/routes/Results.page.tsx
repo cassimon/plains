@@ -929,11 +929,15 @@ function ResultsDetail({
   experimentResults,
   onUpdateResults,
   onUpdateExperiment,
+  autoOpenAddResults,
+  onAutoOpenHandled,
 }: {
   experiment: Experiment
   experimentResults: ExperimentResults | null
   onUpdateResults: (results: ExperimentResults) => void
   onUpdateExperiment: (experiment: Experiment) => void
+  autoOpenAddResults: boolean
+  onAutoOpenHandled?: () => void
 }) {
   const [expandedSubstrates, setExpandedSubstrates] = useState<Set<string>>(
     new Set(),
@@ -974,6 +978,15 @@ function ResultsDetail({
   // Keep a ref to the latest results so polling callbacks don't stale-close
   const resultsRef = useRef<ExperimentResults | null>(null)
   const reviewAutoScrollRafRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!autoOpenAddResults) {
+      return
+    }
+    setIsResultsCardOpen(true)
+    setWorkflowStep(1)
+    onAutoOpenHandled?.()
+  }, [autoOpenAddResults, onAutoOpenHandled])
 
   const stopReviewAutoScroll = useCallback(() => {
     if (reviewAutoScrollRafRef.current !== null) {
@@ -3151,6 +3164,8 @@ export function ResultsPage() {
   const [selectedExperimentId, setSelectedExperimentId] = useState<
     string | null
   >(() => lastSelectedByKind.experiment ?? null)
+  const [autoOpenAddResultsExperimentId, setAutoOpenAddResultsExperimentId] =
+    useState<string | null>(null)
 
   const discardArchiveForExperiment = useCallback(
     async (experimentId: string) => {
@@ -3315,14 +3330,19 @@ export function ResultsPage() {
     }
     processedPendingRequestIdsRef.current.add(pendingCollectionLink.requestId)
 
-    const { collectionId, planeId, selectedExperimentId } =
+    const { collectionId, planeId, selectedExperimentId, openAddResults } =
       pendingCollectionLink
     setPendingCollectionLink(null)
 
     if (selectedExperimentId) {
+      setAutoOpenAddResultsExperimentId(
+        openAddResults ? selectedExperimentId : null,
+      )
       selectExperiment(selectedExperimentId)
       return
     }
+
+    setAutoOpenAddResultsExperimentId(null)
 
     const plane = planes.find((p) => p.id === planeId)
     const collection = plane?.elements.find((e) => e.id === collectionId)
@@ -3477,6 +3497,14 @@ export function ResultsPage() {
           <ResultsDetail
             experiment={selectedExperiment}
             experimentResults={experimentResults}
+            autoOpenAddResults={
+              autoOpenAddResultsExperimentId === selectedExperiment.id
+            }
+            onAutoOpenHandled={() => {
+              setAutoOpenAddResultsExperimentId((prev) =>
+                prev === selectedExperiment.id ? null : prev,
+              )
+            }}
             onUpdateResults={updateResults}
             onUpdateExperiment={(updatedExp) => {
               setExperiments((prev) =>

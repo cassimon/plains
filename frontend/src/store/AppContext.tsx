@@ -1007,6 +1007,7 @@ type AppContextValue = {
     kind: CollectionRef["kind"]
     selectedProcessId?: string
     selectedExperimentId?: string
+    openAddResults?: boolean
     materialCategory?: MaterialCategory
     processAttachment?: {
       processId: string
@@ -1024,6 +1025,7 @@ type AppContextValue = {
       kind: CollectionRef["kind"]
       selectedProcessId?: string
       selectedExperimentId?: string
+      openAddResults?: boolean
       materialCategory?: MaterialCategory
       processAttachment?: {
         processId: string
@@ -1117,6 +1119,7 @@ export function AppProvider({
     kind: CollectionRef["kind"]
     selectedProcessId?: string
     selectedExperimentId?: string
+    openAddResults?: boolean
     materialCategory?: MaterialCategory
     processAttachment?: {
       processId: string

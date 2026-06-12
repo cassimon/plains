@@ -24,6 +24,7 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react"
+import { useNavigate as useRouterNavigate } from "@tanstack/react-router"
 import * as React from "react"
 import { useCallback, useRef, useState } from "react"
 import {
@@ -1414,6 +1415,7 @@ function ExperimentGrid({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function ExperimentsPage() {
+  const navigate = useRouterNavigate()
   const {
     experiments,
     setExperiments,
@@ -1501,6 +1503,9 @@ export default function ExperimentsPage() {
   ])
 
   const selectedExperiment = experiments.find((e) => e.id === selectedExpId)
+  const selectedExperimentStatus = selectedExperiment
+    ? getExperimentStatus(selectedExperiment)
+    : null
   const selectedProcess =
     selectedExperiment &&
     processes.find((p) => p.id === selectedExperiment.processId)
@@ -1630,6 +1635,35 @@ export default function ExperimentsPage() {
       })
     }
   }
+
+  const handleAddResultsForSelectedExperiment = useCallback(() => {
+    if (
+      !selectedExperiment ||
+      (selectedExperimentStatus !== "ready" &&
+        selectedExperimentStatus !== "finished")
+    ) {
+      return
+    }
+
+    setPendingCollectionLink({
+      collectionId: "",
+      planeId: "",
+      kind: "result",
+      selectedExperimentId: selectedExperiment.id,
+      openAddResults: true,
+      requestId: crypto.randomUUID(),
+    })
+    setActiveEntity({ kind: "experiment", id: selectedExperiment.id })
+    updateLastSelected("experiment", selectedExperiment.id)
+    void navigate({ to: "/results" })
+  }, [
+    navigate,
+    selectedExperiment,
+    selectedExperimentStatus,
+    setActiveEntity,
+    setPendingCollectionLink,
+    updateLastSelected,
+  ])
 
   // Update experiment
   const handleUpdateExperiment = useCallback(
@@ -2041,19 +2075,37 @@ export default function ExperimentsPage() {
                       <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
                         Status
                       </Text>
-                      <Badge
-                        size="lg"
-                        color={
-                          getExperimentStatus(selectedExperiment) === "finished"
-                            ? "green"
-                            : getExperimentStatus(selectedExperiment) ===
-                                "ready"
-                              ? "blue"
-                              : "yellow"
-                        }
-                      >
-                        {getExperimentStatus(selectedExperiment)}
-                      </Badge>
+                      <Group gap="xs" wrap="nowrap">
+                        <Badge
+                          size="lg"
+                          color={
+                            selectedExperimentStatus === "finished"
+                              ? "green"
+                              : selectedExperimentStatus === "ready"
+                                ? "blue"
+                                : "yellow"
+                          }
+                        >
+                          {selectedExperimentStatus}
+                        </Badge>
+                        {(selectedExperimentStatus === "ready" ||
+                          selectedExperimentStatus === "finished") && (
+                          <Button
+                          size="lg"
+                          color="lime"
+                          radius="md"
+                          fw={600}
+                          style={{
+                            backgroundColor: "#d3f9d8",
+                            color: "#2b8a3e",
+                            boxShadow: "0 2px 8px rgba(43, 138, 62, 0.15)",
+                          }}
+                          onClick={handleAddResultsForSelectedExperiment}
+                        >
+                          + Add Results
+                        </Button>
+                        )}
+                      </Group>
                     </Box>
 
                     <Paper
