@@ -200,7 +200,7 @@ export function AppLayout() {
   return (
     <AppShell
       header={{ height: 60 }}
-      aside={{ width: 120, breakpoint: "sm" }}
+      navbar={{ width: 120, breakpoint: "sm" }}
       padding="md"
     >
       <AppShell.Header>
@@ -422,7 +422,7 @@ export function AppLayout() {
         </Group>
       </AppShell.Header>
 
-      <AppShell.Aside>
+      <AppShell.Navbar>
         <Stack align="center" justify="top" h="100%" py="md" gap="xs">
           {pages.map((page) => {
             const Icon = pageIcons[page.value as keyof typeof pageIcons]
@@ -432,7 +432,7 @@ export function AppLayout() {
             const hasContent =
               litPaths?.has(page.value) && page.value !== "/organization"
             return (
-              <Tooltip label={page.label} position="left" key={page.value}>
+              <Tooltip label={page.label} position="right" key={page.value}>
                 <ActionIcon
                   variant={active ? "filled" : "subtle"}
                   size="lg"
@@ -458,7 +458,7 @@ export function AppLayout() {
             )
           })}
         </Stack>
-      </AppShell.Aside>
+      </AppShell.Navbar>
 
       <AppShell.Main>
         <Outlet />

@@ -4,7 +4,6 @@ import {
   Badge,
   Box,
   Button,
-  ColorSwatch,
   Divider,
   Group,
   Loader,
@@ -27,7 +26,6 @@ import { modals } from "@mantine/modals"
 import {
   IconArrowRight,
   IconAtom,
-  IconBold,
   IconBox,
   IconChartBar,
   IconCheck,
@@ -35,19 +33,16 @@ import {
   IconDownload,
   IconFlask,
   IconFolderPlus,
-  IconItalic,
   IconLayersLinked,
   IconLetterT,
   IconNote,
   IconPackage,
   IconPlayerPlay,
   IconPlus,
-  IconPointer,
   IconSeparatorVertical,
   IconShare,
   IconStack3,
   IconTrash,
-  IconUnderline,
   IconX,
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
@@ -78,7 +73,6 @@ import {
   type Plane,
   type Process,
   type Solution,
-  type TextFormatting,
   useAppContext,
   type Vec2,
 } from "../store/AppContext"
@@ -89,7 +83,6 @@ import { apiPlaneToPlane } from "../store/apiTypes"
 // ─────────────────────────────────────────────────────────────────────────────
 
 const GRID = 20 // px – subtle grid snap
-const ELEMENT_PICKER_DISMISS_DISTANCE = 220 // px from popup origin
 const COLLECTION_REF_DRAG_MIME = "application/x-plains-collection-ref-drag"
 
 // Neutral grayish-blue for default selections
@@ -101,25 +94,6 @@ const DEFAULT_ACCENT = "#94a3b8"
 
 function snapToGrid(v: number): number {
   return Math.round(v / GRID) * GRID
-}
-
-function snapToCell(x: number, y: number): Vec2 {
-  return {
-    x: Math.round(x / CELL_W) * CELL_W,
-    y: Math.round(y / CELL_H) * CELL_H,
-  }
-}
-
-function canvasCoords(
-  e: MouseEvent<HTMLDivElement>,
-  containerRef: React.RefObject<HTMLDivElement | null>,
-  pan: Vec2,
-): Vec2 {
-  const rect = containerRef.current!.getBoundingClientRect()
-  return {
-    x: snapToGrid(e.clientX - rect.left - pan.x),
-    y: snapToGrid(e.clientY - rect.top - pan.y),
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -139,6 +113,16 @@ const CELL_W = 200
 const CELL_H = 180
 // Breathing room between the toolbar and the first row of cells
 const CELL_TOP_MARGIN = 20
+const CELL_GAP = 6  // visual gap between grid cells
+const CELL_STRIDE_W = CELL_W + CELL_GAP
+const CELL_STRIDE_H = CELL_H + CELL_GAP
+
+function snapToCell(x: number, y: number): Vec2 {
+  return {
+    x: Math.round(x / CELL_STRIDE_W) * CELL_W,
+    y: Math.round(y / CELL_STRIDE_H) * CELL_H,
+  }
+}
 
 const ROUTE_FOR_KIND: Record<CollectionRef["kind"], string> = {
   material: "/materials",
@@ -1411,19 +1395,23 @@ const EMPTY_CELL_ACTIONS: {
 function EmptyCellEl({
   cellX,
   cellY,
-  pan,
+  visualX,
+  visualY,
   isDragOver,
-  tool,
   planeId,
   nextCollectionColor,
+  onCreateNote,
+  onCreateText,
 }: {
   cellX: number
   cellY: number
-  pan: Vec2
+  visualX: number
+  visualY: number
   isDragOver: boolean
-  tool: CanvasTool
   planeId: string
   nextCollectionColor: () => string
+  onCreateNote: () => void
+  onCreateText: () => void
 }) {
   const {
     addCollectionElement,
@@ -1475,14 +1463,12 @@ function EmptyCellEl({
     navigate({ to: ROUTE_FOR_KIND[kind] })
   }
 
-  const showBubbles = isHovered && tool === "pointer"
-
   return (
     <Box
       style={{
         position: "absolute",
-        left: cellX + pan.x,
-        top: cellY + pan.y,
+        left: visualX,
+        top: visualY,
         width: CELL_W,
         height: CELL_H,
         border: isDragOver
@@ -1492,7 +1478,7 @@ function EmptyCellEl({
             : "2px dashed transparent",
         borderRadius: 8,
         background: isDragOver ? "var(--mantine-color-blue-0)" : "transparent",
-        cursor: tool === "pointer" ? "pointer" : "default",
+        cursor: "pointer",
         boxSizing: "border-box",
         transition: "border 80ms, background 80ms",
         zIndex: isHovered ? 20 : 1,
@@ -1500,21 +1486,53 @@ function EmptyCellEl({
       onMouseEnter={activateHover}
       onMouseLeave={scheduleHide}
     >
+      {/* Center overlay: note/text creation buttons */}
+      {isHovered && (
+        <Group
+          justify="center"
+          align="center"
+          gap={8}
+          style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+        >
+          <Tooltip label="Add sticky note" position="bottom" withArrow>
+            <ActionIcon
+              size="md"
+              variant="default"
+              radius="md"
+              style={{ pointerEvents: "auto", opacity: 0.75 }}
+              onMouseEnter={activateHover}
+              onMouseLeave={scheduleHide}
+              onClick={(e) => { e.stopPropagation(); onCreateNote() }}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <IconNote size={16} />
+            </ActionIcon>
+          </Tooltip>
+          <Tooltip label="Add text" position="bottom" withArrow>
+            <ActionIcon
+              size="md"
+              variant="default"
+              radius="md"
+              style={{ pointerEvents: "auto", opacity: 0.75 }}
+              onMouseEnter={activateHover}
+              onMouseLeave={scheduleHide}
+              onClick={(e) => { e.stopPropagation(); onCreateText() }}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <IconLetterT size={16} />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
+      )}
       {/* Transparent hover bridge covering the gap to the right-side bubbles */}
-      {showBubbles && (
+      {isHovered && (
         <Box
-          style={{
-            position: "absolute",
-            right: -50,
-            top: 0,
-            width: 50,
-            height: "100%",
-          }}
+          style={{ position: "absolute", right: -50, top: 0, width: 50, height: "100%" }}
           onMouseEnter={activateHover}
           onMouseLeave={scheduleHide}
         />
       )}
-      {showBubbles && (
+      {isHovered && (
         <>
           <MaterialActionBubble
             index={0}
@@ -2743,8 +2761,6 @@ function DivisionOverlay({
 // Infinite-scroll canvas for one Plane
 // ─────────────────────────────────────────────────────────────────────────────
 
-type CanvasTool = "pointer" | "select" | "text" | "plaintext"
-
 function PlaneCanvas({ plane }: { plane: Plane }) {
   const {
     materials,
@@ -2800,26 +2816,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
   const thumbTop =
     maxPanYRef.current > 0 ? (-pan.y / maxPanYRef.current) * thumbTrack : 0
 
-  const [tool, setTool] = useState<CanvasTool>("pointer")
-  // Element picker popup state for pointer tool
-  const [elementPickerPos, setElementPickerPos] = useState<Vec2 | null>(null)
-  const [elementPickerOpen, setElementPickerOpen] = useState(false)
-  // Start with a real color – gray default is not available for new elements
-  const [selectedColor, setSelectedColor] = useState<string>(PALETTE[0]) // sky blue
-  // Plain text formatting options (default: black text in light mode, white in dark)
-  const [textColor, setTextColor] = useState<string>(
-    isDark ? "#ffffff" : "#000000",
-  )
-  const [textFormatting, setTextFormatting] = useState<TextFormatting>({
-    bold: false,
-    italic: false,
-    underline: false,
-  })
-  const [editingPlaintextId, setEditingPlaintextId] = useState<string | null>(
-    null,
-  )
   const [activeDrawId, setActiveDrawId] = useState<string | null>(null)
-  const [editingTextId, setEditingTextId] = useState<string | null>(null)
   const [dragOverCellKey, setDragOverCellKey] = useState<string | null>(null)
   const plaintextEditingRef = useRef(false)
 
@@ -2829,12 +2826,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     if (prevSchemeRef.current === colorScheme) return
     const nowDark = colorScheme === "dark"
     prevSchemeRef.current = colorScheme
-    // Update toolbar default text color
-    setTextColor((prev) => {
-      if (nowDark && prev === "#000000") return "#ffffff"
-      if (!nowDark && prev === "#ffffff") return "#000000"
-      return prev
-    })
     // Invert existing plain text element colors (black ↔ white only)
     const updated = plane.elements.map((el) => {
       if (el.type !== "plaintext") return el
@@ -3194,6 +3185,13 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     row: number,
     payload: CollectionRefDragPayload,
   ) => {
+    // Don't drop onto cells occupied by text/note elements
+    const textOccupied = plane.elements.some((e) => {
+      if (e.type !== "text" && e.type !== "plaintext") return false
+      return Math.round(e.position.x / CELL_W) === col && Math.round(e.position.y / CELL_H) === row
+    })
+    if (textOccupied) return
+
     const cellX = col * CELL_W
     const cellY = row * CELL_H
 
@@ -3249,6 +3247,22 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
       })
       setActiveCollectionId(newEl.id)
     }
+  }
+
+  const handleCreateNote = (cellX: number, cellY: number) => {
+    const el = addTextElement(plane.id, { x: cellX, y: cellY })
+    updateElement(plane.id, { ...el, size: { x: CELL_W, y: CELL_H } })
+  }
+
+  const handleCreateText = (cellX: number, cellY: number) => {
+    if (plaintextEditingRef.current) return
+    plaintextEditingRef.current = true
+    const newEl = addPlainTextElement(plane.id, { x: cellX, y: cellY }, "#000000", {
+      bold: false,
+      italic: false,
+      underline: false,
+    })
+    updateElement(plane.id, { ...newEl, size: { x: CELL_W, y: CELL_H } })
   }
 
   // ── Collection division state ────────────────────────────────────────────────────────
@@ -3312,11 +3326,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     setDividingCollection(null)
   }
 
-  // Find active collection's color
-  const activeCollection = plane.elements.find(
-    (e) => e.id === activeCollectionId && e.type === "collection",
-  ) as CanvasCollectionElement | undefined
-  const accentColor = activeCollection?.color || DEFAULT_ACCENT
 
   // Auto-cleanup: remove empty collections when the user clicks away
   const prevActiveIdRef = useRef<string | null>(null)
@@ -3362,21 +3371,10 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
   const isPanning = useRef(false)
   const spaceDown = useRef(false)
 
-  // ── Mouse position for pointer-tool tooltip ─────────────────────────────────
-  const [mouseCanvasPos, setMouseCanvasPos] = useState<{
-    x: number
-    y: number
-  } | null>(null)
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code === "Space") {
         spaceDown.current = e.type === "keydown"
-      }
-      // Close element picker on Escape
-      if (e.code === "Escape" && e.type === "keydown") {
-        setElementPickerOpen(false)
-        setElementPickerPos(null)
       }
     }
     window.addEventListener("keydown", onKey)
@@ -3429,14 +3427,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     el.addEventListener("wheel", onWheel, { passive: false })
     return () => el.removeEventListener("wheel", onWheel)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Close element picker when tool changes ─────────────────────────────────
-  useEffect(() => {
-    if (tool !== "pointer") {
-      setElementPickerOpen(false)
-      setElementPickerPos(null)
-    }
-  }, [tool])
 
   // ── Auto-trim canvas sections when scrolling back up ────────────────────────
   useEffect(() => {
@@ -3523,8 +3513,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
   }
 
   const onMouseDown = (e: MouseEvent<HTMLDivElement>) => {
-    // Middle mouse or Space+left = pan
-    if (e.button === 1 || (e.button === 0 && spaceDown.current)) {
+    if (e.button === 1 || (spaceDown.current && e.button === 0)) {
       isPanning.current = true
       panStart.current = {
         mouse: { x: e.clientX, y: e.clientY },
@@ -3533,105 +3522,11 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
       e.preventDefault()
       return
     }
-    if (e.button !== 0) {
-      return
-    }
+    if (e.button !== 0) return
 
-    // clicking bare canvas background deselects active collection and pans
-    if (tool === "select") {
+    if (e.target === e.currentTarget) {
       setActiveCollectionId(null)
       setActiveDrawId(null)
-      if (e.target === e.currentTarget) {
-        isPanning.current = true
-        panStart.current = {
-          mouse: { x: e.clientX, y: e.clientY },
-          origin: { ...pan },
-        }
-        return
-      }
-    }
-
-    // Pointer tool: Show element picker popup on bare canvas click, or close if already open
-    if (tool === "pointer" && e.target === e.currentTarget) {
-      // If a collection is selected, first click on empty canvas should only deselect it.
-      if (activeCollectionId) {
-        setActiveCollectionId(null)
-        setElementPickerOpen(false)
-        setElementPickerPos(null)
-        return
-      }
-
-      // If popup is already open, close it and reopen at new position
-      if (elementPickerOpen) {
-        setElementPickerOpen(false)
-        setElementPickerPos(null)
-        // Small delay to allow position update before reopening
-        setTimeout(() => {
-          const rect = containerRef.current?.getBoundingClientRect()
-          if (rect) {
-            setElementPickerPos({
-              x: e.clientX - rect.left,
-              y: e.clientY - rect.top,
-            })
-            setElementPickerOpen(true)
-          }
-        }, 10)
-        return
-      }
-      // Store screen position for popup placement
-      const rect = containerRef.current?.getBoundingClientRect()
-      if (rect) {
-        setElementPickerPos({
-          x: e.clientX - rect.left,
-          y: e.clientY - rect.top,
-        })
-        setElementPickerOpen(true)
-      }
-      return
-    }
-
-    // Close element picker when clicking on existing elements or switching away from pointer
-    if (elementPickerOpen) {
-      setElementPickerOpen(false)
-      setElementPickerPos(null)
-    }
-
-    // For placement tools, only act on the bare canvas background - bail if clicking on an existing element
-    const isPlacementTool = tool === "text" || tool === "plaintext"
-    if (isPlacementTool && e.target !== e.currentTarget) {
-      return
-    }
-
-    const pos = canvasCoords(e, containerRef, {
-      x: pan.x,
-      y: pan.y + CELL_TOP_MARGIN,
-    })
-
-    if (tool === "text") {
-      const el = addTextElement(plane.id, pos)
-      updateElement(plane.id, {
-        ...el,
-        size: { x: CELL_W, y: CELL_H },
-        color: textColor,
-        formatting: textFormatting,
-      })
-      setTool("select")
-    } else if (tool === "plaintext") {
-      // Don't place if currently editing another plaintext element
-      if (plaintextEditingRef.current) {
-        return
-      }
-      e.preventDefault() // prevent canvas from stealing focus from the auto-focused Textarea
-      plaintextEditingRef.current = true // mark as editing (new element auto-focuses)
-      const newEl = addPlainTextElement(
-        plane.id,
-        pos,
-        textColor,
-        textFormatting,
-      )
-      updateElement(plane.id, { ...newEl, size: { x: CELL_W, y: CELL_H } })
-      setEditingPlaintextId(newEl.id)
-      // keep tool selected so formatting options stay visible
     }
   }
 
@@ -3639,40 +3534,10 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     if (isPanning.current && panStart.current) {
       const dx = e.clientX - panStart.current.mouse.x
       const dy = e.clientY - panStart.current.mouse.y
-      const newX = Math.min(
-        0,
-        Math.max(-maxPanXRef.current, panStart.current.origin.x + dx),
-      )
-      const newY = Math.min(
-        0,
-        Math.max(-maxPanYRef.current, panStart.current.origin.y + dy),
-      )
+      const newX = Math.min(0, Math.max(-maxPanXRef.current, panStart.current.origin.x + dx))
+      const newY = Math.min(0, Math.max(-maxPanYRef.current, panStart.current.origin.y + dy))
       setPan({ x: newX, y: newY })
       return
-    }
-
-    // Auto-dismiss pointer element picker if cursor moves too far away.
-    if (tool === "pointer" && elementPickerOpen && elementPickerPos) {
-      const rect = containerRef.current?.getBoundingClientRect()
-      if (rect) {
-        const dx = e.clientX - rect.left - elementPickerPos.x
-        const dy = e.clientY - rect.top - elementPickerPos.y
-        const dist = Math.hypot(dx, dy)
-        if (dist > ELEMENT_PICKER_DISMISS_DISTANCE) {
-          setElementPickerOpen(false)
-          setElementPickerPos(null)
-        }
-      }
-    }
-
-    // Track position for pointer-tool tooltip
-    if (tool === "pointer" && plane.elements.length === 0) {
-      const rect = containerRef.current?.getBoundingClientRect()
-      if (rect) {
-        setMouseCanvasPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-      }
-    } else if (mouseCanvasPos !== null) {
-      setMouseCanvasPos(null)
     }
   }
 
@@ -3689,325 +3554,8 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
   )
   const nonLines = plane.elements.filter((e) => e.type !== "line")
 
-  // Tool button styling using accent color
-  const toolStyle = (t: CanvasTool) => ({
-    background: tool === t ? accentColor : undefined,
-    color: tool === t ? "white" : "var(--mantine-color-gray-6)",
-  })
-
   return (
-    <Box style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* Toolbar */}
-      <Group
-        gap="xs"
-        px="sm"
-        py={6}
-        style={{
-          borderBottom: "1px solid var(--mantine-color-default-border)",
-          background: "var(--mantine-color-body)",
-          flexShrink: 0,
-        }}
-      >
-        <Tooltip
-          label={
-            plane.elements.length === 0
-              ? "Click to place elements"
-              : "Pointer tool"
-          }
-          position="bottom"
-        >
-          <ActionIcon
-            variant={tool === "pointer" ? "filled" : "subtle"}
-            style={toolStyle("pointer")}
-            onClick={() => {
-              setTool("pointer")
-              setElementPickerOpen(false)
-              setElementPickerPos(null)
-            }}
-          >
-            <IconPointer size={18} />
-          </ActionIcon>
-        </Tooltip>
-        <Tooltip label="Add sticky note" position="bottom">
-          <ActionIcon
-            variant={tool === "text" ? "filled" : "subtle"}
-            style={toolStyle("text")}
-            onClick={() => setTool("text")}
-          >
-            <IconNote size={16} />
-          </ActionIcon>
-        </Tooltip>
-        <Tooltip label="Add plain text" position="bottom">
-          <ActionIcon
-            variant={tool === "plaintext" ? "filled" : "subtle"}
-            style={toolStyle("plaintext")}
-            onClick={() => setTool("plaintext")}
-          >
-            <IconLetterT size={16} />
-          </ActionIcon>
-        </Tooltip>
-        {/* Text formatting options (visible when text/plaintext tool selected) */}
-        {(tool === "plaintext" || tool === "text") && (
-          <>
-            <Divider orientation="vertical" />
-            <Tooltip label="Bold" position="bottom">
-              <ActionIcon
-                variant={textFormatting.bold ? "filled" : "subtle"}
-                color={textFormatting.bold ? "blue" : "gray"}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  const newFormatting = {
-                    ...textFormatting,
-                    bold: !textFormatting.bold,
-                  }
-                  setTextFormatting(newFormatting)
-                  if (editingPlaintextId) {
-                    const el = plane.elements.find(
-                      (e) => e.id === editingPlaintextId,
-                    ) as CanvasPlainTextElement | undefined
-                    if (el) {
-                      updateElement(plane.id, {
-                        ...el,
-                        formatting: newFormatting,
-                      })
-                    }
-                  } else if (editingTextId) {
-                    const el = plane.elements.find(
-                      (e) => e.id === editingTextId,
-                    ) as CanvasTextElement | undefined
-                    if (el) {
-                      updateElement(plane.id, {
-                        ...el,
-                        formatting: newFormatting,
-                      })
-                    }
-                  }
-                }}
-              >
-                <IconBold size={16} />
-              </ActionIcon>
-            </Tooltip>
-            <Tooltip label="Italic" position="bottom">
-              <ActionIcon
-                variant={textFormatting.italic ? "filled" : "subtle"}
-                color={textFormatting.italic ? "blue" : "gray"}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  const newFormatting = {
-                    ...textFormatting,
-                    italic: !textFormatting.italic,
-                  }
-                  setTextFormatting(newFormatting)
-                  if (editingPlaintextId) {
-                    const el = plane.elements.find(
-                      (e) => e.id === editingPlaintextId,
-                    ) as CanvasPlainTextElement | undefined
-                    if (el) {
-                      updateElement(plane.id, {
-                        ...el,
-                        formatting: newFormatting,
-                      })
-                    }
-                  } else if (editingTextId) {
-                    const el = plane.elements.find(
-                      (e) => e.id === editingTextId,
-                    ) as CanvasTextElement | undefined
-                    if (el) {
-                      updateElement(plane.id, {
-                        ...el,
-                        formatting: newFormatting,
-                      })
-                    }
-                  }
-                }}
-              >
-                <IconItalic size={16} />
-              </ActionIcon>
-            </Tooltip>
-            <Tooltip label="Underline" position="bottom">
-              <ActionIcon
-                variant={textFormatting.underline ? "filled" : "subtle"}
-                color={textFormatting.underline ? "blue" : "gray"}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  const newFormatting = {
-                    ...textFormatting,
-                    underline: !textFormatting.underline,
-                  }
-                  setTextFormatting(newFormatting)
-                  if (editingPlaintextId) {
-                    const el = plane.elements.find(
-                      (e) => e.id === editingPlaintextId,
-                    ) as CanvasPlainTextElement | undefined
-                    if (el) {
-                      updateElement(plane.id, {
-                        ...el,
-                        formatting: newFormatting,
-                      })
-                    }
-                  } else if (editingTextId) {
-                    const el = plane.elements.find(
-                      (e) => e.id === editingTextId,
-                    ) as CanvasTextElement | undefined
-                    if (el) {
-                      updateElement(plane.id, {
-                        ...el,
-                        formatting: newFormatting,
-                      })
-                    }
-                  }
-                }}
-              >
-                <IconUnderline size={16} />
-              </ActionIcon>
-            </Tooltip>
-            <Divider orientation="vertical" />
-            {/* Text color picker */}
-            <Popover withArrow shadow="md">
-              <Popover.Target>
-                <Tooltip label="Text color" position="bottom">
-                  <ActionIcon variant="subtle" color="gray">
-                    <ColorSwatch color={textColor} size={16} />
-                  </ActionIcon>
-                </Tooltip>
-              </Popover.Target>
-              <Popover.Dropdown p={6}>
-                <Stack gap={6}>
-                  <Text size="xs" c="dimmed">
-                    Text color
-                  </Text>
-                  <Group gap={4} wrap="wrap" w={120}>
-                    {/* Black + dark colors for text */}
-                    {[
-                      "#000000",
-                      "#343a40",
-                      "#495057",
-                      "#868e96",
-                      "#fa5252",
-                      "#e64980",
-                      "#be4bdb",
-                      "#7950f2",
-                      "#4c6ef5",
-                      "#228be6",
-                      "#15aabf",
-                      "#12b886",
-                      "#40c057",
-                      "#82c91e",
-                      "#fab005",
-                      "#fd7e14",
-                    ].map((c) => (
-                      <ColorSwatch
-                        key={c}
-                        color={c}
-                        size={24}
-                        style={{
-                          cursor: "pointer",
-                          outline:
-                            textColor === c
-                              ? "2px solid var(--mantine-color-blue-5)"
-                              : "none",
-                          outlineOffset: 2,
-                        }}
-                        onClick={() => {
-                          setTextColor(c)
-                          if (editingPlaintextId) {
-                            const el = plane.elements.find(
-                              (e) => e.id === editingPlaintextId,
-                            ) as CanvasPlainTextElement | undefined
-                            if (el) {
-                              updateElement(plane.id, {
-                                ...el,
-                                color: c,
-                              })
-                            }
-                          } else if (editingTextId) {
-                            const el = plane.elements.find(
-                              (e) => e.id === editingTextId,
-                            ) as CanvasTextElement | undefined
-                            if (el) {
-                              updateElement(plane.id, {
-                                ...el,
-                                color: c,
-                              })
-                            }
-                          }
-                        }}
-                      />
-                    ))}
-                  </Group>
-                </Stack>
-              </Popover.Dropdown>
-            </Popover>
-          </>
-        )}
-        <Divider orientation="vertical" />
-        {/* Color picker — hidden when text tools are active (they have their own picker) */}
-        {tool !== "text" && tool !== "plaintext" && (
-          <Popover withArrow shadow="md">
-            <Popover.Target>
-              <Tooltip
-                label={
-                  activeCollection
-                    ? "Change collection color"
-                    : "Select color for new elements"
-                }
-                position="bottom"
-              >
-                <ActionIcon variant="subtle" color="gray">
-                  <ColorSwatch
-                    color={activeCollection?.color ?? selectedColor}
-                    size={16}
-                  />
-                </ActionIcon>
-              </Tooltip>
-            </Popover.Target>
-            <Popover.Dropdown p={6}>
-              <Group gap={4} wrap="wrap" w={160}>
-                {PALETTE.map((c) => {
-                  const isSelected = activeCollection
-                    ? activeCollection.color === c
-                    : selectedColor === c
-                  return (
-                    <ColorSwatch
-                      key={c}
-                      color={c}
-                      size={24}
-                      style={{
-                        cursor: "pointer",
-                        outline: isSelected
-                          ? `2px solid ${accentColor}`
-                          : "none",
-                        outlineOffset: 2,
-                      }}
-                      onClick={() => {
-                        if (activeCollection) {
-                          updateElement(plane.id, {
-                            ...activeCollection,
-                            color: c,
-                          })
-                        } else {
-                          setSelectedColor(c)
-                        }
-                      }}
-                    />
-                  )
-                })}
-              </Group>
-            </Popover.Dropdown>
-          </Popover>
-        )}
-        <Divider orientation="vertical" />
-        <Text size="xs" c="dimmed">
-          {tool === "pointer" &&
-            "Click a grid cell to add a collection · Click canvas for other elements"}
-          {tool === "select" &&
-            "Select or drag to pan · Middle-mouse drag also pans"}
-          {tool === "text" && "Click anywhere to place a sticky note"}
-          {tool === "plaintext" &&
-            "Click on empty canvas to place text · Double-click existing text to edit"}
-        </Text>
-      </Group>
-
+    <Box style={{ position: "relative", height: "100%", display: "flex" }}>
       {/* Canvas + scrollbars */}
       <Box
         style={{
@@ -4032,14 +3580,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               flex: 1,
               position: "relative",
               overflow: "hidden",
-              cursor:
-                tool === "select" || spaceDown.current
-                  ? isPanning.current
-                    ? "grabbing"
-                    : "grab"
-                  : tool === "pointer"
-                    ? "default"
-                    : "crosshair",
+              cursor: "default",
               background: isDark
                 ? "var(--mantine-color-dark-7)"
                 : "var(--mantine-color-gray-0)",
@@ -4047,7 +3588,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
-            onMouseLeave={() => setMouseCanvasPos(null)}
             onDragOver={(e: ReactDragEvent<HTMLDivElement>) => {
               if (!e.dataTransfer.types.includes(COLLECTION_REF_DRAG_MIME))
                 return
@@ -4057,8 +3597,8 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
               const cx = e.clientX - rect.left - childPan.x
               const cy = e.clientY - rect.top - childPan.y
-              const col = Math.floor(cx / CELL_W)
-              const row = Math.floor(cy / CELL_H)
+              const col = Math.floor(cx / CELL_STRIDE_W)
+              const row = Math.floor(cy / CELL_STRIDE_H)
               if (col >= 0 && row >= 0) setDragOverCellKey(`${col},${row}`)
             }}
             onDragLeave={(e: ReactDragEvent<HTMLDivElement>) => {
@@ -4084,8 +3624,8 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                 const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
                 const cx = e.clientX - rect.left - childPan.x
                 const cy = e.clientY - rect.top - childPan.y
-                const col = Math.floor(cx / CELL_W)
-                const row = Math.floor(cy / CELL_H)
+                const col = Math.floor(cx / CELL_STRIDE_W)
+                const row = Math.floor(cy / CELL_STRIDE_H)
                 if (col >= 0 && row >= 0) {
                   e.preventDefault()
                   handleDropToCell(col, row, payload)
@@ -4096,19 +3636,27 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
             {/* Unified grid: empty ghost cells + all canvas elements */}
             {(() => {
               const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
-              const startCol = Math.max(0, Math.floor(-childPan.x / CELL_W))
-              const startRow = Math.max(0, Math.floor(-childPan.y / CELL_H))
-              const endCol =
-                Math.ceil((containerWidth - childPan.x) / CELL_W) + 1
-              const endRow =
-                Math.ceil((containerHeight - childPan.y) / CELL_H) + 1
+              const startCol = Math.max(0, Math.floor(-childPan.x / CELL_STRIDE_W))
+              const startRow = Math.max(0, Math.floor(-childPan.y / CELL_STRIDE_H))
+              const endCol = Math.ceil((containerWidth - childPan.x) / CELL_STRIDE_W) + 1
+              const endRow = Math.ceil((containerHeight - childPan.y) / CELL_STRIDE_H) + 1
 
               // Build lookup: cell key → element
               const elementByCell = new Map<string, CanvasElement>()
               for (const el of nonLines) {
-                const col = Math.round(el.position.x / CELL_W)
-                const row = Math.round(el.position.y / CELL_H)
-                elementByCell.set(`${col},${row}`, el)
+                const elCol = Math.round(el.position.x / CELL_W)
+                const elRow = Math.round(el.position.y / CELL_H)
+                elementByCell.set(`${elCol},${elRow}`, el)
+              }
+
+              // Track cells occupied by text/note (block drag-drop there)
+              const textCellKeys = new Set<string>()
+              for (const el of nonLines) {
+                if (el.type === "text" || el.type === "plaintext") {
+                  const elCol = Math.round(el.position.x / CELL_W)
+                  const elRow = Math.round(el.position.y / CELL_H)
+                  textCellKeys.add(`${elCol},${elRow}`)
+                }
               }
 
               const cells: React.ReactNode[] = []
@@ -4117,8 +3665,12 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                   const cellKey = `${col},${row}`
                   const cellX = col * CELL_W
                   const cellY = row * CELL_H
+                  const visualX = col * CELL_STRIDE_W + childPan.x
+                  const visualY = row * CELL_STRIDE_H + childPan.y
                   const el = elementByCell.get(cellKey)
-                  const isDragOver = dragOverCellKey === cellKey
+                  const isDragOver = dragOverCellKey === cellKey && !textCellKeys.has(cellKey)
+                  // Per-element pan adjusted for gap (so el.position + elementPan = visualX/Y)
+                  const elementPan = { x: childPan.x + col * CELL_GAP, y: childPan.y + row * CELL_GAP }
 
                   if (!el) {
                     cells.push(
@@ -4126,11 +3678,13 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                         key={cellKey}
                         cellX={cellX}
                         cellY={cellY}
-                        pan={childPan}
+                        visualX={visualX}
+                        visualY={visualY}
                         isDragOver={isDragOver}
-                        tool={tool}
                         planeId={plane.id}
                         nextCollectionColor={nextCollectionColor}
+                        onCreateNote={() => handleCreateNote(cellX, cellY)}
+                        onCreateText={() => handleCreateText(cellX, cellY)}
                       />,
                     )
                   } else if (el.type === "text") {
@@ -4141,25 +3695,9 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                         el={tel}
                         onUpdate={(updated) => updateElement(plane.id, updated)}
                         onDelete={() => deleteElement(plane.id, el.id)}
-                        onStartEdit={() => {
-                          setEditingTextId(tel.id)
-                          setTool("text")
-                          setTextColor(tel.color || "#000000")
-                          setTextFormatting(
-                            tel.formatting || {
-                              bold: false,
-                              italic: false,
-                              underline: false,
-                            },
-                          )
-                        }}
-                        onEditEnd={() => {
-                          setEditingTextId((prev) =>
-                            prev === tel.id ? null : prev,
-                          )
-                          setTool("select")
-                        }}
-                        pan={childPan}
+                        onStartEdit={undefined}
+                        onEditEnd={undefined}
+                        pan={elementPan}
                       />,
                     )
                   } else if (el.type === "plaintext") {
@@ -4170,19 +3708,9 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                         el={ptel}
                         onUpdate={(updated) => updateElement(plane.id, updated)}
                         onDelete={() => deleteElement(plane.id, el.id)}
-                        onStartEdit={() => {
-                          plaintextEditingRef.current = true
-                          setEditingPlaintextId(ptel.id)
-                          setTool("plaintext")
-                          setTextColor(ptel.color)
-                          setTextFormatting(ptel.formatting)
-                        }}
-                        onEditEnd={() => {
-                          plaintextEditingRef.current = false
-                          setEditingPlaintextId(null)
-                          setTool("select")
-                        }}
-                        pan={childPan}
+                        onStartEdit={() => { plaintextEditingRef.current = true }}
+                        onEditEnd={() => { plaintextEditingRef.current = false }}
+                        pan={elementPan}
                       />,
                     )
                   } else if (el.type === "collection") {
@@ -4192,7 +3720,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                         el={el as CanvasCollectionElement}
                         planeId={plane.id}
                         onUpdate={(updated) => updateElement(plane.id, updated)}
-                        pan={childPan}
+                        pan={elementPan}
                         isDragOver={isDragOver}
                         onStartDivide={() => {
                           handleStartDivide(el as CanvasCollectionElement)
@@ -4209,152 +3737,13 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
             <LineOverlay
               lines={lines}
               pan={{ x: pan.x, y: pan.y + CELL_TOP_MARGIN }}
-              canMove={tool === "select"}
+              canMove={false}
               activeId={activeDrawId}
               setActiveId={setActiveDrawId}
               onUpdate={(el) => updateElement(plane.id, el)}
               onDelete={(id) => deleteElement(plane.id, id)}
             />
 
-            {/* Pointer-tool follow tooltip on empty plane */}
-            {tool === "pointer" &&
-              plane.elements.length === 0 &&
-              mouseCanvasPos &&
-              !elementPickerOpen && (
-                <Box
-                  style={{
-                    position: "absolute",
-                    left: mouseCanvasPos.x + 14,
-                    top: mouseCanvasPos.y - 10,
-                    background: "var(--mantine-color-dark-7)",
-                    color: "white",
-                    borderRadius: 6,
-                    padding: "4px 10px",
-                    fontSize: 12,
-                    pointerEvents: "none",
-                    userSelect: "none",
-                    zIndex: 10000,
-                    whiteSpace: "nowrap",
-                    boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
-                  }}
-                >
-                  Click to place items
-                </Box>
-              )}
-
-            {/* Element Picker Popup for Pointer Tool */}
-            {elementPickerOpen && elementPickerPos && (
-              <Stack
-                gap={6}
-                style={{
-                  position: "absolute",
-                  left: elementPickerPos.x - 90,
-                  top: elementPickerPos.y - 24,
-                  zIndex: 10001,
-                  cursor: "default",
-                  animation: "bubble-in 150ms ease-out both",
-                }}
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                {/* ── Element actions ── */}
-                <Group gap={6} justify="center">
-                  {(
-                    [
-                      {
-                        label: "Place Note",
-                        Icon: IconNote,
-                        action: () => {
-                          const pos = canvasCoords(
-                            {
-                              clientX:
-                                (containerRef.current?.getBoundingClientRect()
-                                  .left || 0) + elementPickerPos.x,
-                              clientY:
-                                (containerRef.current?.getBoundingClientRect()
-                                  .top || 0) + elementPickerPos.y,
-                            } as MouseEvent<HTMLDivElement>,
-                            containerRef,
-                            { x: pan.x, y: pan.y + CELL_TOP_MARGIN },
-                          )
-                          const el = addTextElement(plane.id, pos)
-                          updateElement(plane.id, {
-                            ...el,
-                            size: { x: CELL_W, y: CELL_H },
-                            color: textColor,
-                            formatting: textFormatting,
-                          })
-                          setElementPickerOpen(false)
-                          setElementPickerPos(null)
-                          setTool("text")
-                        },
-                      },
-                      {
-                        label: "Place Text",
-                        Icon: IconLetterT,
-                        action: () => {
-                          const pos = canvasCoords(
-                            {
-                              clientX:
-                                (containerRef.current?.getBoundingClientRect()
-                                  .left || 0) + elementPickerPos.x,
-                              clientY:
-                                (containerRef.current?.getBoundingClientRect()
-                                  .top || 0) + elementPickerPos.y,
-                            } as MouseEvent<HTMLDivElement>,
-                            containerRef,
-                            { x: pan.x, y: pan.y + CELL_TOP_MARGIN },
-                          )
-                          plaintextEditingRef.current = true
-                          const newEl = addPlainTextElement(
-                            plane.id,
-                            pos,
-                            textColor,
-                            textFormatting,
-                          )
-                          updateElement(plane.id, {
-                            ...newEl,
-                            size: { x: CELL_W, y: CELL_H },
-                          })
-                          setEditingPlaintextId(newEl.id)
-                          setElementPickerOpen(false)
-                          setElementPickerPos(null)
-                          setTool("plaintext")
-                        },
-                      },
-                    ] as const
-                  ).map(({ label, Icon, action }, i) => (
-                    <Tooltip
-                      key={label}
-                      label={label}
-                      position="bottom"
-                      withArrow
-                    >
-                      <ActionIcon
-                        size="md"
-                        variant="default"
-                        color="gray"
-                        radius="md"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          e.preventDefault()
-                          action()
-                        }}
-                        style={{
-                          opacity: 0.55,
-                          animation: `bubble-in 150ms ease-out ${i * 40 + 60}ms both`,
-                          cursor: "default",
-                          border: "1px solid var(--mantine-color-gray-3)",
-                          background: "var(--mantine-color-gray-1)",
-                        }}
-                      >
-                        <Icon size={16} />
-                      </ActionIcon>
-                    </Tooltip>
-                  ))}
-                </Group>
-              </Stack>
-            )}
           </Box>
 
           {/* Horizontal scrollbar — only shown when elements overflow to the right */}
