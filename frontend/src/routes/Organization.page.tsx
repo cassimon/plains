@@ -84,6 +84,8 @@ import { apiPlaneToPlane } from "../store/apiTypes"
 
 const GRID = 20 // px – subtle grid snap
 const COLLECTION_REF_DRAG_MIME = "application/x-plains-collection-ref-drag"
+const COLLECTION_ELEMENT_DRAG_MIME =
+  "application/x-plains-collection-element-drag"
 
 // Neutral grayish-blue for default selections
 const DEFAULT_ACCENT = "#94a3b8"
@@ -107,13 +109,15 @@ type CollectionRefDragPayload = {
   refIds: string[]
 }
 
+type CollectionElementDragPayload = { collectionId: string }
+
 /** Approximate rendered bounding box of a CollectionEl card */
 // Chessboard grid cell dimensions
 const CELL_W = 200
 const CELL_H = 180
 // Breathing room between the toolbar and the first row of cells
 const CELL_TOP_MARGIN = 20
-const CELL_GAP = 6  // visual gap between grid cells
+const CELL_GAP = 6 // visual gap between grid cells
 const CELL_STRIDE_W = CELL_W + CELL_GAP
 const CELL_STRIDE_H = CELL_H + CELL_GAP
 
@@ -258,8 +262,8 @@ function TextEl({
     onUpdate({
       ...el,
       position: {
-        x: snapToGrid(dragStart.current.origin.x + dx),
-        y: snapToGrid(dragStart.current.origin.y + dy),
+        x: Math.max(0, Math.round((dragStart.current.origin.x + dx) / CELL_W) * CELL_W),
+        y: Math.max(0, Math.round((dragStart.current.origin.y + dy) / CELL_H) * CELL_H),
       },
     })
   }
@@ -289,8 +293,8 @@ function TextEl({
     onUpdate({
       ...el,
       size: {
-        x: Math.max(100, snapToGrid(resizeStart.current.size.x + dx)),
-        y: Math.max(60, snapToGrid(resizeStart.current.size.y + dy)),
+        x: Math.max(CELL_W, Math.round((resizeStart.current.size.x + dx) / CELL_W) * CELL_W),
+        y: Math.max(CELL_H, Math.round((resizeStart.current.size.y + dy) / CELL_H) * CELL_H),
       },
     })
   }
@@ -494,8 +498,8 @@ function PlainTextEl({
     onUpdate({
       ...el,
       position: {
-        x: snapToGrid(dragStart.current.origin.x + dx),
-        y: snapToGrid(dragStart.current.origin.y + dy),
+        x: Math.max(0, Math.round((dragStart.current.origin.x + dx) / CELL_W) * CELL_W),
+        y: Math.max(0, Math.round((dragStart.current.origin.y + dy) / CELL_H) * CELL_H),
       },
     })
   }
@@ -525,8 +529,8 @@ function PlainTextEl({
     onUpdate({
       ...el,
       size: {
-        x: Math.max(60, snapToGrid(resizeStart.current.size.x + dx)),
-        y: Math.max(24, snapToGrid(resizeStart.current.size.y + dy)),
+        x: Math.max(CELL_W, Math.round((resizeStart.current.size.x + dx) / CELL_W) * CELL_W),
+        y: Math.max(CELL_H, Math.round((resizeStart.current.size.y + dy) / CELL_H) * CELL_H),
       },
     })
   }
@@ -1502,7 +1506,10 @@ function EmptyCellEl({
               style={{ pointerEvents: "auto", opacity: 0.75 }}
               onMouseEnter={activateHover}
               onMouseLeave={scheduleHide}
-              onClick={(e) => { e.stopPropagation(); onCreateNote() }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onCreateNote()
+              }}
               onPointerDown={(e) => e.stopPropagation()}
             >
               <IconNote size={16} />
@@ -1516,7 +1523,10 @@ function EmptyCellEl({
               style={{ pointerEvents: "auto", opacity: 0.75 }}
               onMouseEnter={activateHover}
               onMouseLeave={scheduleHide}
-              onClick={(e) => { e.stopPropagation(); onCreateText() }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onCreateText()
+              }}
               onPointerDown={(e) => e.stopPropagation()}
             >
               <IconLetterT size={16} />
@@ -1527,7 +1537,13 @@ function EmptyCellEl({
       {/* Transparent hover bridge covering the gap to the right-side bubbles */}
       {isHovered && (
         <Box
-          style={{ position: "absolute", right: -50, top: 0, width: 50, height: "100%" }}
+          style={{
+            position: "absolute",
+            right: -50,
+            top: 0,
+            width: 50,
+            height: "100%",
+          }}
           onMouseEnter={activateHover}
           onMouseLeave={scheduleHide}
         />
@@ -1564,14 +1580,20 @@ function CollectionEl({
   onUpdate,
   pan,
   isDragOver,
+  isDragging,
   onStartDivide,
+  onDragCollectionStart,
+  onDragCollectionEnd,
 }: {
   el: CanvasCollectionElement
   planeId: string
   onUpdate: (e: CanvasElement) => void
   pan: Vec2
   isDragOver: boolean
+  isDragging: boolean
   onStartDivide: () => void
+  onDragCollectionStart: () => void
+  onDragCollectionEnd: () => void
 }) {
   const {
     activeCollectionId,
@@ -1800,14 +1822,28 @@ function CollectionEl({
     top: el.position.y + pan.y,
     width: CELL_W,
     height: CELL_H,
-    cursor: "pointer",
+    cursor: isDragging ? "grabbing" : "grab",
     userSelect: "none",
     zIndex: isHovered ? 20 : 1,
+    opacity: isDragging ? 0.35 : 1,
+    transition: "opacity 80ms ease",
   }
 
   return (
     <Box
       style={boxStyle}
+      draggable
+      onDragStart={(e: ReactDragEvent<HTMLDivElement>) => {
+        const payload: CollectionElementDragPayload = { collectionId: el.id }
+        e.dataTransfer.effectAllowed = "move"
+        e.dataTransfer.setData(
+          COLLECTION_ELEMENT_DRAG_MIME,
+          JSON.stringify(payload),
+        )
+        e.dataTransfer.setData("text/plain", JSON.stringify(payload))
+        requestAnimationFrame(() => onDragCollectionStart())
+      }}
+      onDragEnd={() => onDragCollectionEnd()}
       onMouseEnter={activateHover}
       onMouseLeave={scheduleHoverHide}
     >
@@ -2818,6 +2854,9 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
 
   const [activeDrawId, setActiveDrawId] = useState<string | null>(null)
   const [dragOverCellKey, setDragOverCellKey] = useState<string | null>(null)
+  const [draggingCollectionId, setDraggingCollectionId] = useState<
+    string | null
+  >(null)
   const plaintextEditingRef = useRef(false)
 
   // ── Track color scheme changes to auto-invert plain text colors ─────────
@@ -3185,10 +3224,14 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     row: number,
     payload: CollectionRefDragPayload,
   ) => {
-    // Don't drop onto cells occupied by text/note elements
+    // Don't drop onto cells covered by text/note elements (including multi-cell spans)
     const textOccupied = plane.elements.some((e) => {
       if (e.type !== "text" && e.type !== "plaintext") return false
-      return Math.round(e.position.x / CELL_W) === col && Math.round(e.position.y / CELL_H) === row
+      const elCol = Math.round(e.position.x / CELL_W)
+      const elRow = Math.round(e.position.y / CELL_H)
+      const spanCols = Math.max(1, Math.round(e.size.x / CELL_W))
+      const spanRows = Math.max(1, Math.round(e.size.y / CELL_H))
+      return col >= elCol && col < elCol + spanCols && row >= elRow && row < elRow + spanRows
     })
     if (textOccupied) return
 
@@ -3249,6 +3292,68 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     }
   }
 
+  const handleMoveCollection = (
+    collectionId: string,
+    col: number,
+    row: number,
+  ) => {
+    // Don't drop on cells covered by text/note elements (including multi-cell spans)
+    const textOccupied = plane.elements.some((e) => {
+      if (e.type !== "text" && e.type !== "plaintext") return false
+      const elCol = Math.round(e.position.x / CELL_W)
+      const elRow = Math.round(e.position.y / CELL_H)
+      const spanCols = Math.max(1, Math.round(e.size.x / CELL_W))
+      const spanRows = Math.max(1, Math.round(e.size.y / CELL_H))
+      return col >= elCol && col < elCol + spanCols && row >= elRow && row < elRow + spanRows
+    })
+    if (textOccupied) return
+
+    const source = plane.elements.find(
+      (e) => e.id === collectionId && e.type === "collection",
+    ) as CanvasCollectionElement | undefined
+    if (!source) return
+
+    const sourceCol = Math.round(source.position.x / CELL_W)
+    const sourceRow = Math.round(source.position.y / CELL_H)
+    if (sourceCol === col && sourceRow === row) return // same cell
+
+    const cellX = col * CELL_W
+    const cellY = row * CELL_H
+
+    const target = plane.elements.find((e) => {
+      if (e.type !== "collection" || e.id === collectionId) return false
+      const c = e as CanvasCollectionElement
+      return (
+        Math.round(c.position.x / CELL_W) === col &&
+        Math.round(c.position.y / CELL_H) === row
+      )
+    }) as CanvasCollectionElement | undefined
+
+    if (target) {
+      // Merge: move all refs from source into target, remove source
+      updatePlane({
+        ...plane,
+        elements: plane.elements
+          .filter((e) => e.id !== collectionId)
+          .map((e) => {
+            if (e.id !== target.id) return e
+            const merged = target as CanvasCollectionElement
+            return { ...merged, refs: [...merged.refs, ...source.refs] }
+          }),
+      })
+      setActiveCollectionId(target.id)
+    } else {
+      // Move to empty cell
+      updatePlane({
+        ...plane,
+        elements: plane.elements.map((e) => {
+          if (e.id !== collectionId) return e
+          return { ...e, position: { x: cellX, y: cellY } }
+        }),
+      })
+    }
+  }
+
   const handleCreateNote = (cellX: number, cellY: number) => {
     const el = addTextElement(plane.id, { x: cellX, y: cellY })
     updateElement(plane.id, { ...el, size: { x: CELL_W, y: CELL_H } })
@@ -3257,11 +3362,16 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
   const handleCreateText = (cellX: number, cellY: number) => {
     if (plaintextEditingRef.current) return
     plaintextEditingRef.current = true
-    const newEl = addPlainTextElement(plane.id, { x: cellX, y: cellY }, "#000000", {
-      bold: false,
-      italic: false,
-      underline: false,
-    })
+    const newEl = addPlainTextElement(
+      plane.id,
+      { x: cellX, y: cellY },
+      "#000000",
+      {
+        bold: false,
+        italic: false,
+        underline: false,
+      },
+    )
     updateElement(plane.id, { ...newEl, size: { x: CELL_W, y: CELL_H } })
   }
 
@@ -3325,7 +3435,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     updatePlane({ ...plane, elements: newElements })
     setDividingCollection(null)
   }
-
 
   // Auto-cleanup: remove empty collections when the user clicks away
   const prevActiveIdRef = useRef<string | null>(null)
@@ -3534,8 +3643,14 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     if (isPanning.current && panStart.current) {
       const dx = e.clientX - panStart.current.mouse.x
       const dy = e.clientY - panStart.current.mouse.y
-      const newX = Math.min(0, Math.max(-maxPanXRef.current, panStart.current.origin.x + dx))
-      const newY = Math.min(0, Math.max(-maxPanYRef.current, panStart.current.origin.y + dy))
+      const newX = Math.min(
+        0,
+        Math.max(-maxPanXRef.current, panStart.current.origin.x + dx),
+      )
+      const newY = Math.min(
+        0,
+        Math.max(-maxPanYRef.current, panStart.current.origin.y + dy),
+      )
       setPan({ x: newX, y: newY })
       return
     }
@@ -3589,8 +3704,13 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
             onDragOver={(e: ReactDragEvent<HTMLDivElement>) => {
-              if (!e.dataTransfer.types.includes(COLLECTION_REF_DRAG_MIME))
-                return
+              const hasRef = e.dataTransfer.types.includes(
+                COLLECTION_REF_DRAG_MIME,
+              )
+              const hasEl = e.dataTransfer.types.includes(
+                COLLECTION_ELEMENT_DRAG_MIME,
+              )
+              if (!hasRef && !hasEl) return
               e.preventDefault()
               const rect = containerRef.current?.getBoundingClientRect()
               if (!rect) return
@@ -3607,10 +3727,36 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               }
             }}
             onDrop={(e: ReactDragEvent<HTMLDivElement>) => {
+              setDragOverCellKey(null)
+              setDraggingCollectionId(null)
+              const rect = containerRef.current?.getBoundingClientRect()
+              if (!rect) return
+              const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
+              const cx = e.clientX - rect.left - childPan.x
+              const cy = e.clientY - rect.top - childPan.y
+              const col = Math.floor(cx / CELL_STRIDE_W)
+              const row = Math.floor(cy / CELL_STRIDE_H)
+              if (col < 0 || row < 0) return
+
+              // Whole-collection move
+              const elRaw = e.dataTransfer.getData(COLLECTION_ELEMENT_DRAG_MIME)
+              if (elRaw) {
+                try {
+                  const payload = JSON.parse(
+                    elRaw,
+                  ) as CollectionElementDragPayload
+                  if (payload?.collectionId) {
+                    e.preventDefault()
+                    handleMoveCollection(payload.collectionId, col, row)
+                  }
+                } catch {}
+                return
+              }
+
+              // Ref-level drop (existing behavior)
               const raw =
                 e.dataTransfer.getData(COLLECTION_REF_DRAG_MIME) ||
                 e.dataTransfer.getData("text/plain")
-              setDragOverCellKey(null)
               if (!raw) return
               try {
                 const payload = JSON.parse(raw) as CollectionRefDragPayload
@@ -3619,27 +3765,26 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                   !Array.isArray(payload.refIds)
                 )
                   return
-                const rect = containerRef.current?.getBoundingClientRect()
-                if (!rect) return
-                const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
-                const cx = e.clientX - rect.left - childPan.x
-                const cy = e.clientY - rect.top - childPan.y
-                const col = Math.floor(cx / CELL_STRIDE_W)
-                const row = Math.floor(cy / CELL_STRIDE_H)
-                if (col >= 0 && row >= 0) {
-                  e.preventDefault()
-                  handleDropToCell(col, row, payload)
-                }
+                e.preventDefault()
+                handleDropToCell(col, row, payload)
               } catch {}
             }}
           >
             {/* Unified grid: empty ghost cells + all canvas elements */}
             {(() => {
               const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
-              const startCol = Math.max(0, Math.floor(-childPan.x / CELL_STRIDE_W))
-              const startRow = Math.max(0, Math.floor(-childPan.y / CELL_STRIDE_H))
-              const endCol = Math.ceil((containerWidth - childPan.x) / CELL_STRIDE_W) + 1
-              const endRow = Math.ceil((containerHeight - childPan.y) / CELL_STRIDE_H) + 1
+              const startCol = Math.max(
+                0,
+                Math.floor(-childPan.x / CELL_STRIDE_W),
+              )
+              const startRow = Math.max(
+                0,
+                Math.floor(-childPan.y / CELL_STRIDE_H),
+              )
+              const endCol =
+                Math.ceil((containerWidth - childPan.x) / CELL_STRIDE_W) + 1
+              const endRow =
+                Math.ceil((containerHeight - childPan.y) / CELL_STRIDE_H) + 1
 
               // Build lookup: cell key → element
               const elementByCell = new Map<string, CanvasElement>()
@@ -3649,13 +3794,20 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                 elementByCell.set(`${elCol},${elRow}`, el)
               }
 
-              // Track cells occupied by text/note (block drag-drop there)
+              // Track ALL cells covered by text/note elements (origin + spanned cells).
+              // Drag-drop is blocked on these, and EmptyCellEl is not rendered for non-origin spans.
               const textCellKeys = new Set<string>()
               for (const el of nonLines) {
                 if (el.type === "text" || el.type === "plaintext") {
                   const elCol = Math.round(el.position.x / CELL_W)
                   const elRow = Math.round(el.position.y / CELL_H)
-                  textCellKeys.add(`${elCol},${elRow}`)
+                  const spanCols = Math.max(1, Math.round(el.size.x / CELL_W))
+                  const spanRows = Math.max(1, Math.round(el.size.y / CELL_H))
+                  for (let r = elRow; r < elRow + spanRows; r++) {
+                    for (let c = elCol; c < elCol + spanCols; c++) {
+                      textCellKeys.add(`${c},${r}`)
+                    }
+                  }
                 }
               }
 
@@ -3668,11 +3820,17 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                   const visualX = col * CELL_STRIDE_W + childPan.x
                   const visualY = row * CELL_STRIDE_H + childPan.y
                   const el = elementByCell.get(cellKey)
-                  const isDragOver = dragOverCellKey === cellKey && !textCellKeys.has(cellKey)
+                  const isDragOver =
+                    dragOverCellKey === cellKey && !textCellKeys.has(cellKey)
                   // Per-element pan adjusted for gap (so el.position + elementPan = visualX/Y)
-                  const elementPan = { x: childPan.x + col * CELL_GAP, y: childPan.y + row * CELL_GAP }
+                  const elementPan = {
+                    x: childPan.x + col * CELL_GAP,
+                    y: childPan.y + row * CELL_GAP,
+                  }
 
                   if (!el) {
+                    // Skip empty cells covered by a multi-cell text element
+                    if (textCellKeys.has(cellKey)) continue
                     cells.push(
                       <EmptyCellEl
                         key={cellKey}
@@ -3708,8 +3866,12 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                         el={ptel}
                         onUpdate={(updated) => updateElement(plane.id, updated)}
                         onDelete={() => deleteElement(plane.id, el.id)}
-                        onStartEdit={() => { plaintextEditingRef.current = true }}
-                        onEditEnd={() => { plaintextEditingRef.current = false }}
+                        onStartEdit={() => {
+                          plaintextEditingRef.current = true
+                        }}
+                        onEditEnd={() => {
+                          plaintextEditingRef.current = false
+                        }}
                         pan={elementPan}
                       />,
                     )
@@ -3721,10 +3883,19 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                         planeId={plane.id}
                         onUpdate={(updated) => updateElement(plane.id, updated)}
                         pan={elementPan}
-                        isDragOver={isDragOver}
+                        isDragOver={
+                          isDragOver && draggingCollectionId !== el.id
+                        }
+                        isDragging={draggingCollectionId === el.id}
                         onStartDivide={() => {
                           handleStartDivide(el as CanvasCollectionElement)
                         }}
+                        onDragCollectionStart={() =>
+                          setDraggingCollectionId(el.id)
+                        }
+                        onDragCollectionEnd={() =>
+                          setDraggingCollectionId(null)
+                        }
                       />,
                     )
                   }
@@ -3743,7 +3914,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               onUpdate={(el) => updateElement(plane.id, el)}
               onDelete={(id) => deleteElement(plane.id, id)}
             />
-
           </Box>
 
           {/* Horizontal scrollbar — only shown when elements overflow to the right */}

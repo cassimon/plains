@@ -35,11 +35,9 @@ import {
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { autoResolveCollection } from "@/lib/autoResolveCollection"
 import { DependencyBlockModal } from "../components/DependencyBlockModal"
-import {
-  type CollectionConfirmParams,
-  SelectCollectionModal,
-} from "../components/SelectCollectionModal"
+import type { CollectionConfirmParams } from "../components/SelectCollectionModal"
 import {
   type CanvasCollectionElement,
   getDependentLocations,
@@ -806,6 +804,9 @@ export function SolutionsPage() {
     setPendingCollectionLink,
     activeCollectionId,
     activePlaneId,
+    setActivePlaneId,
+    setActiveCollectionId,
+    addCollectionElement,
     activeEntity,
     setActiveEntity,
     lastSelectedByKind,
@@ -829,7 +830,6 @@ export function SolutionsPage() {
   const returnSolutionIdRef = useRef<string | null>(null)
   const returnToProcessIdRef = useRef<string | null>(null)
   const navigate = useNavigate()
-  const [collectionModalOpen, setCollectionModalOpen] = useState(false)
   const [autoAddComponentId, setAutoAddComponentId] = useState<string | null>(
     null,
   )
@@ -1033,7 +1033,15 @@ export function SolutionsPage() {
         return
       }
     }
-    setCollectionModalOpen(true)
+    const resolved = autoResolveCollection(
+      planes,
+      activePlaneId,
+      addCollectionElement,
+      setActivePlaneId,
+      setActiveCollectionId,
+    )
+    if (resolved)
+      doAddSolution({ ...resolved, collectionId: resolved.collection.id })
   }
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: run once on pendingCollectionLink change
@@ -1181,146 +1189,138 @@ export function SolutionsPage() {
   }
 
   return (
-    <>
-      <Container fluid>
-        <Group justify="space-between" mb="md" mt="md">
-          <Title order={2}>Solutions</Title>
-          <Button leftSection={<IconPlus size={16} />} onClick={addSolution}>
-            New Solution
-          </Button>
-        </Group>
+    <Container fluid>
+      <Group justify="space-between" mb="md" mt="md">
+        <Title order={2}>Solutions</Title>
+        <Button leftSection={<IconPlus size={16} />} onClick={addSolution}>
+          New Solution
+        </Button>
+      </Group>
 
-        {visibleSolutions.length === 0 && (
-          <Text c="dimmed">
-            {solutions.length === 0
-              ? 'No solutions yet. Click "New Solution" to get started.'
-              : "No solutions in the selected collection."}
-          </Text>
-        )}
+      {visibleSolutions.length === 0 && (
+        <Text c="dimmed">
+          {solutions.length === 0
+            ? 'No solutions yet. Click "New Solution" to get started.'
+            : "No solutions in the selected collection."}
+        </Text>
+      )}
 
-        <Stack gap={0}>
-          {(() => {
-            if (!activePlaneId) {
-              const groups = new Map<
-                string,
-                { planeName: string; items: typeof visibleSolutions }
-              >()
-              const orphans: typeof visibleSolutions = []
-              for (const solution of visibleSolutions) {
-                const plane = getEntityPlane("solution", solution.id)
-                if (plane) {
-                  const group = groups.get(plane.id)
-                  if (group) {
-                    group.items.push(solution)
-                  } else {
-                    groups.set(plane.id, {
-                      planeName: plane.name,
-                      items: [solution],
-                    })
-                  }
+      <Stack gap={0}>
+        {(() => {
+          if (!activePlaneId) {
+            const groups = new Map<
+              string,
+              { planeName: string; items: typeof visibleSolutions }
+            >()
+            const orphans: typeof visibleSolutions = []
+            for (const solution of visibleSolutions) {
+              const plane = getEntityPlane("solution", solution.id)
+              if (plane) {
+                const group = groups.get(plane.id)
+                if (group) {
+                  group.items.push(solution)
                 } else {
-                  orphans.push(solution)
+                  groups.set(plane.id, {
+                    planeName: plane.name,
+                    items: [solution],
+                  })
                 }
+              } else {
+                orphans.push(solution)
               }
-              const sections: React.ReactNode[] = []
-              for (const [planeId, { planeName, items }] of groups) {
-                sections.push(
-                  <Text
-                    key={`plane-header-${planeId}`}
-                    size="xs"
-                    fw={700}
-                    c="dimmed"
-                    tt="uppercase"
-                    mt="md"
-                    mb={4}
-                    px={4}
-                  >
-                    {planeName}
-                  </Text>,
-                )
-                sections.push(
-                  ...items.map((solution) => (
-                    <SolutionCard
-                      key={solution.id}
-                      solution={solution}
-                      onUpdate={updateSolution}
-                      onDelete={() => deleteSolution(solution.id)}
-                      onCopy={() => copySolution(solution.id)}
-                      {...sharedCardProps}
-                      collectionColor={
-                        getEntityColor("solution", solution.id) ?? undefined
-                      }
-                      isSelected={selectedSolutionId === solution.id}
-                      onSelect={selectSolution}
-                      autoAddComponent={autoAddComponentId === solution.id}
-                      onAutoAdded={() => setAutoAddComponentId(null)}
-                    />
-                  )),
-                )
-              }
-              if (orphans.length > 0) {
-                sections.push(
-                  <Text
-                    key="plane-header-orphan"
-                    size="xs"
-                    fw={700}
-                    c="dimmed"
-                    tt="uppercase"
-                    mt="md"
-                    mb={4}
-                    px={4}
-                  >
-                    Unassigned
-                  </Text>,
-                )
-                sections.push(
-                  ...orphans.map((solution) => (
-                    <SolutionCard
-                      key={solution.id}
-                      solution={solution}
-                      onUpdate={updateSolution}
-                      onDelete={() => deleteSolution(solution.id)}
-                      onCopy={() => copySolution(solution.id)}
-                      {...sharedCardProps}
-                      collectionColor={
-                        getEntityColor("solution", solution.id) ?? undefined
-                      }
-                      isSelected={selectedSolutionId === solution.id}
-                      onSelect={selectSolution}
-                      autoAddComponent={autoAddComponentId === solution.id}
-                      onAutoAdded={() => setAutoAddComponentId(null)}
-                    />
-                  )),
-                )
-              }
-              return sections
             }
-            return visibleSolutions.map((solution) => (
-              <SolutionCard
-                key={solution.id}
-                solution={solution}
-                onUpdate={updateSolution}
-                onDelete={() => deleteSolution(solution.id)}
-                onCopy={() => copySolution(solution.id)}
-                {...sharedCardProps}
-                collectionColor={
-                  getEntityColor("solution", solution.id) ?? undefined
-                }
-                isSelected={selectedSolutionId === solution.id}
-                onSelect={selectSolution}
-                autoAddComponent={autoAddComponentId === solution.id}
-                onAutoAdded={() => setAutoAddComponentId(null)}
-              />
-            ))
-          })()}
-        </Stack>
-      </Container>
-      <SelectCollectionModal
-        opened={collectionModalOpen}
-        onClose={() => setCollectionModalOpen(false)}
-        onConfirm={doAddSolution}
-        confirmLabel="Add Solution"
-      />
-    </>
+            const sections: React.ReactNode[] = []
+            for (const [planeId, { planeName, items }] of groups) {
+              sections.push(
+                <Text
+                  key={`plane-header-${planeId}`}
+                  size="xs"
+                  fw={700}
+                  c="dimmed"
+                  tt="uppercase"
+                  mt="md"
+                  mb={4}
+                  px={4}
+                >
+                  {planeName}
+                </Text>,
+              )
+              sections.push(
+                ...items.map((solution) => (
+                  <SolutionCard
+                    key={solution.id}
+                    solution={solution}
+                    onUpdate={updateSolution}
+                    onDelete={() => deleteSolution(solution.id)}
+                    onCopy={() => copySolution(solution.id)}
+                    {...sharedCardProps}
+                    collectionColor={
+                      getEntityColor("solution", solution.id) ?? undefined
+                    }
+                    isSelected={selectedSolutionId === solution.id}
+                    onSelect={selectSolution}
+                    autoAddComponent={autoAddComponentId === solution.id}
+                    onAutoAdded={() => setAutoAddComponentId(null)}
+                  />
+                )),
+              )
+            }
+            if (orphans.length > 0) {
+              sections.push(
+                <Text
+                  key="plane-header-orphan"
+                  size="xs"
+                  fw={700}
+                  c="dimmed"
+                  tt="uppercase"
+                  mt="md"
+                  mb={4}
+                  px={4}
+                >
+                  Unassigned
+                </Text>,
+              )
+              sections.push(
+                ...orphans.map((solution) => (
+                  <SolutionCard
+                    key={solution.id}
+                    solution={solution}
+                    onUpdate={updateSolution}
+                    onDelete={() => deleteSolution(solution.id)}
+                    onCopy={() => copySolution(solution.id)}
+                    {...sharedCardProps}
+                    collectionColor={
+                      getEntityColor("solution", solution.id) ?? undefined
+                    }
+                    isSelected={selectedSolutionId === solution.id}
+                    onSelect={selectSolution}
+                    autoAddComponent={autoAddComponentId === solution.id}
+                    onAutoAdded={() => setAutoAddComponentId(null)}
+                  />
+                )),
+              )
+            }
+            return sections
+          }
+          return visibleSolutions.map((solution) => (
+            <SolutionCard
+              key={solution.id}
+              solution={solution}
+              onUpdate={updateSolution}
+              onDelete={() => deleteSolution(solution.id)}
+              onCopy={() => copySolution(solution.id)}
+              {...sharedCardProps}
+              collectionColor={
+                getEntityColor("solution", solution.id) ?? undefined
+              }
+              isSelected={selectedSolutionId === solution.id}
+              onSelect={selectSolution}
+              autoAddComponent={autoAddComponentId === solution.id}
+              onAutoAdded={() => setAutoAddComponentId(null)}
+            />
+          ))
+        })()}
+      </Stack>
+    </Container>
   )
 }

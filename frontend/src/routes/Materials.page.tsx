@@ -32,11 +32,9 @@ import {
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { autoResolveCollection } from "@/lib/autoResolveCollection"
 import { DependencyBlockModal } from "../components/DependencyBlockModal"
-import {
-  type CollectionConfirmParams,
-  SelectCollectionModal,
-} from "../components/SelectCollectionModal"
+import type { CollectionConfirmParams } from "../components/SelectCollectionModal"
 import {
   type CanvasCollectionElement,
   getDependentLocations,
@@ -258,6 +256,9 @@ export function MaterialsPage() {
     setPendingCollectionLink,
     activeCollectionId,
     activePlaneId,
+    setActivePlaneId,
+    setActiveCollectionId,
+    addCollectionElement,
     activeEntity,
     setActiveEntity,
     lastSelectedByKind,
@@ -276,9 +277,6 @@ export function MaterialsPage() {
   const returnToRef = useRef<string | null>(null)
   const returnToProcessIdRef = useRef<string | null>(null)
   const navigate = useNavigate()
-  const [collectionModalOpen, setCollectionModalOpen] = useState(false)
-  const pendingCategoryRef = useRef<MaterialCategory | null>(null)
-  const pendingImportRef = useRef<Partial<Material> | null>(null)
   const [pubChemModalOpen, setPubChemModalOpen] = useState(false)
   const [pubChemCategory, setPubChemCategory] =
     useState<MaterialCategory>("chemical_compound")
@@ -568,7 +566,6 @@ export function MaterialsPage() {
   }
 
   const addMaterial = (category: MaterialCategory) => {
-    pendingImportRef.current = null
     if (activeCollectionId && activePlaneId) {
       const plane = planes.find((p) => p.id === activePlaneId)
       const col = plane?.elements.find((e) => e.id === activeCollectionId)
@@ -581,8 +578,18 @@ export function MaterialsPage() {
         return
       }
     }
-    pendingCategoryRef.current = category
-    setCollectionModalOpen(true)
+    const resolved = autoResolveCollection(
+      planes,
+      activePlaneId,
+      addCollectionElement,
+      setActivePlaneId,
+      setActiveCollectionId,
+    )
+    if (resolved)
+      doAddMaterial(category, {
+        ...resolved,
+        collectionId: resolved.collection.id,
+      })
   }
 
   const addImportedMaterial = (
@@ -605,9 +612,19 @@ export function MaterialsPage() {
         return
       }
     }
-    pendingCategoryRef.current = category
-    pendingImportRef.current = overrides
-    setCollectionModalOpen(true)
+    const resolved = autoResolveCollection(
+      planes,
+      activePlaneId,
+      addCollectionElement,
+      setActivePlaneId,
+      setActiveCollectionId,
+    )
+    if (resolved)
+      doAddMaterial(
+        category,
+        { ...resolved, collectionId: resolved.collection.id },
+        overrides,
+      )
   }
 
   const openPubChemImporter = (category: MaterialCategory) => {
@@ -835,16 +852,6 @@ export function MaterialsPage() {
         : {}),
     })
     setPubChemModalOpen(false)
-  }
-
-  const handleCollectionConfirmed = (params: CollectionConfirmParams) => {
-    const category = pendingCategoryRef.current
-    const overrides = pendingImportRef.current
-    pendingCategoryRef.current = null
-    pendingImportRef.current = null
-    if (category) {
-      doAddMaterial(category, params, overrides ?? undefined)
-    }
   }
 
   const commitEdit = () => {
@@ -1455,13 +1462,6 @@ export function MaterialsPage() {
           </Text>
         </Box>
       )}
-
-      <SelectCollectionModal
-        opened={collectionModalOpen}
-        onClose={() => setCollectionModalOpen(false)}
-        onConfirm={handleCollectionConfirmed}
-        confirmLabel="Add Material"
-      />
 
       <Modal
         opened={pubChemModalOpen}

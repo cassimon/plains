@@ -27,10 +27,8 @@ import {
 import { useNavigate as useRouterNavigate } from "@tanstack/react-router"
 import * as React from "react"
 import { useCallback, useRef, useState } from "react"
-import {
-  type CollectionConfirmParams,
-  SelectCollectionModal,
-} from "../components/SelectCollectionModal"
+import { autoResolveCollection } from "@/lib/autoResolveCollection"
+import type { CollectionConfirmParams } from "../components/SelectCollectionModal"
 import {
   type CanvasCollectionElement,
   type Experiment,
@@ -1432,6 +1430,9 @@ export default function ExperimentsPage() {
     removeCollectionRefs,
     activeCollectionId,
     activePlaneId,
+    setActivePlaneId,
+    setActiveCollectionId,
+    addCollectionElement,
     pendingCollectionLink,
     setPendingCollectionLink,
   } = useAppContext()
@@ -1441,7 +1442,6 @@ export default function ExperimentsPage() {
     () => lastSelectedByKind.experiment ?? null,
   )
   const [recipeModalOpen, setRecipeModalOpen] = useState(false)
-  const [collectionModalOpen, setCollectionModalOpen] = useState(false)
   const [newExperimentProcessId, setNewExperimentProcessId] = useState<
     string | null
   >(null)
@@ -1621,7 +1621,15 @@ export default function ExperimentsPage() {
         return
       }
     }
-    setCollectionModalOpen(true)
+    const resolved = autoResolveCollection(
+      planes,
+      activePlaneId,
+      addCollectionElement,
+      setActivePlaneId,
+      setActiveCollectionId,
+    )
+    if (resolved)
+      doAddExperiment({ ...resolved, collectionId: resolved.collection.id })
   }
 
   // Select recipe after creation
@@ -1846,372 +1854,363 @@ export default function ExperimentsPage() {
   }, [experiments, processes, isEntityVisible])
 
   return (
-    <>
-      <Group gap={0} align="flex-start" style={{ height: "100%" }}>
-        {/* Left Sidebar - Experiment List */}
-        <Box
-          style={{
-            width: "16%",
-            minWidth: 220,
-            background: "var(--mantine-color-gray-0)",
-            borderRight: "1px solid var(--mantine-color-gray-2)",
-            display: "flex",
-            flexDirection: "column",
-            height: "100%",
-          }}
-        >
-          <Stack gap="sm" p="md" style={{ flex: 1, overflowY: "auto" }}>
-            <Select
-              label="Process"
-              placeholder="Select process..."
-              size="xs"
-              searchable
-              data={processes
-                .filter((process) => isEntityVisible("process", process.id))
-                .map((process) => ({
-                  value: process.id,
-                  label: process.name || "Untitled",
-                }))}
-              value={newExperimentProcessId}
-              onChange={setNewExperimentProcessId}
-            />
+    <Group gap={0} align="flex-start" style={{ height: "100%" }}>
+      {/* Left Sidebar - Experiment List */}
+      <Box
+        style={{
+          width: "16%",
+          minWidth: 220,
+          background: "var(--mantine-color-gray-0)",
+          borderRight: "1px solid var(--mantine-color-gray-2)",
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+        }}
+      >
+        <Stack gap="sm" p="md" style={{ flex: 1, overflowY: "auto" }}>
+          <Select
+            label="Process"
+            placeholder="Select process..."
+            size="xs"
+            searchable
+            data={processes
+              .filter((process) => isEntityVisible("process", process.id))
+              .map((process) => ({
+                value: process.id,
+                label: process.name || "Untitled",
+              }))}
+            value={newExperimentProcessId}
+            onChange={setNewExperimentProcessId}
+          />
 
-            <Button
-              fullWidth
-              leftSection={<IconPlus size={16} />}
-              onClick={handleNewExperiment}
-              disabled={!newExperimentProcessId || processes.length === 0}
-            >
-              New Experiment
-            </Button>
+          <Button
+            fullWidth
+            leftSection={<IconPlus size={16} />}
+            onClick={handleNewExperiment}
+            disabled={!newExperimentProcessId || processes.length === 0}
+          >
+            New Experiment
+          </Button>
 
-            <Text size="xs" fw={600} c="dimmed" tt="uppercase">
-              Experiments ({experiments.length})
-            </Text>
+          <Text size="xs" fw={600} c="dimmed" tt="uppercase">
+            Experiments ({experiments.length})
+          </Text>
 
-            <Stack gap="xs">
-              {groupedExperiments.map((group) => (
-                <React.Fragment key={`process-group-${group.processId}`}>
-                  <Text size="xs" fw={700} c="dimmed" tt="uppercase" mt="xs">
-                    {group.processName}
-                  </Text>
-                  {group.items.map((exp) => {
-                    const status = getExperimentStatus(exp)
-                    const isSelected = exp.id === selectedExpId
+          <Stack gap="xs">
+            {groupedExperiments.map((group) => (
+              <React.Fragment key={`process-group-${group.processId}`}>
+                <Text size="xs" fw={700} c="dimmed" tt="uppercase" mt="xs">
+                  {group.processName}
+                </Text>
+                {group.items.map((exp) => {
+                  const status = getExperimentStatus(exp)
+                  const isSelected = exp.id === selectedExpId
 
-                    const collectionColor = getEntityColor("experiment", exp.id)
-                    return (
-                      <Paper
-                        key={exp.id}
-                        withBorder
-                        p="sm"
-                        radius="md"
-                        style={{
-                          cursor: "pointer",
-                          background: isSelected
-                            ? "var(--mantine-color-blue-0)"
+                  const collectionColor = getEntityColor("experiment", exp.id)
+                  return (
+                    <Paper
+                      key={exp.id}
+                      withBorder
+                      p="sm"
+                      radius="md"
+                      style={{
+                        cursor: "pointer",
+                        background: isSelected
+                          ? "var(--mantine-color-blue-0)"
+                          : undefined,
+                        borderLeft: isSelected
+                          ? "4px solid var(--mantine-color-blue-4)"
+                          : collectionColor
+                            ? `4px solid ${collectionColor}`
                             : undefined,
-                          borderLeft: isSelected
-                            ? "4px solid var(--mantine-color-blue-4)"
-                            : collectionColor
-                              ? `4px solid ${collectionColor}`
-                              : undefined,
-                          paddingLeft: collectionColor
-                            ? "calc(var(--mantine-spacing-sm) - 3px)"
-                            : undefined,
-                        }}
-                        onClick={() => setSelectedExpId(exp.id)}
-                      >
-                        <Group justify="space-between" wrap="nowrap">
-                          <Box style={{ flex: 1, minWidth: 0 }}>
-                            <Group gap="xs" mb={4}>
-                              <Text size="sm" fw={600} truncate>
-                                {exp.name || "Untitled"}
-                              </Text>
-                              <Badge
-                                size="xs"
-                                color={
-                                  status === "finished"
-                                    ? "green"
-                                    : status === "ready"
-                                      ? "yellow"
-                                      : "red"
-                                }
-                                variant="dot"
-                              >
-                                {status === "finished"
-                                  ? "Finished"
+                        paddingLeft: collectionColor
+                          ? "calc(var(--mantine-spacing-sm) - 3px)"
+                          : undefined,
+                      }}
+                      onClick={() => setSelectedExpId(exp.id)}
+                    >
+                      <Group justify="space-between" wrap="nowrap">
+                        <Box style={{ flex: 1, minWidth: 0 }}>
+                          <Group gap="xs" mb={4}>
+                            <Text size="sm" fw={600} truncate>
+                              {exp.name || "Untitled"}
+                            </Text>
+                            <Badge
+                              size="xs"
+                              color={
+                                status === "finished"
+                                  ? "green"
                                   : status === "ready"
-                                    ? "Ready"
-                                    : "Incomplete"}
-                              </Badge>
-                            </Group>
-                            <Group gap="xs">
-                              <Text size="xs" c="dimmed">
-                                {exp.date || "No date"}
-                              </Text>
-                              <Text size="xs" c="dimmed">
-                                •
-                              </Text>
-                              <Text size="xs" c="dimmed">
-                                {exp.substrates.length} substrate
-                                {exp.substrates.length !== 1 ? "s" : ""}
-                              </Text>
-                            </Group>
-                          </Box>
-
-                          <Group gap={2} wrap="nowrap">
-                            <ActionIcon
-                              size="sm"
-                              variant="subtle"
-                              color="teal"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleCopyExperiment(exp)
-                              }}
+                                    ? "yellow"
+                                    : "red"
+                              }
+                              variant="dot"
                             >
-                              <IconCopy size={14} />
-                            </ActionIcon>
-                            <ActionIcon
-                              size="sm"
-                              variant="subtle"
-                              color="red"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleDeleteExperiment(exp.id)
-                              }}
-                            >
-                              <IconTrash size={14} />
-                            </ActionIcon>
+                              {status === "finished"
+                                ? "Finished"
+                                : status === "ready"
+                                  ? "Ready"
+                                  : "Incomplete"}
+                            </Badge>
                           </Group>
-                        </Group>
-                      </Paper>
-                    )
-                  })}
-                </React.Fragment>
-              ))}
-            </Stack>
-          </Stack>
-        </Box>
+                          <Group gap="xs">
+                            <Text size="xs" c="dimmed">
+                              {exp.date || "No date"}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              •
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {exp.substrates.length} substrate
+                              {exp.substrates.length !== 1 ? "s" : ""}
+                            </Text>
+                          </Group>
+                        </Box>
 
-        {/* Main Content Area */}
-        <Box
-          style={{
-            flex: 1,
-            height: "100%",
-            overflowY: "auto",
-            padding: "2rem",
-          }}
-        >
-          {!selectedExperiment ? (
-            <Stack
-              gap="md"
-              align="center"
-              justify="center"
-              style={{ height: "100%" }}
+                        <Group gap={2} wrap="nowrap">
+                          <ActionIcon
+                            size="sm"
+                            variant="subtle"
+                            color="teal"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleCopyExperiment(exp)
+                            }}
+                          >
+                            <IconCopy size={14} />
+                          </ActionIcon>
+                          <ActionIcon
+                            size="sm"
+                            variant="subtle"
+                            color="red"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteExperiment(exp.id)
+                            }}
+                          >
+                            <IconTrash size={14} />
+                          </ActionIcon>
+                        </Group>
+                      </Group>
+                    </Paper>
+                  )
+                })}
+              </React.Fragment>
+            ))}
+          </Stack>
+        </Stack>
+      </Box>
+
+      {/* Main Content Area */}
+      <Box
+        style={{
+          flex: 1,
+          height: "100%",
+          overflowY: "auto",
+          padding: "2rem",
+        }}
+      >
+        {!selectedExperiment ? (
+          <Stack
+            gap="md"
+            align="center"
+            justify="center"
+            style={{ height: "100%" }}
+          >
+            <IconPlus size={48} color="var(--mantine-color-gray-4)" />
+            <Text size="lg" fw={500} c="dimmed">
+              Select or create an experiment to get started
+            </Text>
+          </Stack>
+        ) : !selectedProcess ? (
+          <Stack
+            gap="md"
+            align="center"
+            justify="center"
+            style={{ height: "100%" }}
+          >
+            <Alert
+              icon={<IconInfoCircle size={16} />}
+              title="No Recipe Selected"
+              color="yellow"
             >
-              <IconPlus size={48} color="var(--mantine-color-gray-4)" />
-              <Text size="lg" fw={500} c="dimmed">
-                Select or create an experiment to get started
-              </Text>
-            </Stack>
-          ) : !selectedProcess ? (
-            <Stack
-              gap="md"
-              align="center"
-              justify="center"
-              style={{ height: "100%" }}
-            >
-              <Alert
-                icon={<IconInfoCircle size={16} />}
-                title="No Recipe Selected"
-                color="yellow"
+              Please select a recipe for this experiment to continue.
+            </Alert>
+            <Button onClick={() => setRecipeModalOpen(true)}>
+              Select Recipe
+            </Button>
+          </Stack>
+        ) : (
+          <Stack gap="md">
+            {/* Header with title and meta info */}
+            <Group justify="space-between" align="flex-start">
+              <Paper
+                withBorder
+                p="sm"
+                radius="md"
+                style={{ flex: 1, background: "var(--mantine-color-gray-1)" }}
               >
-                Please select a recipe for this experiment to continue.
-              </Alert>
-              <Button onClick={() => setRecipeModalOpen(true)}>
-                Select Recipe
-              </Button>
-            </Stack>
-          ) : (
-            <Stack gap="md">
-              {/* Header with title and meta info */}
-              <Group justify="space-between" align="flex-start">
-                <Paper
-                  withBorder
-                  p="sm"
-                  radius="md"
-                  style={{ flex: 1, background: "var(--mantine-color-gray-1)" }}
-                >
-                  <SimpleGrid cols={4} spacing="sm">
+                <SimpleGrid cols={4} spacing="sm">
+                  <TextInput
+                    label="Experiment Name"
+                    placeholder="Name"
+                    size="sm"
+                    value={selectedExperiment.name}
+                    onChange={(e) =>
+                      handleUpdateExperiment({
+                        ...selectedExperiment,
+                        name: e.currentTarget.value,
+                      })
+                    }
+                  />
+
+                  <Box>
+                    <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+                      Date of Execution
+                    </Text>
                     <TextInput
-                      label="Experiment Name"
-                      placeholder="Name"
-                      size="sm"
-                      value={selectedExperiment.name}
+                      type="date"
+                      value={selectedExperiment.date}
                       onChange={(e) =>
                         handleUpdateExperiment({
                           ...selectedExperiment,
-                          name: e.currentTarget.value,
+                          date: e.currentTarget.value,
                         })
                       }
+                      size="sm"
                     />
+                  </Box>
 
-                    <Box>
-                      <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                        Date of Execution
-                      </Text>
-                      <TextInput
-                        type="date"
-                        value={selectedExperiment.date}
-                        onChange={(e) =>
-                          handleUpdateExperiment({
-                            ...selectedExperiment,
-                            date: e.currentTarget.value,
-                          })
+                  <Box>
+                    <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+                      Status
+                    </Text>
+                    <Group gap="xs" wrap="nowrap">
+                      <Badge
+                        size="lg"
+                        color={
+                          selectedExperimentStatus === "finished"
+                            ? "green"
+                            : selectedExperimentStatus === "ready"
+                              ? "blue"
+                              : "yellow"
                         }
-                        size="sm"
-                      />
-                    </Box>
-
-                    <Box>
-                      <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                        Status
-                      </Text>
-                      <Group gap="xs" wrap="nowrap">
-                        <Badge
-                          size="lg"
-                          color={
-                            selectedExperimentStatus === "finished"
-                              ? "green"
-                              : selectedExperimentStatus === "ready"
-                                ? "blue"
-                                : "yellow"
-                          }
-                        >
-                          {selectedExperimentStatus}
-                        </Badge>
-                        {(selectedExperimentStatus === "ready" ||
-                          selectedExperimentStatus === "finished") && (
-                          <Button
-                            size="lg"
-                            color="lime"
-                            radius="md"
-                            fw={600}
-                            style={{
-                              backgroundColor: "#d3f9d8",
-                              color: "#2b8a3e",
-                              boxShadow: "0 2px 8px rgba(43, 138, 62, 0.15)",
-                            }}
-                            onClick={handleAddResultsForSelectedExperiment}
-                          >
-                            + Add Results
-                          </Button>
-                        )}
-                      </Group>
-                    </Box>
-
-                    <Paper
-                      withBorder
-                      p="xs"
-                      radius="sm"
-                      style={{ background: "var(--mantine-color-blue-0)" }}
-                    >
-                      <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                        Recipe / Process
-                      </Text>
-                      <Group gap="xs">
-                        <Badge color="blue" variant="filled" size="lg">
-                          {selectedProcess.name}
-                        </Badge>
+                      >
+                        {selectedExperimentStatus}
+                      </Badge>
+                      {(selectedExperimentStatus === "ready" ||
+                        selectedExperimentStatus === "finished") && (
                         <Button
-                          size="xs"
-                          variant="subtle"
-                          onClick={() => setRecipeModalOpen(true)}
+                          size="lg"
+                          color="lime"
+                          radius="md"
+                          fw={600}
+                          style={{
+                            backgroundColor: "#d3f9d8",
+                            color: "#2b8a3e",
+                            boxShadow: "0 2px 8px rgba(43, 138, 62, 0.15)",
+                          }}
+                          onClick={handleAddResultsForSelectedExperiment}
                         >
-                          Change
+                          + Add Results
                         </Button>
-                      </Group>
-                    </Paper>
-                  </SimpleGrid>
-                </Paper>
-              </Group>
+                      )}
+                    </Group>
+                  </Box>
 
-              {/* Intent/Description */}
-              <Box>
-                <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                  Intent / Description
-                </Text>
-                <TextInput
-                  placeholder="What is the purpose of this experiment?"
-                  value={selectedExperiment.description}
-                  onChange={(e) =>
-                    handleUpdateExperiment({
-                      ...selectedExperiment,
-                      description: e.currentTarget.value,
-                    })
-                  }
-                />
-              </Box>
+                  <Paper
+                    withBorder
+                    p="xs"
+                    radius="sm"
+                    style={{ background: "var(--mantine-color-blue-0)" }}
+                  >
+                    <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+                      Recipe / Process
+                    </Text>
+                    <Group gap="xs">
+                      <Badge color="blue" variant="filled" size="lg">
+                        {selectedProcess.name}
+                      </Badge>
+                      <Button
+                        size="xs"
+                        variant="subtle"
+                        onClick={() => setRecipeModalOpen(true)}
+                      >
+                        Change
+                      </Button>
+                    </Group>
+                  </Paper>
+                </SimpleGrid>
+              </Paper>
+            </Group>
 
-              <Divider />
+            {/* Intent/Description */}
+            <Box>
+              <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+                Intent / Description
+              </Text>
+              <TextInput
+                placeholder="What is the purpose of this experiment?"
+                value={selectedExperiment.description}
+                onChange={(e) =>
+                  handleUpdateExperiment({
+                    ...selectedExperiment,
+                    description: e.currentTarget.value,
+                  })
+                }
+              />
+            </Box>
 
-              {/* Substrate Management */}
-              <SubstrateNameGenerator
+            <Divider />
+
+            {/* Substrate Management */}
+            <SubstrateNameGenerator
+              process={selectedProcess}
+              substrateMaterialOptions={substrateMaterialOptions}
+              materialNameById={materialNameById}
+              solutionNameById={solutionNameById}
+              generatorConfig={generatorConfig}
+              onChangeGeneratorConfig={(patch) =>
+                setGeneratorConfig((prev) => ({ ...prev, ...patch }))
+              }
+              nextStepDefaults={nextStepDefaults}
+              onChangeNextStepDefault={(stageIndex, value) =>
+                setNextStepDefaults((prev) => ({
+                  ...prev,
+                  [stageIndex]: value,
+                }))
+              }
+              onAddSubstratesForMaterial={handleAddSubstratesForMaterial}
+            />
+
+            {/* Main Grid */}
+            <Paper withBorder p="md" radius="md">
+              <Text size="sm" fw={600} mb="md">
+                Experiment Steps Grid
+              </Text>
+              <ExperimentGrid
+                experiment={selectedExperiment}
                 process={selectedProcess}
                 substrateMaterialOptions={substrateMaterialOptions}
                 materialNameById={materialNameById}
                 solutionNameById={solutionNameById}
                 generatorConfig={generatorConfig}
-                onChangeGeneratorConfig={(patch) =>
-                  setGeneratorConfig((prev) => ({ ...prev, ...patch }))
-                }
                 nextStepDefaults={nextStepDefaults}
-                onChangeNextStepDefault={(stageIndex, value) =>
-                  setNextStepDefaults((prev) => ({
-                    ...prev,
-                    [stageIndex]: value,
-                  }))
-                }
-                onAddSubstratesForMaterial={handleAddSubstratesForMaterial}
+                onUpdate={handleUpdateExperiment}
+                onUpdateProcess={handleUpdateProcess}
               />
+            </Paper>
+          </Stack>
+        )}
+      </Box>
 
-              {/* Main Grid */}
-              <Paper withBorder p="md" radius="md">
-                <Text size="sm" fw={600} mb="md">
-                  Experiment Steps Grid
-                </Text>
-                <ExperimentGrid
-                  experiment={selectedExperiment}
-                  process={selectedProcess}
-                  substrateMaterialOptions={substrateMaterialOptions}
-                  materialNameById={materialNameById}
-                  solutionNameById={solutionNameById}
-                  generatorConfig={generatorConfig}
-                  nextStepDefaults={nextStepDefaults}
-                  onUpdate={handleUpdateExperiment}
-                  onUpdateProcess={handleUpdateProcess}
-                />
-              </Paper>
-            </Stack>
-          )}
-        </Box>
-
-        {/* Recipe Selection Modal */}
-        <RecipeSelectionModal
-          isOpen={recipeModalOpen}
-          processes={processes}
-          onSelect={handleRecipeSelect}
-          onClose={() => setRecipeModalOpen(false)}
-        />
-      </Group>
-
-      <SelectCollectionModal
-        opened={collectionModalOpen}
-        onClose={() => setCollectionModalOpen(false)}
-        onConfirm={doAddExperiment}
-        confirmLabel="Add Experiment"
+      {/* Recipe Selection Modal */}
+      <RecipeSelectionModal
+        isOpen={recipeModalOpen}
+        processes={processes}
+        onSelect={handleRecipeSelect}
+        onClose={() => setRecipeModalOpen(false)}
       />
-    </>
+    </Group>
   )
 }
