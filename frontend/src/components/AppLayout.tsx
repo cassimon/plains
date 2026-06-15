@@ -257,7 +257,9 @@ export function AppLayout() {
                       </Text>
                       <Badge
                         size="xs"
-                        color={(p.sharedWith?.length ?? 0) > 0 ? "red" : "green"}
+                        color={
+                          (p.sharedWith?.length ?? 0) > 0 ? "red" : "green"
+                        }
                         variant="light"
                       >
                         {(p.sharedWith?.length ?? 0) > 0 ? "s" : "p"}

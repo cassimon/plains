@@ -305,6 +305,18 @@ export function MaterialsPage() {
   }
 
   const startEdit = (m: Material) => {
+    if (editingId && editingId !== m.id && editBuffer) {
+      const buf = editBuffer
+      const prevId = editingId
+      if ((buf.name ?? "").trim()) {
+        setMaterials((prev) =>
+          prev.map((mat) => (mat.id === buf.id ? buf : mat)),
+        )
+      } else {
+        setMaterials((prev) => prev.filter((mat) => mat.id !== prevId))
+        removeCollectionRefs("material", [prevId])
+      }
+    }
     setEditingId(m.id)
     setEditBuffer({ ...m })
   }
@@ -737,11 +749,10 @@ export function MaterialsPage() {
     material: Material,
     field: "casNumber" | "stateAtRt",
   ) => {
-    const cid = (
+    const cid =
       editBuffer && editBuffer.id === material.id
         ? (editBuffer.pubchemCid ?? "").trim()
         : (material.pubchemCid ?? "").trim()
-    )
 
     if (!cid) {
       modals.open({
@@ -1185,6 +1196,9 @@ export function MaterialsPage() {
             : undefined
         }
         onClick={() => selectMaterial(material.id)}
+        onDoubleClick={() => {
+          if (!isEditing) startEdit(material)
+        }}
         style={{ cursor: "pointer" }}
       >
         <Table.Td

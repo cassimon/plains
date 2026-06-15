@@ -1,9 +1,9 @@
+import { summariseQuenchingValue } from "@/components/QuenchingModal"
 import {
   PROCESS_PARAMETER_DEFINITIONS,
   type Process,
   type ProcessStep,
 } from "@/store/AppContext"
-import { summariseQuenchingValue } from "@/components/QuenchingModal"
 
 type NamedEntity = { id: string; name: string }
 

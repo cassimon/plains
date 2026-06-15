@@ -1791,7 +1791,10 @@ export default function ExperimentsPage() {
 
         updateElement(plane.id, {
           ...collection,
-          refs: [...collection.refs, { kind: "experiment" as const, id: copy.id }],
+          refs: [
+            ...collection.refs,
+            { kind: "experiment" as const, id: copy.id },
+          ],
         })
       }
     }
@@ -2091,19 +2094,19 @@ export default function ExperimentsPage() {
                         {(selectedExperimentStatus === "ready" ||
                           selectedExperimentStatus === "finished") && (
                           <Button
-                          size="lg"
-                          color="lime"
-                          radius="md"
-                          fw={600}
-                          style={{
-                            backgroundColor: "#d3f9d8",
-                            color: "#2b8a3e",
-                            boxShadow: "0 2px 8px rgba(43, 138, 62, 0.15)",
-                          }}
-                          onClick={handleAddResultsForSelectedExperiment}
-                        >
-                          + Add Results
-                        </Button>
+                            size="lg"
+                            color="lime"
+                            radius="md"
+                            fw={600}
+                            style={{
+                              backgroundColor: "#d3f9d8",
+                              color: "#2b8a3e",
+                              boxShadow: "0 2px 8px rgba(43, 138, 62, 0.15)",
+                            }}
+                            onClick={handleAddResultsForSelectedExperiment}
+                          >
+                            + Add Results
+                          </Button>
                         )}
                       </Group>
                     </Box>

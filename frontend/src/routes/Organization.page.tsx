@@ -35,20 +35,16 @@ import {
   IconDownload,
   IconFlask,
   IconFolderPlus,
-  IconHandGrab,
   IconItalic,
   IconLayersLinked,
   IconLetterT,
-  IconMinus,
   IconNote,
   IconPackage,
-  IconPencil,
   IconPlayerPlay,
   IconPlus,
   IconPointer,
   IconSeparatorVertical,
   IconShare,
-  IconSquare,
   IconStack3,
   IconTrash,
   IconUnderline,
@@ -107,6 +103,13 @@ function snapToGrid(v: number): number {
   return Math.round(v / GRID) * GRID
 }
 
+function snapToCell(x: number, y: number): Vec2 {
+  return {
+    x: Math.round(x / CELL_W) * CELL_W,
+    y: Math.round(y / CELL_H) * CELL_H,
+  }
+}
+
 function canvasCoords(
   e: MouseEvent<HTMLDivElement>,
   containerRef: React.RefObject<HTMLDivElement | null>,
@@ -131,32 +134,19 @@ type CollectionRefDragPayload = {
 }
 
 /** Approximate rendered bounding box of a CollectionEl card */
-const COL_W = 156
-const COL_H = 110
+// Chessboard grid cell dimensions
+const CELL_W = 200
+const CELL_H = 180
+// Breathing room between the toolbar and the first row of cells
+const CELL_TOP_MARGIN = 20
 
-function collectionsOverlap(aPos: Vec2, bPos: Vec2): boolean {
-  return (
-    aPos.x < bPos.x + COL_W &&
-    aPos.x + COL_W > bPos.x &&
-    aPos.y < bPos.y + COL_H &&
-    aPos.y + COL_H > bPos.y
-  )
-}
-
-/** Average RGB of two hex colors */
-function mixColors(hex1: string, hex2: string): string {
-  const h1 = hex1.replace("#", "")
-  const h2 = hex2.replace("#", "")
-  const r = Math.round(
-    (parseInt(h1.slice(0, 2), 16) + parseInt(h2.slice(0, 2), 16)) / 2,
-  )
-  const g = Math.round(
-    (parseInt(h1.slice(2, 4), 16) + parseInt(h2.slice(2, 4), 16)) / 2,
-  )
-  const b = Math.round(
-    (parseInt(h1.slice(4, 6), 16) + parseInt(h2.slice(4, 6), 16)) / 2,
-  )
-  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`
+const ROUTE_FOR_KIND: Record<CollectionRef["kind"], string> = {
+  material: "/materials",
+  solution: "/solutions",
+  experiment: "/experiments",
+  process: "/processes",
+  result: "/results",
+  analysis: "/analysis",
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -181,7 +171,7 @@ const PALETTE = [
   "#ffa94d", // amber       (~ 35°)
 ]
 
-// Inject keyframes for bubble animation
+// Inject keyframes for bubble animation + grid cell hover
 if (
   typeof document !== "undefined" &&
   !document.getElementById("bubble-keyframes")
@@ -901,6 +891,10 @@ function LineOverlay({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Ghost Cell – invisible grid slot that reveals on hover, creates collection on click
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Collection element – minimal card with speech-bubble actions when selected
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -993,7 +987,12 @@ function MaterialActionBubble({
           touchAction: "none",
         }}
       >
-        <IconBox size={16} />
+        <Group gap={1} wrap="nowrap" align="center">
+          <Text size="9px" fw={900} lh={1}>
+            +
+          </Text>
+          <IconBox size={12} />
+        </Group>
       </ActionIcon>
       {open && (
         <Paper
@@ -1022,7 +1021,7 @@ function MaterialActionBubble({
           {MATERIAL_SUBMENU_ITEMS.map((item) => (
             <Tooltip
               key={item.category}
-              label={`Add ${item.label}`}
+              label={`+ ${item.label}`}
               position="right"
               withArrow
             >
@@ -1104,7 +1103,12 @@ function ActionBubble({
           touchAction: "none",
         }}
       >
-        <Icon size={16} />
+        <Group gap={1} wrap="nowrap" align="center">
+          <Text size="9px" fw={900} lh={1}>
+            +
+          </Text>
+          <Icon size={12} />
+        </Group>
       </ActionIcon>
     </Tooltip>
   )
@@ -1135,7 +1139,7 @@ function ExperimentActionBubble({
 
   return (
     <>
-      <Tooltip label="Add Experiment" position="left" withArrow>
+      <Tooltip label="+ Experiment" position="left" withArrow>
         <ActionIcon
           size="md"
           variant="filled"
@@ -1173,7 +1177,12 @@ function ExperimentActionBubble({
             touchAction: "none",
           }}
         >
-          <IconPlayerPlay size={16} />
+          <Group gap={1} wrap="nowrap" align="center">
+            <Text size="9px" fw={900} lh={1}>
+              +
+            </Text>
+            <IconPlayerPlay size={12} />
+          </Group>
         </ActionIcon>
       </Tooltip>
 
@@ -1265,7 +1274,7 @@ function ResultsActionBubble({
 
   return (
     <>
-      <Tooltip label="Add Results" position="left" withArrow>
+      <Tooltip label="+ Results" position="left" withArrow>
         <ActionIcon
           size="md"
           variant="filled"
@@ -1303,7 +1312,12 @@ function ResultsActionBubble({
             touchAction: "none",
           }}
         >
-          <IconDownload size={16} />
+          <Group gap={1} wrap="nowrap" align="center">
+            <Text size="9px" fw={900} lh={1}>
+              +
+            </Text>
+            <IconDownload size={12} />
+          </Group>
         </ActionIcon>
       </Tooltip>
 
@@ -1384,40 +1398,162 @@ function ResultsActionBubble({
   )
 }
 
+const EMPTY_CELL_ACTIONS: {
+  label: string
+  Icon: React.ElementType
+  color: string
+  kind: CollectionRef["kind"]
+}[] = [
+  { label: "+ Solution", Icon: IconFlask, color: "blue", kind: "solution" },
+  { label: "+ Process", Icon: IconStack3, color: "gray", kind: "process" },
+]
+
+function EmptyCellEl({
+  cellX,
+  cellY,
+  pan,
+  isDragOver,
+  tool,
+  planeId,
+  nextCollectionColor,
+}: {
+  cellX: number
+  cellY: number
+  pan: Vec2
+  isDragOver: boolean
+  tool: CanvasTool
+  planeId: string
+  nextCollectionColor: () => string
+}) {
+  const {
+    addCollectionElement,
+    updateElement,
+    setActiveCollectionId,
+    setPendingCollectionLink,
+  } = useAppContext()
+  const navigate = useNavigate()
+  const [isHovered, setIsHovered] = useState(false)
+  const hoverHideRef = useRef<number | null>(null)
+
+  const activateHover = () => {
+    if (hoverHideRef.current !== null) {
+      window.clearTimeout(hoverHideRef.current)
+      hoverHideRef.current = null
+    }
+    setIsHovered(true)
+  }
+
+  const scheduleHide = () => {
+    if (hoverHideRef.current !== null) window.clearTimeout(hoverHideRef.current)
+    hoverHideRef.current = window.setTimeout(() => setIsHovered(false), 320)
+  }
+
+  useEffect(
+    () => () => {
+      if (hoverHideRef.current !== null)
+        window.clearTimeout(hoverHideRef.current)
+    },
+    [],
+  )
+
+  const createAndLink = (
+    kind: CollectionRef["kind"],
+    materialCategory?: MaterialCategory,
+  ) => {
+    const color = nextCollectionColor()
+    const newEl = addCollectionElement(planeId, { x: cellX, y: cellY })
+    const updated = { ...newEl, color }
+    updateElement(planeId, updated)
+    setActiveCollectionId(newEl.id)
+    setPendingCollectionLink({
+      collectionId: newEl.id,
+      planeId,
+      kind,
+      materialCategory,
+      requestId: crypto.randomUUID(),
+    })
+    navigate({ to: ROUTE_FOR_KIND[kind] })
+  }
+
+  const showBubbles = isHovered && tool === "pointer"
+
+  return (
+    <Box
+      style={{
+        position: "absolute",
+        left: cellX + pan.x,
+        top: cellY + pan.y,
+        width: CELL_W,
+        height: CELL_H,
+        border: isDragOver
+          ? "2px dashed var(--mantine-color-blue-5)"
+          : isHovered
+            ? "2px dashed var(--mantine-color-gray-4)"
+            : "2px dashed transparent",
+        borderRadius: 8,
+        background: isDragOver ? "var(--mantine-color-blue-0)" : "transparent",
+        cursor: tool === "pointer" ? "pointer" : "default",
+        boxSizing: "border-box",
+        transition: "border 80ms, background 80ms",
+        zIndex: isHovered ? 20 : 1,
+      }}
+      onMouseEnter={activateHover}
+      onMouseLeave={scheduleHide}
+    >
+      {/* Transparent hover bridge covering the gap to the right-side bubbles */}
+      {showBubbles && (
+        <Box
+          style={{
+            position: "absolute",
+            right: -50,
+            top: 0,
+            width: 50,
+            height: "100%",
+          }}
+          onMouseEnter={activateHover}
+          onMouseLeave={scheduleHide}
+        />
+      )}
+      {showBubbles && (
+        <>
+          <MaterialActionBubble
+            index={0}
+            onSelect={(cat) => createAndLink("material", cat)}
+            onHoverStart={activateHover}
+            onHoverEnd={scheduleHide}
+          />
+          {EMPTY_CELL_ACTIONS.map((a, i) => (
+            <ActionBubble
+              key={a.kind}
+              label={a.label}
+              Icon={a.Icon}
+              color={a.color}
+              onClick={() => createAndLink(a.kind)}
+              index={i + 1}
+              onHoverStart={activateHover}
+              onHoverEnd={scheduleHide}
+            />
+          ))}
+        </>
+      )}
+    </Box>
+  )
+}
+
 function CollectionEl({
   el,
   planeId,
   onUpdate,
-  onDelete,
   pan,
-  isFuseCandidate,
-  onDragPositionUpdate,
-  onDropped,
-  onDropRefs,
+  isDragOver,
   onStartDivide,
-  onHoveredPlaneTabChange,
 }: {
   el: CanvasCollectionElement
   planeId: string
   onUpdate: (e: CanvasElement) => void
-  onDelete: () => void
   pan: Vec2
-  isFuseCandidate: boolean
-  onDragPositionUpdate: (pos: Vec2) => void
-  onDropped: (
-    srcId: string,
-    finalPos: Vec2,
-    originPos: Vec2,
-    didMove: boolean,
-    droppedOnPlaneId?: string,
-  ) => void
-  onDropRefs: (
-    targetCollectionId: string,
-    payload: CollectionRefDragPayload,
-    isCopy: boolean,
-  ) => void
+  isDragOver: boolean
   onStartDivide: () => void
-  onHoveredPlaneTabChange?: (planeId: string | null) => void
 }) {
   const {
     activeCollectionId,
@@ -1426,62 +1562,33 @@ function CollectionEl({
     processes,
     experiments,
     results,
+    planes,
     setActiveCollectionId,
     setActivePlaneId,
     setActiveEntity,
     setPendingCollectionLink,
   } = useAppContext()
   const navigate = useNavigate()
-  const [dragging, setDragging] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameBuffer, setNameBuffer] = useState(el.name)
-  const dragStart = useRef<{ mouse: Vec2; origin: Vec2 } | null>(null)
-  /** Screen-space position of the element while dragging (for fixed overlay) */
-  const [dragScreenPos, setDragScreenPos] = useState<Vec2 | null>(null)
   const [hoveredRefKind, setHoveredRefKind] = useState<
     CollectionRef["kind"] | null
   >(null)
   const [isHovered, setIsHovered] = useState(false)
   const hoverHideTimeoutRef = useRef<number | null>(null)
-  const finalPosRef = useRef<Vec2>(el.position)
-  const didMove = useRef(false)
-  const lastPointerEvent = useRef<{ clientX: number; clientY: number } | null>(
-    null,
-  )
   const isActive = activeCollectionId === el.id
-  const showCollectionControls = isActive || isHovered
+  const showCollectionControls = isHovered
+  const isVisible = el.refs.length > 0
 
-  // Drag-over state for showing drop zones
-  const [isDragOver, setIsDragOver] = useState(false)
-  const [dropZoneHovered, setDropZoneHovered] = useState<
-    "copy" | "move" | null
-  >(null)
-  const dragOverPayloadRef = useRef<CollectionRefDragPayload | null>(null)
-
-  const parseRefDragPayload = (
-    e: ReactDragEvent<HTMLElement>,
-  ): CollectionRefDragPayload | null => {
-    const raw =
-      e.dataTransfer.getData(COLLECTION_REF_DRAG_MIME) ||
-      e.dataTransfer.getData("text/plain")
-    if (!raw) {
-      return null
+  // Auto-start name editing when the first ref is added to a new collection
+  const prevRefCountRef = useRef(el.refs.length)
+  useEffect(() => {
+    if (prevRefCountRef.current === 0 && el.refs.length > 0) {
+      setEditingName(true)
+      setNameBuffer(el.name)
     }
-    try {
-      const parsed = JSON.parse(raw) as CollectionRefDragPayload
-      if (
-        !parsed ||
-        typeof parsed.sourceCollectionId !== "string" ||
-        typeof parsed.kind !== "string" ||
-        !Array.isArray(parsed.refIds)
-      ) {
-        return null
-      }
-      return parsed
-    } catch {
-      return null
-    }
-  }
+    prevRefCountRef.current = el.refs.length
+  }, [el.refs.length, el.name])
 
   const startRefDrag = (
     e: ReactDragEvent<HTMLElement>,
@@ -1516,89 +1623,6 @@ function CollectionEl({
 
   useEffect(() => () => clearHoverHideTimeout(), [clearHoverHideTimeout])
 
-  const startDrag = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    setDragging(true)
-    didMove.current = false
-    dragStart.current = {
-      mouse: { x: ev.clientX, y: ev.clientY },
-      origin: { ...el.position },
-    }
-    ;(ev.target as HTMLElement).setPointerCapture(ev.pointerId)
-  }
-
-  const onPointerMove = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragging || !dragStart.current) {
-      return
-    }
-    const dx = ev.clientX - dragStart.current.mouse.x
-    const dy = ev.clientY - dragStart.current.mouse.y
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
-      didMove.current = true
-    }
-    const newPos = {
-      x: snapToGrid(dragStart.current.origin.x + dx),
-      y: snapToGrid(dragStart.current.origin.y + dy),
-    }
-    finalPosRef.current = newPos
-    lastPointerEvent.current = { clientX: ev.clientX, clientY: ev.clientY }
-    // Track screen position for the fixed-position drag overlay
-    setDragScreenPos({ x: ev.clientX - 70, y: ev.clientY - 20 })
-    onDragPositionUpdate(newPos)
-    onUpdate({ ...el, position: newPos })
-    // Detect hovered plane tab for animation.
-    // elementsFromPoint (plural) is needed because the dragged card itself
-    // sits on top at z-index 10000 and would be the only hit for the
-    // single-element variant.
-    if (onHoveredPlaneTabChange) {
-      const hits = document.elementsFromPoint(ev.clientX, ev.clientY)
-      let foundTabId: string | null = null
-      for (const hit of hits) {
-        const tabEl = (hit as HTMLElement).closest?.(
-          "[data-plane-tab-id]",
-        ) as HTMLElement | null
-        if (tabEl) {
-          foundTabId = tabEl.dataset.planeTabId ?? null
-          break
-        }
-      }
-      onHoveredPlaneTabChange(foundTabId)
-    }
-  }
-
-  const stopDrag = () => {
-    const origin = dragStart.current?.origin ?? el.position
-    // Detect if dropped on a plane tab.
-    // Use elementsFromPoint (plural) to see through the dragged card overlay.
-    let droppedOnPlaneId: string | undefined
-    if (lastPointerEvent.current) {
-      const hits = document.elementsFromPoint(
-        lastPointerEvent.current.clientX,
-        lastPointerEvent.current.clientY,
-      )
-      for (const hit of hits) {
-        const planeTab = (hit as HTMLElement).closest?.(
-          "[data-plane-tab-id]",
-        ) as HTMLElement | null
-        if (planeTab) {
-          droppedOnPlaneId = planeTab.dataset.planeTabId
-          break
-        }
-      }
-    }
-    onDropped(
-      el.id,
-      finalPosRef.current,
-      origin,
-      didMove.current,
-      droppedOnPlaneId,
-    )
-    setDragging(false)
-    setDragScreenPos(null)
-    dragStart.current = null
-    lastPointerEvent.current = null
-    onHoveredPlaneTabChange?.(null)
-  }
-
   const commitName = () => {
     onUpdate({ ...el, name: nameBuffer.trim() || el.name })
     setEditingName(false)
@@ -1613,15 +1637,6 @@ function CollectionEl({
   // const hasExperiment = el.refs.some((r) => r.kind === "experiment")
 
   // Build action bubbles - icons must match nav menu (AppLayout.icons.tsx)
-  const routeForKind: Record<CollectionRef["kind"], string> = {
-    material: "/materials",
-    solution: "/solutions",
-    experiment: "/experiments",
-    process: "/processes",
-    result: "/results",
-    analysis: "/analysis",
-  }
-
   const handleBubbleClick = (
     kind: CollectionRef["kind"],
     materialCategory?: MaterialCategory,
@@ -1633,7 +1648,7 @@ function CollectionEl({
       materialCategory,
       requestId: crypto.randomUUID(),
     })
-    navigate({ to: routeForKind[kind] })
+    navigate({ to: ROUTE_FOR_KIND[kind] })
   }
 
   const handleAddExperimentFromProcess = (processId: string) => {
@@ -1644,7 +1659,7 @@ function CollectionEl({
       selectedProcessId: processId,
       requestId: crypto.randomUUID(),
     })
-    navigate({ to: routeForKind.experiment })
+    navigate({ to: ROUTE_FOR_KIND.experiment })
   }
 
   const handleAddResultsForExperiment = (experimentId: string) => {
@@ -1655,13 +1670,13 @@ function CollectionEl({
       selectedExperimentId: experimentId,
       requestId: crypto.randomUUID(),
     })
-    navigate({ to: routeForKind.result })
+    navigate({ to: ROUTE_FOR_KIND.result })
   }
 
   const handleRefIconClick = (kind: CollectionRef["kind"]) => {
     setActiveCollectionId(el.id)
     setActivePlaneId(planeId)
-    navigate({ to: routeForKind[kind] })
+    navigate({ to: ROUTE_FOR_KIND[kind] })
   }
 
   const handleRefItemClick = (kind: CollectionRef["kind"], id: string) => {
@@ -1675,7 +1690,7 @@ function CollectionEl({
     ) {
       setActiveEntity({ kind, id })
     }
-    navigate({ to: routeForKind[kind] })
+    navigate({ to: ROUTE_FOR_KIND[kind] })
   }
 
   const labelForRef = (kind: CollectionRef["kind"], id: string) => {
@@ -1712,15 +1727,29 @@ function CollectionEl({
     color: string
     kind: CollectionRef["kind"]
   }[] = [
-    { label: "Add Solution", Icon: IconFlask, color: "blue", kind: "solution" },
-    { label: "Add Process", Icon: IconStack3, color: "gray", kind: "process" },
+    { label: "+ Solution", Icon: IconFlask, color: "blue", kind: "solution" },
+    { label: "+ Process", Icon: IconStack3, color: "gray", kind: "process" },
   ]
 
+  // Collect all refs across all collections on the current plane
+  const currentPlane = planes.find((p) => p.id === planeId)
+  const planeRefs = (currentPlane?.elements ?? [])
+    .filter((e) => e.type === "collection")
+    .flatMap((e) => (e as CanvasCollectionElement).refs)
+  const planeProcessIds = new Set(
+    planeRefs.filter((r) => r.kind === "process").map((r) => r.id),
+  )
+  const planeExperimentIds = new Set(
+    planeRefs.filter((r) => r.kind === "experiment").map((r) => r.id),
+  )
+
   const processOptions = [...processes]
+    .filter((p) => planeProcessIds.has(p.id))
     .map((p) => ({ id: p.id, name: p.name || p.id }))
     .sort((a, b) => a.name.localeCompare(b.name))
 
   const groupedExperiments = [...experiments]
+    .filter((e) => planeExperimentIds.has(e.id))
     .sort((a, b) => {
       const da = Date.parse(a.date || "")
       const db = Date.parse(b.date || "")
@@ -1747,369 +1776,253 @@ function CollectionEl({
     }, [])
     .sort((a, b) => a.processName.localeCompare(b.processName))
 
-  // When dragging, render using fixed positioning so the element appears above
-  // the toolbar and plane tabs instead of being clipped by overflow:hidden.
-  const boxStyle: React.CSSProperties =
-    dragging && dragScreenPos
-      ? {
-          position: "fixed",
-          left: dragScreenPos.x,
-          top: dragScreenPos.y,
-          cursor: "grabbing",
-          userSelect: "none",
-          zIndex: 10000,
-          pointerEvents: "auto",
-        }
-      : {
-          position: "absolute",
-          left: el.position.x + pan.x,
-          top: el.position.y + pan.y,
-          cursor: "pointer",
-          userSelect: "none",
-        }
+  const boxStyle: React.CSSProperties = {
+    position: "absolute",
+    left: el.position.x + pan.x,
+    top: el.position.y + pan.y,
+    width: CELL_W,
+    height: CELL_H,
+    cursor: "pointer",
+    userSelect: "none",
+    zIndex: isHovered ? 20 : 1,
+  }
 
   return (
     <Box
       style={boxStyle}
-      onPointerDown={startDrag}
-      onPointerMove={onPointerMove}
-      onPointerUp={stopDrag}
-      onDragOver={(e) => {
-        const payload = parseRefDragPayload(e)
-        if (!payload || payload.sourceCollectionId === el.id) {
-          setIsDragOver(false)
-          dragOverPayloadRef.current = null
-          return
-        }
-        e.preventDefault()
-        e.dataTransfer.dropEffect = dropZoneHovered === "copy" ? "copy" : "move"
-        setIsDragOver(true)
-        dragOverPayloadRef.current = payload
-      }}
-      onDragLeave={(e) => {
-        // Only clear if we're actually leaving the collection (not entering a child)
-        const relatedTarget = e.relatedTarget as HTMLElement | null
-        if (!relatedTarget || !e.currentTarget.contains(relatedTarget)) {
-          setIsDragOver(false)
-          setDropZoneHovered(null)
-          dragOverPayloadRef.current = null
-        }
-      }}
-      onDrop={(e) => {
-        const payload = parseRefDragPayload(e)
-        if (!payload || payload.sourceCollectionId === el.id) {
-          setIsDragOver(false)
-          setDropZoneHovered(null)
-          dragOverPayloadRef.current = null
-          return
-        }
-        e.preventDefault()
-        e.stopPropagation()
-
-        // Only execute drop if user dropped on one of the drop zones
-        if (dropZoneHovered) {
-          onDropRefs(el.id, payload, dropZoneHovered === "copy")
-        }
-
-        // Reset state
-        setIsDragOver(false)
-        setDropZoneHovered(null)
-        dragOverPayloadRef.current = null
-      }}
       onMouseEnter={activateHover}
       onMouseLeave={scheduleHoverHide}
     >
-      {/* Main card */}
-      {isFuseCandidate && !isDragOver && (
-        <Badge
-          color="violet"
-          variant="filled"
-          size="sm"
+      {/* Transparent hover bridge: fills the gap between card edge and right-side bubbles */}
+      {showCollectionControls && (
+        <Box
           style={{
             position: "absolute",
-            top: -14,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 10,
-            pointerEvents: "none",
-            whiteSpace: "nowrap",
+            right: -50,
+            top: 0,
+            width: 50,
+            height: "100%",
+          }}
+          onMouseEnter={activateHover}
+          onMouseLeave={scheduleHoverHide}
+        />
+      )}
+      {/* Main card – fills the whole cell when the collection has items */}
+      {isVisible && (
+        <Paper
+          shadow={isActive ? "md" : "xs"}
+          p="xs"
+          style={{
+            position: "absolute",
+            inset: 0,
+            boxSizing: "border-box",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            border: isDragOver
+              ? "3px dashed var(--mantine-color-blue-5)"
+              : isActive
+                ? `3px solid ${el.color || DEFAULT_ACCENT}`
+                : `2px solid ${el.color || DEFAULT_ACCENT}88`,
+            background: isDragOver
+              ? "var(--mantine-color-blue-0)"
+              : "var(--mantine-color-body)",
+            transition:
+              "box-shadow 100ms ease, border 120ms ease, background 120ms ease",
           }}
         >
-          ⊕ Combine
-        </Badge>
-      )}
-      <Paper
-        withBorder
-        shadow={isActive ? "md" : "xs"}
-        p="xs"
-        style={{
-          width: 140,
-          border: isDragOver
-            ? "3px dashed var(--mantine-color-blue-5)"
-            : isFuseCandidate
-              ? "3px dashed var(--mantine-color-violet-6)"
-              : `3px solid ${el.color || DEFAULT_ACCENT}`,
-          background: isFuseCandidate
-            ? "var(--mantine-color-violet-0)"
-            : "var(--mantine-color-body)",
-          outline: isActive
-            ? `3px solid ${el.color || DEFAULT_ACCENT}`
-            : "none",
-          outlineOffset: 3,
-          transition:
-            "box-shadow 100ms ease, outline 100ms ease, border 120ms ease, background 120ms ease",
-        }}
-      >
-        {/* Name */}
-        {editingName ? (
-          <TextInput
-            size="xs"
-            value={nameBuffer}
-            autoFocus
-            onChange={(e) => setNameBuffer(e.currentTarget.value)}
-            onBlur={commitName}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                commitName()
-              }
-              if (e.key === "Escape") {
-                setEditingName(false)
-              }
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          />
-        ) : (
-          <Text
-            fw={600}
-            size="sm"
-            mb={4}
-            onDoubleClick={(e) => {
-              e.stopPropagation()
-              setEditingName(true)
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            style={{ cursor: "text" }}
-          >
-            {el.name}
-          </Text>
-        )}
+          {/* Name */}
+          {editingName ? (
+            <TextInput
+              size="xs"
+              value={nameBuffer}
+              autoFocus
+              onChange={(e) => setNameBuffer(e.currentTarget.value)}
+              onBlur={commitName}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  commitName()
+                }
+                if (e.key === "Escape") {
+                  setEditingName(false)
+                }
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <Text
+              fw={600}
+              size="sm"
+              mb={4}
+              onDoubleClick={(e) => {
+                e.stopPropagation()
+                setEditingName(true)
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{ cursor: "text" }}
+            >
+              {el.name}
+            </Text>
+          )}
 
-        {/* Compact ref summary - show icons for present entity types */}
-        {el.refs.length > 0 ? (
-          <Group gap={4} wrap="wrap">
-            {(
-              [
-                {
-                  kind: "material",
-                  Icon: IconBox,
-                  color: "var(--mantine-color-teal-6)",
-                },
-                {
-                  kind: "solution",
-                  Icon: IconFlask,
-                  color: "var(--mantine-color-blue-6)",
-                },
-                {
-                  kind: "process",
-                  Icon: IconStack3,
-                  color: "var(--mantine-color-gray-6)",
-                },
-                {
-                  kind: "experiment",
-                  Icon: IconPlayerPlay,
-                  color: "var(--mantine-color-grape-6)",
-                },
-                {
-                  kind: "result",
-                  Icon: IconDownload,
-                  color: "var(--mantine-color-orange-6)",
-                },
-                {
-                  kind: "analysis",
-                  Icon: IconChartBar,
-                  color: "var(--mantine-color-red-6)",
-                },
-              ] as const
-            )
-              .filter(({ kind }) => Boolean(refCounts[kind]))
-              .map(({ kind, Icon, color }) => {
-                const count = refCounts[kind]
-                const refs = el.refs.filter((r) => r.kind === kind)
-                return (
-                  <Popover
-                    key={kind}
-                    opened={hoveredRefKind === kind}
-                    withinPortal={false}
-                    position="bottom-start"
-                    offset={6}
-                    shadow="md"
-                  >
-                    <Popover.Target>
-                      <Box
+          {/* Compact ref summary - show icons for present entity types */}
+          {el.refs.length > 0 ? (
+            <Group gap={4} wrap="wrap">
+              {(
+                [
+                  {
+                    kind: "material",
+                    Icon: IconBox,
+                    color: "var(--mantine-color-teal-6)",
+                  },
+                  {
+                    kind: "solution",
+                    Icon: IconFlask,
+                    color: "var(--mantine-color-blue-6)",
+                  },
+                  {
+                    kind: "process",
+                    Icon: IconStack3,
+                    color: "var(--mantine-color-gray-6)",
+                  },
+                  {
+                    kind: "experiment",
+                    Icon: IconPlayerPlay,
+                    color: "var(--mantine-color-grape-6)",
+                  },
+                  {
+                    kind: "result",
+                    Icon: IconDownload,
+                    color: "var(--mantine-color-orange-6)",
+                  },
+                  {
+                    kind: "analysis",
+                    Icon: IconChartBar,
+                    color: "var(--mantine-color-red-6)",
+                  },
+                ] as const
+              )
+                .filter(({ kind }) => Boolean(refCounts[kind]))
+                .map(({ kind, Icon, color }) => {
+                  const count = refCounts[kind]
+                  const refs = el.refs.filter((r) => r.kind === kind)
+                  return (
+                    <Popover
+                      key={kind}
+                      opened={hoveredRefKind === kind}
+                      withinPortal={false}
+                      position="bottom-start"
+                      offset={6}
+                      shadow="md"
+                    >
+                      <Popover.Target>
+                        <Box
+                          onMouseEnter={() => setHoveredRefKind(kind)}
+                          onMouseLeave={() => setHoveredRefKind(null)}
+                        >
+                          <Stack gap={0} align="center">
+                            <ActionIcon
+                              size="lg"
+                              variant="subtle"
+                              color="gray"
+                              radius="xl"
+                              draggable
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                e.preventDefault()
+                                handleRefIconClick(kind)
+                              }}
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onDragStart={(e) =>
+                                startRefDrag(e, {
+                                  sourceCollectionId: el.id,
+                                  kind,
+                                  mode: "kind",
+                                  refIds: refs.map((r) => r.id),
+                                })
+                              }
+                            >
+                              <Icon size={22} color={color} />
+                            </ActionIcon>
+                            <Text
+                              size="xs"
+                              c="dimmed"
+                              style={{ lineHeight: 1, marginTop: -1 }}
+                            >
+                              {count}
+                            </Text>
+                          </Stack>
+                        </Box>
+                      </Popover.Target>
+                      <Popover.Dropdown
+                        p={6}
                         onMouseEnter={() => setHoveredRefKind(kind)}
                         onMouseLeave={() => setHoveredRefKind(null)}
                       >
-                        <Stack gap={0} align="center">
-                          <ActionIcon
-                            size="sm"
-                            variant="subtle"
-                            color="gray"
-                            radius="xl"
-                            draggable
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              handleRefIconClick(kind)
-                            }}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onDragStart={(e) =>
-                              startRefDrag(e, {
-                                sourceCollectionId: el.id,
-                                kind,
-                                mode: "kind",
-                                refIds: refs.map((r) => r.id),
-                              })
-                            }
-                          >
-                            <Icon size={14} color={color} />
-                          </ActionIcon>
-                          <Text
-                            size="8px"
-                            c="dimmed"
-                            style={{ lineHeight: 1, marginTop: -1 }}
-                          >
-                            {count}
-                          </Text>
+                        <Stack gap={4}>
+                          {refs.map((r, idx) => (
+                            <Button
+                              key={`${r.id}-${idx}`}
+                              variant="subtle"
+                              color="gray"
+                              size="compact-xs"
+                              fullWidth
+                              draggable
+                              styles={{
+                                inner: { justifyContent: "flex-start" },
+                                label: {
+                                  maxWidth: 200,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                },
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                e.preventDefault()
+                                setHoveredRefKind(null)
+                                handleRefItemClick(kind, r.id)
+                              }}
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onDragStart={(e) =>
+                                startRefDrag(e, {
+                                  sourceCollectionId: el.id,
+                                  kind,
+                                  mode: "single",
+                                  refIds: [r.id],
+                                })
+                              }
+                            >
+                              {labelForRef(kind, r.id)}
+                            </Button>
+                          ))}
                         </Stack>
-                      </Box>
-                    </Popover.Target>
-                    <Popover.Dropdown
-                      p={6}
-                      onMouseEnter={() => setHoveredRefKind(kind)}
-                      onMouseLeave={() => setHoveredRefKind(null)}
-                    >
-                      <Stack gap={4}>
-                        {refs.map((r, idx) => (
-                          <Button
-                            key={`${r.id}-${idx}`}
-                            variant="subtle"
-                            color="gray"
-                            size="compact-xs"
-                            fullWidth
-                            draggable
-                            styles={{
-                              inner: { justifyContent: "flex-start" },
-                              label: {
-                                maxWidth: 200,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              },
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                              setHoveredRefKind(null)
-                              handleRefItemClick(kind, r.id)
-                            }}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onDragStart={(e) =>
-                              startRefDrag(e, {
-                                sourceCollectionId: el.id,
-                                kind,
-                                mode: "single",
-                                refIds: [r.id],
-                              })
-                            }
-                          >
-                            {labelForRef(kind, r.id)}
-                          </Button>
-                        ))}
-                      </Stack>
-                    </Popover.Dropdown>
-                  </Popover>
-                )
-              })}
-          </Group>
-        ) : (
-          <Text size="xs" c="dimmed">
-            Empty
-          </Text>
-        )}
+                      </Popover.Dropdown>
+                    </Popover>
+                  )
+                })}
+            </Group>
+          ) : (
+            <Text size="xs" c="dimmed">
+              Empty
+            </Text>
+          )}
+        </Paper>
+      )}
 
-        {/* Drop zones - shown when dragging elements over this collection */}
-        {isDragOver && dragOverPayloadRef.current && (
-          <Stack
-            gap={4}
-            mt={8}
-            style={{
-              borderTop: "1px solid var(--mantine-color-gray-3)",
-              paddingTop: 6,
-            }}
-          >
-            <Box
-              onDragOver={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                setDropZoneHovered("copy")
-              }}
-              style={{
-                padding: "4px 8px",
-                borderRadius: 4,
-                background:
-                  dropZoneHovered === "copy"
-                    ? "var(--mantine-color-blue-1)"
-                    : "var(--mantine-color-gray-0)",
-                border:
-                  dropZoneHovered === "copy"
-                    ? "2px solid var(--mantine-color-blue-5)"
-                    : "1px dashed var(--mantine-color-gray-4)",
-                cursor: "copy",
-                transition: "all 150ms ease",
-              }}
-            >
-              <Text
-                size="xs"
-                fw={dropZoneHovered === "copy" ? 600 : 400}
-                c={dropZoneHovered === "copy" ? "blue" : "dimmed"}
-                ta="center"
-              >
-                📋 Place Copy here...
-              </Text>
-            </Box>
-            <Box
-              onDragOver={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                setDropZoneHovered("move")
-              }}
-              style={{
-                padding: "4px 8px",
-                borderRadius: 4,
-                background:
-                  dropZoneHovered === "move"
-                    ? "var(--mantine-color-green-1)"
-                    : "var(--mantine-color-gray-0)",
-                border:
-                  dropZoneHovered === "move"
-                    ? "2px solid var(--mantine-color-green-5)"
-                    : "1px dashed var(--mantine-color-gray-4)",
-                cursor: "move",
-                transition: "all 150ms ease",
-              }}
-            >
-              <Text
-                size="xs"
-                fw={dropZoneHovered === "move" ? 600 : 400}
-                c={dropZoneHovered === "move" ? "green" : "dimmed"}
-                ta="center"
-              >
-                ➡️ Move here...
-              </Text>
-            </Box>
-          </Stack>
-        )}
-      </Paper>
+      {/* Ghost placeholder when empty and being dragged over */}
+      {!isVisible && isDragOver && (
+        <Box
+          style={{
+            position: "absolute",
+            inset: 4,
+            border: "2px dashed var(--mantine-color-blue-5)",
+            borderRadius: 8,
+            background: "var(--mantine-color-blue-0)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
 
       {/* Speech-bubble actions (only when selected) */}
       {showCollectionControls && (
@@ -2177,31 +2090,6 @@ function CollectionEl({
             <IconSeparatorVertical size={10} />
           </ActionIcon>
         </Tooltip>
-      )}
-
-      {/* Delete button (only when selected) */}
-      {showCollectionControls && (
-        <ActionIcon
-          size="xs"
-          variant="filled"
-          color="red"
-          radius="xl"
-          onPointerDown={(e) => {
-            e.stopPropagation()
-            e.preventDefault()
-            onDelete()
-          }}
-          onMouseEnter={activateHover}
-          onMouseLeave={scheduleHoverHide}
-          style={{
-            position: "absolute",
-            top: -8,
-            right: -8,
-            boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
-          }}
-        >
-          <IconX size={10} />
-        </ActionIcon>
       )}
     </Box>
   )
@@ -2855,23 +2743,9 @@ function DivisionOverlay({
 // Infinite-scroll canvas for one Plane
 // ─────────────────────────────────────────────────────────────────────────────
 
-type CanvasTool =
-  | "pointer"
-  | "select"
-  | "text"
-  | "plaintext"
-  | "line"
-  | "pen"
-  | "rectangle"
-  | "collection"
+type CanvasTool = "pointer" | "select" | "text" | "plaintext"
 
-function PlaneCanvas({
-  plane,
-  onHoveredPlaneTabChange,
-}: {
-  plane: Plane
-  onHoveredPlaneTabChange?: (id: string | null) => void
-}) {
+function PlaneCanvas({ plane }: { plane: Plane }) {
   const {
     materials,
     setMaterials,
@@ -2887,14 +2761,10 @@ function PlaneCanvas({
     deleteElement,
     addTextElement,
     addPlainTextElement,
-    addLineElement,
-    addCollectionElement,
-    fuseCollections,
     updatePlane,
     setActiveCollectionId,
     activeCollectionId,
     planes,
-    removeCollectionRefs,
     copyElementToPlane,
     moveElementToPlane,
   } = useAppContext()
@@ -2949,10 +2819,8 @@ function PlaneCanvas({
     null,
   )
   const [activeDrawId, setActiveDrawId] = useState<string | null>(null)
-  const [strokeWidth, setStrokeWidth] = useState<number>(2)
   const [editingTextId, setEditingTextId] = useState<string | null>(null)
-  const drawingLineId = useRef<string | null>(null)
-  const drawingKindRef = useRef<"line" | "pen" | "rectangle" | null>(null)
+  const [dragOverCellKey, setDragOverCellKey] = useState<string | null>(null)
   const plaintextEditingRef = useRef(false)
 
   // ── Track color scheme changes to auto-invert plain text colors ─────────
@@ -3013,97 +2881,11 @@ function PlaneCanvas({
     return minColor
   }
 
-  // srcId = dragged collection, dstId = collection being hovered over
-  const [fuseCandidate, setFuseCandidate] = useState<{
-    srcId: string
-    dstId: string
-  } | null>(null)
-  const [fuseDialog, setFuseDialog] = useState<{
-    src: CanvasCollectionElement
-    dst: CanvasCollectionElement
-  } | null>(null)
-  const [fuseName, setFuseName] = useState("")
-  const [fuseColor, setFuseColor] = useState(DEFAULT_ACCENT)
-  // Keep ref so that handleDrop closure always reads current fuseCandidate
-  const fuseCandidateRef = useRef(fuseCandidate)
-  fuseCandidateRef.current = fuseCandidate
-
-  const handleDragPositionUpdate = (srcId: string, pos: Vec2) => {
-    const collections = plane.elements.filter(
-      (e): e is CanvasCollectionElement =>
-        e.type === "collection" && e.id !== srcId,
-    )
-    const target = collections.find((c) => collectionsOverlap(pos, c.position))
-    setFuseCandidate(target ? { srcId, dstId: target.id } : null)
-  }
-
   // ── Transfer-to-plane dialog state ──────────────────────────────────────
   const [transferDialog, setTransferDialog] = useState<{
     element: CanvasCollectionElement
     targetPlaneId: string
   } | null>(null)
-
-  const handleDrop = (
-    srcId: string,
-    _finalPos: Vec2,
-    originPos: Vec2,
-    didMove: boolean,
-    droppedOnPlaneId?: string,
-  ) => {
-    const candidate = fuseCandidateRef.current
-    if (candidate && candidate.srcId === srcId) {
-      const src = plane.elements.find((e) => e.id === srcId) as
-        | CanvasCollectionElement
-        | undefined
-      const dst = plane.elements.find((e) => e.id === candidate.dstId) as
-        | CanvasCollectionElement
-        | undefined
-      if (src && dst) {
-        // Revert the dragged element back to where it started
-        updateElement(plane.id, { ...src, position: originPos })
-        setFuseName(`${src.name} + ${dst.name}`)
-        setFuseColor(
-          mixColors(src.color || DEFAULT_ACCENT, dst.color || DEFAULT_ACCENT),
-        )
-        setFuseDialog({ src: { ...src, position: originPos }, dst })
-        setFuseCandidate(null)
-        return
-      }
-    }
-    setFuseCandidate(null)
-
-    // If dropped on a different plane tab, offer copy/move
-    if (droppedOnPlaneId && droppedOnPlaneId !== plane.id) {
-      const src = plane.elements.find((e) => e.id === srcId) as
-        | CanvasCollectionElement
-        | undefined
-      if (src) {
-        // Snap back to original position
-        updateElement(plane.id, { ...src, position: originPos })
-        setTransferDialog({
-          element: { ...src, position: originPos },
-          targetPlaneId: droppedOnPlaneId,
-        })
-        return
-      }
-    }
-
-    // If the element was dragged (moved) but didn't land on a collection or tab,
-    // check if it was dragged out of the canvas bounds (e.g. onto toolbar) — snap back
-    if (didMove && _finalPos.y < -40) {
-      const src = plane.elements.find((e) => e.id === srcId) as
-        | CanvasCollectionElement
-        | undefined
-      if (src) {
-        updateElement(plane.id, { ...src, position: originPos })
-        return
-      }
-    }
-
-    if (!didMove) {
-      setActiveCollectionId(activeCollectionId === srcId ? null : srcId)
-    }
-  }
 
   const handleDropRefs = useCallback(
     (
@@ -3406,34 +3188,67 @@ function PlaneCanvas({
     ],
   )
 
-  const handleFuse = () => {
-    if (!fuseDialog) {
-      return
-    }
-    const { src, dst } = fuseDialog
-    const mergedRefs = [...src.refs]
-    for (const r of dst.refs) {
-      if (!mergedRefs.some((m) => m.kind === r.kind && m.id === r.id)) {
-        mergedRefs.push(r)
+  // ── Canvas-level drop handler: routes drops to the correct cell ──────────────
+  const handleDropToCell = (
+    col: number,
+    row: number,
+    payload: CollectionRefDragPayload,
+  ) => {
+    const cellX = col * CELL_W
+    const cellY = row * CELL_H
+
+    const source = plane.elements.find(
+      (e) => e.id === payload.sourceCollectionId && e.type === "collection",
+    ) as CanvasCollectionElement | undefined
+    if (!source) return
+
+    const idSet = new Set(payload.refIds)
+    const refsToMove = source.refs.filter(
+      (r) => r.kind === payload.kind && idSet.has(r.id),
+    )
+    if (refsToMove.length === 0) return
+
+    const existing = plane.elements.find((e) => {
+      if (e.type !== "collection") return false
+      const c = e as CanvasCollectionElement
+      return (
+        Math.round(c.position.x / CELL_W) === col &&
+        Math.round(c.position.y / CELL_H) === row
+      )
+    }) as CanvasCollectionElement | undefined
+
+    if (existing?.id === payload.sourceCollectionId) return // drop on self
+
+    if (existing) {
+      // Reuse existing logic (handles dependency checks and modals)
+      handleDropRefs(existing.id, payload, false)
+    } else {
+      // Create a new collection at this empty cell, pre-populated with the dropped refs
+      const nextSourceRefs = source.refs.filter(
+        (r) => !(r.kind === payload.kind && idSet.has(r.id)),
+      )
+      const color = nextCollectionColor()
+      const newEl: CanvasCollectionElement = {
+        id: crypto.randomUUID(),
+        type: "collection",
+        position: { x: cellX, y: cellY },
+        size: { x: CELL_W, y: CELL_H },
+        name: "Data Collection",
+        color,
+        refs: refsToMove,
       }
+      updatePlane({
+        ...plane,
+        elements: [
+          ...plane.elements.map((e) => {
+            if (e.id === source.id) return { ...e, refs: nextSourceRefs }
+            return e
+          }),
+          newEl,
+        ],
+      })
+      setActiveCollectionId(newEl.id)
     }
-    const merged: CanvasCollectionElement = {
-      id: crypto.randomUUID(),
-      type: "collection",
-      position: {
-        x: snapToGrid((src.position.x + dst.position.x) / 2),
-        y: snapToGrid((src.position.y + dst.position.y) / 2),
-      },
-      size: src.size,
-      name: fuseName,
-      color: fuseColor,
-      refs: mergedRefs,
-    }
-    fuseCollections(plane.id, src.id, dst.id, merged)
-    if (activeCollectionId === src.id || activeCollectionId === dst.id) {
-      setActiveCollectionId(merged.id)
-    }
-    setFuseDialog(null)
   }
 
   // ── Collection division state ────────────────────────────────────────────────────────
@@ -3459,11 +3274,20 @@ function PlaneCanvas({
       return
     }
     const original = dividingCollection
+    // Place divided collections in adjacent grid cells
+    const leftPos = snapToCell(
+      Math.max(0, original.position.x - CELL_W),
+      original.position.y,
+    )
+    const rightPos = snapToCell(
+      original.position.x + CELL_W,
+      original.position.y,
+    )
     // Create left collection
     const leftCol: CanvasCollectionElement = {
       id: crypto.randomUUID(),
       type: "collection",
-      position: { x: original.position.x - 80, y: original.position.y },
+      position: leftPos,
       size: original.size,
       name: leftName,
       color: original.color,
@@ -3473,7 +3297,7 @@ function PlaneCanvas({
     const rightCol: CanvasCollectionElement = {
       id: crypto.randomUUID(),
       type: "collection",
-      position: { x: original.position.x + 80, y: original.position.y },
+      position: rightPos,
       size: original.size,
       name: rightName,
       color: original.color,
@@ -3488,250 +3312,26 @@ function PlaneCanvas({
     setDividingCollection(null)
   }
 
-  const getRefDisplayName = useCallback(
-    (ref: CollectionRef): string => {
-      if (ref.kind === "material") {
-        const m = materials.find((x) => x.id === ref.id)
-        return m ? m.name || m.inventoryLabel || m.casNumber || m.id : ref.id
-      }
-      if (ref.kind === "solution") {
-        const s = solutions.find((x) => x.id === ref.id)
-        return s ? s.name || s.id : ref.id
-      }
-      if (ref.kind === "process") {
-        const p = processes.find((x) => x.id === ref.id)
-        return p ? p.name || p.id : ref.id
-      }
-      if (ref.kind === "experiment") {
-        const e = experiments.find((x) => x.id === ref.id)
-        return e ? e.name || e.id : ref.id
-      }
-      if (ref.kind === "result") {
-        const r = results.find((x) => x.id === ref.id)
-        if (!r) {
-          return ref.id
-        }
-        const exp = experiments.find((x) => x.id === r.experimentId)
-        return `Results for ${exp ? exp.name || exp.id : r.experimentId}`
-      }
-      return `Analysis ${ref.id}`
-    },
-    [materials, solutions, processes, experiments, results],
-  )
-
-  const handleDeleteCollection = useCallback(
-    (collection: CanvasCollectionElement) => {
-      const dedup = new Map<string, CollectionRef>()
-      for (const ref of collection.refs) {
-        dedup.set(`${ref.kind}:${ref.id}`, ref)
-      }
-      const refs = [...dedup.values()]
-
-      const plannedDelete: Record<CollectionRef["kind"], Set<string>> = {
-        material: new Set(),
-        solution: new Set(),
-        experiment: new Set(),
-        result: new Set(),
-        analysis: new Set(),
-        process: new Set(),
-      }
-      for (const ref of refs) {
-        plannedDelete[ref.kind].add(ref.id)
-      }
-
-      const blocked: {
-        ref: CollectionRef
-        name: string
-        dependents: ReturnType<typeof getDependentLocations>
-      }[] = []
-
-      for (const ref of refs) {
-        if (
-          ref.kind !== "material" &&
-          ref.kind !== "solution" &&
-          ref.kind !== "process" &&
-          ref.kind !== "experiment"
-        ) {
-          continue
-        }
-        const dependents = getDependentLocations(ref.kind, ref.id, {
-          solutions,
-          experiments,
-          processes,
-          planes,
-        }).filter((dep) => !plannedDelete[dep.itemKind].has(dep.itemId))
-        if (dependents.length > 0) {
-          blocked.push({
-            ref,
-            name: getRefDisplayName(ref),
-            dependents,
-          })
-        }
-      }
-
-      if (blocked.length > 0) {
-        modals.open({
-          title: "Cannot delete collection",
-          size: "lg",
-          children: (
-            <>
-              <Text size="sm" mb="sm">
-                This collection cannot be deleted because the following elements
-                still have dependencies.
-              </Text>
-              <Table withTableBorder withColumnBorders>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Element</Table.Th>
-                    <Table.Th>Type</Table.Th>
-                    <Table.Th>Blocking Dependencies</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {blocked.map((b) => (
-                    <Table.Tr key={`${b.ref.kind}:${b.ref.id}`}>
-                      <Table.Td>{b.name}</Table.Td>
-                      <Table.Td>
-                        <Text size="xs" c="dimmed" tt="capitalize">
-                          {b.ref.kind}
-                        </Text>
-                      </Table.Td>
-                      <Table.Td>{b.dependents.length}</Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </>
-          ),
-        })
-        return
-      }
-
-      // Delete empty collections immediately without confirmation
-      if (refs.length === 0) {
-        deleteElement(plane.id, collection.id)
-        if (activeCollectionId === collection.id) {
-          setActiveCollectionId(null)
-        }
-        return
-      }
-
-      modals.openConfirmModal({
-        title: "Delete collection",
-        size: "lg",
-        children: (
-          <>
-            <Text size="sm" mb="sm">
-              Deleting this collection will delete the following elements:
-            </Text>
-            {refs.length > 0 ? (
-              <ScrollArea.Autosize mah={280}>
-                <Table withTableBorder withColumnBorders>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Element</Table.Th>
-                      <Table.Th>Type</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {refs.map((ref) => (
-                      <Table.Tr key={`${ref.kind}:${ref.id}`}>
-                        <Table.Td>{getRefDisplayName(ref)}</Table.Td>
-                        <Table.Td>
-                          <Text size="xs" c="dimmed" tt="capitalize">
-                            {ref.kind}
-                          </Text>
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              </ScrollArea.Autosize>
-            ) : (
-              <Text size="sm" c="dimmed">
-                This collection is empty.
-              </Text>
-            )}
-          </>
-        ),
-        labels: { confirm: "Delete", cancel: "Cancel" },
-        confirmProps: { color: "red" },
-        onConfirm: () => {
-          const idsByKind: Record<CollectionRef["kind"], Set<string>> = {
-            material: new Set(),
-            solution: new Set(),
-            experiment: new Set(),
-            result: new Set(),
-            analysis: new Set(),
-            process: new Set(),
-          }
-
-          for (const ref of refs) {
-            idsByKind[ref.kind].add(ref.id)
-          }
-
-          if (idsByKind.material.size > 0) {
-            const ids = [...idsByKind.material]
-            setMaterials((prev) => prev.filter((m) => !ids.includes(m.id)))
-            removeCollectionRefs("material", ids)
-          }
-          if (idsByKind.solution.size > 0) {
-            const ids = [...idsByKind.solution]
-            setSolutions((prev) => prev.filter((s) => !ids.includes(s.id)))
-            removeCollectionRefs("solution", ids)
-          }
-          if (idsByKind.process.size > 0) {
-            const ids = [...idsByKind.process]
-            setProcesses((prev) => prev.filter((p) => !ids.includes(p.id)))
-            removeCollectionRefs("process", ids)
-          }
-          if (idsByKind.experiment.size > 0) {
-            const ids = [...idsByKind.experiment]
-            setExperiments((prev) => prev.filter((e) => !ids.includes(e.id)))
-            removeCollectionRefs("experiment", ids)
-          }
-          if (idsByKind.result.size > 0) {
-            const ids = [...idsByKind.result]
-            setResults((prev) => prev.filter((r) => !ids.includes(r.id)))
-            removeCollectionRefs("result", ids)
-          }
-          if (idsByKind.analysis.size > 0) {
-            removeCollectionRefs("analysis", [...idsByKind.analysis])
-          }
-
-          deleteElement(plane.id, collection.id)
-          if (activeCollectionId === collection.id) {
-            setActiveCollectionId(null)
-          }
-        },
-      })
-    },
-    [
-      deleteElement,
-      experiments,
-      getRefDisplayName,
-      activeCollectionId,
-      plane.id,
-      planes,
-      processes,
-      removeCollectionRefs,
-      setActiveCollectionId,
-      setExperiments,
-      setMaterials,
-      setProcesses,
-      setResults,
-      setSolutions,
-      solutions,
-    ],
-  )
-
   // Find active collection's color
   const activeCollection = plane.elements.find(
     (e) => e.id === activeCollectionId && e.type === "collection",
   ) as CanvasCollectionElement | undefined
   const accentColor = activeCollection?.color || DEFAULT_ACCENT
-  // Pre-compute for element picker preview — avoids IIFE in JSX
-  const pickerNextColor = nextCollectionColor()
+
+  // Auto-cleanup: remove empty collections when the user clicks away
+  const prevActiveIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    const prevId = prevActiveIdRef.current
+    prevActiveIdRef.current = activeCollectionId
+    if (prevId && prevId !== activeCollectionId) {
+      const prevEl = plane.elements.find(
+        (e) => e.id === prevId && e.type === "collection",
+      ) as CanvasCollectionElement | undefined
+      if (prevEl && prevEl.refs.length === 0) {
+        deleteElement(plane.id, prevId)
+      }
+    }
+  }, [activeCollectionId, plane.elements, plane.id, deleteElement])
 
   // ── X-axis overflow scrolling (backup for elements beyond viewport) ─────────
   // Compute the rightmost canvas coordinate of all elements
@@ -3997,23 +3597,21 @@ function PlaneCanvas({
     }
 
     // For placement tools, only act on the bare canvas background - bail if clicking on an existing element
-    const isPlacementTool =
-      tool === "text" ||
-      tool === "plaintext" ||
-      tool === "collection" ||
-      tool === "line" ||
-      tool === "pen" ||
-      tool === "rectangle"
+    const isPlacementTool = tool === "text" || tool === "plaintext"
     if (isPlacementTool && e.target !== e.currentTarget) {
       return
     }
 
-    const pos = canvasCoords(e, containerRef, pan)
+    const pos = canvasCoords(e, containerRef, {
+      x: pan.x,
+      y: pan.y + CELL_TOP_MARGIN,
+    })
 
     if (tool === "text") {
       const el = addTextElement(plane.id, pos)
       updateElement(plane.id, {
         ...el,
+        size: { x: CELL_W, y: CELL_H },
         color: textColor,
         formatting: textFormatting,
       })
@@ -4031,46 +3629,9 @@ function PlaneCanvas({
         textColor,
         textFormatting,
       )
+      updateElement(plane.id, { ...newEl, size: { x: CELL_W, y: CELL_H } })
       setEditingPlaintextId(newEl.id)
       // keep tool selected so formatting options stay visible
-    } else if (tool === "collection") {
-      const color = nextCollectionColor()
-      const el = addCollectionElement(plane.id, pos)
-      updateElement(plane.id, { ...el, color })
-      setSelectedColor(color)
-      setTool("select")
-    } else if (tool === "line") {
-      const el = addLineElement(plane.id, pos)
-      updateElement(plane.id, {
-        ...el,
-        color: selectedColor,
-        strokeWidth,
-        kind: "line",
-      } as CanvasLineElement)
-      drawingLineId.current = el.id
-      drawingKindRef.current = "line"
-    } else if (tool === "pen") {
-      const el = addLineElement(plane.id, pos)
-      updateElement(plane.id, {
-        ...el,
-        points: [pos, pos],
-        color: selectedColor,
-        strokeWidth,
-        kind: "pen",
-      } as CanvasLineElement)
-      drawingLineId.current = el.id
-      drawingKindRef.current = "pen"
-    } else if (tool === "rectangle") {
-      const el = addLineElement(plane.id, pos)
-      updateElement(plane.id, {
-        ...el,
-        points: [pos, pos],
-        color: selectedColor,
-        strokeWidth,
-        kind: "rectangle",
-      } as CanvasLineElement)
-      drawingLineId.current = el.id
-      drawingKindRef.current = "rectangle"
     }
   }
 
@@ -4113,31 +3674,6 @@ function PlaneCanvas({
     } else if (mouseCanvasPos !== null) {
       setMouseCanvasPos(null)
     }
-    if (
-      (tool === "line" || tool === "pen" || tool === "rectangle") &&
-      drawingLineId.current
-    ) {
-      const pos = canvasCoords(e, containerRef, pan)
-      const existing = plane.elements.find(
-        (el) => el.id === drawingLineId.current,
-      ) as CanvasLineElement | undefined
-      if (existing && existing.points.length >= 2) {
-        let newPoints = [...existing.points]
-        if (drawingKindRef.current === "pen") {
-          const last = newPoints[newPoints.length - 1]
-          if (!last || last.x !== pos.x || last.y !== pos.y) {
-            newPoints = [...newPoints, pos]
-          }
-        } else {
-          // Update the last point (the "live" end)
-          newPoints[newPoints.length - 1] = pos
-        }
-        updateElement(plane.id, {
-          ...existing,
-          points: newPoints,
-        } as CanvasLineElement)
-      }
-    }
   }
 
   const onMouseUp = (_e: MouseEvent<HTMLDivElement>) => {
@@ -4145,17 +3681,6 @@ function PlaneCanvas({
       isPanning.current = false
       panStart.current = null
       return
-    }
-    if (
-      (tool === "line" || tool === "pen" || tool === "rectangle") &&
-      drawingLineId.current
-    ) {
-      // Finalize the drawn element.
-      const finishedId = drawingLineId.current
-      drawingLineId.current = null
-      drawingKindRef.current = null
-      setActiveDrawId(finishedId)
-      setTool("select")
     }
   }
 
@@ -4201,15 +3726,6 @@ function PlaneCanvas({
             }}
           >
             <IconPointer size={18} />
-          </ActionIcon>
-        </Tooltip>
-        <Tooltip label="Select / Pan (or hold Space)" position="bottom">
-          <ActionIcon
-            variant={tool === "select" ? "filled" : "subtle"}
-            style={toolStyle("select")}
-            onClick={() => setTool("select")}
-          >
-            <IconHandGrab size={18} />
           </ActionIcon>
         </Tooltip>
         <Tooltip label="Add sticky note" position="bottom">
@@ -4424,74 +3940,6 @@ function PlaneCanvas({
             </Popover>
           </>
         )}
-        <Tooltip label="Draw line (click start, click end)" position="bottom">
-          <ActionIcon
-            variant={tool === "line" ? "filled" : "subtle"}
-            style={toolStyle("line")}
-            onClick={() => setTool("line")}
-          >
-            <IconMinus size={16} />
-          </ActionIcon>
-        </Tooltip>
-        <Tooltip label="Free draw" position="bottom">
-          <ActionIcon
-            variant={tool === "pen" ? "filled" : "subtle"}
-            style={toolStyle("pen")}
-            onClick={() => setTool("pen")}
-          >
-            <IconPencil size={16} />
-          </ActionIcon>
-        </Tooltip>
-        <Tooltip label="Draw rectangle" position="bottom">
-          <ActionIcon
-            variant={tool === "rectangle" ? "filled" : "subtle"}
-            style={toolStyle("rectangle")}
-            onClick={() => setTool("rectangle")}
-          >
-            <IconSquare size={16} />
-          </ActionIcon>
-        </Tooltip>
-
-        {(tool === "line" || tool === "pen" || tool === "rectangle") && (
-          <>
-            <Divider orientation="vertical" />
-            <Tooltip label="Line strength" position="bottom">
-              <Group gap={4}>
-                {[1, 2, 4, 6].map((w) => (
-                  <ActionIcon
-                    key={w}
-                    variant={strokeWidth === w ? "filled" : "subtle"}
-                    color={strokeWidth === w ? "blue" : "gray"}
-                    onClick={() => {
-                      setStrokeWidth(w)
-                      if (activeDrawId) {
-                        const active = plane.elements.find(
-                          (e) => e.id === activeDrawId && e.type === "line",
-                        ) as CanvasLineElement | undefined
-                        if (active) {
-                          updateElement(plane.id, { ...active, strokeWidth: w })
-                        }
-                      }
-                    }}
-                  >
-                    <Text size="xs" fw={700}>
-                      {w}
-                    </Text>
-                  </ActionIcon>
-                ))}
-              </Group>
-            </Tooltip>
-          </>
-        )}
-        <Tooltip label="Add Collection folder" position="bottom">
-          <ActionIcon
-            variant={tool === "collection" ? "filled" : "subtle"}
-            style={toolStyle("collection")}
-            onClick={() => setTool("collection")}
-          >
-            <IconFolderPlus size={16} />
-          </ActionIcon>
-        </Tooltip>
         <Divider orientation="vertical" />
         {/* Color picker — hidden when text tools are active (they have their own picker) */}
         {tool !== "text" && tool !== "plaintext" && (
@@ -4507,10 +3955,7 @@ function PlaneCanvas({
               >
                 <ActionIcon variant="subtle" color="gray">
                   <ColorSwatch
-                    color={
-                      activeCollection?.color ??
-                      (tool === "collection" ? pickerNextColor : selectedColor)
-                    }
+                    color={activeCollection?.color ?? selectedColor}
                     size={16}
                   />
                 </ActionIcon>
@@ -4554,17 +3999,12 @@ function PlaneCanvas({
         <Divider orientation="vertical" />
         <Text size="xs" c="dimmed">
           {tool === "pointer" &&
-            (plane.elements.length === 0
-              ? "Click to place elements"
-              : "Click to place elements")}
+            "Click a grid cell to add a collection · Click canvas for other elements"}
           {tool === "select" &&
             "Select or drag to pan · Middle-mouse drag also pans"}
           {tool === "text" && "Click anywhere to place a sticky note"}
           {tool === "plaintext" &&
             "Click on empty canvas to place text · Double-click existing text to edit"}
-          {tool === "line" && "Click to start line, move, click to end"}
-          {tool === "collection" &&
-            "Click anywhere to place a Collection folder"}
         </Text>
       </Group>
 
@@ -4600,108 +4040,181 @@ function PlaneCanvas({
                   : tool === "pointer"
                     ? "default"
                     : "crosshair",
-              backgroundImage: `radial-gradient(circle, ${isDark ? "var(--mantine-color-dark-4)" : "var(--mantine-color-gray-4)"} 1px, transparent 1px)`,
-              backgroundSize: `${GRID}px ${GRID}px`,
-              backgroundPosition: `${pan.x % GRID}px ${pan.y % GRID}px`,
+              background: isDark
+                ? "var(--mantine-color-dark-7)"
+                : "var(--mantine-color-gray-0)",
             }}
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
             onMouseLeave={() => setMouseCanvasPos(null)}
+            onDragOver={(e: ReactDragEvent<HTMLDivElement>) => {
+              if (!e.dataTransfer.types.includes(COLLECTION_REF_DRAG_MIME))
+                return
+              e.preventDefault()
+              const rect = containerRef.current?.getBoundingClientRect()
+              if (!rect) return
+              const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
+              const cx = e.clientX - rect.left - childPan.x
+              const cy = e.clientY - rect.top - childPan.y
+              const col = Math.floor(cx / CELL_W)
+              const row = Math.floor(cy / CELL_H)
+              if (col >= 0 && row >= 0) setDragOverCellKey(`${col},${row}`)
+            }}
+            onDragLeave={(e: ReactDragEvent<HTMLDivElement>) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                setDragOverCellKey(null)
+              }
+            }}
+            onDrop={(e: ReactDragEvent<HTMLDivElement>) => {
+              const raw =
+                e.dataTransfer.getData(COLLECTION_REF_DRAG_MIME) ||
+                e.dataTransfer.getData("text/plain")
+              setDragOverCellKey(null)
+              if (!raw) return
+              try {
+                const payload = JSON.parse(raw) as CollectionRefDragPayload
+                if (
+                  !payload?.sourceCollectionId ||
+                  !Array.isArray(payload.refIds)
+                )
+                  return
+                const rect = containerRef.current?.getBoundingClientRect()
+                if (!rect) return
+                const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
+                const cx = e.clientX - rect.left - childPan.x
+                const cy = e.clientY - rect.top - childPan.y
+                const col = Math.floor(cx / CELL_W)
+                const row = Math.floor(cy / CELL_H)
+                if (col >= 0 && row >= 0) {
+                  e.preventDefault()
+                  handleDropToCell(col, row, payload)
+                }
+              } catch {}
+            }}
           >
+            {/* Unified grid: empty ghost cells + all canvas elements */}
+            {(() => {
+              const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
+              const startCol = Math.max(0, Math.floor(-childPan.x / CELL_W))
+              const startRow = Math.max(0, Math.floor(-childPan.y / CELL_H))
+              const endCol =
+                Math.ceil((containerWidth - childPan.x) / CELL_W) + 1
+              const endRow =
+                Math.ceil((containerHeight - childPan.y) / CELL_H) + 1
+
+              // Build lookup: cell key → element
+              const elementByCell = new Map<string, CanvasElement>()
+              for (const el of nonLines) {
+                const col = Math.round(el.position.x / CELL_W)
+                const row = Math.round(el.position.y / CELL_H)
+                elementByCell.set(`${col},${row}`, el)
+              }
+
+              const cells: React.ReactNode[] = []
+              for (let row = startRow; row <= endRow; row++) {
+                for (let col = startCol; col <= endCol; col++) {
+                  const cellKey = `${col},${row}`
+                  const cellX = col * CELL_W
+                  const cellY = row * CELL_H
+                  const el = elementByCell.get(cellKey)
+                  const isDragOver = dragOverCellKey === cellKey
+
+                  if (!el) {
+                    cells.push(
+                      <EmptyCellEl
+                        key={cellKey}
+                        cellX={cellX}
+                        cellY={cellY}
+                        pan={childPan}
+                        isDragOver={isDragOver}
+                        tool={tool}
+                        planeId={plane.id}
+                        nextCollectionColor={nextCollectionColor}
+                      />,
+                    )
+                  } else if (el.type === "text") {
+                    const tel = el as CanvasTextElement
+                    cells.push(
+                      <TextEl
+                        key={el.id}
+                        el={tel}
+                        onUpdate={(updated) => updateElement(plane.id, updated)}
+                        onDelete={() => deleteElement(plane.id, el.id)}
+                        onStartEdit={() => {
+                          setEditingTextId(tel.id)
+                          setTool("text")
+                          setTextColor(tel.color || "#000000")
+                          setTextFormatting(
+                            tel.formatting || {
+                              bold: false,
+                              italic: false,
+                              underline: false,
+                            },
+                          )
+                        }}
+                        onEditEnd={() => {
+                          setEditingTextId((prev) =>
+                            prev === tel.id ? null : prev,
+                          )
+                          setTool("select")
+                        }}
+                        pan={childPan}
+                      />,
+                    )
+                  } else if (el.type === "plaintext") {
+                    const ptel = el as CanvasPlainTextElement
+                    cells.push(
+                      <PlainTextEl
+                        key={el.id}
+                        el={ptel}
+                        onUpdate={(updated) => updateElement(plane.id, updated)}
+                        onDelete={() => deleteElement(plane.id, el.id)}
+                        onStartEdit={() => {
+                          plaintextEditingRef.current = true
+                          setEditingPlaintextId(ptel.id)
+                          setTool("plaintext")
+                          setTextColor(ptel.color)
+                          setTextFormatting(ptel.formatting)
+                        }}
+                        onEditEnd={() => {
+                          plaintextEditingRef.current = false
+                          setEditingPlaintextId(null)
+                          setTool("select")
+                        }}
+                        pan={childPan}
+                      />,
+                    )
+                  } else if (el.type === "collection") {
+                    cells.push(
+                      <CollectionEl
+                        key={el.id}
+                        el={el as CanvasCollectionElement}
+                        planeId={plane.id}
+                        onUpdate={(updated) => updateElement(plane.id, updated)}
+                        pan={childPan}
+                        isDragOver={isDragOver}
+                        onStartDivide={() => {
+                          handleStartDivide(el as CanvasCollectionElement)
+                        }}
+                      />,
+                    )
+                  }
+                }
+              }
+              return cells
+            })()}
+
             {/* SVG line layer */}
             <LineOverlay
               lines={lines}
-              pan={pan}
+              pan={{ x: pan.x, y: pan.y + CELL_TOP_MARGIN }}
               canMove={tool === "select"}
               activeId={activeDrawId}
               setActiveId={setActiveDrawId}
               onUpdate={(el) => updateElement(plane.id, el)}
               onDelete={(id) => deleteElement(plane.id, id)}
             />
-
-            {/* Element layer */}
-            {nonLines.map((el) => {
-              if (el.type === "text") {
-                const tel = el as CanvasTextElement
-                return (
-                  <TextEl
-                    key={el.id}
-                    el={tel}
-                    onUpdate={(updated) => updateElement(plane.id, updated)}
-                    onDelete={() => deleteElement(plane.id, el.id)}
-                    onStartEdit={() => {
-                      setEditingTextId(tel.id)
-                      setTool("text")
-                      setTextColor(tel.color || "#000000")
-                      setTextFormatting(
-                        tel.formatting || {
-                          bold: false,
-                          italic: false,
-                          underline: false,
-                        },
-                      )
-                    }}
-                    onEditEnd={() => {
-                      setEditingTextId((prev) =>
-                        prev === tel.id ? null : prev,
-                      )
-                      setTool("select")
-                    }}
-                    pan={pan}
-                  />
-                )
-              }
-              if (el.type === "plaintext") {
-                const ptel = el as CanvasPlainTextElement
-                return (
-                  <PlainTextEl
-                    key={el.id}
-                    el={ptel}
-                    onUpdate={(updated) => updateElement(plane.id, updated)}
-                    onDelete={() => deleteElement(plane.id, el.id)}
-                    onStartEdit={() => {
-                      plaintextEditingRef.current = true
-                      setEditingPlaintextId(ptel.id)
-                      setTool("plaintext")
-                      setTextColor(ptel.color)
-                      setTextFormatting(ptel.formatting)
-                    }}
-                    onEditEnd={() => {
-                      plaintextEditingRef.current = false
-                      setEditingPlaintextId(null)
-                      setTool("select")
-                    }}
-                    pan={pan}
-                  />
-                )
-              }
-              if (el.type === "collection") {
-                return (
-                  <CollectionEl
-                    key={el.id}
-                    el={el as CanvasCollectionElement}
-                    planeId={plane.id}
-                    onUpdate={(updated) => updateElement(plane.id, updated)}
-                    onDelete={() =>
-                      handleDeleteCollection(el as CanvasCollectionElement)
-                    }
-                    pan={pan}
-                    isFuseCandidate={fuseCandidate?.dstId === el.id}
-                    onDragPositionUpdate={(pos) =>
-                      handleDragPositionUpdate(el.id, pos)
-                    }
-                    onDropped={handleDrop}
-                    onDropRefs={handleDropRefs}
-                    onStartDivide={() => {
-                      handleStartDivide(el as CanvasCollectionElement)
-                    }}
-                    onHoveredPlaneTabChange={onHoveredPlaneTabChange}
-                  />
-                )
-              }
-              return null
-            })}
 
             {/* Pointer-tool follow tooltip on empty plane */}
             {tool === "pointer" &&
@@ -4744,51 +4257,7 @@ function PlaneCanvas({
                 onClick={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                {/* ── Primary action: Add Data Collection ── */}
-                <Tooltip label="Add Data Collection" position="top" withArrow>
-                  <Box
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      e.preventDefault()
-                      const pos = canvasCoords(
-                        {
-                          clientX:
-                            (containerRef.current?.getBoundingClientRect()
-                              .left || 0) + elementPickerPos.x,
-                          clientY:
-                            (containerRef.current?.getBoundingClientRect()
-                              .top || 0) + elementPickerPos.y,
-                        } as MouseEvent<HTMLDivElement>,
-                        containerRef,
-                        pan,
-                      )
-                      const color = nextCollectionColor()
-                      const el = addCollectionElement(plane.id, pos)
-                      updateElement(plane.id, { ...el, color })
-                      setSelectedColor(color)
-                      setElementPickerOpen(false)
-                      setElementPickerPos(null)
-                    }}
-                    style={{
-                      cursor: "pointer",
-                      borderRadius: 10,
-                      border: `2px solid ${pickerNextColor}`,
-                      boxShadow: `0 0 0 3px ${pickerNextColor}33`,
-                      background: "var(--mantine-color-body)",
-                      padding: "10px 16px",
-                      transition: "box-shadow 120ms",
-                    }}
-                  >
-                    <Group gap={6}>
-                      <IconFolderPlus size={16} color={pickerNextColor} />
-                      <Text size="sm" fw={600}>
-                        Add Data Collection
-                      </Text>
-                    </Group>
-                  </Box>
-                </Tooltip>
-
-                {/* ── Secondary actions (muted) ── */}
+                {/* ── Element actions ── */}
                 <Group gap={6} justify="center">
                   {(
                     [
@@ -4806,11 +4275,12 @@ function PlaneCanvas({
                                   .top || 0) + elementPickerPos.y,
                             } as MouseEvent<HTMLDivElement>,
                             containerRef,
-                            pan,
+                            { x: pan.x, y: pan.y + CELL_TOP_MARGIN },
                           )
                           const el = addTextElement(plane.id, pos)
                           updateElement(plane.id, {
                             ...el,
+                            size: { x: CELL_W, y: CELL_H },
                             color: textColor,
                             formatting: textFormatting,
                           })
@@ -4833,7 +4303,7 @@ function PlaneCanvas({
                                   .top || 0) + elementPickerPos.y,
                             } as MouseEvent<HTMLDivElement>,
                             containerRef,
-                            pan,
+                            { x: pan.x, y: pan.y + CELL_TOP_MARGIN },
                           )
                           plaintextEditingRef.current = true
                           const newEl = addPlainTextElement(
@@ -4842,102 +4312,14 @@ function PlaneCanvas({
                             textColor,
                             textFormatting,
                           )
+                          updateElement(plane.id, {
+                            ...newEl,
+                            size: { x: CELL_W, y: CELL_H },
+                          })
                           setEditingPlaintextId(newEl.id)
                           setElementPickerOpen(false)
                           setElementPickerPos(null)
                           setTool("plaintext")
-                        },
-                      },
-                      {
-                        label: "Draw Line",
-                        Icon: IconMinus,
-                        action: () => {
-                          const pos = canvasCoords(
-                            {
-                              clientX:
-                                (containerRef.current?.getBoundingClientRect()
-                                  .left || 0) + elementPickerPos.x,
-                              clientY:
-                                (containerRef.current?.getBoundingClientRect()
-                                  .top || 0) + elementPickerPos.y,
-                            } as MouseEvent<HTMLDivElement>,
-                            containerRef,
-                            pan,
-                          )
-                          const el = addLineElement(plane.id, pos)
-                          updateElement(plane.id, {
-                            ...el,
-                            color: selectedColor,
-                            strokeWidth,
-                            kind: "line",
-                          } as CanvasLineElement)
-                          drawingLineId.current = el.id
-                          drawingKindRef.current = "line"
-                          setElementPickerOpen(false)
-                          setElementPickerPos(null)
-                          setTool("line")
-                        },
-                      },
-                      {
-                        label: "Free Draw",
-                        Icon: IconPencil,
-                        action: () => {
-                          const pos = canvasCoords(
-                            {
-                              clientX:
-                                (containerRef.current?.getBoundingClientRect()
-                                  .left || 0) + elementPickerPos.x,
-                              clientY:
-                                (containerRef.current?.getBoundingClientRect()
-                                  .top || 0) + elementPickerPos.y,
-                            } as MouseEvent<HTMLDivElement>,
-                            containerRef,
-                            pan,
-                          )
-                          const el = addLineElement(plane.id, pos)
-                          updateElement(plane.id, {
-                            ...el,
-                            points: [pos, pos],
-                            color: selectedColor,
-                            strokeWidth,
-                            kind: "pen",
-                          } as CanvasLineElement)
-                          drawingLineId.current = el.id
-                          drawingKindRef.current = "pen"
-                          setElementPickerOpen(false)
-                          setElementPickerPos(null)
-                          setTool("pen")
-                        },
-                      },
-                      {
-                        label: "Draw Rectangle",
-                        Icon: IconSquare,
-                        action: () => {
-                          const pos = canvasCoords(
-                            {
-                              clientX:
-                                (containerRef.current?.getBoundingClientRect()
-                                  .left || 0) + elementPickerPos.x,
-                              clientY:
-                                (containerRef.current?.getBoundingClientRect()
-                                  .top || 0) + elementPickerPos.y,
-                            } as MouseEvent<HTMLDivElement>,
-                            containerRef,
-                            pan,
-                          )
-                          const el = addLineElement(plane.id, pos)
-                          updateElement(plane.id, {
-                            ...el,
-                            points: [pos, pos],
-                            color: selectedColor,
-                            strokeWidth,
-                            kind: "rectangle",
-                          } as CanvasLineElement)
-                          drawingLineId.current = el.id
-                          drawingKindRef.current = "rectangle"
-                          setElementPickerOpen(false)
-                          setElementPickerPos(null)
-                          setTool("rectangle")
                         },
                       },
                     ] as const
@@ -5102,78 +4484,6 @@ function PlaneCanvas({
         </div>
       </Box>
 
-      {/* ── Fusion dialog ─────────────────────────────────────────────────── */}
-      <Modal
-        opened={!!fuseDialog}
-        onClose={() => setFuseDialog(null)}
-        title="Combine Collections"
-        size="sm"
-        centered
-      >
-        {fuseDialog && (
-          <Stack gap="md">
-            <TextInput
-              label="New collection name"
-              value={fuseName}
-              onChange={(e) => setFuseName(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && fuseName.trim()) {
-                  handleFuse()
-                }
-              }}
-            />
-            <div>
-              <Text size="sm" fw={500} mb={6}>
-                Color
-              </Text>
-              <Group gap={4} wrap="wrap">
-                {PALETTE.map((c) => (
-                  <ColorSwatch
-                    key={c}
-                    color={c}
-                    size={24}
-                    style={{
-                      cursor: "pointer",
-                      outline:
-                        fuseColor === c
-                          ? "2px solid var(--mantine-color-violet-6)"
-                          : "none",
-                      outlineOffset: 2,
-                    }}
-                    onClick={() => setFuseColor(c)}
-                  />
-                ))}
-              </Group>
-              <Group gap={8} mt={8} align="center">
-                <ColorSwatch
-                  color={fuseDialog.src.color || DEFAULT_ACCENT}
-                  size={16}
-                />
-                <Text size="xs" c="dimmed">
-                  +
-                </Text>
-                <ColorSwatch
-                  color={fuseDialog.dst.color || DEFAULT_ACCENT}
-                  size={16}
-                />
-                <Text size="xs" c="dimmed">
-                  =
-                </Text>
-                <ColorSwatch color={fuseColor} size={16} />
-              </Group>
-            </div>
-            <Group justify="flex-end" gap="sm">
-              <Button variant="default" onClick={() => setFuseDialog(null)}>
-                Cancel
-              </Button>
-              <Button onClick={handleFuse} disabled={!fuseName.trim()}>
-                OK
-              </Button>
-            </Group>
-          </Stack>
-        )}
-      </Modal>
-
       {/* ── Division dialog ───────────────────────────────────────────────────────── */}
       {dividingCollection && (
         <DivisionOverlay
@@ -5198,8 +4508,10 @@ function PlaneCanvas({
             )
             const sourceSharedWith = plane.sharedWith ?? []
             const targetSharedWith = targetPlane?.sharedWith ?? []
-            const userLabel = (u: { email: string; full_name: string | null }) =>
-              u.full_name || u.email
+            const userLabel = (u: {
+              email: string
+              full_name: string | null
+            }) => u.full_name || u.email
             return (
               <Stack gap="md">
                 <Text size="sm">
@@ -5322,7 +4634,9 @@ function PlaneTabLabel({
         size="xs"
         value={buf}
         autoFocus
-        onFocus={(e) => { e.currentTarget?.select() }}
+        onFocus={(e) => {
+          e.currentTarget?.select()
+        }}
         onChange={(e) => setBuf(e.currentTarget.value)}
         onBlur={commit}
         onKeyDown={(e) => {
@@ -5349,7 +4663,11 @@ function PlaneTabLabel({
       >
         {(plane.sharedWith?.length ?? 0) > 0 ? "s" : "p"}
       </Badge>
-      <Text size="sm" onDoubleClick={() => setEditing(true)} style={{ cursor: "text" }}>
+      <Text
+        size="sm"
+        onDoubleClick={() => setEditing(true)}
+        style={{ cursor: "text" }}
+      >
         {plane.name}
       </Text>
       {canClose && (
@@ -5379,7 +4697,9 @@ function WelcomePlaneView() {
     useAppContext()
   const { user } = useAuth()
   const [sharingPlaneId, setSharingPlaneId] = useState<string | null>(null)
-  const [newPlaneEditingId, setNewPlaneEditingId] = useState<string | null>(null)
+  const [newPlaneEditingId, setNewPlaneEditingId] = useState<string | null>(
+    null,
+  )
   const [searchQuery, setSearchQuery] = useState("")
   const [debouncedQuery] = useDebouncedValue(searchQuery, 300)
   const [searchResults, setSearchResults] = useState<
@@ -5597,7 +4917,9 @@ function WelcomePlaneView() {
               size="xs"
               value={plane.name}
               autoFocus
-              onFocus={(e) => { e.currentTarget?.select() }}
+              onFocus={(e) => {
+                e.currentTarget?.select()
+              }}
               onChange={(e) => {
                 const value = e.currentTarget.value
                 setPlanes((prev) =>
@@ -5632,7 +4954,8 @@ function WelcomePlaneView() {
 
         {sharedWith.length > 0 && (
           <Text size="xs" c="dimmed" mb="xs">
-            Shared with: {sharedWith.map((u) => u.full_name || u.email).join(", ")}
+            Shared with:{" "}
+            {sharedWith.map((u) => u.full_name || u.email).join(", ")}
           </Text>
         )}
 
@@ -5659,7 +4982,8 @@ function WelcomePlaneView() {
           <Group gap={6}>
             <IconFolderPlus size={14} color="var(--mantine-color-gray-6)" />
             <Text size="xs" c="dimmed">
-              {counts.collections} collection{counts.collections !== 1 ? "s" : ""}
+              {counts.collections} collection
+              {counts.collections !== 1 ? "s" : ""}
             </Text>
           </Group>
         </Stack>
@@ -5759,11 +5083,14 @@ function WelcomePlaneView() {
             rightSection={isSearching ? <Loader size="xs" /> : null}
           />
 
-          {searchQuery.length >= 2 && searchResults.length === 0 && !isSearching && (
-            <Text size="xs" c="dimmed" ta="center" py="md">
-              No users found. Users already shared with or yourself are excluded.
-            </Text>
-          )}
+          {searchQuery.length >= 2 &&
+            searchResults.length === 0 &&
+            !isSearching && (
+              <Text size="xs" c="dimmed" ta="center" py="md">
+                No users found. Users already shared with or yourself are
+                excluded.
+              </Text>
+            )}
 
           {searchResults.length > 0 && (
             <Stack gap="xs">
@@ -5774,9 +5101,7 @@ function WelcomePlaneView() {
                 <Paper key={searchUser.id} p="xs" withBorder>
                   <Group justify="space-between">
                     <Stack gap={0}>
-                      <Text size="sm">
-                        {searchUser.full_name || "No name"}
-                      </Text>
+                      <Text size="sm">{searchUser.full_name || "No name"}</Text>
                       <Text size="xs" c="dimmed">
                         {searchUser.email}
                       </Text>
@@ -5847,9 +5172,7 @@ export function OrganizationPage() {
   } = useAppContext()
   const { user } = useAuth()
 
-  const [hoveredPlaneTabId, setHoveredPlaneTabId] = useState<string | null>(
-    null,
-  )
+  const hoveredPlaneTabId: string | null = null
   const [newPlaneEditingId, setNewPlaneEditingId] = useState<string | null>(
     null,
   )
@@ -6028,10 +5351,7 @@ export function OrganizationPage() {
           </Tabs.Panel>
           {planes.map((p) => (
             <Tabs.Panel key={p.id} value={p.id} style={{ height: "100%" }}>
-              <PlaneCanvas
-                plane={p}
-                onHoveredPlaneTabChange={setHoveredPlaneTabId}
-              />
+              <PlaneCanvas plane={p} />
             </Tabs.Panel>
           ))}
         </Box>

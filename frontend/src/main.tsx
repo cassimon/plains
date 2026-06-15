@@ -21,7 +21,7 @@ OpenAPI.TOKEN = () => getTokenAsync()
 const handleApiError = (error: Error) => {
   if (error instanceof ApiError && [401, 403].includes(error.status)) {
     clearKeycloak()
-    window.location.href = "/login"
+    window.location.href = `${import.meta.env.BASE_URL}login`
   }
 }
 const queryClient = new QueryClient({

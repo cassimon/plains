@@ -129,7 +129,12 @@ function ComponentRow({
   componentColorMap,
 }: ComponentRowProps) {
   return (
-    <Table.Tr>
+    <Table.Tr
+      onDoubleClick={() => {
+        if (!editing) onStartEdit()
+      }}
+      style={{ cursor: editing ? undefined : "pointer" }}
+    >
       <Table.Td>
         {editing && buffer ? (
           <Select
@@ -470,11 +475,43 @@ function SolutionCard({
   }
 
   const addComponent = () => {
+    let baseComponents = [...solution.components]
+    if (editingComponentId && componentBuffer) {
+      const buf = componentBuffer
+      if (buf.materialId || buf.solutionId || buf.amount) {
+        baseComponents = baseComponents.map((c) => (c.id === buf.id ? buf : c))
+      } else {
+        baseComponents = baseComponents.filter(
+          (c) => c.id !== editingComponentId,
+        )
+      }
+    }
     const c = newComponent()
-    const updated = { ...solution, components: [...solution.components, c] }
-    onUpdate(updated)
+    onUpdate({ ...solution, components: [...baseComponents, c] })
     setEditingComponentId(c.id)
     setComponentBuffer(c)
+  }
+
+  const startEditComponent = (comp: SolutionComponent) => {
+    if (editingComponentId === comp.id) return
+    if (editingComponentId && componentBuffer) {
+      const buf = componentBuffer
+      const prevId = editingComponentId
+      const baseComponents = [...solution.components]
+      if (buf.materialId || buf.solutionId || buf.amount) {
+        onUpdate({
+          ...solution,
+          components: baseComponents.map((c) => (c.id === buf.id ? buf : c)),
+        })
+      } else {
+        onUpdate({
+          ...solution,
+          components: baseComponents.filter((c) => c.id !== prevId),
+        })
+      }
+    }
+    setEditingComponentId(comp.id)
+    setComponentBuffer({ ...comp })
   }
 
   const commitHandling = () => {
@@ -720,10 +757,7 @@ function SolutionCard({
                     onDelete={() => deleteComponent(comp.id)}
                     componentName={compName}
                     editing={editingComponentId === comp.id}
-                    onStartEdit={() => {
-                      setEditingComponentId(comp.id)
-                      setComponentBuffer({ ...comp })
-                    }}
+                    onStartEdit={() => startEditComponent(comp)}
                     onCommit={commitComponent}
                     onCancel={() => cancelComponent(comp.id)}
                     buffer={

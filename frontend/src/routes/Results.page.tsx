@@ -24,10 +24,10 @@ import { Dropzone, MIME_TYPES } from "@mantine/dropzone"
 import { modals } from "@mantine/modals"
 import { notifications } from "@mantine/notifications"
 import {
+  IconAlertTriangle,
   IconCheck,
   IconChevronDown,
   IconChevronRight,
-  IconAlertTriangle,
   IconCloudUpload,
   IconExternalLink,
   IconFile,
@@ -1182,7 +1182,10 @@ function ResultsDetail({
             nomad: {
               ...current.nomad,
               status: newStatus,
-              entries: typeof statusResult.entries === "number" ? statusResult.entries : undefined,
+              entries:
+                typeof statusResult.entries === "number"
+                  ? statusResult.entries
+                  : undefined,
             },
             updatedAt: new Date().toISOString(),
           })
@@ -2088,7 +2091,6 @@ function ResultsDetail({
                         <Accordion.Item key={filename} value={filename}>
                           <Accordion.Control>
                             <Group gap="xs">
-                             
                               <Text size="sm" fw={500}>
                                 {filename}
                               </Text>
@@ -2311,92 +2313,96 @@ function ResultsDetail({
       >
         <Stack gap="lg">
           {/* ── NOMAD upload status ────────────────────────────────────────── */}
-          {results.nomad?.upload_id && (() => {
-            const nomadStatus = results.nomad?.status
-            const isSuccess = nomadStatus === "SUCCESS"
-            const isFailed =
-              nomadStatus === "FAILURE" || nomadStatus === "FAILED"
-            const isNotFound = nomadStatus === "NOT_FOUND"
-            const isProcessing = !isSuccess && !isFailed && !isNotFound
-            const guiBase = nomadConfig?.url?.replace("/api/v1", "")
-            const guiUrl = guiBase
-              ? `${guiBase}/gui/user/uploads/upload/id/${results.nomad.upload_id}`
-              : null
+          {results.nomad?.upload_id &&
+            (() => {
+              const nomadStatus = results.nomad?.status
+              const isSuccess = nomadStatus === "SUCCESS"
+              const isFailed =
+                nomadStatus === "FAILURE" || nomadStatus === "FAILED"
+              const isNotFound = nomadStatus === "NOT_FOUND"
+              const isProcessing = !isSuccess && !isFailed && !isNotFound
+              const guiBase = nomadConfig?.url?.replace("/api/v1", "")
+              const guiUrl = guiBase
+                ? `${guiBase}/gui/user/uploads/upload/id/${results.nomad.upload_id}`
+                : null
 
-            return (
-              <Alert
-                icon={
-                  isSuccess ? (
-                    <IconCheck size={16} />
-                  ) : isFailed || isNotFound ? (
-                    <IconAlertTriangle size={16} />
-                  ) : (
-                    <Loader size={16} />
-                  )
-                }
-                color={
-                  isSuccess
-                    ? "green"
-                    : isFailed
-                      ? "red"
-                      : isNotFound
-                        ? "yellow"
-                        : "blue"
-                }
-                radius="md"
-                title={
-                  isSuccess
-                    ? "Uploaded to NOMAD"
-                    : isFailed
-                      ? "Upload Failed"
-                      : isNotFound
-                        ? "Upload No Longer Found"
-                        : "Processing Upload…"
-                }
-              >
-                <Stack gap="xs">
-                  <Group justify="space-between" wrap="nowrap">
-                    <Text size="sm">
-                      <Text span fw={600}>
-                        Upload ID:
-                      </Text>{" "}
-                      <Code>{results.nomad.upload_id}</Code>
-                    </Text>
-                    {typeof results.nomad.entries === "number" && (
-                      <Text size="sm" c="dimmed">
-                        <Text span fw={600}>Entries:</Text> {results.nomad.entries}
+              return (
+                <Alert
+                  icon={
+                    isSuccess ? (
+                      <IconCheck size={16} />
+                    ) : isFailed || isNotFound ? (
+                      <IconAlertTriangle size={16} />
+                    ) : (
+                      <Loader size={16} />
+                    )
+                  }
+                  color={
+                    isSuccess
+                      ? "green"
+                      : isFailed
+                        ? "red"
+                        : isNotFound
+                          ? "yellow"
+                          : "blue"
+                  }
+                  radius="md"
+                  title={
+                    isSuccess
+                      ? "Uploaded to NOMAD"
+                      : isFailed
+                        ? "Upload Failed"
+                        : isNotFound
+                          ? "Upload No Longer Found"
+                          : "Processing Upload…"
+                  }
+                >
+                  <Stack gap="xs">
+                    <Group justify="space-between" wrap="nowrap">
+                      <Text size="sm">
+                        <Text span fw={600}>
+                          Upload ID:
+                        </Text>{" "}
+                        <Code>{results.nomad.upload_id}</Code>
+                      </Text>
+                      {typeof results.nomad.entries === "number" && (
+                        <Text size="sm" c="dimmed">
+                          <Text span fw={600}>
+                            Entries:
+                          </Text>{" "}
+                          {results.nomad.entries}
+                        </Text>
+                      )}
+                      {guiUrl && (
+                        <Button
+                          size="xs"
+                          variant="light"
+                          leftSection={<IconExternalLink size={14} />}
+                          component="a"
+                          href={guiUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open in NOMAD
+                        </Button>
+                      )}
+                    </Group>
+                    {isProcessing && (
+                      <Text size="xs" c="dimmed">
+                        NOMAD is processing your upload. You can navigate away —
+                        status updates automatically when you return.
                       </Text>
                     )}
-                    {guiUrl && (
-                      <Button
-                        size="xs"
-                        variant="light"
-                        leftSection={<IconExternalLink size={14} />}
-                        component="a"
-                        href={guiUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Open in NOMAD
-                      </Button>
+                    {isNotFound && (
+                      <Text size="xs" c="dimmed">
+                        This upload ID was not found on the NOMAD server. It may
+                        have been deleted externally.
+                      </Text>
                     )}
-                  </Group>
-                  {isProcessing && (
-                    <Text size="xs" c="dimmed">
-                      NOMAD is processing your upload. You can navigate away
-                      — status updates automatically when you return.
-                    </Text>
-                  )}
-                  {isNotFound && (
-                    <Text size="xs" c="dimmed">
-                      This upload ID was not found on the NOMAD server. It
-                      may have been deleted externally.
-                    </Text>
-                  )}
-                </Stack>
-              </Alert>
-            )
-          })()}
+                  </Stack>
+                </Alert>
+              )
+            })()}
 
           {!isResultsCardOpen && (
             <Button

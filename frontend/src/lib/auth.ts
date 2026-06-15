@@ -27,7 +27,9 @@ export const ensureAuthenticated = async () => {
   } catch (error) {
     console.error("[Auth] readUserMe() failed:", error)
     if (isAuthError(error)) {
-      console.log("[Auth] Auth error detected, clearing auth and redirecting to /login")
+      console.log(
+        "[Auth] Auth error detected, clearing auth and redirecting to /login",
+      )
       clearAuth()
       throw redirect({ to: "/login" })
     }

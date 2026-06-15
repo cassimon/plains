@@ -1274,7 +1274,7 @@ export function AppProvider({
       return
     }
     scheduleSave()
-  }, [loaded, scheduleSave, materials, solutions, experiments, processes, results, planes])
+  }, [loaded, scheduleSave])
 
   // ── Periodic safety flush + unload / visibility watchdog ──────────────────
 

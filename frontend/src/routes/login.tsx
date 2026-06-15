@@ -59,14 +59,19 @@ function Login() {
         const authenticated = await keycloak.init({
           checkLoginIframe: false,
         })
-        console.log("[Login] keycloak.init() completed, authenticated:", authenticated)
+        console.log(
+          "[Login] keycloak.init() completed, authenticated:",
+          authenticated,
+        )
         setKeycloak(keycloak)
         console.log("[Login] Keycloak instance stored globally")
         if (authenticated) {
           console.log("[Login] User is authenticated, navigating to /")
           navigate({ to: "/" })
         } else {
-          console.log("[Login] User is NOT authenticated, staying on login page")
+          console.log(
+            "[Login] User is NOT authenticated, staying on login page",
+          )
         }
       } catch (err) {
         console.error("[Login] Keycloak init failed:", err)
@@ -76,7 +81,6 @@ function Login() {
   }, [navigate])
 
   const handleLogin = () => {
-    
     console.log("[Login] handleLogin clicked")
     const kc = getKeycloak()
     console.log("[Login] Keycloak instance available:", !!kc)
@@ -85,8 +89,9 @@ function Login() {
     // Redirect to NOMAD Keycloak; after login Keycloak redirects back to /login
     // where keycloak.init() (on next mount) processes the auth code.
     console.log("[Login] Calling keycloak.login()")
-    getKeycloak()?.login({ redirectUri: `${window.location.origin}/plains/login` })
-
+    getKeycloak()?.login({
+      redirectUri: `${window.location.origin}${import.meta.env.BASE_URL}login`,
+    })
   }
 
   return (

@@ -38,7 +38,10 @@ import {
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { DryingMethodInput, summariseQuenchingValue } from "@/components/QuenchingModal"
+import {
+  DryingMethodInput,
+  summariseQuenchingValue,
+} from "@/components/QuenchingModal"
 import {
   type CollectionConfirmParams,
   SelectCollectionModal,
@@ -514,7 +517,8 @@ function parsePerovskiteSiteFormula(rawValue: string): {
     return { components: [] }
   }
 
-  const componentRegex = /(\([^)]+\)|[A-Za-z][A-Za-z0-9+-]*)(\d+(?:\.\d+)?|\.\d+)/g
+  const componentRegex =
+    /(\([^)]+\)|[A-Za-z][A-Za-z0-9+-]*)(\d+(?:\.\d+)?|\.\d+)/g
   const components: Array<{ ion: string; coefficient: number }> = []
   let consumedUntil = 0
 
@@ -531,7 +535,7 @@ function parsePerovskiteSiteFormula(rawValue: string): {
     if (!Number.isFinite(coefficient)) {
       return {
         components: [],
-        parseError: `Invalid coefficient \"${match[2]}\"`,
+        parseError: `Invalid coefficient "${match[2]}"`,
       }
     }
     components.push({
@@ -1519,8 +1523,8 @@ function ResultingStacks({
                                         }
                                         onClick={(e) => e.stopPropagation()}
                                         aria-invalid={
-                                          (perovskiteValidation?.aErrors.length ??
-                                            0) > 0
+                                          (perovskiteValidation?.aErrors
+                                            .length ?? 0) > 0
                                         }
                                         style={{
                                           ...inLayerFieldInputStyle,
@@ -1536,7 +1540,10 @@ function ResultingStacks({
                                       >
                                         {PEROVSKITE_A_FORMULA_SUGGESTIONS.map(
                                           (option) => (
-                                            <option key={option} value={option} />
+                                            <option
+                                              key={option}
+                                              value={option}
+                                            />
                                           ),
                                         )}
                                       </datalist>
@@ -1567,8 +1574,8 @@ function ResultingStacks({
                                         }
                                         onClick={(e) => e.stopPropagation()}
                                         aria-invalid={
-                                          (perovskiteValidation?.bErrors.length ??
-                                            0) > 0
+                                          (perovskiteValidation?.bErrors
+                                            .length ?? 0) > 0
                                         }
                                         style={{
                                           ...inLayerFieldInputStyle,
@@ -1584,7 +1591,10 @@ function ResultingStacks({
                                       >
                                         {PEROVSKITE_B_FORMULA_SUGGESTIONS.map(
                                           (option) => (
-                                            <option key={option} value={option} />
+                                            <option
+                                              key={option}
+                                              value={option}
+                                            />
                                           ),
                                         )}
                                       </datalist>
@@ -1615,8 +1625,8 @@ function ResultingStacks({
                                         }
                                         onClick={(e) => e.stopPropagation()}
                                         aria-invalid={
-                                          (perovskiteValidation?.xErrors.length ??
-                                            0) > 0
+                                          (perovskiteValidation?.xErrors
+                                            .length ?? 0) > 0
                                         }
                                         style={{
                                           ...inLayerFieldInputStyle,
@@ -1632,7 +1642,10 @@ function ResultingStacks({
                                       >
                                         {PEROVSKITE_X_FORMULA_SUGGESTIONS.map(
                                           (option) => (
-                                            <option key={option} value={option} />
+                                            <option
+                                              key={option}
+                                              value={option}
+                                            />
                                           ),
                                         )}
                                       </datalist>
@@ -3213,34 +3226,37 @@ export function ProcessesPage() {
     )
   }
 
-  const getParameterFlowLines = useCallback((step: ProcessStep) => {
-    const lines = PROCESS_PARAMETER_DEFINITIONS.flatMap(
-      ({ key, label, unit }) => {
-        if (
-          key === "depositionMethod" ||
-          key === "depositionStartTime" ||
-          key === "annealingStartTime"
-        ) {
-          return []
-        }
-        const value = step[key]?.value?.trim()
-        if (!value) {
-          return []
-        }
-        if (key === "dryingMethod") {
-          // Use full human-readable quenching summary
-          const summary = summariseQuenchingValue(value, materials, solutions)
-          return [summary || `${label}: Set`]
-        }
-        return [`${label}: ${value}${unit ? ` ${unit}` : ""}`]
-      },
-    )
+  const getParameterFlowLines = useCallback(
+    (step: ProcessStep) => {
+      const lines = PROCESS_PARAMETER_DEFINITIONS.flatMap(
+        ({ key, label, unit }) => {
+          if (
+            key === "depositionMethod" ||
+            key === "depositionStartTime" ||
+            key === "annealingStartTime"
+          ) {
+            return []
+          }
+          const value = step[key]?.value?.trim()
+          if (!value) {
+            return []
+          }
+          if (key === "dryingMethod") {
+            // Use full human-readable quenching summary
+            const summary = summariseQuenchingValue(value, materials, solutions)
+            return [summary || `${label}: Set`]
+          }
+          return [`${label}: ${value}${unit ? ` ${unit}` : ""}`]
+        },
+      )
 
-    if (lines.length === 0) {
-      return ["No parameters set"]
-    }
-    return lines
-  }, [materials, solutions])
+      if (lines.length === 0) {
+        return ["No parameters set"]
+      }
+      return lines
+    },
+    [materials, solutions],
+  )
 
   const selectedStepParameterSections = useMemo(() => {
     if (!selectedStep) {

@@ -25,9 +25,11 @@ export function setKeycloak(kc: Keycloak): void {
   kc.onTokenExpired = () => {
     console.log("[Keycloak] Token expired, refreshing")
     kc.updateToken(30).catch(() => {
-      console.error("[Keycloak] Token refresh failed, clearing and redirecting to login")
+      console.error(
+        "[Keycloak] Token refresh failed, clearing and redirecting to login",
+      )
       clearKeycloak()
-      window.location.href = "/login"
+      window.location.href = `${import.meta.env.BASE_URL}login`
     })
   }
 }
@@ -52,7 +54,10 @@ export function getTokenSync(): string | null {
  * gets a valid, non-expired value.  Used by the OpenAPI client interceptor.
  */
 export async function getTokenAsync(): Promise<string> {
-  console.log("[Keycloak] getTokenAsync called, authenticated:", _keycloak?.authenticated)
+  console.log(
+    "[Keycloak] getTokenAsync called, authenticated:",
+    _keycloak?.authenticated,
+  )
   if (_keycloak?.authenticated) {
     try {
       await _keycloak.updateToken(30)
@@ -60,7 +65,7 @@ export async function getTokenAsync(): Promise<string> {
     } catch {
       console.error("[Keycloak] Token update failed in getTokenAsync, clearing")
       clearKeycloak()
-      window.location.href = "/login"
+      window.location.href = `${import.meta.env.BASE_URL}login`
       return ""
     }
     return _keycloak.token ?? ""
@@ -84,8 +89,10 @@ export function logout(): void {
   const kc = _keycloak
   clearKeycloak()
   if (kc?.authenticated) {
-    kc.logout({ redirectUri: `${window.location.origin}/plains/login` })
+    kc.logout({
+      redirectUri: `${window.location.origin}${import.meta.env.BASE_URL}login`,
+    })
   } else {
-    window.location.href = "/login"
+    window.location.href = `${import.meta.env.BASE_URL}login`
   }
 }
