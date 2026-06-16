@@ -869,7 +869,7 @@ function SolutionCard({
 
             <Box style={{ flex: 1, minWidth: 0 }}>
               <Stack gap="md">
-                {/* Name + volume */}
+                {/* Name + type + volume */}
                 <Group gap="sm" wrap="nowrap">
                   <TextInput
                     label="Solution name"
@@ -877,6 +877,25 @@ function SolutionCard({
                     value={recipe.name}
                     onChange={(e) => update({ name: e.currentTarget.value })}
                     style={{ flex: 2 }}
+                  />
+                  <NativeSelect
+                    label="Type"
+                    value={recipe.type ?? ""}
+                    onChange={(e) => update({ type: e.currentTarget.value })}
+                    data={[
+                      { label: "—", value: "" },
+                      { label: "n-type (ETL)", value: "n-type (ETL)" },
+                      { label: "p-type (HTL)", value: "p-type (HTL)" },
+                      { label: "perovskite precursor", value: "perovskite precursor" },
+                      { label: "solvent", value: "solvent" },
+                      { label: "additive", value: "additive" },
+                      { label: "passivation agent/layer", value: "passivation agent/layer" },
+                      { label: "conductor (contact)", value: "conductor (contact)" },
+                      { label: "encapsulant", value: "encapsulant" },
+                      { label: "semiconductor (i)", value: "semiconductor (i)" },
+                      { label: "other", value: "other" },
+                    ]}
+                    style={{ flex: 1 }}
                   />
                   <NumberInput
                     label="Total solvent volume (mL)"
@@ -1084,6 +1103,7 @@ function SolutionCard({
                   {search?.role === "solvent" && (
                     <Box mt={6}>
                       <InlineSearch
+                        role="solvent"
                         onSelect={handleSearchSelect}
                         onCancel={() => setSearch(null)}
                       />
@@ -1269,6 +1289,7 @@ function SolutionCard({
                   {search?.role === "solute" && (
                     <Box mt={6}>
                       <InlineSearch
+                        role="solute"
                         onSelect={handleSearchSelect}
                         onCancel={() => setSearch(null)}
                       />

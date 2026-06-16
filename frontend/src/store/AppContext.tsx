@@ -67,6 +67,7 @@ export function newMaterial(
 export type ProcessSubstrateDimension = {
   lengthCm: string
   widthCm: string
+  heightMm?: string
   surfaceRoughnessRmsNm?: string
 }
 
@@ -126,14 +127,36 @@ export type ProcessStepCategory =
   | "doping_aging"
   | "substrate_preparation"
 
+/** Inline material defined directly on a process step (no separate entity) */
+export type ProcessStepInlineMaterial = {
+  name: string
+  type?: string // same options as Material.type: "n-type (ETL)", "p-type (HTL)", etc.
+  pubchemCid?: string
+  molarMass?: number // g/mol
+  density?: number // g/mL
+}
+
+/** Inline substrate defined directly in a process (no separate Material entity) */
+export type ProcessInlineSubstrate = {
+  id: string
+  name: string
+  rigidity?: "rigid" | "flexible"
+  lengthCm?: string
+  widthCm?: string
+  heightMm?: string
+  surfaceRoughnessRmsNm?: string
+}
+
 /** A single process step in a Process, reusing ProcessParam schema */
 export type ProcessStep = {
   id: string
   name: string // user-friendly label, e.g. "Perovskite Deposition"
   stepCategory: ProcessStepCategory
   color: string
-  materialId?: string // reference to Material
-  solutionId?: string // reference to Solution
+  materialId?: string // reference to Material (legacy, kept for backward compat)
+  solutionId?: string // reference to Solution (legacy, kept for backward compat)
+  chemRecipeId?: string // references process.solutionRecipes[].id
+  inlineMaterial?: ProcessStepInlineMaterial // material defined directly, no entity
   // Parameters - all optional, encourage adding over requiring
   depositionMethod?: ProcessParam
   depositionStartTime?: ProcessParam
@@ -177,6 +200,7 @@ export type ProcessSolute = ProcessChemIngredient & {
 export type ProcessSolutionRecipe = {
   id: string
   name: string
+  type?: string // same options as Material.type: "n-type (ETL)", "p-type (HTL)", etc.
   totalSolventVolumeMl: string
   solvents: ProcessSolvent[]
   solutes: ProcessSolute[]
@@ -211,8 +235,9 @@ export type Process = {
   id: string
   name: string
   description?: string
-  substrateIds: string[] // references to substrate Materials
+  substrateIds: string[] // references to substrate Materials (legacy, kept for backward compat)
   substrateDimensionsById?: Record<string, ProcessSubstrateDimension>
+  inlineSubstrates?: ProcessInlineSubstrate[] // substrates defined directly, no entity
   stages: ProcessStage[] // ordered from bottom (index 0) upward
   /** Persisted generated stacks for process editor UI */
   generatedStacks?: ProcessGeneratedStack[]
@@ -337,6 +362,24 @@ export type Substrate = {
   parameterValues?: { [key: string]: string }
 }
 
+export type ExperimentSolutionBatch = {
+  mode: "make" | "take"
+  totalVolumeMl?: string    // for "make" with recipe: target volume in mL
+  multiplier?: string       // for "make" with entity solution: scale factor (×)
+  takenFromExpId?: string   // for "take": source experiment id
+  takenFromBatchId?: string // for "take": source batch key
+}
+
+export type ExperimentChemicalsPrep = {
+  prepTime?: string // datetime-local when chemicals were prepared
+  materialOverrides?: Record<string, {  // keyed by materialId
+    inventoryLabel?: string
+    purity?: string
+    supplier?: string
+  }>
+  solutionBatches?: Record<string, ExperimentSolutionBatch> // keyed by "sol:{id}" or "recipe:{id}"
+}
+
 export type Experiment = {
   id: string
   name: string
@@ -359,6 +402,8 @@ export type Experiment = {
   substrates: Substrate[]
   // Absolute processing times keyed by process stage id
   processingTimes?: { [stageId: string]: string }
+  // Chemicals preparation data (Step 1)
+  chemicalsPrep?: ExperimentChemicalsPrep
   // Results uploaded (makes experiment "Finished" only if actually uploaded to NOMAD)
   hasResults: boolean
   // Track if at least one NOMAD upload has been completed (needed for "finished" status)
@@ -568,6 +613,8 @@ export type SolutionComponent = {
 export type Solution = {
   id: string
   name: string
+  /** Material/layer type: "n-type (ETL)", "p-type (HTL)", "perovskite precursor", etc. */
+  type?: string
   /** Handling instructions before use, e.g. "PVDF 0.22 µm filter before use" */
   handling: string
   /** Storage conditions, e.g. "N2 Glovebox" */
@@ -580,6 +627,7 @@ export function newSolution(): Solution {
   return {
     id: crypto.randomUUID(),
     name: "New Solution",
+    type: "",
     handling: "",
     storage: "",
     creationTime: new Date().toISOString(),

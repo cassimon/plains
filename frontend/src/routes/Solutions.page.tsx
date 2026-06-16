@@ -409,6 +409,7 @@ function SolutionCard({
 
   const [editingName, setEditingName] = useState(false)
   const [nameBuffer, setNameBuffer] = useState(solution.name)
+  const [typeBuffer, setTypeBuffer] = useState(solution.type ?? "")
   const [handlingBuffer, setHandlingBuffer] = useState(solution.handling ?? "")
   const [storageBuffer, setStorageBuffer] = useState(solution.storage ?? "")
   const [creationTimeBuffer, setCreationTimeBuffer] = useState(
@@ -510,6 +511,11 @@ function SolutionCard({
     }
     setEditingComponentId(comp.id)
     setComponentBuffer({ ...comp })
+  }
+
+  const commitType = (value: string) => {
+    if ((solution.type ?? "") === value) return
+    onUpdate({ ...solution, type: value })
   }
 
   const commitHandling = () => {
@@ -676,6 +682,28 @@ function SolutionCard({
       <Collapse in={open}>
         <Divider my="sm" />
         <Group grow mb="xs" align="end">
+          <NativeSelect
+            label="Type"
+            size="xs"
+            value={typeBuffer}
+            onChange={(e) => {
+              setTypeBuffer(e.currentTarget.value)
+              commitType(e.currentTarget.value)
+            }}
+            data={[
+              { label: "—", value: "" },
+              { label: "n-type (ETL)", value: "n-type (ETL)" },
+              { label: "p-type (HTL)", value: "p-type (HTL)" },
+              { label: "perovskite precursor", value: "perovskite precursor" },
+              { label: "solvent", value: "solvent" },
+              { label: "additive", value: "additive" },
+              { label: "passivation agent/layer", value: "passivation agent/layer" },
+              { label: "conductor (contact)", value: "conductor (contact)" },
+              { label: "encapsulant", value: "encapsulant" },
+              { label: "semiconductor (i)", value: "semiconductor (i)" },
+              { label: "other", value: "other" },
+            ]}
+          />
           <TextInput
             label="Handling"
             size="xs"

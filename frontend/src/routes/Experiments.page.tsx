@@ -8,6 +8,7 @@ import {
   Divider,
   Group,
   Modal,
+  NativeSelect,
   NumberInput,
   Paper,
   Select,
@@ -19,8 +20,11 @@ import {
 } from "@mantine/core"
 import { modals } from "@mantine/modals"
 import {
+  IconAtom,
+  IconCheck,
   IconCopy,
   IconInfoCircle,
+  IconLayersIntersect,
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react"
@@ -31,6 +35,7 @@ import { autoResolveCollection } from "@/lib/autoResolveCollection"
 import type { CollectionConfirmParams } from "../components/SelectCollectionModal"
 import {
   type CanvasCollectionElement,
+  type DeviceArchitecture,
   type Experiment,
   getExperimentStatus,
   type Material,
@@ -42,6 +47,7 @@ import {
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
+import { ChemicalsTab, collectChemicals } from "./Experiments.chemicals"
 
 type SubstrateGeneratorConfig = {
   namePrefix: string
@@ -1409,6 +1415,219 @@ function ExperimentGrid({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Three-Step Timeline Header
+// ─────────────────────────────────────────────────────────────────────────────
+
+type ExpTab = "chemicals" | "processing" | "devices"
+
+const EXP_STEPS: Array<{ id: ExpTab; label: string; sublabel: string }> = [
+  { id: "chemicals", label: "Step 1", sublabel: "Chemicals" },
+  { id: "processing", label: "Step 2", sublabel: "Processing" },
+  { id: "devices", label: "Step 3", sublabel: "Devices" },
+]
+
+function ExperimentTimeline({
+  activeTab,
+  onSetTab,
+  chemicalsDone,
+  processingDone,
+  devicesDone,
+}: {
+  activeTab: ExpTab
+  onSetTab: (tab: ExpTab) => void
+  chemicalsDone: boolean
+  processingDone: boolean
+  devicesDone: boolean
+}) {
+  const done: Record<ExpTab, boolean> = {
+    chemicals: chemicalsDone,
+    processing: processingDone,
+    devices: devicesDone,
+  }
+  return (
+    <Group gap={0} align="center" mb="lg" wrap="nowrap">
+      {EXP_STEPS.map((step, i) => (
+        <React.Fragment key={step.id}>
+          <Box
+            onClick={() => onSetTab(step.id)}
+            style={{ cursor: "pointer", userSelect: "none" }}
+          >
+            <Group gap="xs" align="center" wrap="nowrap">
+              <Box
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: "50%",
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background:
+                    activeTab === step.id
+                      ? "var(--mantine-color-blue-6)"
+                      : done[step.id]
+                        ? "var(--mantine-color-teal-6)"
+                        : "var(--mantine-color-gray-3)",
+                  boxShadow:
+                    activeTab === step.id
+                      ? "0 0 0 3px var(--mantine-color-blue-2)"
+                      : "none",
+                  transition: "all 0.15s",
+                }}
+              >
+                {done[step.id] && activeTab !== step.id ? (
+                  <IconCheck size={16} color="white" />
+                ) : (
+                  <Text size="sm" fw={700} c="white">
+                    {i + 1}
+                  </Text>
+                )}
+              </Box>
+              <Box>
+                <Text
+                  size="xs"
+                  fw={600}
+                  c={activeTab === step.id ? "blue" : "dimmed"}
+                  tt="uppercase"
+                  lh={1.2}
+                >
+                  {step.label}
+                </Text>
+                <Text
+                  size="sm"
+                  fw={activeTab === step.id ? 700 : 500}
+                  c={activeTab === step.id ? "blue" : undefined}
+                  lh={1.2}
+                >
+                  {step.sublabel}
+                </Text>
+              </Box>
+            </Group>
+          </Box>
+          {i < EXP_STEPS.length - 1 && (
+            <Box
+              style={{
+                flex: 1,
+                height: 2,
+                background: "var(--mantine-color-gray-3)",
+                margin: "0 12px",
+              }}
+            />
+          )}
+        </React.Fragment>
+      ))}
+    </Group>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Devices Tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ARCHITECTURE_OPTIONS: Array<{ value: DeviceArchitecture; label: string }> =
+  [
+    { value: "n-i-p", label: "n-i-p (standard)" },
+    { value: "p-i-n", label: "p-i-n (inverted)" },
+    { value: "n-i-p-n", label: "n-i-p-n" },
+    { value: "p-i-n-p", label: "p-i-n-p" },
+    { value: "custom", label: "Custom" },
+  ]
+
+function DevicesTab({
+  experiment,
+  onUpdate,
+}: {
+  experiment: Experiment
+  onUpdate: (exp: Experiment) => void
+}) {
+  const u = (patch: Partial<Experiment>) =>
+    onUpdate({ ...experiment, ...patch })
+  return (
+    <Stack gap="md">
+      <SimpleGrid cols={3} spacing="sm">
+        <Box>
+          <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+            Device Architecture
+          </Text>
+          <NativeSelect
+            size="sm"
+            value={experiment.architecture}
+            onChange={(e) =>
+              u({ architecture: e.currentTarget.value as DeviceArchitecture })
+            }
+            data={ARCHITECTURE_OPTIONS.map((o) => ({
+              label: o.label,
+              value: o.value,
+            }))}
+          />
+        </Box>
+        <Box>
+          <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+            Device Type
+          </Text>
+          <NativeSelect
+            size="sm"
+            value={experiment.deviceType}
+            onChange={(e) =>
+              u({
+                deviceType: e.currentTarget.value as
+                  | "film"
+                  | "half"
+                  | "full",
+              })
+            }
+            data={[
+              { label: "Test film", value: "film" },
+              { label: "Half device", value: "half" },
+              { label: "Full device", value: "full" },
+            ]}
+          />
+        </Box>
+        <NumberInput
+          label="Device area (cm²)"
+          size="sm"
+          min={0}
+          step={0.01}
+          value={experiment.deviceArea}
+          onChange={(v) => u({ deviceArea: Number(v) || 0 })}
+        />
+      </SimpleGrid>
+      <SimpleGrid cols={3} spacing="sm">
+        <NumberInput
+          label="Devices per substrate"
+          size="sm"
+          min={1}
+          value={experiment.devicesPerSubstrate}
+          onChange={(v) => u({ devicesPerSubstrate: Number(v) || 1 })}
+        />
+        <NumberInput
+          label="Substrate width (cm)"
+          size="sm"
+          min={0}
+          step={0.1}
+          value={experiment.substrateWidth}
+          onChange={(v) => u({ substrateWidth: Number(v) || 0 })}
+        />
+        <NumberInput
+          label="Substrate length (cm)"
+          size="sm"
+          min={0}
+          step={0.1}
+          value={experiment.substrateLength}
+          onChange={(v) => u({ substrateLength: Number(v) || 0 })}
+        />
+      </SimpleGrid>
+      <TextInput
+        label="Substrate material"
+        size="sm"
+        value={experiment.substrateMaterial}
+        onChange={(e) => u({ substrateMaterial: e.currentTarget.value })}
+      />
+    </Stack>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main Experiments Page
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1441,6 +1660,7 @@ export default function ExperimentsPage() {
   const [selectedExpId, setSelectedExpId] = useState<string | null>(
     () => lastSelectedByKind.experiment ?? null,
   )
+  const [activeExpTab, setActiveExpTab] = useState<ExpTab>("chemicals")
   const [recipeModalOpen, setRecipeModalOpen] = useState(false)
   const [newExperimentProcessId, setNewExperimentProcessId] = useState<
     string | null
@@ -2161,45 +2381,110 @@ export default function ExperimentsPage() {
               />
             </Box>
 
-            <Divider />
+            {/* Three-step timeline */}
+            {(() => {
+              const { materialIds, solutionItems } = collectChemicals(
+                selectedProcess,
+                materials,
+                solutions,
+              )
+              const chemDone =
+                Boolean(selectedExperiment.chemicalsPrep?.prepTime) ||
+                (materialIds.length === 0 && solutionItems.length === 0)
+              const procDone = selectedExperiment.substrates.length > 0
+              const devDone =
+                selectedExperiment.deviceArea > 0 &&
+                Boolean(selectedExperiment.substrateMaterial)
+              return (
+                <>
+                  <ExperimentTimeline
+                    activeTab={activeExpTab}
+                    onSetTab={setActiveExpTab}
+                    chemicalsDone={chemDone}
+                    processingDone={procDone}
+                    devicesDone={devDone}
+                  />
 
-            {/* Substrate Management */}
-            <SubstrateNameGenerator
-              process={selectedProcess}
-              substrateMaterialOptions={substrateMaterialOptions}
-              materialNameById={materialNameById}
-              solutionNameById={solutionNameById}
-              generatorConfig={generatorConfig}
-              onChangeGeneratorConfig={(patch) =>
-                setGeneratorConfig((prev) => ({ ...prev, ...patch }))
-              }
-              nextStepDefaults={nextStepDefaults}
-              onChangeNextStepDefault={(stageIndex, value) =>
-                setNextStepDefaults((prev) => ({
-                  ...prev,
-                  [stageIndex]: value,
-                }))
-              }
-              onAddSubstratesForMaterial={handleAddSubstratesForMaterial}
-            />
+                  {activeExpTab === "chemicals" && (
+                    <Paper withBorder p="md" radius="md">
+                      <Group gap="xs" mb="md">
+                        <IconAtom size={18} color="var(--mantine-color-orange-6)" />
+                        <Text size="sm" fw={700}>
+                          Step 1: Chemicals
+                        </Text>
+                      </Group>
+                      <ChemicalsTab
+                        experiment={selectedExperiment}
+                        process={selectedProcess}
+                        materials={materials}
+                        solutions={solutions}
+                        allExperiments={experiments}
+                        onUpdate={handleUpdateExperiment}
+                      />
+                    </Paper>
+                  )}
 
-            {/* Main Grid */}
-            <Paper withBorder p="md" radius="md">
-              <Text size="sm" fw={600} mb="md">
-                Experiment Steps Grid
-              </Text>
-              <ExperimentGrid
-                experiment={selectedExperiment}
-                process={selectedProcess}
-                substrateMaterialOptions={substrateMaterialOptions}
-                materialNameById={materialNameById}
-                solutionNameById={solutionNameById}
-                generatorConfig={generatorConfig}
-                nextStepDefaults={nextStepDefaults}
-                onUpdate={handleUpdateExperiment}
-                onUpdateProcess={handleUpdateProcess}
-              />
-            </Paper>
+                  {activeExpTab === "processing" && (
+                    <Stack gap="md">
+                      <Paper withBorder p="md" radius="md">
+                        <Group gap="xs" mb="md">
+                          <IconLayersIntersect size={18} color="var(--mantine-color-blue-6)" />
+                          <Text size="sm" fw={700}>
+                            Step 2: Processing
+                          </Text>
+                        </Group>
+                        <SubstrateNameGenerator
+                          process={selectedProcess}
+                          substrateMaterialOptions={substrateMaterialOptions}
+                          materialNameById={materialNameById}
+                          solutionNameById={solutionNameById}
+                          generatorConfig={generatorConfig}
+                          onChangeGeneratorConfig={(patch) =>
+                            setGeneratorConfig((prev) => ({ ...prev, ...patch }))
+                          }
+                          nextStepDefaults={nextStepDefaults}
+                          onChangeNextStepDefault={(stageIndex, value) =>
+                            setNextStepDefaults((prev) => ({
+                              ...prev,
+                              [stageIndex]: value,
+                            }))
+                          }
+                          onAddSubstratesForMaterial={
+                            handleAddSubstratesForMaterial
+                          }
+                        />
+                        <ExperimentGrid
+                          experiment={selectedExperiment}
+                          process={selectedProcess}
+                          substrateMaterialOptions={substrateMaterialOptions}
+                          materialNameById={materialNameById}
+                          solutionNameById={solutionNameById}
+                          generatorConfig={generatorConfig}
+                          nextStepDefaults={nextStepDefaults}
+                          onUpdate={handleUpdateExperiment}
+                          onUpdateProcess={handleUpdateProcess}
+                        />
+                      </Paper>
+                    </Stack>
+                  )}
+
+                  {activeExpTab === "devices" && (
+                    <Paper withBorder p="md" radius="md">
+                      <Group gap="xs" mb="md">
+                        <IconLayersIntersect size={18} color="var(--mantine-color-teal-6)" />
+                        <Text size="sm" fw={700}>
+                          Step 3: Devices
+                        </Text>
+                      </Group>
+                      <DevicesTab
+                        experiment={selectedExperiment}
+                        onUpdate={handleUpdateExperiment}
+                      />
+                    </Paper>
+                  )}
+                </>
+              )
+            })()}
           </Stack>
         )}
       </Box>

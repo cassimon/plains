@@ -5,7 +5,9 @@ import {
   Button,
   Divider,
   Group,
+  Loader,
   Menu,
+  NativeSelect,
   NumberInput,
   Paper,
   ScrollArea,
@@ -34,6 +36,7 @@ import {
   IconPlus,
   IconRefresh,
   IconRowInsertTop,
+  IconSearch,
   IconSparkles,
   IconSquare,
   IconTrash,
@@ -60,16 +63,47 @@ import {
   PROCESS_PARAMETER_DEFINITIONS,
   type Process,
   type ProcessGeneratedStack,
+  type ProcessInlineSubstrate,
   type ProcessParam,
   type ProcessParameterKey,
+  type ProcessSolutionRecipe,
   type ProcessStep,
   type ProcessStepCategory,
+  type ProcessStepInlineMaterial,
   type Solution,
   useAppContext,
   useEntityCollection,
 } from "@/store/AppContext"
 import { DependencyBlockModal } from "../components/DependencyBlockModal"
 import { ChemistryTab } from "./Processes.chemistry"
+
+const MATERIAL_TYPES = [
+  "n-type (ETL)",
+  "p-type (HTL)",
+  "perovskite precursor",
+  "solvent",
+  "additive",
+  "passivation agent/layer",
+  "conductor (contact)",
+  "encapsulant",
+  "semiconductor (i)",
+  "other",
+]
+
+const MATERIAL_TYPE_SELECT_DATA = [
+  { label: "—", value: "" },
+  ...MATERIAL_TYPES.map((t) => ({ label: t, value: t })),
+]
+
+function typeStrToLayerType(type: string): string {
+  const t = type.toLowerCase()
+  if (t.includes("n-type") || t.includes("etl")) return "ETL"
+  if (t.includes("p-type") || t.includes("htl")) return "HTL"
+  if (t.includes("perovskite")) return "absorber"
+  if (t.includes("conductor") || t.includes("contact")) return "contact"
+  if (t.includes("semiconductor")) return "absorber"
+  return "interlayer"
+}
 
 const STEP_CATEGORIES: Array<{
   value: ProcessStepCategory
@@ -116,6 +150,7 @@ const ROW_ACTION_SLOT_WIDTH = 220
 const DEFAULT_SUBSTRATE_DIMENSIONS = {
   lengthCm: "2",
   widthCm: "2",
+  heightMm: "",
   surfaceRoughnessRmsNm: "",
 }
 const NEW_CHEMICAL_OPTION = "action:new-material:chemical_compound"
@@ -375,6 +410,461 @@ function ProcessParamInput({
         )}
       </Group>
     </Box>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inline PubChem search helpers (used by MaterialParamsPanel)
+// ─────────────────────────────────────────────────────────────────────────────
+
+type PubChemHit = { cid: string; title: string; formula: string }
+
+async function searchPubChemStep(query: string): Promise<PubChemHit[]> {
+  const cidRes = await fetch(
+    `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(query)}/cids/JSON`,
+  )
+  if (!cidRes.ok) return []
+  const cidData = (await cidRes.json()) as {
+    IdentifierList?: { CID?: number[] }
+  }
+  const cids = (cidData.IdentifierList?.CID ?? []).slice(0, 10)
+  if (cids.length === 0) return []
+  const propRes = await fetch(
+    `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cids.join(",")}/property/Title,MolecularFormula/JSON`,
+  )
+  if (!propRes.ok) return []
+  const propData = (await propRes.json()) as {
+    PropertyTable?: {
+      Properties?: Array<{
+        CID: number
+        Title?: string
+        MolecularFormula?: string
+      }>
+    }
+  }
+  return (propData.PropertyTable?.Properties ?? []).map((p) => ({
+    cid: String(p.CID),
+    title: p.Title ?? `CID ${p.CID}`,
+    formula: p.MolecularFormula ?? "",
+  }))
+}
+
+// PubChem pug_view density types
+type SWM = { String: string }
+type InfoVal = { StringWithMarkup?: SWM[] }
+type DInfo = { Value?: InfoVal }
+type DSec3 = { TOCHeading?: string; Information?: DInfo[] }
+type DSec2 = { TOCHeading?: string; Section?: DSec3[] }
+type DSec1 = { TOCHeading?: string; Section?: DSec2[] }
+type DRec = { Record?: { Section?: DSec1[] } }
+
+function parseDensityStep(data: DRec): number | undefined {
+  const strings: string[] = []
+  for (const s1 of data.Record?.Section ?? [])
+    for (const s2 of s1.Section ?? [])
+      for (const s3 of s2.Section ?? []) {
+        if (s3.TOCHeading !== "Density") continue
+        for (const info of s3.Information ?? [])
+          for (const swm of info.Value?.StringWithMarkup ?? [])
+            if (swm.String) strings.push(swm.String)
+      }
+  if (!strings.length) return undefined
+  for (const s of strings) {
+    const m = s.match(
+      /(\d+\.?\d*)\s*g\s*[/\\]\s*(?:cu\s*cm|cm\s*3|cm³|cc|mL|ml)/i,
+    )
+    if (m) return Number(m[1])
+  }
+  for (const s of strings) {
+    const m = s.match(/^(\d+\.?\d*)\s*(?:at\s+\d|@\s*\d)/i)
+    if (m) return Number(m[1])
+  }
+  for (const s of strings) {
+    const m = s.match(/relative\s+density[^:]*:\s*(\d+\.?\d*)/i)
+    if (m) return Number(m[1])
+  }
+  return undefined
+}
+
+async function fetchPubChemPropsStep(
+  cid: string,
+): Promise<{ molarMass?: number; density?: number }> {
+  let molarMass: number | undefined
+  let density: number | undefined
+  try {
+    const r = await fetch(
+      `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/property/MolecularWeight/JSON`,
+    )
+    if (r.ok) {
+      const d = (await r.json()) as {
+        PropertyTable?: {
+          Properties?: Array<{ MolecularWeight?: number | string }>
+        }
+      }
+      const raw = d.PropertyTable?.Properties?.[0]?.MolecularWeight
+      if (raw !== undefined) molarMass = Number(raw)
+    }
+  } catch {
+    /* best-effort */
+  }
+  try {
+    const r = await fetch(
+      `https://pubchem.ncbi.nlm.nih.gov/rest/pug_view/data/compound/${cid}/JSON?heading=Density`,
+    )
+    if (r.ok) density = parseDensityStep((await r.json()) as DRec)
+  } catch {
+    /* best-effort */
+  }
+  return { molarMass, density }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MaterialParamsPanel — replaces the step-source Select in the detail panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+type MaterialParamsPanelProps = {
+  step: ProcessStep
+  stepColor: string
+  recipes: ProcessSolutionRecipe[]
+  onSetRecipe: (recipeId: string | null) => void
+  onSetInlineMaterial: (mat: ProcessStepInlineMaterial | null) => void
+}
+
+function MaterialParamsPanel({
+  step,
+  stepColor,
+  recipes,
+  onSetRecipe,
+  onSetInlineMaterial,
+}: MaterialParamsPanelProps) {
+  type PanelMode =
+    | { kind: "idle" }
+    | {
+        kind: "pubchem"
+        query: string
+        loading: boolean
+        hits: PubChemHit[]
+        error: string | null
+        fetchingCid: string | null
+      }
+    | { kind: "manual"; name: string; type: string; molarMass: string; density: string }
+
+  const [mode, setMode] = useState<PanelMode>({ kind: "idle" })
+
+  const currentLabel = step.chemRecipeId
+    ? (recipes.find((r) => r.id === step.chemRecipeId)?.name ?? "Recipe")
+    : step.inlineMaterial
+      ? step.inlineMaterial.name || "Custom material"
+      : null
+
+  const doSearch = async () => {
+    if (mode.kind !== "pubchem") return
+    const q = mode.query.trim()
+    if (!q) return
+    setMode({ ...mode, loading: true, error: null, hits: [] })
+    try {
+      const hits = await searchPubChemStep(q)
+      setMode((prev) =>
+        prev.kind === "pubchem"
+          ? {
+              ...prev,
+              loading: false,
+              hits,
+              error: hits.length === 0 ? "No results." : null,
+            }
+          : prev,
+      )
+    } catch {
+      setMode((prev) =>
+        prev.kind === "pubchem"
+          ? { ...prev, loading: false, error: "Search failed." }
+          : prev,
+      )
+    }
+  }
+
+  const handleHitClick = async (hit: PubChemHit) => {
+    if (mode.kind !== "pubchem" || mode.fetchingCid) return
+    setMode({ ...mode, fetchingCid: hit.cid })
+    try {
+      const props = await fetchPubChemPropsStep(hit.cid)
+      onSetInlineMaterial({ name: hit.title, pubchemCid: hit.cid, ...props })
+      setMode({ kind: "idle" })
+    } catch {
+      onSetInlineMaterial({ name: hit.title, pubchemCid: hit.cid })
+      setMode({ kind: "idle" })
+    }
+  }
+
+  const boxStyle = {
+    borderRadius: 8,
+    border: `1px solid ${stepColor}66`,
+    background: `linear-gradient(90deg, ${stepColor}18 0%, transparent 100%)`,
+  }
+
+  return (
+    <Stack gap="xs">
+      <Text size="xs" fw={700} c="dimmed" tt="uppercase">
+        Material Parameters
+      </Text>
+      <Box p="xs" style={boxStyle}>
+        <Stack gap="sm">
+          {/* Current selection */}
+          {currentLabel && (
+            <Stack gap={4}>
+              <Group gap="xs" wrap="nowrap">
+                <Text size="xs" fw={600} style={{ flex: 1 }} truncate>
+                  {currentLabel}
+                  {step.inlineMaterial?.pubchemCid && (
+                    <Text span c="dimmed" size="xs">
+                      {" "}
+                      (CID {step.inlineMaterial.pubchemCid})
+                    </Text>
+                  )}
+                </Text>
+                <ActionIcon
+                  size="xs"
+                  variant="subtle"
+                  color="red"
+                  onClick={() => {
+                    onSetRecipe(null)
+                    onSetInlineMaterial(null)
+                  }}
+                >
+                  <IconX size={10} />
+                </ActionIcon>
+              </Group>
+              {step.inlineMaterial && (
+                <NativeSelect
+                  size="xs"
+                  label="Type"
+                  value={step.inlineMaterial.type ?? ""}
+                  onChange={(e) =>
+                    onSetInlineMaterial({
+                      ...step.inlineMaterial!,
+                      type: e.currentTarget.value || undefined,
+                    })
+                  }
+                  data={MATERIAL_TYPE_SELECT_DATA}
+                />
+              )}
+            </Stack>
+          )}
+
+          {/* Chemistry recipes */}
+          {recipes.length > 0 && (
+            <Box>
+              <Text size="xs" c="dimmed" mb={4}>
+                Chemistry recipes:
+              </Text>
+              <Group gap={4} wrap="wrap">
+                {recipes.map((r) => (
+                  <Button
+                    key={r.id}
+                    size="xs"
+                    variant={step.chemRecipeId === r.id ? "filled" : "light"}
+                    color="blue"
+                    onClick={() => {
+                      onSetRecipe(r.id)
+                      setMode({ kind: "idle" })
+                    }}
+                  >
+                    {r.name || "Unnamed"}
+                  </Button>
+                ))}
+              </Group>
+            </Box>
+          )}
+
+          {/* PubChem search */}
+          {mode.kind === "pubchem" ? (
+            <Stack gap="xs">
+              <Group gap="xs" wrap="nowrap">
+                <TextInput
+                  size="xs"
+                  placeholder="Search PubChem…"
+                  value={mode.query}
+                  onChange={(e) =>
+                    setMode({ ...mode, query: e.currentTarget.value })
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") doSearch()
+                    if (e.key === "Escape") setMode({ kind: "idle" })
+                  }}
+                  autoFocus
+                  style={{ flex: 1 }}
+                />
+                <ActionIcon
+                  size="sm"
+                  variant="filled"
+                  onClick={doSearch}
+                  loading={mode.loading}
+                >
+                  <IconSearch size={13} />
+                </ActionIcon>
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  onClick={() => setMode({ kind: "idle" })}
+                >
+                  <IconX size={13} />
+                </ActionIcon>
+              </Group>
+              {mode.error && (
+                <Text size="xs" c="red">
+                  {mode.error}
+                </Text>
+              )}
+              {mode.hits.length > 0 && (
+                <Stack gap={3} style={{ maxHeight: 180, overflowY: "auto" }}>
+                  {mode.hits.map((hit) => (
+                    <Box
+                      key={hit.cid}
+                      onClick={() => handleHitClick(hit)}
+                      style={{
+                        padding: "5px 8px",
+                        borderRadius: 5,
+                        border: "1px solid var(--mantine-color-gray-3)",
+                        cursor: mode.fetchingCid ? "not-allowed" : "pointer",
+                        background:
+                          mode.fetchingCid === hit.cid
+                            ? "var(--mantine-color-blue-0)"
+                            : "white",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <Box>
+                        <Text size="xs" fw={600}>
+                          {hit.title}
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                          CID {hit.cid}
+                          {hit.formula ? ` · ${hit.formula}` : ""}
+                        </Text>
+                      </Box>
+                      {mode.fetchingCid === hit.cid && <Loader size="xs" />}
+                    </Box>
+                  ))}
+                </Stack>
+              )}
+            </Stack>
+          ) : mode.kind === "manual" ? (
+            <Stack gap="xs">
+              <Group gap="xs" wrap="nowrap">
+                <TextInput
+                  size="xs"
+                  label="Name"
+                  autoFocus
+                  value={mode.name}
+                  onChange={(e) =>
+                    setMode({ ...mode, name: e.currentTarget.value })
+                  }
+                  style={{ flex: 2 }}
+                />
+                <NativeSelect
+                  size="xs"
+                  label="Type"
+                  value={mode.type}
+                  onChange={(e) =>
+                    setMode({ ...mode, type: e.currentTarget.value })
+                  }
+                  data={MATERIAL_TYPE_SELECT_DATA}
+                  style={{ flex: 1 }}
+                />
+              </Group>
+              <Group gap="xs" wrap="nowrap">
+                <NumberInput
+                  size="xs"
+                  label="Molar mass (g/mol)"
+                  placeholder="—"
+                  value={mode.molarMass !== "" ? Number(mode.molarMass) : ""}
+                  onChange={(v) =>
+                    setMode({ ...mode, molarMass: v !== "" ? String(v) : "" })
+                  }
+                  min={0}
+                  style={{ flex: 1 }}
+                />
+                <NumberInput
+                  size="xs"
+                  label="Density (g/mL)"
+                  placeholder="—"
+                  value={mode.density !== "" ? Number(mode.density) : ""}
+                  onChange={(v) =>
+                    setMode({ ...mode, density: v !== "" ? String(v) : "" })
+                  }
+                  min={0}
+                  style={{ flex: 1 }}
+                />
+              </Group>
+              <Group gap="xs" justify="flex-end">
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  onClick={() => setMode({ kind: "idle" })}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="xs"
+                  disabled={!mode.name.trim()}
+                  onClick={() => {
+                    onSetInlineMaterial({
+                      name: mode.name.trim(),
+                      type: mode.type || undefined,
+                      molarMass: mode.molarMass
+                        ? Number(mode.molarMass)
+                        : undefined,
+                      density: mode.density ? Number(mode.density) : undefined,
+                    })
+                    setMode({ kind: "idle" })
+                  }}
+                >
+                  Add
+                </Button>
+              </Group>
+            </Stack>
+          ) : (
+            <Group gap="xs">
+              <Button
+                size="xs"
+                variant="subtle"
+                leftSection={<IconSearch size={12} />}
+                onClick={() =>
+                  setMode({
+                    kind: "pubchem",
+                    query: "",
+                    loading: false,
+                    hits: [],
+                    error: null,
+                    fetchingCid: null,
+                  })
+                }
+              >
+                Search PubChem
+              </Button>
+              <Button
+                size="xs"
+                variant="subtle"
+                leftSection={<IconPlus size={12} />}
+                onClick={() =>
+                  setMode({
+                    kind: "manual",
+                    name: "",
+                    type: "",
+                    molarMass: "",
+                    density: "",
+                  })
+                }
+              >
+                Add manually
+              </Button>
+            </Group>
+          )}
+        </Stack>
+      </Box>
+    </Stack>
   )
 }
 
@@ -661,14 +1151,24 @@ function isPerovskitePrecursor(
   step: ProcessStep,
   materials: Material[],
   solutions: Solution[],
+  solutionRecipes?: ProcessSolutionRecipe[],
 ): boolean {
   if (step.materialId) {
     return getMaterialTypeStr(step, materials).includes("perovskite")
   }
   if (step.solutionId) {
+    const sol = solutions.find((s) => s.id === step.solutionId)
+    if (sol?.type?.toLowerCase().includes("perovskite")) return true
     return getSolidComponents(step.solutionId, materials, solutions).some(
       (mat) => mat.type?.toLowerCase().includes("perovskite"),
     )
+  }
+  if (step.chemRecipeId && solutionRecipes) {
+    const recipe = solutionRecipes.find((r) => r.id === step.chemRecipeId)
+    return recipe?.type?.toLowerCase().includes("perovskite") ?? false
+  }
+  if (step.inlineMaterial) {
+    return step.inlineMaterial.type?.toLowerCase().includes("perovskite") ?? false
   }
   return false
 }
@@ -677,6 +1177,7 @@ function getDefaultLayerType(
   step: ProcessStep,
   materials: Material[],
   solutions: Solution[],
+  solutionRecipes?: ProcessSolutionRecipe[],
 ): string {
   if (step.materialId) {
     const t = getMaterialTypeStr(step, materials)
@@ -688,6 +1189,8 @@ function getDefaultLayerType(
     return "interlayer"
   }
   if (step.solutionId) {
+    const sol = solutions.find((s) => s.id === step.solutionId)
+    if (sol?.type) return typeStrToLayerType(sol.type)
     const solids = getSolidComponents(step.solutionId, materials, solutions)
     // Perovskite precursor takes highest priority
     if (solids.some((mat) => mat.type?.toLowerCase().includes("perovskite")))
@@ -699,6 +1202,13 @@ function getDefaultLayerType(
       if (t.includes("conductor") || t.includes("contact")) return "contact"
       if (t.includes("semiconductor")) return "absorber"
     }
+  }
+  if (step.chemRecipeId && solutionRecipes) {
+    const recipe = solutionRecipes.find((r) => r.id === step.chemRecipeId)
+    if (recipe?.type) return typeStrToLayerType(recipe.type)
+  }
+  if (step.inlineMaterial?.type) {
+    return typeStrToLayerType(step.inlineMaterial.type)
   }
   return "interlayer"
 }
@@ -715,14 +1225,17 @@ type GeneratedStack = {
 function getStackInvalidationKey(process: Process | null): string {
   if (!process) return ""
 
-  const substrateKey = (process.substrateIds ?? []).join("|")
+  const substrateKey = [
+    ...(process.substrateIds ?? []),
+    ...(process.inlineSubstrates ?? []).map((s) => s.id),
+  ].join("|")
   const stageKey = process.stages
     .map(
       (stage, stagePos) =>
         `${stagePos}:${stage.alternatives
           .map(
             (step, altPos) =>
-              `${altPos}:${step.id}:${step.materialId ?? ""}:${step.solutionId ?? ""}`,
+              `${altPos}:${step.id}:${step.materialId ?? ""}:${step.solutionId ?? ""}:${step.chemRecipeId ?? ""}:${step.inlineMaterial?.name ?? ""}`,
           )
           .join(",")}`,
     )
@@ -767,6 +1280,13 @@ function getLayerName(
     }
     return step.depositionMethod?.value?.trim() || step.name || "Unnamed"
   }
+  if (step.chemRecipeId) {
+    // name will be resolved by caller using solutionRecipes
+    return step.depositionMethod?.value?.trim() || step.name || "Unnamed"
+  }
+  if (step.inlineMaterial?.name) {
+    return step.inlineMaterial.name
+  }
   // Fallback to deposition method
   return step.depositionMethod?.value?.trim() || step.name || "Unnamed"
 }
@@ -802,6 +1322,9 @@ function shouldIncludeLayer(
     const sol = solutions.find((s) => s.id === step.solutionId)
     if (!sol || !sol.components) return true
 
+    // Exclude if solution is typed as solvent
+    if (sol.type?.toLowerCase().includes("solvent")) return false
+
     // Check if solution has any solid components
     for (const comp of sol.components) {
       const mat = materials.find((m) => m.id === comp.materialId)
@@ -813,6 +1336,19 @@ function shouldIncludeLayer(
       }
     }
     return false
+  }
+
+  // Chemistry recipe: exclude if typed as solvent
+  if (step.chemRecipeId) {
+    // solutionRecipes are on the process, passed to helpers via closure — always include unless we can check type
+    return true
+  }
+
+  // Inline material: exclude if typed as solvent
+  if (step.inlineMaterial) {
+    const t = step.inlineMaterial.type?.toLowerCase() || ""
+    if (t.includes("solvent")) return false
+    return true
   }
 
   return true
@@ -828,7 +1364,11 @@ function generateStackCombinations(
   solutions: Solution[],
   substrateMap: Map<string, Material>,
 ): GeneratedStack[] {
-  if (process.substrateIds.length === 0 || process.stages.length === 0) {
+  const substrateIds = process.substrateIds ?? []
+  const inlineSubs = process.inlineSubstrates ?? []
+  const solutionRecipes = process.solutionRecipes ?? []
+
+  if ((substrateIds.length + inlineSubs.length) === 0 || process.stages.length === 0) {
     return []
   }
 
@@ -845,79 +1385,92 @@ function generateStackCombinations(
     combinations.splice(0, combinations.length, ...newCombinations)
   }
 
-  // Convert each substrate + step combination to a stack
-  const stacks: GeneratedStack[] = []
-  let combinationCounter = 0
+  type MergedEntry = { step: ProcessStep; name: string; isPerovskite: boolean }
 
-  for (const substrateId of process.substrateIds) {
-    const substrate = substrateMap.get(substrateId)
-    if (!substrate) continue
+  function buildLayersForCombo(
+    substrateId: string,
+    substrateName: string,
+    combo: ProcessStep[],
+  ): StackLayer[] {
+    const layers: StackLayer[] = []
+    layers.push({
+      id: substrateId,
+      name: `substrate: ${substrateName}`,
+      color: SUBSTRATE_COLOR,
+      isSubstrate: true,
+      layerType: "",
+      thicknessNm: "",
+      bandgapEv: "",
+      perovskiteA: "",
+      perovskiteB: "",
+      perovskiteX: "",
+    })
 
-    for (const combo of combinations) {
-      const layers: StackLayer[] = []
+    const includedSteps = combo.filter((step) =>
+      shouldIncludeLayer(step, materials, solutions),
+    )
 
-      // Add substrate at bottom
+    // Merge consecutive perovskite precursor steps into one "Perovskite" layer
+    const merged: MergedEntry[] = []
+    for (const step of includedSteps) {
+      const isPero = isPerovskitePrecursor(step, materials, solutions, solutionRecipes)
+      if (isPero && merged.length > 0 && merged[merged.length - 1].isPerovskite) {
+        // absorb into previous perovskite group
+      } else {
+        const recipeName = step.chemRecipeId
+          ? (solutionRecipes.find((r) => r.id === step.chemRecipeId)?.name ?? "")
+          : null
+        merged.push({
+          step,
+          name: isPero
+            ? "Perovskite"
+            : recipeName || getLayerName(step, materials, solutions),
+          isPerovskite: isPero,
+        })
+      }
+    }
+
+    for (const entry of merged) {
       layers.push({
-        id: substrate.id,
-        name: `substrate: ${substrate.name || "Unnamed"}`,
-        color: SUBSTRATE_COLOR,
-        isSubstrate: true,
-        layerType: "",
+        id: entry.step.id,
+        name: entry.name,
+        color: entry.step.color,
+        isSubstrate: false,
+        layerType: getDefaultLayerType(entry.step, materials, solutions, solutionRecipes),
         thicknessNm: "",
         bandgapEv: "",
         perovskiteA: "",
         perovskiteB: "",
         perovskiteX: "",
       })
+    }
+    return layers
+  }
 
-      // Filter to includable steps
-      const includedSteps = combo.filter((step) =>
-        shouldIncludeLayer(step, materials, solutions),
-      )
+  // Convert each substrate + step combination to a stack
+  const stacks: GeneratedStack[] = []
+  let combinationCounter = 0
 
-      // Merge consecutive perovskite precursor steps into one "Perovskite" layer
-      type MergedEntry = {
-        step: ProcessStep
-        name: string
-        isPerovskite: boolean
-      }
-      const merged: MergedEntry[] = []
-      for (const step of includedSteps) {
-        const isPero = isPerovskitePrecursor(step, materials, solutions)
-        if (
-          isPero &&
-          merged.length > 0 &&
-          merged[merged.length - 1].isPerovskite
-        ) {
-          // absorb into previous perovskite group (keep first step's color)
-        } else {
-          merged.push({
-            step,
-            name: isPero
-              ? "Perovskite"
-              : getLayerName(step, materials, solutions),
-            isPerovskite: isPero,
-          })
-        }
-      }
-
-      for (const entry of merged) {
-        layers.push({
-          id: entry.step.id,
-          name: entry.name,
-          color: entry.step.color,
-          isSubstrate: false,
-          layerType: getDefaultLayerType(entry.step, materials, solutions),
-          thicknessNm: "",
-          bandgapEv: "",
-          perovskiteA: "",
-          perovskiteB: "",
-          perovskiteX: "",
-        })
-      }
-
+  for (const substrateId of substrateIds) {
+    const substrate = substrateMap.get(substrateId)
+    if (!substrate) continue
+    for (const combo of combinations) {
       stacks.push({
-        layers,
+        layers: buildLayersForCombo(substrate.id, substrate.name || "Unnamed", combo),
+        combination: combinationCounter,
+        architecture: "Unknown",
+        buildDevice: "Yes",
+        pixelAreaCm2: "",
+        numberOfPixels: "4",
+      })
+      combinationCounter += 1
+    }
+  }
+
+  for (const sub of inlineSubs) {
+    for (const combo of combinations) {
+      stacks.push({
+        layers: buildLayersForCombo(sub.id, sub.name || "Unnamed", combo),
         combination: combinationCounter,
         architecture: "Unknown",
         buildDevice: "Yes",
@@ -1964,6 +2517,20 @@ export function ProcessesPage() {
   const [substrateSelectingIdx, setSubstrateSelectingIdx] = useState<
     number | null
   >(null)
+  const [expandedInlineSubId, setExpandedInlineSubId] = useState<string | null>(
+    null,
+  )
+  const inlineSubListRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!expandedInlineSubId) return
+    const handler = (e: MouseEvent) => {
+      if (inlineSubListRef.current && !inlineSubListRef.current.contains(e.target as Node)) {
+        setExpandedInlineSubId(null)
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [expandedInlineSubId])
   const processNameInputRef = useRef<HTMLInputElement | null>(null)
   const [pendingSelectProcessNameId, setPendingSelectProcessNameId] = useState<
     string | null
@@ -2857,11 +3424,17 @@ export function ProcessesPage() {
 
   const hasBothSubstrateAndStep = useMemo(() => {
     if (!selectedProcess) return false
-    const hasSubstrate = (selectedProcess.substrateIds ?? []).length > 0
-    const hasStep = selectedProcess.stages.some(
-      (stage) => stage.alternatives.length > 0,
+    const hasSubstrate =
+      (selectedProcess.substrateIds ?? []).length > 0 ||
+      (selectedProcess.inlineSubstrates ?? []).length > 0
+    const hasDepositionStep = selectedProcess.stages.some((stage) =>
+      stage.alternatives.some(
+        (step) =>
+          step.stepCategory !== "surface_treatment" &&
+          step.stepCategory !== "substrate_preparation",
+      ),
     )
-    return hasSubstrate && hasStep
+    return hasSubstrate && hasDepositionStep
   }, [selectedProcess])
 
   const chemistryDone = (selectedProcess?.solutionRecipes?.length ?? 0) > 0
@@ -2966,6 +3539,7 @@ export function ProcessesPage() {
     patch: Partial<{
       lengthCm: string
       widthCm: string
+      heightMm: string
       surfaceRoughnessRmsNm: string
     }>,
   ) => {
@@ -2988,7 +3562,7 @@ export function ProcessesPage() {
     )
   }
 
-  const handleCreateSubstrateMaterial = useCallback(() => {
+  const _handleCreateSubstrateMaterial = useCallback(() => {
     launchLinkedCreation({
       kind: "material",
       route: "/materials",
@@ -2996,6 +3570,122 @@ export function ProcessesPage() {
       processAttachment: { target: "substrate" },
     })
   }, [launchLinkedCreation])
+
+  // ── Inline substrate handlers ──────────────────────────────────────────────
+
+  const handleAddInlineSubstrate = () => {
+    if (!selectedProcess) return
+    const sub: ProcessInlineSubstrate = {
+      id: crypto.randomUUID(),
+      name: "",
+      rigidity: "rigid",
+      lengthCm: "2",
+      widthCm: "2",
+      surfaceRoughnessRmsNm: "",
+    }
+    setProcesses((prev) =>
+      prev.map((p) =>
+        p.id === selectedProcess.id
+          ? { ...p, inlineSubstrates: [...(p.inlineSubstrates ?? []), sub] }
+          : p,
+      ),
+    )
+    setSubstrateSelectingIdx(-sub.id.charCodeAt(0)) // use negative sentinel to track newly created
+    return sub.id
+  }
+
+  const handleUpdateInlineSubstrate = (
+    subId: string,
+    patch: Partial<ProcessInlineSubstrate>,
+  ) => {
+    if (!selectedProcess) return
+    setProcesses((prev) =>
+      prev.map((p) =>
+        p.id === selectedProcess.id
+          ? {
+              ...p,
+              inlineSubstrates: (p.inlineSubstrates ?? []).map((s) =>
+                s.id === subId ? { ...s, ...patch } : s,
+              ),
+            }
+          : p,
+      ),
+    )
+  }
+
+  const handleRemoveInlineSubstrate = (subId: string) => {
+    if (!selectedProcess) return
+    const remaining = (selectedProcess.inlineSubstrates ?? []).filter(
+      (s) => s.id !== subId,
+    )
+    const totalSubstrates =
+      remaining.length + (selectedProcess.substrateIds ?? []).length
+    if (totalSubstrates === 0 && selectedProcess.stages.length > 0) return
+    setProcesses((prev) =>
+      prev.map((p) =>
+        p.id === selectedProcess.id ? { ...p, inlineSubstrates: remaining } : p,
+      ),
+    )
+  }
+
+  // ── Step material source handlers ─────────────────────────────────────────
+
+  const handleSetStepChemRecipe = (stepId: string, recipeId: string | null) => {
+    if (!selectedProcess) return
+    setProcesses((prev) =>
+      prev.map((p) =>
+        p.id === selectedProcess.id
+          ? {
+              ...p,
+              stages: p.stages.map((stage) => ({
+                ...stage,
+                alternatives: stage.alternatives.map((step) =>
+                  step.id === stepId
+                    ? {
+                        ...step,
+                        chemRecipeId: recipeId ?? undefined,
+                        inlineMaterial: undefined,
+                        materialId: undefined,
+                        solutionId: undefined,
+                      }
+                    : step,
+                ),
+              })),
+            }
+          : p,
+      ),
+    )
+  }
+
+  const handleSetStepInlineMaterial = (
+    stepId: string,
+    mat: ProcessStepInlineMaterial | null,
+  ) => {
+    if (!selectedProcess) return
+    setProcesses((prev) =>
+      prev.map((p) =>
+        p.id === selectedProcess.id
+          ? {
+              ...p,
+              stages: p.stages.map((stage) => ({
+                ...stage,
+                alternatives: stage.alternatives.map((step) =>
+                  step.id === stepId
+                    ? {
+                        ...step,
+                        inlineMaterial: mat ?? undefined,
+                        chemRecipeId: undefined,
+                        materialId: undefined,
+                        solutionId: undefined,
+                      }
+                    : step,
+                ),
+              })),
+            }
+          : p,
+      ),
+    )
+  }
 
   const getSubstrateLabel = useCallback(
     (substrateId: string | undefined) => {
@@ -3117,7 +3807,7 @@ export function ProcessesPage() {
     [isEntityVisible, solutions],
   )
 
-  const sourceOptions = useMemo(
+  const _sourceOptions = useMemo(
     () => [
       ...visibleMaterialOptions.map((option) => ({
         ...option,
@@ -3134,7 +3824,7 @@ export function ProcessesPage() {
     [visibleMaterialOptions, visibleSolutionOptions],
   )
 
-  const wetDepositionSourceOptions = useMemo(
+  const _wetDepositionSourceOptions = useMemo(
     () => [
       ...visibleSolutionOptions.map((option) => ({
         ...option,
@@ -3158,7 +3848,7 @@ export function ProcessesPage() {
     [isEntityVisible, materials, visibleSolutionOptions],
   )
 
-  const getStepSourceValue = useCallback((step: ProcessStep) => {
+  const _getStepSourceValue = useCallback((step: ProcessStep) => {
     if (step.materialId) {
       return `material:${step.materialId}`
     }
@@ -3170,6 +3860,15 @@ export function ProcessesPage() {
 
   const getStepSourceLabel = useCallback(
     (step: ProcessStep) => {
+      if (step.chemRecipeId && selectedProcess) {
+        const recipe = (selectedProcess.solutionRecipes ?? []).find(
+          (r) => r.id === step.chemRecipeId,
+        )
+        return recipe?.name || "Chemistry recipe"
+      }
+      if (step.inlineMaterial) {
+        return step.inlineMaterial.name || "Custom material"
+      }
       if (step.materialId) {
         return (
           materials.find((material) => material.id === step.materialId)?.name ||
@@ -3184,10 +3883,10 @@ export function ProcessesPage() {
       }
       return "No material"
     },
-    [materials, solutions],
+    [materials, selectedProcess, solutions],
   )
 
-  const handleUpdateStepSource = (
+  const _handleUpdateStepSource = (
     stepId: string,
     sourceValue: string | null,
   ) => {
@@ -3295,6 +3994,19 @@ export function ProcessesPage() {
       }}
     >
       <Stack gap="md">
+        {/* Material Parameters — above deposition params, for non-substrate steps */}
+        {selectedStep.stepCategory !== "substrate_preparation" && (
+          <MaterialParamsPanel
+            step={selectedStep}
+            stepColor={selectedStep.color}
+            recipes={selectedProcess?.solutionRecipes ?? []}
+            onSetRecipe={(id) => handleSetStepChemRecipe(selectedStep.id, id)}
+            onSetInlineMaterial={(mat) =>
+              handleSetStepInlineMaterial(selectedStep.id, mat)
+            }
+          />
+        )}
+
         {selectedStepParameterSections && (
           <>
             {selectedStepParameterSections.deposition.length > 0 && (
@@ -3675,7 +4387,7 @@ export function ProcessesPage() {
                   const isSelected = selectedProcess?.id === process.id
                   const canSpawnFromList =
                     (process.generatedStacks?.length ?? 0) > 0 &&
-                    process.substrateIds.length > 0 &&
+                    ((process.substrateIds ?? []).length > 0 || (process.inlineSubstrates ?? []).length > 0) &&
                     process.stages.length > 0
                   const collectionColor = getEntityColor("process", process.id)
                   return (
@@ -3711,7 +4423,7 @@ export function ProcessesPage() {
                           </Text>
                         </Box>
                         <Group gap={2} wrap="nowrap">
-                          {process.substrateIds.length > 0 &&
+                          {((process.substrateIds ?? []).length > 0 || (process.inlineSubstrates ?? []).length > 0) &&
                             process.stages.length > 0 && (
                               <Tooltip label="New experiment" withArrow>
                                 <ActionIcon
@@ -4030,7 +4742,11 @@ export function ProcessesPage() {
                         {/* Substrate Row – same visual structure as a steps row */}
                         {(() => {
                           const subIds = selectedProcess.substrateIds ?? []
-                          const isLastSubstrate = subIds.length === 1
+                          const inlineSubs =
+                            selectedProcess.inlineSubstrates ?? []
+                          const totalSubCount =
+                            subIds.length + inlineSubs.length
+                          const isLastSubstrate = totalSubCount === 1
                           const hasSteps = selectedProcess.stages.length > 0
                           const availableForNew =
                             visibleSubstrateOptions.filter(
@@ -4067,30 +4783,30 @@ export function ProcessesPage() {
                                   overflowX: "auto",
                                 }}
                               >
-                                {subIds.length === 0 &&
+                                {totalSubCount === 0 &&
                                 substrateSelectingIdx !== -1 ? (
-                                  <Group justify="center">
-                                    {visibleSubstrateOptions.length > 0 ? (
+                                  <Group justify="center" gap="xs">
+                                    <Button
+                                      size="xs"
+                                      variant="subtle"
+                                      leftSection={<IconPlus size={14} />}
+                                      onClick={() => handleAddInlineSubstrate()}
+                                    >
+                                      Add Substrate
+                                    </Button>
+                                    {visibleSubstrateOptions.length > 0 && (
                                       <Button
                                         size="xs"
                                         variant="subtle"
-                                        leftSection={<IconPlus size={14} />}
+                                        color="gray"
+                                        leftSection={
+                                          <IconRowInsertTop size={14} />
+                                        }
                                         onClick={() =>
                                           setSubstrateSelectingIdx(-1)
                                         }
                                       >
-                                        Choose Substrate
-                                      </Button>
-                                    ) : (
-                                      <Button
-                                        size="xs"
-                                        variant="subtle"
-                                        leftSection={
-                                          <IconRowInsertTop size={14} />
-                                        }
-                                        onClick={handleCreateSubstrateMaterial}
-                                      >
-                                        New Substrate Material
+                                        From Materials
                                       </Button>
                                     )}
                                   </Group>
@@ -4285,6 +5001,34 @@ export function ProcessesPage() {
                                                       }
                                                       style={{ flex: 1 }}
                                                     />
+                                                    <NumberInput
+                                                      size="xs"
+                                                      label="Height (mm)"
+                                                      min={0}
+                                                      value={
+                                                        substrateDimensions.heightMm
+                                                          ? Number(
+                                                              substrateDimensions.heightMm,
+                                                            )
+                                                          : ""
+                                                      }
+                                                      onClick={(e) =>
+                                                        e.stopPropagation()
+                                                      }
+                                                      onChange={(value) =>
+                                                        handleUpdateSubstrateDimensions(
+                                                          subId,
+                                                          {
+                                                            heightMm:
+                                                              typeof value ===
+                                                              "number"
+                                                                ? String(value)
+                                                                : "",
+                                                          },
+                                                        )
+                                                      }
+                                                      style={{ flex: 1 }}
+                                                    />
                                                   </Group>
                                                   <NumberInput
                                                     size="xs"
@@ -4326,7 +5070,7 @@ export function ProcessesPage() {
                                                         : "—"}
                                                   </Text>
                                                   <Text size="xs" c="dimmed">
-                                                    {`L ${substrateDimensions.lengthCm || "2"} cm · W ${substrateDimensions.widthCm || "2"} cm`}
+                                                    {`L ${substrateDimensions.lengthCm || "2"} cm · W ${substrateDimensions.widthCm || "2"} cm · H ${substrateDimensions.heightMm || "—"} mm`}
                                                   </Text>
                                                   <Text size="xs" c="dimmed">
                                                     {`Roughness RMS ${substrateDimensions.surfaceRoughnessRmsNm || "—"} nm`}
@@ -4338,6 +5082,255 @@ export function ProcessesPage() {
                                         </Box>
                                       )
                                     })}
+
+                                    {/* Inline substrate cards */}
+                                    <div ref={inlineSubListRef} style={{ display: "contents" }}>
+                                    {inlineSubs.map((sub) => {
+                                      const cannotRemove =
+                                        isLastSubstrate && hasSteps
+                                      return (
+                                        <Box
+                                          key={sub.id}
+                                          data-step-box="true"
+                                          onClick={() =>
+                                            setExpandedInlineSubId(
+                                              expandedInlineSubId === sub.id
+                                                ? null
+                                                : sub.id,
+                                            )
+                                          }
+                                          style={{
+                                            width:
+                                              expandedInlineSubId === sub.id
+                                                ? 320
+                                                : 260,
+                                            borderRadius: 8,
+                                            padding: "10px 12px",
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            gap: 6,
+                                            cursor: "default",
+                                            userSelect: "none",
+                                            background: `linear-gradient(90deg, ${SUBSTRATE_COLOR}2E 0%, transparent 100%)`,
+                                            border:
+                                              expandedInlineSubId === sub.id
+                                                ? `2px solid ${SUBSTRATE_COLOR}`
+                                                : "1px solid var(--mantine-color-gray-3)",
+                                          }}
+                                        >
+                                          <Group
+                                            justify="space-between"
+                                            wrap="nowrap"
+                                            gap="xs"
+                                          >
+                                            <Group
+                                              gap={6}
+                                              wrap="nowrap"
+                                              style={{ flex: 1, minWidth: 0 }}
+                                            >
+                                              <IconSquare size={14} />
+                                              <Text size="sm" fw={700} truncate>
+                                                {sub.name ||
+                                                  "Unnamed substrate"}
+                                              </Text>
+                                            </Group>
+                                            <Tooltip
+                                              label="Remove all steps first before removing the last substrate"
+                                              disabled={!cannotRemove}
+                                              withArrow
+                                            >
+                                              <ActionIcon
+                                                size="xs"
+                                                variant="subtle"
+                                                color={
+                                                  cannotRemove ? "gray" : "red"
+                                                }
+                                                onClick={(e) => {
+                                                  e.stopPropagation()
+                                                  if (!cannotRemove) {
+                                                    handleRemoveInlineSubstrate(
+                                                      sub.id,
+                                                    )
+                                                    if (
+                                                      expandedInlineSubId ===
+                                                      sub.id
+                                                    )
+                                                      setExpandedInlineSubId(
+                                                        null,
+                                                      )
+                                                  }
+                                                }}
+                                              >
+                                                <IconX size={12} />
+                                              </ActionIcon>
+                                            </Tooltip>
+                                          </Group>
+
+                                          {expandedInlineSubId === sub.id ? (
+                                            <Stack
+                                              gap={6}
+                                              onClick={(e) =>
+                                                e.stopPropagation()
+                                              }
+                                            >
+                                              <TextInput
+                                                size="xs"
+                                                label="Name"
+                                                placeholder="e.g. ITO/Glass"
+                                                value={sub.name}
+                                                onChange={(e) =>
+                                                  handleUpdateInlineSubstrate(
+                                                    sub.id,
+                                                    {
+                                                      name: e.currentTarget
+                                                        .value,
+                                                    },
+                                                  )
+                                                }
+                                              />
+                                              <Select
+                                                size="xs"
+                                                label="Rigidity"
+                                                value={sub.rigidity ?? "rigid"}
+                                                data={[
+                                                  {
+                                                    value: "rigid",
+                                                    label: "Rigid",
+                                                  },
+                                                  {
+                                                    value: "flexible",
+                                                    label: "Flexible",
+                                                  },
+                                                ]}
+                                                onChange={(v) =>
+                                                  handleUpdateInlineSubstrate(
+                                                    sub.id,
+                                                    {
+                                                      rigidity:
+                                                        (v as
+                                                          | "rigid"
+                                                          | "flexible") ??
+                                                        "rigid",
+                                                    },
+                                                  )
+                                                }
+                                                comboboxProps={{
+                                                  withinPortal: false,
+                                                }}
+                                              />
+                                              <Group gap={6} wrap="nowrap">
+                                                <NumberInput
+                                                  size="xs"
+                                                  label="Length (cm)"
+                                                  min={0}
+                                                  value={
+                                                    sub.lengthCm
+                                                      ? Number(sub.lengthCm)
+                                                      : ""
+                                                  }
+                                                  onChange={(v) =>
+                                                    handleUpdateInlineSubstrate(
+                                                      sub.id,
+                                                      {
+                                                        lengthCm:
+                                                          typeof v === "number"
+                                                            ? String(v)
+                                                            : "",
+                                                      },
+                                                    )
+                                                  }
+                                                  style={{ flex: 1 }}
+                                                />
+                                                <NumberInput
+                                                  size="xs"
+                                                  label="Width (cm)"
+                                                  min={0}
+                                                  value={
+                                                    sub.widthCm
+                                                      ? Number(sub.widthCm)
+                                                      : ""
+                                                  }
+                                                  onChange={(v) =>
+                                                    handleUpdateInlineSubstrate(
+                                                      sub.id,
+                                                      {
+                                                        widthCm:
+                                                          typeof v === "number"
+                                                            ? String(v)
+                                                            : "",
+                                                      },
+                                                    )
+                                                  }
+                                                  style={{ flex: 1 }}
+                                                />
+                                                <NumberInput
+                                                  size="xs"
+                                                  label="Height (mm)"
+                                                  min={0}
+                                                  value={
+                                                    sub.heightMm
+                                                      ? Number(sub.heightMm)
+                                                      : ""
+                                                  }
+                                                  onChange={(v) =>
+                                                    handleUpdateInlineSubstrate(
+                                                      sub.id,
+                                                      {
+                                                        heightMm:
+                                                          typeof v === "number"
+                                                            ? String(v)
+                                                            : "",
+                                                      },
+                                                    )
+                                                  }
+                                                  style={{ flex: 1 }}
+                                                />
+                                              </Group>
+                                              <NumberInput
+                                                size="xs"
+                                                label="Surface roughness RMS (nm)"
+                                                min={0}
+                                                value={
+                                                  sub.surfaceRoughnessRmsNm
+                                                    ? Number(
+                                                        sub.surfaceRoughnessRmsNm,
+                                                      )
+                                                    : ""
+                                                }
+                                                onChange={(v) =>
+                                                  handleUpdateInlineSubstrate(
+                                                    sub.id,
+                                                    {
+                                                      surfaceRoughnessRmsNm:
+                                                        typeof v === "number"
+                                                          ? String(v)
+                                                          : "",
+                                                    },
+                                                  )
+                                                }
+                                              />
+                                            </Stack>
+                                          ) : (
+                                            <Stack gap={2}>
+                                              <Text size="xs" c="dimmed">
+                                                {sub.rigidity === "flexible"
+                                                  ? "Flexible"
+                                                  : "Rigid"}
+                                              </Text>
+                                              <Text size="xs" c="dimmed">
+                                                {`L ${sub.lengthCm || "2"} cm · W ${sub.widthCm || "2"} cm · H ${sub.heightMm || "—"} mm`}
+                                              </Text>
+                                              {sub.surfaceRoughnessRmsNm && (
+                                                <Text size="xs" c="dimmed">
+                                                  {`Roughness RMS ${sub.surfaceRoughnessRmsNm} nm`}
+                                                </Text>
+                                              )}
+                                            </Stack>
+                                          )}
+                                        </Box>
+                                      )
+                                    })}
+                                    </div>
 
                                     {substrateSelectingIdx === -1 && (
                                       <Box
@@ -4358,7 +5351,7 @@ export function ProcessesPage() {
                                           <Group gap={6} wrap="nowrap">
                                             <IconSquare size={14} />
                                             <Text size="sm" fw={700} c="dimmed">
-                                              New substrate
+                                              From Materials page
                                             </Text>
                                           </Group>
                                           <Select
@@ -4397,31 +5390,32 @@ export function ProcessesPage() {
                                   justifyContent: "flex-start",
                                 }}
                               >
-                                {substrateSelectingIdx !== -1 &&
-                                subIds.length > 0 ? (
-                                  availableForNew.length > 0 ? (
+                                {totalSubCount > 0 ? (
+                                  <Group gap="xs">
                                     <Button
                                       size="xs"
                                       variant="subtle"
                                       leftSection={<IconPlus size={14} />}
-                                      onClick={() =>
-                                        setSubstrateSelectingIdx(-1)
-                                      }
+                                      onClick={() => handleAddInlineSubstrate()}
                                     >
-                                      Choose Alternative Substrate
+                                      Add Alternative Substrate
                                     </Button>
-                                  ) : (
-                                    <Button
-                                      size="xs"
-                                      variant="subtle"
-                                      leftSection={
-                                        <IconRowInsertTop size={14} />
-                                      }
-                                      onClick={handleCreateSubstrateMaterial}
-                                    >
-                                      New Substrate Material
-                                    </Button>
-                                  )
+                                    {availableForNew.length > 0 && (
+                                      <Button
+                                        size="xs"
+                                        variant="subtle"
+                                        color="gray"
+                                        leftSection={
+                                          <IconRowInsertTop size={14} />
+                                        }
+                                        onClick={() =>
+                                          setSubstrateSelectingIdx(-1)
+                                        }
+                                      >
+                                        From Materials
+                                      </Button>
+                                    )}
+                                  </Group>
                                 ) : (
                                   <span />
                                 )}
@@ -4719,104 +5713,65 @@ export function ProcessesPage() {
                                                   </Group>
 
                                                   <Box>
-                                                    {selectedStepId ===
-                                                    step.id ? (
-                                                      <Select
-                                                        size="xs"
-                                                        placeholder="Select material"
-                                                        value={getStepSourceValue(
-                                                          step,
-                                                        )}
-                                                        data={
-                                                          step.stepCategory ===
-                                                            "wet_deposition" ||
-                                                          step.stepCategory ===
-                                                            "surface_treatment"
-                                                            ? wetDepositionSourceOptions
-                                                            : sourceOptions
-                                                        }
-                                                        searchable
-                                                        clearable
-                                                        comboboxProps={{
-                                                          withinPortal: false,
-                                                        }}
-                                                        renderOption={({
-                                                          option,
-                                                        }) => (
-                                                          <Text
-                                                            size="xs"
-                                                            fw={
-                                                              option.value.startsWith(
-                                                                "action:",
-                                                              )
-                                                                ? 700
-                                                                : 400
-                                                            }
+                                                    {(() => {
+                                                      // Always show compact label; material is set via detail panel
+                                                      return (
+                                                        <Stack gap={2}>
+                                                          <Group
+                                                            justify="space-between"
+                                                            wrap="nowrap"
+                                                            gap="xs"
                                                           >
-                                                            {option.label}
-                                                          </Text>
-                                                        )}
-                                                        onClick={(e) =>
-                                                          e.stopPropagation()
-                                                        }
-                                                        onChange={(value) =>
-                                                          handleUpdateStepSource(
-                                                            step.id,
-                                                            value,
-                                                          )
-                                                        }
-                                                      />
-                                                    ) : (
-                                                      <Stack gap={2}>
-                                                        <Group
-                                                          justify="space-between"
-                                                          wrap="nowrap"
-                                                          gap="xs"
-                                                        >
-                                                          <Text
-                                                            size="xs"
-                                                            c="black"
-                                                            truncate
-                                                            style={{ flex: 1 }}
-                                                          >
-                                                            {getStepSourceLabel(
-                                                              step,
-                                                            )}
-                                                          </Text>
-                                                          {parameterLines[0] !==
-                                                            "No parameters set" && (
-                                                            <Badge
+                                                            <Text
                                                               size="xs"
-                                                              variant="light"
-                                                              color="teal"
+                                                              c="black"
+                                                              truncate
+                                                              style={{
+                                                                flex: 1,
+                                                              }}
                                                             >
-                                                              {
-                                                                parameterLines.length
-                                                              }{" "}
-                                                              params
-                                                            </Badge>
-                                                          )}
-                                                        </Group>
-                                                        <Stack gap={1}>
-                                                          {parameterLines.map(
-                                                            (line, lineIdx) => (
-                                                              <Text
-                                                                key={`${step.id}-param-line-${lineIdx}`}
+                                                              {getStepSourceLabel(
+                                                                step,
+                                                              )}
+                                                            </Text>
+                                                            {parameterLines[0] !==
+                                                              "No parameters set" && (
+                                                              <Badge
                                                                 size="xs"
-                                                                c="dimmed"
-                                                                truncate
-                                                                style={{
-                                                                  whiteSpace:
-                                                                    "nowrap",
-                                                                }}
+                                                                variant="light"
+                                                                color="teal"
                                                               >
-                                                                {line}
-                                                              </Text>
-                                                            ),
-                                                          )}
+                                                                {
+                                                                  parameterLines.length
+                                                                }{" "}
+                                                                params
+                                                              </Badge>
+                                                            )}
+                                                          </Group>
+                                                          <Stack gap={1}>
+                                                            {parameterLines.map(
+                                                              (
+                                                                line,
+                                                                lineIdx,
+                                                              ) => (
+                                                                <Text
+                                                                  key={`${step.id}-param-line-${lineIdx}`}
+                                                                  size="xs"
+                                                                  c="dimmed"
+                                                                  truncate
+                                                                  style={{
+                                                                    whiteSpace:
+                                                                      "nowrap",
+                                                                  }}
+                                                                >
+                                                                  {line}
+                                                                </Text>
+                                                              ),
+                                                            )}
+                                                          </Stack>
                                                         </Stack>
-                                                      </Stack>
-                                                    )}
+                                                      )
+                                                    })()}
                                                   </Box>
                                                 </Stack>
                                               </Box>
@@ -4907,7 +5862,9 @@ export function ProcessesPage() {
                         ) : null}
                       </Box>
 
-                      {(selectedProcess.substrateIds ?? []).length > 0 && (
+                      {(selectedProcess.substrateIds ?? []).length +
+                        (selectedProcess.inlineSubstrates ?? []).length >
+                        0 && (
                         <Box
                           style={{
                             display: "flex",

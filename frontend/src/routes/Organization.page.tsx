@@ -1695,9 +1695,10 @@ function CollectionEl({
               : isActive
                 ? `3px solid ${el.color || DEFAULT_ACCENT}`
                 : `2px solid ${el.color || DEFAULT_ACCENT}88`,
-            boxShadow: isActive && !isDragOver
-              ? `0 0 0 3px ${el.color || DEFAULT_ACCENT}33, 0 0 14px 4px ${el.color || DEFAULT_ACCENT}1a`
-              : undefined,
+            boxShadow:
+              isActive && !isDragOver
+                ? `0 0 0 3px ${el.color || DEFAULT_ACCENT}33, 0 0 14px 4px ${el.color || DEFAULT_ACCENT}1a`
+                : undefined,
             background: isDragOver
               ? "var(--mantine-color-blue-0)"
               : "var(--mantine-color-body)",
@@ -2084,7 +2085,9 @@ function CollectionEl({
                       </Box>
 
                       {/* Col 3: add button — visible on row hover, when panel is open, or when submenu panel is showing this kind */}
-                      {(hoveredRowKind === kind || addPopoverKind === kind || hoveredRefKind === kind) && (
+                      {(hoveredRowKind === kind ||
+                        addPopoverKind === kind ||
+                        hoveredRefKind === kind) && (
                         <Tooltip
                           label={`Add ${kindLabel}`}
                           withArrow
@@ -2100,9 +2103,10 @@ function CollectionEl({
                               justifyContent: "center",
                               cursor: "pointer",
                               borderRadius: 4,
-                              background: addPopoverKind === kind
-                                ? `var(--mantine-color-${manColor}-2)`
-                                : `var(--mantine-color-${manColor}-1)`,
+                              background:
+                                addPopoverKind === kind
+                                  ? `var(--mantine-color-${manColor}-2)`
+                                  : `var(--mantine-color-${manColor}-1)`,
                             }}
                             onPointerDown={(e) => {
                               e.stopPropagation()
