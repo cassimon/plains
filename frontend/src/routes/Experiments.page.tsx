@@ -1473,7 +1473,7 @@ function ExperimentTimeline({
   const done: Record<ExpTab, boolean> = {
     chemicals: chemicalsDone,
     processing: processingDone,
-    devices: devicesDone,
+    outcomes: devicesDone,
   }
   return (
     <Group gap={0} align="center" mb="lg" wrap="nowrap">
