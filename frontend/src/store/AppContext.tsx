@@ -155,6 +155,33 @@ export type ProcessStage = {
   alternatives: ProcessStep[] // >= 1 step per stage (usually 1, multiple for alternatives)
 }
 
+export type ProcessChemIngredient = {
+  id: string
+  name: string
+  pubchemCid: string
+  molarMass?: number // g/mol
+  density?: number // g/mL
+}
+
+export type ProcessSolvent = ProcessChemIngredient & {
+  volumeRatio: number
+  color: string
+}
+
+export type ProcessSolute = ProcessChemIngredient & {
+  amount: string
+  unit: "mg" | "ml" | "mol"
+  color: string
+}
+
+export type ProcessSolutionRecipe = {
+  id: string
+  name: string
+  totalSolventVolumeMl: string
+  solvents: ProcessSolvent[]
+  solutes: ProcessSolute[]
+}
+
 /** Persisted generated layer for process-derived stack editor */
 export type ProcessGeneratedStackLayer = {
   id: string
@@ -191,6 +218,8 @@ export type Process = {
   generatedStacks?: ProcessGeneratedStack[]
   /** Persisted hidden/deleted stack combinations in process editor UI */
   deletedStackCombinations?: number[]
+  /** Solution recipes defined in the Chemistry tab */
+  solutionRecipes?: ProcessSolutionRecipe[]
 }
 
 /** Helper to create a new process step */

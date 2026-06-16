@@ -23,9 +23,12 @@ import {
   IconAtom,
   IconCheck,
   IconChevronDown,
+  IconCircleCheck,
   IconCopy,
+  IconCpu,
   IconDownload,
   IconDroplet,
+  IconFlask2,
   IconLayersIntersect,
   IconPlayerPlay,
   IconPlus,
@@ -66,6 +69,7 @@ import {
   useEntityCollection,
 } from "@/store/AppContext"
 import { DependencyBlockModal } from "../components/DependencyBlockModal"
+import { ChemistryTab } from "./Processes.chemistry"
 
 const STEP_CATEGORIES: Array<{
   value: ProcessStepCategory
@@ -1966,6 +1970,9 @@ export function ProcessesPage() {
   >(null)
   const processedPendingRequestIdsRef = useRef<Set<string>>(new Set())
   const stackInvalidationByProcessRef = useRef<Map<string, string>>(new Map())
+  const [activeProcessTab, setActiveProcessTab] = useState<
+    "chemistry" | "deposition" | "device"
+  >("deposition")
   const selectProcess = useCallback(
     (id: string | null) => {
       setActiveEntity(id ? { kind: "process", id } : null)
@@ -2300,6 +2307,7 @@ export function ProcessesPage() {
     setProcesses((prev) =>
       prev.map((p) => (p.id === selectedProcess.id ? updated : p)),
     )
+    setActiveProcessTab("device")
   }
 
   const handleDeleteStack = (combination: number) => {
@@ -2855,6 +2863,10 @@ export function ProcessesPage() {
     )
     return hasSubstrate && hasStep
   }, [selectedProcess])
+
+  const chemistryDone = (selectedProcess?.solutionRecipes?.length ?? 0) > 0
+  const depositionDone = hasBothSubstrateAndStep
+  const deviceDone = generatedStacks.length > 0
 
   useEffect(() => {
     if (!selectedProcess) return
@@ -3776,26 +3788,7 @@ export function ProcessesPage() {
                       : ""
                   }
                 >
-                  Generate Resulting Stacks
-                </Button>
-                <Button
-                  size="md"
-                  color="green"
-                  variant="light"
-                  leftSection={<IconPlayerPlay size={18} />}
-                  onClick={() => handleSpawnExperiment(selectedProcess)}
-                  disabled={
-                    !hasBothSubstrateAndStep || generatedStacks.length === 0
-                  }
-                  title={
-                    !hasBothSubstrateAndStep
-                      ? "Select both a substrate and add at least one step to create an experiment"
-                      : generatedStacks.length === 0
-                        ? "Generate resulting stacks first"
-                        : ""
-                  }
-                >
-                  Create Experiment from Process
+                  Generate Stacks
                 </Button>
                 <Button
                   size="xs"
@@ -3818,79 +3811,595 @@ export function ProcessesPage() {
               </Group>
             </Group>
 
+            {/* 3-Step Progress Flow */}
+            <Box px="md" pt="sm" pb="xs">
+              <Group gap={0} align="center">
+                {(
+                  [
+                    {
+                      id: "chemistry" as const,
+                      label: "Chemistry",
+                      Icon: IconFlask2,
+                      done: chemistryDone,
+                    },
+                    {
+                      id: "deposition" as const,
+                      label: "Deposition",
+                      Icon: IconLayersIntersect,
+                      done: depositionDone,
+                    },
+                    {
+                      id: "device" as const,
+                      label: "Device Info",
+                      Icon: IconCpu,
+                      done: deviceDone,
+                    },
+                  ] as const
+                ).map((step, i) => {
+                  const isActive = activeProcessTab === step.id
+                  return (
+                    <Group key={step.id} gap={0} align="center">
+                      <Box
+                        component="button"
+                        onClick={() => setActiveProcessTab(step.id)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "6px 14px",
+                          borderRadius: 8,
+                          border: isActive
+                            ? "1.5px solid var(--mantine-color-blue-5)"
+                            : "1.5px solid transparent",
+                          background: isActive
+                            ? "var(--mantine-color-blue-0)"
+                            : "transparent",
+                          cursor: "pointer",
+                          transition: "all 120ms ease",
+                        }}
+                      >
+                        <Box
+                          style={{
+                            width: 28,
+                            height: 28,
+                            borderRadius: "50%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            background: step.done
+                              ? "var(--mantine-color-green-6)"
+                              : isActive
+                                ? "var(--mantine-color-blue-5)"
+                                : "var(--mantine-color-gray-4)",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {step.done ? (
+                            <IconCircleCheck size={16} color="white" />
+                          ) : (
+                            <step.Icon size={15} color="white" />
+                          )}
+                        </Box>
+                        <Box>
+                          <Text
+                            size="xs"
+                            c="dimmed"
+                            fw={500}
+                            style={{ lineHeight: 1.1 }}
+                          >
+                            Step {i + 1}
+                          </Text>
+                          <Text
+                            size="sm"
+                            fw={isActive ? 700 : 500}
+                            c={isActive ? "blue" : undefined}
+                            style={{ lineHeight: 1.2 }}
+                          >
+                            {step.label}
+                          </Text>
+                        </Box>
+                      </Box>
+                      {i < 2 && (
+                        <Box
+                          style={{
+                            width: 32,
+                            height: 2,
+                            background:
+                              i === 0 && depositionDone
+                                ? "var(--mantine-color-green-4)"
+                                : i === 1 && deviceDone
+                                  ? "var(--mantine-color-green-4)"
+                                  : "var(--mantine-color-gray-3)",
+                            borderRadius: 1,
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                    </Group>
+                  )
+                })}
+              </Group>
+            </Box>
+
             <Box style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-              <Stack p="md" gap="sm">
-                {/* Process Board */}
-                <Box>
-                  <Stack gap="sm">
+              {/* Chemistry Tab */}
+              {activeProcessTab === "chemistry" && (
+                <ChemistryTab
+                  process={selectedProcess}
+                  onUpdateProcess={(updated) =>
+                    setProcesses((prev) =>
+                      prev.map((p) => (p.id === updated.id ? updated : p)),
+                    )
+                  }
+                />
+              )}
+
+              {/* Device Tab */}
+              {activeProcessTab === "device" && (
+                <Stack p="md" gap="sm">
+                  {generatedStacks.length > 0 ? (
+                    <>
+                      <ResultingStacks
+                        stacks={generatedStacks}
+                        deletedCombinations={deletedCombinations}
+                        onLayerChange={handleUpdateStackLayer}
+                        onStackFieldChange={handleUpdateStackField}
+                        onDelete={handleDeleteStack}
+                        onRecover={handleRecoverStack}
+                        onRefresh={handleGenerateStacks}
+                      />
+                      <Group justify="center" mt="lg">
+                        <Button
+                          size="lg"
+                          color="green"
+                          variant="subtle"
+                          leftSection={<IconPlayerPlay size={20} />}
+                          onClick={() => handleSpawnExperiment(selectedProcess)}
+                        >
+                          Create Experiment from Process
+                        </Button>
+                      </Group>
+                    </>
+                  ) : (
                     <Box
                       style={{
-                        padding: "6px 8px",
-                        borderRadius: 8,
-                        background: "transparent",
-                      }}
-                      onMouseDown={(e) => {
-                        const target = e.target as HTMLElement
-                        if (
-                          target.closest('[data-quenching-modal="true"]') ||
-                          target.closest('[role="dialog"]') ||
-                          target.closest('[data-step-box="true"]') ||
-                          target.closest('[data-step-details="true"]') ||
-                          target.closest('[role="listbox"]') ||
-                          target.closest('[role="option"]') ||
-                          target.closest(".mantine-Select-dropdown")
-                        ) {
-                          return
-                        }
-                        if (!target.closest('[data-step-box="true"]')) {
-                          setSelectedStepId(null)
-                          setSubstrateSelectingIdx(null)
-                        }
+                        display: "grid",
+                        placeItems: "center",
+                        minHeight: 300,
                       }}
                     >
-                      {/* Substrate Row – same visual structure as a steps row */}
-                      {(() => {
-                        const subIds = selectedProcess.substrateIds ?? []
-                        const isLastSubstrate = subIds.length === 1
-                        const hasSteps = selectedProcess.stages.length > 0
-                        const availableForNew = visibleSubstrateOptions.filter(
-                          (opt) => !subIds.includes(opt.value),
-                        )
-                        return (
-                          <Box
-                            style={{
-                              minHeight: 96,
-                              borderRadius: 10,
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 8,
-                              padding: "8px 12px",
-                            }}
-                          >
-                            <Text
-                              size="xl"
-                              fw={700}
-                              w={84}
-                              ta="left"
-                              style={{
-                                color: "var(--mantine-color-gray-5)",
-                                flexShrink: 0,
-                              }}
-                            >
-                              Substrate
-                            </Text>
+                      <Stack align="center" gap="md">
+                        <IconCpu
+                          size={56}
+                          style={{ color: "var(--mantine-color-gray-4)" }}
+                        />
+                        <Text size="lg" fw={600} c="dimmed">
+                          No device stacks yet
+                        </Text>
+                        <Text size="sm" c="dimmed" ta="center" maw={340}>
+                          Complete the Deposition step and click{" "}
+                          <b>Generate Stacks</b> to see device info here.
+                        </Text>
+                        <Button
+                          size="md"
+                          color="blue"
+                          variant="light"
+                          leftSection={<IconSparkles size={16} />}
+                          onClick={handleGenerateStacks}
+                          disabled={!hasBothSubstrateAndStep}
+                        >
+                          Generate Stacks
+                        </Button>
+                      </Stack>
+                    </Box>
+                  )}
+                </Stack>
+              )}
 
+              {/* Deposition Tab */}
+              {activeProcessTab === "deposition" && (
+                <Stack p="md" gap="sm">
+                  {/* Process Board */}
+                  <Box>
+                    <Stack gap="sm">
+                      <Box
+                        style={{
+                          padding: "6px 8px",
+                          borderRadius: 8,
+                          background: "transparent",
+                        }}
+                        onMouseDown={(e) => {
+                          const target = e.target as HTMLElement
+                          if (
+                            target.closest('[data-quenching-modal="true"]') ||
+                            target.closest('[role="dialog"]') ||
+                            target.closest('[data-step-box="true"]') ||
+                            target.closest('[data-step-details="true"]') ||
+                            target.closest('[role="listbox"]') ||
+                            target.closest('[role="option"]') ||
+                            target.closest(".mantine-Select-dropdown")
+                          ) {
+                            return
+                          }
+                          if (!target.closest('[data-step-box="true"]')) {
+                            setSelectedStepId(null)
+                            setSubstrateSelectingIdx(null)
+                          }
+                        }}
+                      >
+                        {/* Substrate Row – same visual structure as a steps row */}
+                        {(() => {
+                          const subIds = selectedProcess.substrateIds ?? []
+                          const isLastSubstrate = subIds.length === 1
+                          const hasSteps = selectedProcess.stages.length > 0
+                          const availableForNew =
+                            visibleSubstrateOptions.filter(
+                              (opt) => !subIds.includes(opt.value),
+                            )
+                          return (
                             <Box
                               style={{
-                                flex: 1,
-                                minWidth: 0,
-                                overflowX: "auto",
+                                minHeight: 96,
+                                borderRadius: 10,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                padding: "8px 12px",
                               }}
                             >
-                              {subIds.length === 0 &&
-                              substrateSelectingIdx !== -1 ? (
-                                <Group justify="center">
-                                  {visibleSubstrateOptions.length > 0 ? (
+                              <Text
+                                size="xl"
+                                fw={700}
+                                w={84}
+                                ta="left"
+                                style={{
+                                  color: "var(--mantine-color-gray-5)",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                Substrate
+                              </Text>
+
+                              <Box
+                                style={{
+                                  flex: 1,
+                                  minWidth: 0,
+                                  overflowX: "auto",
+                                }}
+                              >
+                                {subIds.length === 0 &&
+                                substrateSelectingIdx !== -1 ? (
+                                  <Group justify="center">
+                                    {visibleSubstrateOptions.length > 0 ? (
+                                      <Button
+                                        size="xs"
+                                        variant="subtle"
+                                        leftSection={<IconPlus size={14} />}
+                                        onClick={() =>
+                                          setSubstrateSelectingIdx(-1)
+                                        }
+                                      >
+                                        Choose Substrate
+                                      </Button>
+                                    ) : (
+                                      <Button
+                                        size="xs"
+                                        variant="subtle"
+                                        leftSection={
+                                          <IconRowInsertTop size={14} />
+                                        }
+                                        onClick={handleCreateSubstrateMaterial}
+                                      >
+                                        New Substrate Material
+                                      </Button>
+                                    )}
+                                  </Group>
+                                ) : (
+                                  <Group
+                                    justify="center"
+                                    gap="sm"
+                                    wrap="nowrap"
+                                    style={{
+                                      width: "fit-content",
+                                      minWidth: "100%",
+                                      margin: "0 auto",
+                                    }}
+                                  >
+                                    {subIds.map((subId, idx) => {
+                                      const label = getSubstrateLabel(subId)
+                                      const substrateDimensions =
+                                        selectedProcess
+                                          .substrateDimensionsById?.[subId] ??
+                                        DEFAULT_SUBSTRATE_DIMENSIONS
+                                      const isActive =
+                                        substrateSelectingIdx === idx
+                                      const cannotRemove =
+                                        isLastSubstrate && hasSteps
+                                      const replacementOptions =
+                                        visibleSubstrateOptions.filter(
+                                          (opt) =>
+                                            !subIds.includes(opt.value) ||
+                                            opt.value === subId,
+                                        )
+                                      return (
+                                        <Box
+                                          key={subId}
+                                          data-step-box="true"
+                                          onClick={() =>
+                                            setSubstrateSelectingIdx(idx)
+                                          }
+                                          style={{
+                                            width: 260,
+                                            minHeight: 92,
+                                            borderRadius: 8,
+                                            padding: "10px 12px",
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            justifyContent: "space-between",
+                                            cursor: "default",
+                                            userSelect: "none",
+                                            background: `linear-gradient(90deg, ${SUBSTRATE_COLOR}2E 0%, transparent 100%)`,
+                                            border: isActive
+                                              ? `2px solid ${SUBSTRATE_COLOR}`
+                                              : "1px solid var(--mantine-color-gray-3)",
+                                          }}
+                                        >
+                                          <Stack gap={6}>
+                                            <Group
+                                              justify="space-between"
+                                              wrap="nowrap"
+                                              gap="xs"
+                                            >
+                                              <Group
+                                                gap={6}
+                                                wrap="nowrap"
+                                                style={{ flex: 1, minWidth: 0 }}
+                                              >
+                                                <IconSquare size={14} />
+                                                <Text
+                                                  size="sm"
+                                                  fw={700}
+                                                  truncate
+                                                >
+                                                  {label?.name ?? "Unnamed"}
+                                                </Text>
+                                              </Group>
+                                              <Tooltip
+                                                label="Remove all steps first before removing the last substrate"
+                                                disabled={!cannotRemove}
+                                                withArrow
+                                              >
+                                                <ActionIcon
+                                                  size="xs"
+                                                  variant="subtle"
+                                                  color={
+                                                    cannotRemove
+                                                      ? "gray"
+                                                      : "red"
+                                                  }
+                                                  onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    if (!cannotRemove)
+                                                      handleRemoveSubstrate(
+                                                        subId,
+                                                      )
+                                                  }}
+                                                >
+                                                  <IconX size={12} />
+                                                </ActionIcon>
+                                              </Tooltip>
+                                            </Group>
+
+                                            <Box>
+                                              {isActive ? (
+                                                <Stack gap={6}>
+                                                  <Select
+                                                    size="xs"
+                                                    placeholder="Select substrate"
+                                                    value={subId}
+                                                    data={replacementOptions.map(
+                                                      (opt) => ({
+                                                        value: opt.value,
+                                                        label: opt.label,
+                                                      }),
+                                                    )}
+                                                    searchable
+                                                    clearable
+                                                    comboboxProps={{
+                                                      withinPortal: false,
+                                                    }}
+                                                    onClick={(e) =>
+                                                      e.stopPropagation()
+                                                    }
+                                                    onChange={(value) => {
+                                                      if (value) {
+                                                        handleReplaceSubstrate(
+                                                          idx,
+                                                          value,
+                                                        )
+                                                      } else {
+                                                        handleRemoveSubstrate(
+                                                          subId,
+                                                        )
+                                                      }
+                                                      setSubstrateSelectingIdx(
+                                                        null,
+                                                      )
+                                                    }}
+                                                  />
+
+                                                  <Group gap={6} wrap="nowrap">
+                                                    <NumberInput
+                                                      size="xs"
+                                                      label="Length (cm)"
+                                                      min={0}
+                                                      value={
+                                                        substrateDimensions.lengthCm
+                                                          ? Number(
+                                                              substrateDimensions.lengthCm,
+                                                            )
+                                                          : ""
+                                                      }
+                                                      onClick={(e) =>
+                                                        e.stopPropagation()
+                                                      }
+                                                      onChange={(value) =>
+                                                        handleUpdateSubstrateDimensions(
+                                                          subId,
+                                                          {
+                                                            lengthCm:
+                                                              typeof value ===
+                                                              "number"
+                                                                ? String(value)
+                                                                : "",
+                                                          },
+                                                        )
+                                                      }
+                                                      style={{ flex: 1 }}
+                                                    />
+                                                    <NumberInput
+                                                      size="xs"
+                                                      label="Width (cm)"
+                                                      min={0}
+                                                      value={
+                                                        substrateDimensions.widthCm
+                                                          ? Number(
+                                                              substrateDimensions.widthCm,
+                                                            )
+                                                          : ""
+                                                      }
+                                                      onClick={(e) =>
+                                                        e.stopPropagation()
+                                                      }
+                                                      onChange={(value) =>
+                                                        handleUpdateSubstrateDimensions(
+                                                          subId,
+                                                          {
+                                                            widthCm:
+                                                              typeof value ===
+                                                              "number"
+                                                                ? String(value)
+                                                                : "",
+                                                          },
+                                                        )
+                                                      }
+                                                      style={{ flex: 1 }}
+                                                    />
+                                                  </Group>
+                                                  <NumberInput
+                                                    size="xs"
+                                                    label="Surface roughness RMS (nm)"
+                                                    min={0}
+                                                    value={
+                                                      substrateDimensions.surfaceRoughnessRmsNm
+                                                        ? Number(
+                                                            substrateDimensions.surfaceRoughnessRmsNm,
+                                                          )
+                                                        : ""
+                                                    }
+                                                    onClick={(e) =>
+                                                      e.stopPropagation()
+                                                    }
+                                                    onChange={(value) =>
+                                                      handleUpdateSubstrateDimensions(
+                                                        subId,
+                                                        {
+                                                          surfaceRoughnessRmsNm:
+                                                            typeof value ===
+                                                            "number"
+                                                              ? String(value)
+                                                              : "",
+                                                        },
+                                                      )
+                                                    }
+                                                  />
+                                                </Stack>
+                                              ) : (
+                                                <Stack gap={2}>
+                                                  <Text size="xs" c="dimmed">
+                                                    {label?.rigidity ===
+                                                    "flexible"
+                                                      ? "Flexible"
+                                                      : label?.rigidity ===
+                                                          "rigid"
+                                                        ? "Rigid"
+                                                        : "—"}
+                                                  </Text>
+                                                  <Text size="xs" c="dimmed">
+                                                    {`L ${substrateDimensions.lengthCm || "2"} cm · W ${substrateDimensions.widthCm || "2"} cm`}
+                                                  </Text>
+                                                  <Text size="xs" c="dimmed">
+                                                    {`Roughness RMS ${substrateDimensions.surfaceRoughnessRmsNm || "—"} nm`}
+                                                  </Text>
+                                                </Stack>
+                                              )}
+                                            </Box>
+                                          </Stack>
+                                        </Box>
+                                      )
+                                    })}
+
+                                    {substrateSelectingIdx === -1 && (
+                                      <Box
+                                        data-step-box="true"
+                                        style={{
+                                          width: 260,
+                                          minHeight: 92,
+                                          borderRadius: 8,
+                                          padding: "10px 12px",
+                                          display: "flex",
+                                          flexDirection: "column",
+                                          justifyContent: "space-between",
+                                          background: `linear-gradient(90deg, ${SUBSTRATE_COLOR}2E 0%, transparent 100%)`,
+                                          border: `2px solid ${SUBSTRATE_COLOR}`,
+                                        }}
+                                      >
+                                        <Stack gap={6}>
+                                          <Group gap={6} wrap="nowrap">
+                                            <IconSquare size={14} />
+                                            <Text size="sm" fw={700} c="dimmed">
+                                              New substrate
+                                            </Text>
+                                          </Group>
+                                          <Select
+                                            size="xs"
+                                            placeholder="Select substrate"
+                                            data={availableForNew.map(
+                                              (opt) => ({
+                                                value: opt.value,
+                                                label: opt.label,
+                                              }),
+                                            )}
+                                            searchable
+                                            clearable
+                                            comboboxProps={{
+                                              withinPortal: false,
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(value) => {
+                                              if (value)
+                                                handleAddSubstrate(value)
+                                              setSubstrateSelectingIdx(null)
+                                            }}
+                                          />
+                                        </Stack>
+                                      </Box>
+                                    )}
+                                  </Group>
+                                )}
+                              </Box>
+
+                              <Box
+                                style={{
+                                  width: ROW_ACTION_SLOT_WIDTH,
+                                  flexShrink: 0,
+                                  display: "flex",
+                                  justifyContent: "flex-start",
+                                }}
+                              >
+                                {substrateSelectingIdx !== -1 &&
+                                subIds.length > 0 ? (
+                                  availableForNew.length > 0 ? (
                                     <Button
                                       size="xs"
                                       variant="subtle"
@@ -3899,7 +4408,7 @@ export function ProcessesPage() {
                                         setSubstrateSelectingIdx(-1)
                                       }
                                     >
-                                      Choose Substrate
+                                      Choose Alternative Substrate
                                     </Button>
                                   ) : (
                                     <Button
@@ -3912,901 +4421,561 @@ export function ProcessesPage() {
                                     >
                                       New Substrate Material
                                     </Button>
-                                  )}
-                                </Group>
-                              ) : (
-                                <Group
-                                  justify="center"
-                                  gap="sm"
-                                  wrap="nowrap"
-                                  style={{
-                                    width: "fit-content",
-                                    minWidth: "100%",
-                                    margin: "0 auto",
-                                  }}
-                                >
-                                  {subIds.map((subId, idx) => {
-                                    const label = getSubstrateLabel(subId)
-                                    const substrateDimensions =
-                                      selectedProcess.substrateDimensionsById?.[
-                                        subId
-                                      ] ?? DEFAULT_SUBSTRATE_DIMENSIONS
-                                    const isActive =
-                                      substrateSelectingIdx === idx
-                                    const cannotRemove =
-                                      isLastSubstrate && hasSteps
-                                    const replacementOptions =
-                                      visibleSubstrateOptions.filter(
-                                        (opt) =>
-                                          !subIds.includes(opt.value) ||
-                                          opt.value === subId,
-                                      )
-                                    return (
-                                      <Box
-                                        key={subId}
-                                        data-step-box="true"
-                                        onClick={() =>
-                                          setSubstrateSelectingIdx(idx)
-                                        }
-                                        style={{
-                                          width: 260,
-                                          minHeight: 92,
-                                          borderRadius: 8,
-                                          padding: "10px 12px",
-                                          display: "flex",
-                                          flexDirection: "column",
-                                          justifyContent: "space-between",
-                                          cursor: "default",
-                                          userSelect: "none",
-                                          background: `linear-gradient(90deg, ${SUBSTRATE_COLOR}2E 0%, transparent 100%)`,
-                                          border: isActive
-                                            ? `2px solid ${SUBSTRATE_COLOR}`
-                                            : "1px solid var(--mantine-color-gray-3)",
-                                        }}
-                                      >
-                                        <Stack gap={6}>
-                                          <Group
-                                            justify="space-between"
-                                            wrap="nowrap"
-                                            gap="xs"
-                                          >
-                                            <Group
-                                              gap={6}
-                                              wrap="nowrap"
-                                              style={{ flex: 1, minWidth: 0 }}
-                                            >
-                                              <IconSquare size={14} />
-                                              <Text size="sm" fw={700} truncate>
-                                                {label?.name ?? "Unnamed"}
-                                              </Text>
-                                            </Group>
-                                            <Tooltip
-                                              label="Remove all steps first before removing the last substrate"
-                                              disabled={!cannotRemove}
-                                              withArrow
-                                            >
-                                              <ActionIcon
-                                                size="xs"
-                                                variant="subtle"
-                                                color={
-                                                  cannotRemove ? "gray" : "red"
-                                                }
-                                                onClick={(e) => {
-                                                  e.stopPropagation()
-                                                  if (!cannotRemove)
-                                                    handleRemoveSubstrate(subId)
-                                                }}
-                                              >
-                                                <IconX size={12} />
-                                              </ActionIcon>
-                                            </Tooltip>
-                                          </Group>
-
-                                          <Box>
-                                            {isActive ? (
-                                              <Stack gap={6}>
-                                                <Select
-                                                  size="xs"
-                                                  placeholder="Select substrate"
-                                                  value={subId}
-                                                  data={replacementOptions.map(
-                                                    (opt) => ({
-                                                      value: opt.value,
-                                                      label: opt.label,
-                                                    }),
-                                                  )}
-                                                  searchable
-                                                  clearable
-                                                  comboboxProps={{
-                                                    withinPortal: false,
-                                                  }}
-                                                  onClick={(e) =>
-                                                    e.stopPropagation()
-                                                  }
-                                                  onChange={(value) => {
-                                                    if (value) {
-                                                      handleReplaceSubstrate(
-                                                        idx,
-                                                        value,
-                                                      )
-                                                    } else {
-                                                      handleRemoveSubstrate(
-                                                        subId,
-                                                      )
-                                                    }
-                                                    setSubstrateSelectingIdx(
-                                                      null,
-                                                    )
-                                                  }}
-                                                />
-
-                                                <Group gap={6} wrap="nowrap">
-                                                  <NumberInput
-                                                    size="xs"
-                                                    label="Length (cm)"
-                                                    min={0}
-                                                    value={
-                                                      substrateDimensions.lengthCm
-                                                        ? Number(
-                                                            substrateDimensions.lengthCm,
-                                                          )
-                                                        : ""
-                                                    }
-                                                    onClick={(e) =>
-                                                      e.stopPropagation()
-                                                    }
-                                                    onChange={(value) =>
-                                                      handleUpdateSubstrateDimensions(
-                                                        subId,
-                                                        {
-                                                          lengthCm:
-                                                            typeof value ===
-                                                            "number"
-                                                              ? String(value)
-                                                              : "",
-                                                        },
-                                                      )
-                                                    }
-                                                    style={{ flex: 1 }}
-                                                  />
-                                                  <NumberInput
-                                                    size="xs"
-                                                    label="Width (cm)"
-                                                    min={0}
-                                                    value={
-                                                      substrateDimensions.widthCm
-                                                        ? Number(
-                                                            substrateDimensions.widthCm,
-                                                          )
-                                                        : ""
-                                                    }
-                                                    onClick={(e) =>
-                                                      e.stopPropagation()
-                                                    }
-                                                    onChange={(value) =>
-                                                      handleUpdateSubstrateDimensions(
-                                                        subId,
-                                                        {
-                                                          widthCm:
-                                                            typeof value ===
-                                                            "number"
-                                                              ? String(value)
-                                                              : "",
-                                                        },
-                                                      )
-                                                    }
-                                                    style={{ flex: 1 }}
-                                                  />
-                                                </Group>
-                                                <NumberInput
-                                                  size="xs"
-                                                  label="Surface roughness RMS (nm)"
-                                                  min={0}
-                                                  value={
-                                                    substrateDimensions.surfaceRoughnessRmsNm
-                                                      ? Number(
-                                                          substrateDimensions.surfaceRoughnessRmsNm,
-                                                        )
-                                                      : ""
-                                                  }
-                                                  onClick={(e) =>
-                                                    e.stopPropagation()
-                                                  }
-                                                  onChange={(value) =>
-                                                    handleUpdateSubstrateDimensions(
-                                                      subId,
-                                                      {
-                                                        surfaceRoughnessRmsNm:
-                                                          typeof value ===
-                                                          "number"
-                                                            ? String(value)
-                                                            : "",
-                                                      },
-                                                    )
-                                                  }
-                                                />
-                                              </Stack>
-                                            ) : (
-                                              <Stack gap={2}>
-                                                <Text size="xs" c="dimmed">
-                                                  {label?.rigidity ===
-                                                  "flexible"
-                                                    ? "Flexible"
-                                                    : label?.rigidity ===
-                                                        "rigid"
-                                                      ? "Rigid"
-                                                      : "—"}
-                                                </Text>
-                                                <Text size="xs" c="dimmed">
-                                                  {`L ${substrateDimensions.lengthCm || "2"} cm · W ${substrateDimensions.widthCm || "2"} cm`}
-                                                </Text>
-                                                <Text size="xs" c="dimmed">
-                                                  {`Roughness RMS ${substrateDimensions.surfaceRoughnessRmsNm || "—"} nm`}
-                                                </Text>
-                                              </Stack>
-                                            )}
-                                          </Box>
-                                        </Stack>
-                                      </Box>
-                                    )
-                                  })}
-
-                                  {substrateSelectingIdx === -1 && (
-                                    <Box
-                                      data-step-box="true"
-                                      style={{
-                                        width: 260,
-                                        minHeight: 92,
-                                        borderRadius: 8,
-                                        padding: "10px 12px",
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        justifyContent: "space-between",
-                                        background: `linear-gradient(90deg, ${SUBSTRATE_COLOR}2E 0%, transparent 100%)`,
-                                        border: `2px solid ${SUBSTRATE_COLOR}`,
-                                      }}
-                                    >
-                                      <Stack gap={6}>
-                                        <Group gap={6} wrap="nowrap">
-                                          <IconSquare size={14} />
-                                          <Text size="sm" fw={700} c="dimmed">
-                                            New substrate
-                                          </Text>
-                                        </Group>
-                                        <Select
-                                          size="xs"
-                                          placeholder="Select substrate"
-                                          data={availableForNew.map((opt) => ({
-                                            value: opt.value,
-                                            label: opt.label,
-                                          }))}
-                                          searchable
-                                          clearable
-                                          comboboxProps={{
-                                            withinPortal: false,
-                                          }}
-                                          onClick={(e) => e.stopPropagation()}
-                                          onChange={(value) => {
-                                            if (value) handleAddSubstrate(value)
-                                            setSubstrateSelectingIdx(null)
-                                          }}
-                                        />
-                                      </Stack>
-                                    </Box>
-                                  )}
-                                </Group>
-                              )}
+                                  )
+                                ) : (
+                                  <span />
+                                )}
+                              </Box>
                             </Box>
+                          )
+                        })()}
 
+                        {selectedProcess.stages.length > 0 ? (
+                          <Stack gap="xs">
                             <Box
                               style={{
-                                width: ROW_ACTION_SLOT_WIDTH,
-                                flexShrink: 0,
-                                display: "flex",
-                                justifyContent: "flex-start",
+                                height: 10,
+                                borderRadius: 5,
+                                background:
+                                  dropInsertIndex === 0
+                                    ? "var(--mantine-color-blue-1)"
+                                    : "transparent",
                               }}
-                            >
-                              {substrateSelectingIdx !== -1 &&
-                              subIds.length > 0 ? (
-                                availableForNew.length > 0 ? (
-                                  <Button
-                                    size="xs"
-                                    variant="subtle"
-                                    leftSection={<IconPlus size={14} />}
-                                    onClick={() => setSubstrateSelectingIdx(-1)}
-                                  >
-                                    Choose Alternative Substrate
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    size="xs"
-                                    variant="subtle"
-                                    leftSection={<IconRowInsertTop size={14} />}
-                                    onClick={handleCreateSubstrateMaterial}
-                                  >
-                                    New Substrate Material
-                                  </Button>
-                                )
-                              ) : (
-                                <span />
-                              )}
-                            </Box>
-                          </Box>
-                        )
-                      })()}
+                              onDragOver={(e) => {
+                                e.preventDefault()
+                                setDropInsertIndex(0)
+                                setDropStagePos(null)
+                              }}
+                              onDragLeave={() => setDropInsertIndex(null)}
+                              onDrop={(e) => {
+                                e.preventDefault()
+                                if (draggedStep) {
+                                  moveStepToNewStageAt(
+                                    draggedStep.stepId,
+                                    draggedStep.fromStagePos,
+                                    0,
+                                  )
+                                }
+                                setDraggedStep(null)
+                                setDropInsertIndex(null)
+                                setDropStagePos(null)
+                              }}
+                            />
 
-                      {selectedProcess.stages.length > 0 ? (
-                        <Stack gap="xs">
-                          <Box
-                            style={{
-                              height: 10,
-                              borderRadius: 5,
-                              background:
-                                dropInsertIndex === 0
-                                  ? "var(--mantine-color-blue-1)"
-                                  : "transparent",
-                            }}
-                            onDragOver={(e) => {
-                              e.preventDefault()
-                              setDropInsertIndex(0)
-                              setDropStagePos(null)
-                            }}
-                            onDragLeave={() => setDropInsertIndex(null)}
-                            onDrop={(e) => {
-                              e.preventDefault()
-                              if (draggedStep) {
-                                moveStepToNewStageAt(
-                                  draggedStep.stepId,
-                                  draggedStep.fromStagePos,
-                                  0,
-                                )
-                              }
-                              setDraggedStep(null)
-                              setDropInsertIndex(null)
-                              setDropStagePos(null)
-                            }}
-                          />
-
-                          {displayedStages.map(
-                            ({ stage, stagePos }, displayIndex) => (
-                              <Box key={stage.index}>
-                                <Box
-                                  style={{
-                                    minHeight: 96,
-                                    borderRadius: 10,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 8,
-                                    padding: "8px 12px",
-                                    background:
-                                      dropStagePos === stagePos
-                                        ? "var(--mantine-color-blue-0)"
-                                        : "transparent",
-                                  }}
-                                  onDragOver={(e) => {
-                                    e.preventDefault()
-                                    setDropStagePos(stagePos)
-                                    setDropInsertIndex(null)
-                                  }}
-                                  onDragLeave={() => setDropStagePos(null)}
-                                  onDrop={(e) => {
-                                    e.preventDefault()
-                                    if (draggedStep) {
-                                      moveStepToAlternativeStage(
-                                        draggedStep.stepId,
-                                        draggedStep.fromStagePos,
-                                        stagePos,
-                                      )
-                                    }
-                                    setDraggedStep(null)
-                                    setDropStagePos(null)
-                                    setDropInsertIndex(null)
-                                  }}
-                                >
-                                  <Text
-                                    size="xl"
-                                    fw={700}
-                                    w={84}
-                                    ta="left"
-                                    style={{
-                                      color: "var(--mantine-color-gray-5)",
-                                    }}
-                                  >
-                                    #{displayIndex + 1}
-                                  </Text>
-
+                            {displayedStages.map(
+                              ({ stage, stagePos }, displayIndex) => (
+                                <Box key={stage.index}>
                                   <Box
                                     style={{
-                                      flex: 1,
-                                      minWidth: 0,
-                                      overflowX: "auto",
+                                      minHeight: 96,
+                                      borderRadius: 10,
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 8,
+                                      padding: "8px 12px",
+                                      background:
+                                        dropStagePos === stagePos
+                                          ? "var(--mantine-color-blue-0)"
+                                          : "transparent",
+                                    }}
+                                    onDragOver={(e) => {
+                                      e.preventDefault()
+                                      setDropStagePos(stagePos)
+                                      setDropInsertIndex(null)
+                                    }}
+                                    onDragLeave={() => setDropStagePos(null)}
+                                    onDrop={(e) => {
+                                      e.preventDefault()
+                                      if (draggedStep) {
+                                        moveStepToAlternativeStage(
+                                          draggedStep.stepId,
+                                          draggedStep.fromStagePos,
+                                          stagePos,
+                                        )
+                                      }
+                                      setDraggedStep(null)
+                                      setDropStagePos(null)
+                                      setDropInsertIndex(null)
                                     }}
                                   >
-                                    <Group
-                                      justify="center"
-                                      gap="sm"
-                                      wrap="nowrap"
+                                    <Text
+                                      size="xl"
+                                      fw={700}
+                                      w={84}
+                                      ta="left"
                                       style={{
-                                        width: "fit-content",
-                                        minWidth: "100%",
-                                        margin: "0 auto",
+                                        color: "var(--mantine-color-gray-5)",
                                       }}
                                     >
-                                      {stage.alternatives.map(
-                                        (step, altIdx) => {
-                                          const parameterLines =
-                                            getParameterFlowLines(step)
-                                          const isSelected =
-                                            selectedStepId === step.id
-                                          const cardMinHeight = isSelected
-                                            ? 92
-                                            : Math.max(
-                                                92,
-                                                86 + parameterLines.length * 16,
-                                              )
+                                      #{displayIndex + 1}
+                                    </Text>
 
-                                          return (
-                                            <Box
-                                              key={step.id}
-                                              data-step-box="true"
-                                              draggable
-                                              onDragStart={() => {
-                                                setDraggedStep({
-                                                  stepId: step.id,
-                                                  fromStagePos: stagePos,
-                                                })
-                                              }}
-                                              onDragEnd={() => {
-                                                setDraggedStep(null)
-                                                setDropInsertIndex(null)
-                                                setDropStagePos(null)
-                                              }}
-                                              onClick={() =>
-                                                setSelectedStepId(step.id)
-                                              }
-                                              style={{
-                                                width: 260,
-                                                minHeight: cardMinHeight,
-                                                borderRadius: 8,
-                                                padding: "10px 12px",
-                                                display: "flex",
-                                                flexDirection: "column",
-                                                justifyContent: "space-between",
-                                                cursor: "grab",
-                                                userSelect: "none",
-                                                background: `linear-gradient(90deg, ${step.color}2E 0%, transparent 100%)`,
-                                                border:
-                                                  selectedStepId === step.id
-                                                    ? `2px solid ${step.color}`
-                                                    : "1px solid var(--mantine-color-gray-3)",
-                                              }}
-                                            >
-                                              <Stack gap={6}>
-                                                <Group
-                                                  justify="space-between"
-                                                  wrap="nowrap"
-                                                  gap="xs"
-                                                >
+                                    <Box
+                                      style={{
+                                        flex: 1,
+                                        minWidth: 0,
+                                        overflowX: "auto",
+                                      }}
+                                    >
+                                      <Group
+                                        justify="center"
+                                        gap="sm"
+                                        wrap="nowrap"
+                                        style={{
+                                          width: "fit-content",
+                                          minWidth: "100%",
+                                          margin: "0 auto",
+                                        }}
+                                      >
+                                        {stage.alternatives.map(
+                                          (step, altIdx) => {
+                                            const parameterLines =
+                                              getParameterFlowLines(step)
+                                            const isSelected =
+                                              selectedStepId === step.id
+                                            const cardMinHeight = isSelected
+                                              ? 92
+                                              : Math.max(
+                                                  92,
+                                                  86 +
+                                                    parameterLines.length * 16,
+                                                )
+
+                                            return (
+                                              <Box
+                                                key={step.id}
+                                                data-step-box="true"
+                                                draggable
+                                                onDragStart={() => {
+                                                  setDraggedStep({
+                                                    stepId: step.id,
+                                                    fromStagePos: stagePos,
+                                                  })
+                                                }}
+                                                onDragEnd={() => {
+                                                  setDraggedStep(null)
+                                                  setDropInsertIndex(null)
+                                                  setDropStagePos(null)
+                                                }}
+                                                onClick={() =>
+                                                  setSelectedStepId(step.id)
+                                                }
+                                                style={{
+                                                  width: 260,
+                                                  minHeight: cardMinHeight,
+                                                  borderRadius: 8,
+                                                  padding: "10px 12px",
+                                                  display: "flex",
+                                                  flexDirection: "column",
+                                                  justifyContent:
+                                                    "space-between",
+                                                  cursor: "grab",
+                                                  userSelect: "none",
+                                                  background: `linear-gradient(90deg, ${step.color}2E 0%, transparent 100%)`,
+                                                  border:
+                                                    selectedStepId === step.id
+                                                      ? `2px solid ${step.color}`
+                                                      : "1px solid var(--mantine-color-gray-3)",
+                                                }}
+                                              >
+                                                <Stack gap={6}>
                                                   <Group
-                                                    gap={6}
+                                                    justify="space-between"
                                                     wrap="nowrap"
-                                                    style={{
-                                                      flex: 1,
-                                                      minWidth: 0,
-                                                    }}
+                                                    gap="xs"
                                                   >
-                                                    {
-                                                      STEP_CATEGORY_ICON_MAP[
-                                                        step.stepCategory
-                                                      ]
-                                                    }
-                                                    {stage.alternatives.length >
-                                                      1 && (
-                                                      <Text
-                                                        size="xs"
-                                                        c="dimmed"
-                                                        style={{
-                                                          fontWeight: 700,
-                                                          minWidth: 16,
-                                                        }}
-                                                      >
-                                                        {String.fromCharCode(
-                                                          97 + altIdx,
-                                                        )}
-                                                      </Text>
-                                                    )}
-                                                    {selectedStepId ===
-                                                    step.id ? (
-                                                      <TextInput
-                                                        size="xs"
-                                                        placeholder="Deposition method"
-                                                        autoFocus={
-                                                          pendingFocusStepId ===
-                                                          step.id
-                                                        }
-                                                        value={
-                                                          step.depositionMethod
-                                                            ?.value ?? ""
-                                                        }
-                                                        onClick={(e) =>
-                                                          e.stopPropagation()
-                                                        }
-                                                        onFocus={(e) => {
-                                                          e.currentTarget.select()
-                                                          if (
-                                                            pendingFocusStepId ===
-                                                            step.id
-                                                          ) {
-                                                            setPendingFocusStepId(
-                                                              null,
-                                                            )
-                                                          }
-                                                        }}
-                                                        onChange={(e) =>
-                                                          handleUpdateStepParam(
-                                                            step.id,
-                                                            "depositionMethod",
-                                                            {
-                                                              value:
-                                                                e.currentTarget
-                                                                  .value,
-                                                              mode: "constant",
-                                                            },
-                                                          )
-                                                        }
-                                                        styles={{
-                                                          input: {
-                                                            fontWeight: 700,
-                                                          },
-                                                        }}
-                                                        style={{ flex: 1 }}
-                                                      />
-                                                    ) : (
-                                                      <Text
-                                                        size="sm"
-                                                        fw={700}
-                                                        truncate
-                                                      >
-                                                        {step.depositionMethod?.value?.trim() ||
-                                                          step.name ||
-                                                          "Unnamed"}
-                                                      </Text>
-                                                    )}
-                                                  </Group>
-                                                  <Group gap={6} wrap="nowrap">
-                                                    {selectedStepId ===
-                                                      step.id && (
-                                                      <input
-                                                        type="color"
-                                                        value={step.color}
-                                                        onClick={(e) =>
-                                                          e.stopPropagation()
-                                                        }
-                                                        onChange={(e) =>
-                                                          handleUpdateStepColor(
-                                                            step.id,
-                                                            e.currentTarget
-                                                              .value,
-                                                          )
-                                                        }
-                                                        style={{
-                                                          width: 28,
-                                                          height: 28,
-                                                          border: `1px solid ${step.color}`,
-                                                          borderRadius: 6,
-                                                          background:
-                                                            "transparent",
-                                                          padding: 1,
-                                                        }}
-                                                      />
-                                                    )}
-                                                    <ActionIcon
-                                                      size="xs"
-                                                      variant="subtle"
-                                                      color="red"
-                                                      onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        handleRemoveStep(
-                                                          step.id,
-                                                        )
+                                                    <Group
+                                                      gap={6}
+                                                      wrap="nowrap"
+                                                      style={{
+                                                        flex: 1,
+                                                        minWidth: 0,
                                                       }}
                                                     >
-                                                      <IconX size={12} />
-                                                    </ActionIcon>
-                                                  </Group>
-                                                </Group>
-
-                                                <Box>
-                                                  {selectedStepId ===
-                                                  step.id ? (
-                                                    <Select
-                                                      size="xs"
-                                                      placeholder="Select material"
-                                                      value={getStepSourceValue(
-                                                        step,
-                                                      )}
-                                                      data={
-                                                        step.stepCategory ===
-                                                          "wet_deposition" ||
-                                                        step.stepCategory ===
-                                                          "surface_treatment"
-                                                          ? wetDepositionSourceOptions
-                                                          : sourceOptions
+                                                      {
+                                                        STEP_CATEGORY_ICON_MAP[
+                                                          step.stepCategory
+                                                        ]
                                                       }
-                                                      searchable
-                                                      clearable
-                                                      comboboxProps={{
-                                                        withinPortal: false,
-                                                      }}
-                                                      renderOption={({
-                                                        option,
-                                                      }) => (
+                                                      {stage.alternatives
+                                                        .length > 1 && (
                                                         <Text
                                                           size="xs"
-                                                          fw={
-                                                            option.value.startsWith(
-                                                              "action:",
-                                                            )
-                                                              ? 700
-                                                              : 400
-                                                          }
+                                                          c="dimmed"
+                                                          style={{
+                                                            fontWeight: 700,
+                                                            minWidth: 16,
+                                                          }}
                                                         >
-                                                          {option.label}
-                                                        </Text>
-                                                      )}
-                                                      onClick={(e) =>
-                                                        e.stopPropagation()
-                                                      }
-                                                      onChange={(value) =>
-                                                        handleUpdateStepSource(
-                                                          step.id,
-                                                          value,
-                                                        )
-                                                      }
-                                                    />
-                                                  ) : (
-                                                    <Stack gap={2}>
-                                                      <Group
-                                                        justify="space-between"
-                                                        wrap="nowrap"
-                                                        gap="xs"
-                                                      >
-                                                        <Text
-                                                          size="xs"
-                                                          c="black"
-                                                          truncate
-                                                          style={{ flex: 1 }}
-                                                        >
-                                                          {getStepSourceLabel(
-                                                            step,
+                                                          {String.fromCharCode(
+                                                            97 + altIdx,
                                                           )}
                                                         </Text>
-                                                        {parameterLines[0] !==
-                                                          "No parameters set" && (
-                                                          <Badge
+                                                      )}
+                                                      {selectedStepId ===
+                                                      step.id ? (
+                                                        <TextInput
+                                                          size="xs"
+                                                          placeholder="Deposition method"
+                                                          autoFocus={
+                                                            pendingFocusStepId ===
+                                                            step.id
+                                                          }
+                                                          value={
+                                                            step
+                                                              .depositionMethod
+                                                              ?.value ?? ""
+                                                          }
+                                                          onClick={(e) =>
+                                                            e.stopPropagation()
+                                                          }
+                                                          onFocus={(e) => {
+                                                            e.currentTarget.select()
+                                                            if (
+                                                              pendingFocusStepId ===
+                                                              step.id
+                                                            ) {
+                                                              setPendingFocusStepId(
+                                                                null,
+                                                              )
+                                                            }
+                                                          }}
+                                                          onChange={(e) =>
+                                                            handleUpdateStepParam(
+                                                              step.id,
+                                                              "depositionMethod",
+                                                              {
+                                                                value:
+                                                                  e
+                                                                    .currentTarget
+                                                                    .value,
+                                                                mode: "constant",
+                                                              },
+                                                            )
+                                                          }
+                                                          styles={{
+                                                            input: {
+                                                              fontWeight: 700,
+                                                            },
+                                                          }}
+                                                          style={{ flex: 1 }}
+                                                        />
+                                                      ) : (
+                                                        <Text
+                                                          size="sm"
+                                                          fw={700}
+                                                          truncate
+                                                        >
+                                                          {step.depositionMethod?.value?.trim() ||
+                                                            step.name ||
+                                                            "Unnamed"}
+                                                        </Text>
+                                                      )}
+                                                    </Group>
+                                                    <Group
+                                                      gap={6}
+                                                      wrap="nowrap"
+                                                    >
+                                                      {selectedStepId ===
+                                                        step.id && (
+                                                        <input
+                                                          type="color"
+                                                          value={step.color}
+                                                          onClick={(e) =>
+                                                            e.stopPropagation()
+                                                          }
+                                                          onChange={(e) =>
+                                                            handleUpdateStepColor(
+                                                              step.id,
+                                                              e.currentTarget
+                                                                .value,
+                                                            )
+                                                          }
+                                                          style={{
+                                                            width: 28,
+                                                            height: 28,
+                                                            border: `1px solid ${step.color}`,
+                                                            borderRadius: 6,
+                                                            background:
+                                                              "transparent",
+                                                            padding: 1,
+                                                          }}
+                                                        />
+                                                      )}
+                                                      <ActionIcon
+                                                        size="xs"
+                                                        variant="subtle"
+                                                        color="red"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation()
+                                                          handleRemoveStep(
+                                                            step.id,
+                                                          )
+                                                        }}
+                                                      >
+                                                        <IconX size={12} />
+                                                      </ActionIcon>
+                                                    </Group>
+                                                  </Group>
+
+                                                  <Box>
+                                                    {selectedStepId ===
+                                                    step.id ? (
+                                                      <Select
+                                                        size="xs"
+                                                        placeholder="Select material"
+                                                        value={getStepSourceValue(
+                                                          step,
+                                                        )}
+                                                        data={
+                                                          step.stepCategory ===
+                                                            "wet_deposition" ||
+                                                          step.stepCategory ===
+                                                            "surface_treatment"
+                                                            ? wetDepositionSourceOptions
+                                                            : sourceOptions
+                                                        }
+                                                        searchable
+                                                        clearable
+                                                        comboboxProps={{
+                                                          withinPortal: false,
+                                                        }}
+                                                        renderOption={({
+                                                          option,
+                                                        }) => (
+                                                          <Text
                                                             size="xs"
-                                                            variant="light"
-                                                            color="teal"
+                                                            fw={
+                                                              option.value.startsWith(
+                                                                "action:",
+                                                              )
+                                                                ? 700
+                                                                : 400
+                                                            }
                                                           >
-                                                            {
-                                                              parameterLines.length
-                                                            }{" "}
-                                                            params
-                                                          </Badge>
+                                                            {option.label}
+                                                          </Text>
                                                         )}
-                                                      </Group>
-                                                      <Stack gap={1}>
-                                                        {parameterLines.map(
-                                                          (line, lineIdx) => (
-                                                            <Text
-                                                              key={`${step.id}-param-line-${lineIdx}`}
+                                                        onClick={(e) =>
+                                                          e.stopPropagation()
+                                                        }
+                                                        onChange={(value) =>
+                                                          handleUpdateStepSource(
+                                                            step.id,
+                                                            value,
+                                                          )
+                                                        }
+                                                      />
+                                                    ) : (
+                                                      <Stack gap={2}>
+                                                        <Group
+                                                          justify="space-between"
+                                                          wrap="nowrap"
+                                                          gap="xs"
+                                                        >
+                                                          <Text
+                                                            size="xs"
+                                                            c="black"
+                                                            truncate
+                                                            style={{ flex: 1 }}
+                                                          >
+                                                            {getStepSourceLabel(
+                                                              step,
+                                                            )}
+                                                          </Text>
+                                                          {parameterLines[0] !==
+                                                            "No parameters set" && (
+                                                            <Badge
                                                               size="xs"
-                                                              c="dimmed"
-                                                              truncate
-                                                              style={{
-                                                                whiteSpace:
-                                                                  "nowrap",
-                                                              }}
+                                                              variant="light"
+                                                              color="teal"
                                                             >
-                                                              {line}
-                                                            </Text>
-                                                          ),
-                                                        )}
+                                                              {
+                                                                parameterLines.length
+                                                              }{" "}
+                                                              params
+                                                            </Badge>
+                                                          )}
+                                                        </Group>
+                                                        <Stack gap={1}>
+                                                          {parameterLines.map(
+                                                            (line, lineIdx) => (
+                                                              <Text
+                                                                key={`${step.id}-param-line-${lineIdx}`}
+                                                                size="xs"
+                                                                c="dimmed"
+                                                                truncate
+                                                                style={{
+                                                                  whiteSpace:
+                                                                    "nowrap",
+                                                                }}
+                                                              >
+                                                                {line}
+                                                              </Text>
+                                                            ),
+                                                          )}
+                                                        </Stack>
                                                       </Stack>
-                                                    </Stack>
-                                                  )}
-                                                </Box>
-                                              </Stack>
-                                            </Box>
-                                          )
-                                        },
-                                      )}
-                                    </Group>
+                                                    )}
+                                                  </Box>
+                                                </Stack>
+                                              </Box>
+                                            )
+                                          },
+                                        )}
+                                      </Group>
+                                    </Box>
+
+                                    <Box
+                                      style={{
+                                        width: ROW_ACTION_SLOT_WIDTH,
+                                        flexShrink: 0,
+                                        display: "flex",
+                                        justifyContent: "flex-start",
+                                      }}
+                                    >
+                                      <Menu shadow="md" width={240}>
+                                        <Menu.Target>
+                                          <Button
+                                            size="xs"
+                                            variant="subtle"
+                                            leftSection={<IconPlus size={14} />}
+                                          >
+                                            Add Alternative Step
+                                          </Button>
+                                        </Menu.Target>
+                                        <Menu.Dropdown>
+                                          {STEP_CATEGORIES.map((category) => (
+                                            <Menu.Item
+                                              key={`alt-${stage.index}-${category.value}`}
+                                              leftSection={category.icon}
+                                              onClick={() =>
+                                                handleAddAlternativeStep(
+                                                  stage.index,
+                                                  category.value,
+                                                )
+                                              }
+                                            >
+                                              {category.label}
+                                            </Menu.Item>
+                                          ))}
+                                        </Menu.Dropdown>
+                                      </Menu>
+                                    </Box>
                                   </Box>
 
                                   <Box
                                     style={{
-                                      width: ROW_ACTION_SLOT_WIDTH,
-                                      flexShrink: 0,
-                                      display: "flex",
-                                      justifyContent: "flex-start",
+                                      height: 10,
+                                      borderRadius: 5,
+                                      background:
+                                        dropInsertIndex === stagePos + 1
+                                          ? "var(--mantine-color-blue-1)"
+                                          : "transparent",
                                     }}
-                                  >
-                                    <Menu shadow="md" width={240}>
-                                      <Menu.Target>
-                                        <Button
-                                          size="xs"
-                                          variant="subtle"
-                                          leftSection={<IconPlus size={14} />}
-                                        >
-                                          Add Alternative Step
-                                        </Button>
-                                      </Menu.Target>
-                                      <Menu.Dropdown>
-                                        {STEP_CATEGORIES.map((category) => (
-                                          <Menu.Item
-                                            key={`alt-${stage.index}-${category.value}`}
-                                            leftSection={category.icon}
-                                            onClick={() =>
-                                              handleAddAlternativeStep(
-                                                stage.index,
-                                                category.value,
-                                              )
-                                            }
-                                          >
-                                            {category.label}
-                                          </Menu.Item>
-                                        ))}
-                                      </Menu.Dropdown>
-                                    </Menu>
-                                  </Box>
+                                    onDragOver={(e) => {
+                                      e.preventDefault()
+                                      setDropInsertIndex(stagePos + 1)
+                                      setDropStagePos(null)
+                                    }}
+                                    onDragLeave={() => setDropInsertIndex(null)}
+                                    onDrop={(e) => {
+                                      e.preventDefault()
+                                      if (draggedStep) {
+                                        moveStepToNewStageAt(
+                                          draggedStep.stepId,
+                                          draggedStep.fromStagePos,
+                                          stagePos + 1,
+                                        )
+                                      }
+                                      setDraggedStep(null)
+                                      setDropInsertIndex(null)
+                                      setDropStagePos(null)
+                                    }}
+                                  />
+
+                                  {selectedStepStagePos === stagePos &&
+                                    inlineStepDetailsPanel && (
+                                      <Box mt="xs" mb="sm">
+                                        {inlineStepDetailsPanel}
+                                      </Box>
+                                    )}
                                 </Box>
-
-                                <Box
-                                  style={{
-                                    height: 10,
-                                    borderRadius: 5,
-                                    background:
-                                      dropInsertIndex === stagePos + 1
-                                        ? "var(--mantine-color-blue-1)"
-                                        : "transparent",
-                                  }}
-                                  onDragOver={(e) => {
-                                    e.preventDefault()
-                                    setDropInsertIndex(stagePos + 1)
-                                    setDropStagePos(null)
-                                  }}
-                                  onDragLeave={() => setDropInsertIndex(null)}
-                                  onDrop={(e) => {
-                                    e.preventDefault()
-                                    if (draggedStep) {
-                                      moveStepToNewStageAt(
-                                        draggedStep.stepId,
-                                        draggedStep.fromStagePos,
-                                        stagePos + 1,
-                                      )
-                                    }
-                                    setDraggedStep(null)
-                                    setDropInsertIndex(null)
-                                    setDropStagePos(null)
-                                  }}
-                                />
-
-                                {selectedStepStagePos === stagePos &&
-                                  inlineStepDetailsPanel && (
-                                    <Box mt="xs" mb="sm">
-                                      {inlineStepDetailsPanel}
-                                    </Box>
-                                  )}
-                              </Box>
-                            ),
-                          )}
-                        </Stack>
-                      ) : null}
-                    </Box>
-
-                    {(selectedProcess.substrateIds ?? []).length > 0 && (
-                      <Box
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          alignItems: "center",
-                          justifyContent:
-                            selectedProcess.stages.length === 0
-                              ? "center"
-                              : "flex-start",
-                          flex:
-                            selectedProcess.stages.length === 0 ? 1 : undefined,
-                          minHeight:
-                            selectedProcess.stages.length === 0
-                              ? 200
-                              : undefined,
-                          gap: 16,
-                        }}
-                      >
-                        <Group justify="center" gap="sm">
-                          <Menu shadow="md" width={240}>
-                            <Menu.Target>
-                              <Button
-                                size="xs"
-                                variant="subtle"
-                                leftSection={<IconPlus size={14} />}
-                              >
-                                Add Next Step
-                              </Button>
-                            </Menu.Target>
-                            <Menu.Dropdown>
-                              {STEP_CATEGORIES.map((category) => (
-                                <Menu.Item
-                                  key={`next-${category.value}`}
-                                  leftSection={category.icon}
-                                  onClick={() =>
-                                    handleAddProcessStep(category.value)
-                                  }
-                                >
-                                  {category.label}
-                                </Menu.Item>
-                              ))}
-                            </Menu.Dropdown>
-                          </Menu>
-                        </Group>
-
-                        {hasBothSubstrateAndStep && (
-                          <Group justify="center">
-                            {generatedStacks.length === 0 ? (
-                              <Button
-                                size="lg"
-                                color="blue"
-                                variant="subtle"
-                                leftSection={<IconSparkles size={20} />}
-                                onClick={handleGenerateStacks}
-                              >
-                                Generate Resulting Stacks
-                              </Button>
-                            ) : null}
-                          </Group>
-                        )}
+                              ),
+                            )}
+                          </Stack>
+                        ) : null}
                       </Box>
-                    )}
 
-                    {generatedStacks.length > 0 && (
-                      <>
+                      {(selectedProcess.substrateIds ?? []).length > 0 && (
                         <Box
-                          mt="xl"
-                          pt="xl"
                           style={{
-                            borderTop: "2px solid var(--mantine-color-gray-3)",
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent:
+                              selectedProcess.stages.length === 0
+                                ? "center"
+                                : "flex-start",
+                            flex:
+                              selectedProcess.stages.length === 0
+                                ? 1
+                                : undefined,
+                            minHeight:
+                              selectedProcess.stages.length === 0
+                                ? 200
+                                : undefined,
+                            gap: 16,
                           }}
                         >
-                          <ResultingStacks
-                            stacks={generatedStacks}
-                            deletedCombinations={deletedCombinations}
-                            onLayerChange={handleUpdateStackLayer}
-                            onStackFieldChange={handleUpdateStackField}
-                            onDelete={handleDeleteStack}
-                            onRecover={handleRecoverStack}
-                            onRefresh={handleGenerateStacks}
-                          />
-                        </Box>
+                          <Group justify="center" gap="sm">
+                            <Menu shadow="md" width={240}>
+                              <Menu.Target>
+                                <Button
+                                  size="xs"
+                                  variant="subtle"
+                                  leftSection={<IconPlus size={14} />}
+                                >
+                                  Add Next Step
+                                </Button>
+                              </Menu.Target>
+                              <Menu.Dropdown>
+                                {STEP_CATEGORIES.map((category) => (
+                                  <Menu.Item
+                                    key={`next-${category.value}`}
+                                    leftSection={category.icon}
+                                    onClick={() =>
+                                      handleAddProcessStep(category.value)
+                                    }
+                                  >
+                                    {category.label}
+                                  </Menu.Item>
+                                ))}
+                              </Menu.Dropdown>
+                            </Menu>
+                          </Group>
 
-                        <Group justify="center" mt="lg">
-                          <Button
-                            size="lg"
-                            color="green"
-                            variant="subtle"
-                            leftSection={<IconPlayerPlay size={20} />}
-                            onClick={() =>
-                              handleSpawnExperiment(selectedProcess)
-                            }
-                          >
-                            Create Experiment from Process
-                          </Button>
-                        </Group>
-                      </>
-                    )}
-                  </Stack>
-                </Box>
-              </Stack>
+                          {hasBothSubstrateAndStep && (
+                            <Group justify="center">
+                              {generatedStacks.length === 0 ? (
+                                <Button
+                                  size="lg"
+                                  color="blue"
+                                  variant="subtle"
+                                  leftSection={<IconSparkles size={20} />}
+                                  onClick={handleGenerateStacks}
+                                >
+                                  Generate Resulting Stacks
+                                </Button>
+                              ) : null}
+                            </Group>
+                          )}
+                        </Box>
+                      )}
+                    </Stack>
+                  </Box>
+                </Stack>
+              )}
             </Box>
           </>
         ) : (

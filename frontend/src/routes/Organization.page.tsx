@@ -9,7 +9,6 @@ import {
   Loader,
   Modal,
   Paper,
-  Popover,
   rem,
   ScrollArea,
   Stack,
@@ -262,8 +261,14 @@ function TextEl({
     onUpdate({
       ...el,
       position: {
-        x: Math.max(0, Math.round((dragStart.current.origin.x + dx) / CELL_W) * CELL_W),
-        y: Math.max(0, Math.round((dragStart.current.origin.y + dy) / CELL_H) * CELL_H),
+        x: Math.max(
+          0,
+          Math.round((dragStart.current.origin.x + dx) / CELL_W) * CELL_W,
+        ),
+        y: Math.max(
+          0,
+          Math.round((dragStart.current.origin.y + dy) / CELL_H) * CELL_H,
+        ),
       },
     })
   }
@@ -293,8 +298,14 @@ function TextEl({
     onUpdate({
       ...el,
       size: {
-        x: Math.max(CELL_W, Math.round((resizeStart.current.size.x + dx) / CELL_W) * CELL_W),
-        y: Math.max(CELL_H, Math.round((resizeStart.current.size.y + dy) / CELL_H) * CELL_H),
+        x: Math.max(
+          CELL_W,
+          Math.round((resizeStart.current.size.x + dx) / CELL_W) * CELL_W,
+        ),
+        y: Math.max(
+          CELL_H,
+          Math.round((resizeStart.current.size.y + dy) / CELL_H) * CELL_H,
+        ),
       },
     })
   }
@@ -498,8 +509,14 @@ function PlainTextEl({
     onUpdate({
       ...el,
       position: {
-        x: Math.max(0, Math.round((dragStart.current.origin.x + dx) / CELL_W) * CELL_W),
-        y: Math.max(0, Math.round((dragStart.current.origin.y + dy) / CELL_H) * CELL_H),
+        x: Math.max(
+          0,
+          Math.round((dragStart.current.origin.x + dx) / CELL_W) * CELL_W,
+        ),
+        y: Math.max(
+          0,
+          Math.round((dragStart.current.origin.y + dy) / CELL_H) * CELL_H,
+        ),
       },
     })
   }
@@ -529,8 +546,14 @@ function PlainTextEl({
     onUpdate({
       ...el,
       size: {
-        x: Math.max(CELL_W, Math.round((resizeStart.current.size.x + dx) / CELL_W) * CELL_W),
-        y: Math.max(CELL_H, Math.round((resizeStart.current.size.y + dy) / CELL_H) * CELL_H),
+        x: Math.max(
+          CELL_W,
+          Math.round((resizeStart.current.size.x + dx) / CELL_W) * CELL_W,
+        ),
+        y: Math.max(
+          CELL_H,
+          Math.round((resizeStart.current.size.y + dy) / CELL_H) * CELL_H,
+        ),
       },
     })
   }
@@ -886,7 +909,6 @@ function LineOverlay({
 // Collection element – minimal card with speech-bubble actions when selected
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Speech-bubble action button rendered outside the collection card */
 // Sub-menu items for material category selection
 const MATERIAL_SUBMENU_ITEMS: {
   label: string
@@ -912,488 +934,6 @@ const MATERIAL_SUBMENU_ITEMS: {
     Icon: IconLayersLinked,
     category: "substrate_material",
   },
-]
-
-function MaterialActionBubble({
-  index,
-  onSelect,
-  onHoverStart,
-  onHoverEnd,
-}: {
-  index: number
-  onSelect: (category: MaterialCategory) => void
-  onHoverStart?: () => void
-  onHoverEnd?: () => void
-}) {
-  const [open, setOpen] = useState(false)
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const scheduleClose = () => {
-    hideTimerRef.current = setTimeout(() => setOpen(false), 200)
-  }
-  const cancelClose = () => {
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-  }
-
-  return (
-    <>
-      <ActionIcon
-        size="md"
-        variant="filled"
-        color="teal"
-        radius="xl"
-        onMouseEnter={() => {
-          cancelClose()
-          setOpen(true)
-          onHoverStart?.()
-        }}
-        onMouseLeave={() => {
-          scheduleClose()
-          onHoverEnd?.()
-        }}
-        onPointerDown={(e) => {
-          e.stopPropagation()
-          e.preventDefault()
-          ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-        }}
-        onPointerUp={(e) => {
-          e.stopPropagation()
-          e.preventDefault()
-          ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
-        }}
-        onClick={(e) => {
-          e.stopPropagation()
-          e.preventDefault()
-          onSelect("chemical_compound")
-        }}
-        style={{
-          position: "absolute",
-          right: -44,
-          top: 4 + index * 36,
-          boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-          animation: "bubble-in 150ms ease-out",
-          touchAction: "none",
-        }}
-      >
-        <Group gap={1} wrap="nowrap" align="center">
-          <Text size="9px" fw={900} lh={1}>
-            +
-          </Text>
-          <IconBox size={12} />
-        </Group>
-      </ActionIcon>
-      {open && (
-        <Paper
-          shadow="md"
-          p={4}
-          radius="sm"
-          onMouseEnter={() => {
-            cancelClose()
-            onHoverStart?.()
-          }}
-          onMouseLeave={() => {
-            scheduleClose()
-            onHoverEnd?.()
-          }}
-          style={{
-            position: "absolute",
-            right: -185,
-            top: 4 + index * 36 - 2,
-            zIndex: 200,
-            minWidth: 130,
-            display: "flex",
-            flexDirection: "column",
-            gap: 2,
-          }}
-        >
-          {MATERIAL_SUBMENU_ITEMS.map((item) => (
-            <Tooltip
-              key={item.category}
-              label={`+ ${item.label}`}
-              position="right"
-              withArrow
-            >
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                color={item.color}
-                leftSection={<item.Icon size={13} />}
-                styles={{ inner: { justifyContent: "flex-start" } }}
-                onPointerDown={(e) => {
-                  e.stopPropagation()
-                  e.preventDefault()
-                }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  e.preventDefault()
-                  setOpen(false)
-                  onSelect(item.category)
-                }}
-              >
-                {item.label}
-              </Button>
-            </Tooltip>
-          ))}
-        </Paper>
-      )}
-    </>
-  )
-}
-
-function ActionBubble({
-  label,
-  Icon,
-  color,
-  onClick,
-  index,
-  onHoverStart,
-  onHoverEnd,
-}: {
-  label: string
-  Icon: React.ElementType
-  color: string
-  onClick: () => void
-  index: number
-  onHoverStart?: () => void
-  onHoverEnd?: () => void
-}) {
-  // Position bubbles in a vertical stack to the right of the collection
-  return (
-    <Tooltip label={label} position="right" withArrow>
-      <ActionIcon
-        size="md"
-        variant="filled"
-        color={color}
-        radius="xl"
-        onClick={(e) => {
-          e.stopPropagation()
-          e.preventDefault()
-          onClick()
-        }}
-        onPointerDown={(e) => {
-          e.stopPropagation()
-          e.preventDefault()
-          ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-        }}
-        onPointerUp={(e) => {
-          e.stopPropagation()
-          e.preventDefault()
-          ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
-        }}
-        onMouseEnter={onHoverStart}
-        onMouseLeave={onHoverEnd}
-        style={{
-          position: "absolute",
-          right: -44,
-          top: 4 + index * 36,
-          boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-          animation: "bubble-in 150ms ease-out",
-          touchAction: "none",
-        }}
-      >
-        <Group gap={1} wrap="nowrap" align="center">
-          <Text size="9px" fw={900} lh={1}>
-            +
-          </Text>
-          <Icon size={12} />
-        </Group>
-      </ActionIcon>
-    </Tooltip>
-  )
-}
-
-function ExperimentActionBubble({
-  index,
-  processes,
-  onSelectProcess,
-  onHoverStart,
-  onHoverEnd,
-}: {
-  index: number
-  processes: Array<{ id: string; name: string }>
-  onSelectProcess: (processId: string) => void
-  onHoverStart?: () => void
-  onHoverEnd?: () => void
-}) {
-  const [open, setOpen] = useState(false)
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const scheduleClose = () => {
-    hideTimerRef.current = setTimeout(() => setOpen(false), 220)
-  }
-  const cancelClose = () => {
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-  }
-
-  return (
-    <>
-      <Tooltip label="+ Experiment" position="left" withArrow>
-        <ActionIcon
-          size="md"
-          variant="filled"
-          color="grape"
-          radius="xl"
-          onMouseEnter={() => {
-            cancelClose()
-            setOpen(true)
-            onHoverStart?.()
-          }}
-          onMouseLeave={() => {
-            scheduleClose()
-            onHoverEnd?.()
-          }}
-          onPointerDown={(e) => {
-            e.stopPropagation()
-            e.preventDefault()
-            ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-          }}
-          onPointerUp={(e) => {
-            e.stopPropagation()
-            e.preventDefault()
-            ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
-          }}
-          onClick={(e) => {
-            e.stopPropagation()
-            e.preventDefault()
-          }}
-          style={{
-            position: "absolute",
-            right: -44,
-            top: 4 + index * 36,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-            animation: "bubble-in 150ms ease-out",
-            touchAction: "none",
-          }}
-        >
-          <Group gap={1} wrap="nowrap" align="center">
-            <Text size="9px" fw={900} lh={1}>
-              +
-            </Text>
-            <IconPlayerPlay size={12} />
-          </Group>
-        </ActionIcon>
-      </Tooltip>
-
-      {open && (
-        <Paper
-          shadow="md"
-          p={6}
-          radius="sm"
-          onMouseEnter={() => {
-            cancelClose()
-            onHoverStart?.()
-          }}
-          onMouseLeave={() => {
-            scheduleClose()
-            onHoverEnd?.()
-          }}
-          style={{
-            position: "absolute",
-            right: -300,
-            top: 4 + index * 36 - 2,
-            zIndex: 210,
-            minWidth: 245,
-          }}
-        >
-          <Stack gap={4}>
-            <Text size="xs" fw={600} c="dimmed">
-              Create experiment from process
-            </Text>
-            {processes.length === 0 ? (
-              <Text size="xs" c="dimmed">
-                No process available yet.
-              </Text>
-            ) : (
-              processes.map((p) => (
-                <Button
-                  key={p.id}
-                  size="compact-xs"
-                  variant="subtle"
-                  color="grape"
-                  styles={{ inner: { justifyContent: "flex-start" } }}
-                  onPointerDown={(e) => {
-                    e.stopPropagation()
-                    e.preventDefault()
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    e.preventDefault()
-                    setOpen(false)
-                    onSelectProcess(p.id)
-                  }}
-                >
-                  {p.name || p.id}
-                </Button>
-              ))
-            )}
-          </Stack>
-        </Paper>
-      )}
-    </>
-  )
-}
-
-function ResultsActionBubble({
-  index,
-  groupedExperiments,
-  onSelectExperiment,
-  onHoverStart,
-  onHoverEnd,
-}: {
-  index: number
-  groupedExperiments: Array<{
-    processId: string
-    processName: string
-    experiments: Array<{ id: string; name: string; date: string }>
-  }>
-  onSelectExperiment: (experimentId: string) => void
-  onHoverStart?: () => void
-  onHoverEnd?: () => void
-}) {
-  const [open, setOpen] = useState(false)
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const scheduleClose = () => {
-    hideTimerRef.current = setTimeout(() => setOpen(false), 220)
-  }
-  const cancelClose = () => {
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
-  }
-
-  return (
-    <>
-      <Tooltip label="+ Results" position="left" withArrow>
-        <ActionIcon
-          size="md"
-          variant="filled"
-          color="orange"
-          radius="xl"
-          onMouseEnter={() => {
-            cancelClose()
-            setOpen(true)
-            onHoverStart?.()
-          }}
-          onMouseLeave={() => {
-            scheduleClose()
-            onHoverEnd?.()
-          }}
-          onPointerDown={(e) => {
-            e.stopPropagation()
-            e.preventDefault()
-            ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-          }}
-          onPointerUp={(e) => {
-            e.stopPropagation()
-            e.preventDefault()
-            ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
-          }}
-          onClick={(e) => {
-            e.stopPropagation()
-            e.preventDefault()
-          }}
-          style={{
-            position: "absolute",
-            right: -44,
-            top: 4 + index * 36,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-            animation: "bubble-in 150ms ease-out",
-            touchAction: "none",
-          }}
-        >
-          <Group gap={1} wrap="nowrap" align="center">
-            <Text size="9px" fw={900} lh={1}>
-              +
-            </Text>
-            <IconDownload size={12} />
-          </Group>
-        </ActionIcon>
-      </Tooltip>
-
-      {open && (
-        <Paper
-          shadow="md"
-          p={6}
-          radius="sm"
-          onMouseEnter={() => {
-            cancelClose()
-            onHoverStart?.()
-          }}
-          onMouseLeave={() => {
-            scheduleClose()
-            onHoverEnd?.()
-          }}
-          style={{
-            position: "absolute",
-            right: -360,
-            top: 4 + index * 36 - 2,
-            zIndex: 210,
-            minWidth: 305,
-            maxHeight: 320,
-          }}
-        >
-          <Stack gap={4}>
-            <Text size="xs" fw={600} c="dimmed">
-              Upload results for experiment
-            </Text>
-            {groupedExperiments.length === 0 ? (
-              <Text size="xs" c="dimmed">
-                No experiment available yet.
-              </Text>
-            ) : (
-              <ScrollArea h={260}>
-                <Stack gap={6}>
-                  {groupedExperiments.map((group) => (
-                    <Stack key={group.processId} gap={4}>
-                      <Text size="xs" fw={600} c="gray.7">
-                        {group.processName}
-                      </Text>
-                      {group.experiments.map((exp) => (
-                        <Button
-                          key={exp.id}
-                          size="compact-xs"
-                          variant="subtle"
-                          color="orange"
-                          styles={{
-                            inner: { justifyContent: "space-between" },
-                          }}
-                          onPointerDown={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            setOpen(false)
-                            onSelectExperiment(exp.id)
-                          }}
-                        >
-                          <span>{exp.name || exp.id}</span>
-                          <span style={{ opacity: 0.7 }}>
-                            {exp.date || "-"}
-                          </span>
-                        </Button>
-                      ))}
-                      <Divider />
-                    </Stack>
-                  ))}
-                </Stack>
-              </ScrollArea>
-            )}
-          </Stack>
-        </Paper>
-      )}
-    </>
-  )
-}
-
-const EMPTY_CELL_ACTIONS: {
-  label: string
-  Icon: React.ElementType
-  color: string
-  kind: CollectionRef["kind"]
-}[] = [
-  { label: "+ Solution", Icon: IconFlask, color: "blue", kind: "solution" },
-  { label: "+ Process", Icon: IconStack3, color: "gray", kind: "process" },
 ]
 
 function EmptyCellEl({
@@ -1425,33 +965,8 @@ function EmptyCellEl({
   } = useAppContext()
   const navigate = useNavigate()
   const [isHovered, setIsHovered] = useState(false)
-  const hoverHideRef = useRef<number | null>(null)
 
-  const activateHover = () => {
-    if (hoverHideRef.current !== null) {
-      window.clearTimeout(hoverHideRef.current)
-      hoverHideRef.current = null
-    }
-    setIsHovered(true)
-  }
-
-  const scheduleHide = () => {
-    if (hoverHideRef.current !== null) window.clearTimeout(hoverHideRef.current)
-    hoverHideRef.current = window.setTimeout(() => setIsHovered(false), 320)
-  }
-
-  useEffect(
-    () => () => {
-      if (hoverHideRef.current !== null)
-        window.clearTimeout(hoverHideRef.current)
-    },
-    [],
-  )
-
-  const createAndLink = (
-    kind: CollectionRef["kind"],
-    materialCategory?: MaterialCategory,
-  ) => {
+  const createAndLink = (kind: CollectionRef["kind"]) => {
     const color = nextCollectionColor()
     const newEl = addCollectionElement(planeId, { x: cellX, y: cellY })
     const updated = { ...newEl, color }
@@ -1461,7 +976,6 @@ function EmptyCellEl({
       collectionId: newEl.id,
       planeId,
       kind,
-      materialCategory,
       requestId: crypto.randomUUID(),
     })
     navigate({ to: ROUTE_FOR_KIND[kind] })
@@ -1487,92 +1001,181 @@ function EmptyCellEl({
         transition: "border 80ms, background 80ms",
         zIndex: isHovered ? 20 : 1,
       }}
-      onMouseEnter={activateHover}
-      onMouseLeave={scheduleHide}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
-      {/* Center overlay: note/text creation buttons */}
-      {isHovered && (
-        <Group
-          justify="center"
-          align="center"
-          gap={8}
-          style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
-        >
-          <Tooltip label="Add sticky note" position="bottom" withArrow>
-            <ActionIcon
-              size="md"
-              variant="default"
-              radius="md"
-              style={{ pointerEvents: "auto", opacity: 0.75 }}
-              onMouseEnter={activateHover}
-              onMouseLeave={scheduleHide}
-              onClick={(e) => {
-                e.stopPropagation()
-                onCreateNote()
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <IconNote size={16} />
-            </ActionIcon>
-          </Tooltip>
-          <Tooltip label="Add text" position="bottom" withArrow>
-            <ActionIcon
-              size="md"
-              variant="default"
-              radius="md"
-              style={{ pointerEvents: "auto", opacity: 0.75 }}
-              onMouseEnter={activateHover}
-              onMouseLeave={scheduleHide}
-              onClick={(e) => {
-                e.stopPropagation()
-                onCreateText()
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <IconLetterT size={16} />
-            </ActionIcon>
-          </Tooltip>
-        </Group>
-      )}
-      {/* Transparent hover bridge covering the gap to the right-side bubbles */}
+      {/* Center overlay: all 6 kind "+" buttons + note + textfield */}
       {isHovered && (
         <Box
           style={{
             position: "absolute",
-            right: -50,
-            top: 0,
-            width: 50,
-            height: "100%",
+            inset: 0,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 4,
+            padding: 8,
+            alignContent: "center",
+            justifyContent: "center",
           }}
-          onMouseEnter={activateHover}
-          onMouseLeave={scheduleHide}
-        />
-      )}
-      {isHovered && (
-        <>
-          <MaterialActionBubble
-            index={0}
-            onSelect={(cat) => createAndLink("material", cat)}
-            onHoverStart={activateHover}
-            onHoverEnd={scheduleHide}
-          />
-          {EMPTY_CELL_ACTIONS.map((a, i) => (
-            <ActionBubble
-              key={a.kind}
-              label={a.label}
-              Icon={a.Icon}
-              color={a.color}
-              onClick={() => createAndLink(a.kind)}
-              index={i + 1}
-              onHoverStart={activateHover}
-              onHoverEnd={scheduleHide}
-            />
-          ))}
-        </>
+        >
+          {SIX_KINDS.map(
+            ({ kind, label: kindLabel, Icon, color, manColor }) => (
+              <Tooltip
+                key={kind}
+                label={`Add ${kindLabel}`}
+                withArrow
+                position="bottom"
+                openDelay={400}
+              >
+                <Box
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    cursor: "pointer",
+                    borderRadius: 4,
+                    padding: "4px 5px",
+                    background: `var(--mantine-color-${manColor}-1)`,
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    createAndLink(kind)
+                  }}
+                >
+                  <Icon size={22} color={color} />
+                  <Text
+                    size="xs"
+                    c={manColor}
+                    style={{ lineHeight: 1, marginTop: 3, fontWeight: 600 }}
+                  >
+                    +
+                  </Text>
+                </Box>
+              </Tooltip>
+            ),
+          )}
+          <Tooltip
+            label="Add sticky note"
+            withArrow
+            position="bottom"
+            openDelay={400}
+          >
+            <Box
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                cursor: "pointer",
+                borderRadius: 4,
+                padding: "4px 5px",
+                background: "var(--mantine-color-yellow-1)",
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation()
+                onCreateNote()
+              }}
+            >
+              <IconNote size={22} color="var(--mantine-color-yellow-7)" />
+              <Text
+                size="xs"
+                c="yellow.7"
+                style={{ lineHeight: 1, marginTop: 3, fontWeight: 600 }}
+              >
+                +
+              </Text>
+            </Box>
+          </Tooltip>
+          <Tooltip
+            label="Add text field"
+            withArrow
+            position="bottom"
+            openDelay={400}
+          >
+            <Box
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                cursor: "pointer",
+                borderRadius: 4,
+                padding: "4px 5px",
+                background: "var(--mantine-color-gray-1)",
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation()
+                onCreateText()
+              }}
+            >
+              <IconLetterT size={22} color="var(--mantine-color-gray-7)" />
+              <Text
+                size="xs"
+                c="gray.7"
+                style={{ lineHeight: 1, marginTop: 3, fontWeight: 600 }}
+              >
+                +
+              </Text>
+            </Box>
+          </Tooltip>
+        </Box>
       )}
     </Box>
   )
 }
+
+// Ordered list of the 6 entity kinds shown in every collection
+const SIX_KINDS: {
+  kind: CollectionRef["kind"]
+  label: string
+  Icon: React.ElementType
+  color: string
+  manColor: string
+}[] = [
+  {
+    kind: "material",
+    label: "Materials",
+    Icon: IconBox,
+    color: "var(--mantine-color-teal-6)",
+    manColor: "teal",
+  },
+  {
+    kind: "solution",
+    label: "Solutions",
+    Icon: IconFlask,
+    color: "var(--mantine-color-blue-6)",
+    manColor: "blue",
+  },
+  {
+    kind: "process",
+    label: "Processes",
+    Icon: IconStack3,
+    color: "var(--mantine-color-gray-6)",
+    manColor: "gray",
+  },
+  {
+    kind: "experiment",
+    label: "Experiments",
+    Icon: IconPlayerPlay,
+    color: "var(--mantine-color-grape-6)",
+    manColor: "grape",
+  },
+  {
+    kind: "result",
+    label: "Results",
+    Icon: IconDownload,
+    color: "var(--mantine-color-orange-6)",
+    manColor: "orange",
+  },
+  {
+    kind: "analysis",
+    label: "Analyses",
+    Icon: IconChartBar,
+    color: "var(--mantine-color-red-6)",
+    manColor: "red",
+  },
+]
 
 function CollectionEl({
   el,
@@ -1584,6 +1187,8 @@ function CollectionEl({
   onStartDivide,
   onDragCollectionStart,
   onDragCollectionEnd,
+  onCreateNote,
+  onCreateText,
 }: {
   el: CanvasCollectionElement
   planeId: string
@@ -1594,31 +1199,76 @@ function CollectionEl({
   onStartDivide: () => void
   onDragCollectionStart: () => void
   onDragCollectionEnd: () => void
+  onCreateNote: () => void
+  onCreateText: () => void
 }) {
   const {
-    activeCollectionId,
     materials,
     solutions,
     processes,
     experiments,
     results,
     planes,
+    activeCollectionId,
     setActiveCollectionId,
     setActivePlaneId,
     setActiveEntity,
     setPendingCollectionLink,
   } = useAppContext()
+  const isActive = activeCollectionId === el.id
   const navigate = useNavigate()
+  const [isExpanded, setIsExpanded] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [nameBuffer, setNameBuffer] = useState(el.name)
   const [hoveredRefKind, setHoveredRefKind] = useState<
     CollectionRef["kind"] | null
   >(null)
-  const [isHovered, setIsHovered] = useState(false)
-  const hoverHideTimeoutRef = useRef<number | null>(null)
-  const isActive = activeCollectionId === el.id
-  const showCollectionControls = isHovered
-  const isVisible = el.refs.length > 0
+  const [addPopoverKind, setAddPopoverKind] = useState<
+    CollectionRef["kind"] | null
+  >(null)
+  const [hoveredSlot, setHoveredSlot] = useState<CollectionRef["kind"] | null>(
+    null,
+  )
+  const [hoveredRowKind, setHoveredRowKind] = useState<
+    CollectionRef["kind"] | null
+  >(null)
+  const [isCardHovered, setIsCardHovered] = useState(false)
+  const expandedRef = useRef<HTMLDivElement>(null)
+  const closeTimerRef = useRef<number | null>(null)
+  const keepHoverOpen = () => {
+    if (closeTimerRef.current !== null)
+      window.clearTimeout(closeTimerRef.current)
+  }
+  const scheduleHoverClose = () => {
+    closeTimerRef.current = window.setTimeout(
+      () => setHoveredRefKind(null),
+      250,
+    )
+  }
+
+  // Collapse on click-outside
+  useEffect(() => {
+    if (!isExpanded) return
+    const handler = (e: Event) => {
+      if (!expandedRef.current?.contains(e.target as Node)) {
+        setIsExpanded(false)
+        setHoveredRefKind(null)
+        setAddPopoverKind(null)
+      }
+    }
+    document.addEventListener("mousedown", handler, true)
+    return () => document.removeEventListener("mousedown", handler, true)
+  }, [isExpanded])
+
+  // Collapse on Escape
+  useEffect(() => {
+    if (!isExpanded) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsExpanded(false)
+    }
+    document.addEventListener("keydown", handler)
+    return () => document.removeEventListener("keydown", handler)
+  }, [isExpanded])
 
   // Auto-start name editing when the first ref is added to a new collection
   const prevRefCountRef = useRef(el.refs.length)
@@ -1641,42 +1291,11 @@ function CollectionEl({
     e.dataTransfer.setData("text/plain", encoded)
   }
 
-  const clearHoverHideTimeout = () => {
-    if (hoverHideTimeoutRef.current !== null) {
-      window.clearTimeout(hoverHideTimeoutRef.current)
-      hoverHideTimeoutRef.current = null
-    }
-  }
-
-  const activateHover = () => {
-    clearHoverHideTimeout()
-    setIsHovered(true)
-  }
-
-  const scheduleHoverHide = () => {
-    clearHoverHideTimeout()
-    hoverHideTimeoutRef.current = window.setTimeout(() => {
-      setIsHovered(false)
-      setHoveredRefKind(null)
-    }, 320)
-  }
-
-  useEffect(() => () => clearHoverHideTimeout(), [clearHoverHideTimeout])
-
   const commitName = () => {
     onUpdate({ ...el, name: nameBuffer.trim() || el.name })
     setEditingName(false)
   }
 
-  // Count refs by type
-  const refCounts = el.refs.reduce<Record<string, number>>((acc, r) => {
-    acc[r.kind] = (acc[r.kind] || 0) + 1
-    return acc
-  }, {})
-
-  // const hasExperiment = el.refs.some((r) => r.kind === "experiment")
-
-  // Build action bubbles - icons must match nav menu (AppLayout.icons.tsx)
   const handleBubbleClick = (
     kind: CollectionRef["kind"],
     materialCategory?: MaterialCategory,
@@ -1752,26 +1371,14 @@ function CollectionEl({
     }
     if (kind === "result") {
       const r = results.find((x) => x.id === id)
-      if (!r) {
-        return id
-      }
+      if (!r) return id
       const exp = experiments.find((x) => x.id === r.experimentId)
       return `Results for experiment ${exp ? exp.name || exp.id : r.experimentId}`
     }
     return id
   }
 
-  const nonMaterialActions: {
-    label: string
-    Icon: React.ElementType
-    color: string
-    kind: CollectionRef["kind"]
-  }[] = [
-    { label: "+ Solution", Icon: IconFlask, color: "blue", kind: "solution" },
-    { label: "+ Process", Icon: IconStack3, color: "gray", kind: "process" },
-  ]
-
-  // Collect all refs across all collections on the current plane
+  // Collect plane-scoped process/experiment options for add submenus
   const currentPlane = planes.find((p) => p.id === planeId)
   const planeRefs = (currentPlane?.elements ?? [])
     .filter((e) => e.type === "collection")
@@ -1807,14 +1414,238 @@ function CollectionEl({
       const processName = process?.name || "Unassigned Process"
       const existing = acc.find((g) => g.processId === processId)
       const payload = { id: exp.id, name: exp.name || exp.id, date: exp.date }
-      if (existing) {
-        existing.experiments.push(payload)
-      } else {
-        acc.push({ processId, processName, experiments: [payload] })
-      }
+      if (existing) existing.experiments.push(payload)
+      else acc.push({ processId, processName, experiments: [payload] })
       return acc
     }, [])
     .sort((a, b) => a.processName.localeCompare(b.processName))
+
+  // Col 2 (expanded view): item list for hoveredRefKind
+  const renderItemPanel = () => {
+    if (hoveredRefKind === null) return null
+    const kind = hoveredRefKind
+    const refs = el.refs.filter((r) => r.kind === kind)
+    if (refs.length === 0) return null
+    const kindMeta = SIX_KINDS.find((k) => k.kind === kind)!
+    return (
+      <Stack gap={3} pt={1} onPointerDown={(e) => e.stopPropagation()}>
+        {refs.map((r, idx) => (
+          <Button
+            key={`${r.id}-${idx}`}
+            variant="subtle"
+            color="gray"
+            size="compact-xs"
+            fullWidth
+            draggable
+            styles={{
+              inner: { justifyContent: "flex-start" },
+              label: {
+                maxWidth: 120,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              },
+            }}
+            onClick={(e) => {
+              e.stopPropagation()
+              setHoveredRefKind(null)
+              handleRefItemClick(kind, r.id)
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onDragStart={(e) =>
+              startRefDrag(e, {
+                sourceCollectionId: el.id,
+                kind,
+                mode: "single",
+                refIds: [r.id],
+              })
+            }
+          >
+            {labelForRef(kind, r.id)}
+          </Button>
+        ))}
+        {refs.length > 1 && (
+          <Button
+            variant="light"
+            color={kindMeta.manColor}
+            size="compact-xs"
+            fullWidth
+            draggable
+            styles={{ inner: { justifyContent: "flex-start" } }}
+            onDragStart={(e) =>
+              startRefDrag(e, {
+                sourceCollectionId: el.id,
+                kind,
+                mode: "kind",
+                refIds: refs.map((r) => r.id),
+              })
+            }
+            onClick={(e) => {
+              e.stopPropagation()
+              setHoveredRefKind(null)
+              handleRefIconClick(kind)
+            }}
+          >
+            All ({refs.length}) →
+          </Button>
+        )}
+      </Stack>
+    )
+  }
+
+  // Col 4 (expanded view): add submenu for addPopoverKind
+  const renderAddPanel = () => {
+    if (addPopoverKind === null) return null
+    const kind = addPopoverKind
+    if (kind === "material") {
+      return (
+        <Stack gap={2} pt={1}>
+          {MATERIAL_SUBMENU_ITEMS.map((item) => (
+            <Button
+              key={item.category}
+              size="compact-xs"
+              variant="subtle"
+              color={item.color}
+              leftSection={<item.Icon size={12} />}
+              styles={{ inner: { justifyContent: "flex-start" } }}
+              onPointerDown={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                setAddPopoverKind(null)
+                handleBubbleClick("material", item.category)
+              }}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </Stack>
+      )
+    }
+    if (kind === "experiment") {
+      if (processOptions.length === 0) {
+        return (
+          <Box pt={1}>
+            <Text size="xs" c="dimmed" mb={4}>
+              No processes on canvas
+            </Text>
+            <Button
+              size="compact-xs"
+              variant="light"
+              color="grape"
+              onPointerDown={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                setAddPopoverKind(null)
+                handleBubbleClick("experiment")
+              }}
+            >
+              Create experiment
+            </Button>
+          </Box>
+        )
+      }
+      return (
+        <Stack gap={2} pt={1}>
+          <Text size="10px" fw={600} c="dimmed">
+            From process
+          </Text>
+          {processOptions.map((p) => (
+            <Button
+              key={p.id}
+              size="compact-xs"
+              variant="subtle"
+              color="grape"
+              styles={{ inner: { justifyContent: "flex-start" } }}
+              onPointerDown={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                setAddPopoverKind(null)
+                handleAddExperimentFromProcess(p.id)
+              }}
+            >
+              {p.name}
+            </Button>
+          ))}
+        </Stack>
+      )
+    }
+    if (kind === "result") {
+      if (groupedExperiments.length === 0) {
+        return (
+          <Box pt={1}>
+            <Text size="xs" c="dimmed" mb={4}>
+              No experiments on canvas
+            </Text>
+            <Button
+              size="compact-xs"
+              variant="light"
+              color="orange"
+              onPointerDown={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                setAddPopoverKind(null)
+                handleBubbleClick("result")
+              }}
+            >
+              Upload results
+            </Button>
+          </Box>
+        )
+      }
+      return (
+        <Stack gap={2} pt={1}>
+          <Text size="10px" fw={600} c="dimmed">
+            For experiment
+          </Text>
+          <ScrollArea h={140}>
+            <Stack gap={3}>
+              {groupedExperiments.map((group) => (
+                <Stack key={group.processId} gap={2}>
+                  <Text size="10px" fw={600} c="gray.6">
+                    {group.processName}
+                  </Text>
+                  {group.experiments.map((exp) => (
+                    <Button
+                      key={exp.id}
+                      size="compact-xs"
+                      variant="subtle"
+                      color="orange"
+                      styles={{ inner: { justifyContent: "space-between" } }}
+                      onPointerDown={(e) => {
+                        e.stopPropagation()
+                        e.preventDefault()
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setAddPopoverKind(null)
+                        handleAddResultsForExperiment(exp.id)
+                      }}
+                    >
+                      <span>{exp.name}</span>
+                      <span style={{ opacity: 0.6 }}>{exp.date || "-"}</span>
+                    </Button>
+                  ))}
+                </Stack>
+              ))}
+            </Stack>
+          </ScrollArea>
+        </Stack>
+      )
+    }
+    return null
+  }
 
   const boxStyle: React.CSSProperties = {
     position: "absolute",
@@ -1822,9 +1653,8 @@ function CollectionEl({
     top: el.position.y + pan.y,
     width: CELL_W,
     height: CELL_H,
-    cursor: isDragging ? "grabbing" : "grab",
     userSelect: "none",
-    zIndex: isHovered ? 20 : 1,
+    zIndex: isExpanded ? 100 : 1,
     opacity: isDragging ? 0.35 : 1,
     transition: "opacity 80ms ease",
   }
@@ -1832,8 +1662,12 @@ function CollectionEl({
   return (
     <Box
       style={boxStyle}
-      draggable
+      draggable={!isExpanded}
       onDragStart={(e: ReactDragEvent<HTMLDivElement>) => {
+        if (isExpanded) {
+          e.preventDefault()
+          return
+        }
         const payload: CollectionElementDragPayload = { collectionId: el.id }
         e.dataTransfer.effectAllowed = "move"
         e.dataTransfer.setData(
@@ -1844,33 +1678,16 @@ function CollectionEl({
         requestAnimationFrame(() => onDragCollectionStart())
       }}
       onDragEnd={() => onDragCollectionEnd()}
-      onMouseEnter={activateHover}
-      onMouseLeave={scheduleHoverHide}
     >
-      {/* Transparent hover bridge: fills the gap between card edge and right-side bubbles */}
-      {showCollectionControls && (
-        <Box
-          style={{
-            position: "absolute",
-            right: -50,
-            top: 0,
-            width: 50,
-            height: "100%",
-          }}
-          onMouseEnter={activateHover}
-          onMouseLeave={scheduleHoverHide}
-        />
-      )}
-      {/* Main card – fills the whole cell when the collection has items */}
-      {isVisible && (
+      {/* ── RETRACTED VIEW ──────────────────────────────────────────────── */}
+      {!isExpanded && (
         <Paper
-          shadow={isActive ? "md" : "xs"}
-          p="xs"
+          shadow="xs"
           style={{
             position: "absolute",
             inset: 0,
             boxSizing: "border-box",
-            overflow: "hidden",
+            padding: 8,
             display: "flex",
             flexDirection: "column",
             border: isDragOver
@@ -1878,194 +1695,214 @@ function CollectionEl({
               : isActive
                 ? `3px solid ${el.color || DEFAULT_ACCENT}`
                 : `2px solid ${el.color || DEFAULT_ACCENT}88`,
+            boxShadow: isActive && !isDragOver
+              ? `0 0 0 3px ${el.color || DEFAULT_ACCENT}33, 0 0 14px 4px ${el.color || DEFAULT_ACCENT}1a`
+              : undefined,
             background: isDragOver
               ? "var(--mantine-color-blue-0)"
               : "var(--mantine-color-body)",
-            transition:
-              "box-shadow 100ms ease, border 120ms ease, background 120ms ease",
+            cursor: "pointer",
+            overflow: "hidden",
+            transition: "border 120ms ease, box-shadow 120ms ease",
+          }}
+          onMouseEnter={() => setIsCardHovered(true)}
+          onMouseLeave={() => setIsCardHovered(false)}
+          onClick={() => {
+            setIsExpanded(true)
+            setActiveCollectionId(el.id)
           }}
         >
           {/* Name */}
-          {editingName ? (
-            <TextInput
-              size="xs"
-              value={nameBuffer}
-              autoFocus
-              onChange={(e) => setNameBuffer(e.currentTarget.value)}
-              onBlur={commitName}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  commitName()
-                }
-                if (e.key === "Escape") {
-                  setEditingName(false)
-                }
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-            />
-          ) : (
-            <Text
-              fw={600}
-              size="sm"
-              mb={4}
-              onDoubleClick={(e) => {
-                e.stopPropagation()
-                setEditingName(true)
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              style={{ cursor: "text" }}
-            >
-              {el.name}
-            </Text>
-          )}
+          <Text
+            fw={600}
+            size="sm"
+            style={{
+              lineHeight: 1.2,
+              marginBottom: 6,
+              overflow: "hidden",
+              whiteSpace: "nowrap",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {el.name}
+          </Text>
 
-          {/* Compact ref summary - show icons for present entity types */}
-          {el.refs.length > 0 ? (
-            <Group gap={4} wrap="wrap">
-              {(
-                [
-                  {
-                    kind: "material",
-                    Icon: IconBox,
-                    color: "var(--mantine-color-teal-6)",
-                  },
-                  {
-                    kind: "solution",
-                    Icon: IconFlask,
-                    color: "var(--mantine-color-blue-6)",
-                  },
-                  {
-                    kind: "process",
-                    Icon: IconStack3,
-                    color: "var(--mantine-color-gray-6)",
-                  },
-                  {
-                    kind: "experiment",
-                    Icon: IconPlayerPlay,
-                    color: "var(--mantine-color-grape-6)",
-                  },
-                  {
-                    kind: "result",
-                    Icon: IconDownload,
-                    color: "var(--mantine-color-orange-6)",
-                  },
-                  {
-                    kind: "analysis",
-                    Icon: IconChartBar,
-                    color: "var(--mantine-color-red-6)",
-                  },
-                ] as const
-              )
-                .filter(({ kind }) => Boolean(refCounts[kind]))
-                .map(({ kind, Icon, color }) => {
-                  const count = refCounts[kind]
-                  const refs = el.refs.filter((r) => r.kind === kind)
-                  return (
-                    <Popover
-                      key={kind}
-                      opened={hoveredRefKind === kind}
-                      withinPortal={false}
-                      position="bottom-start"
-                      offset={6}
-                      shadow="md"
+          {/* Icons: empty collection → always show all add symbols; partially filled → filled icons + empty on hover */}
+          <Box
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 4,
+              flex: 1,
+              alignContent: "flex-start",
+            }}
+          >
+            {/* Filled items first */}
+            {SIX_KINDS.filter(({ kind }) =>
+              el.refs.some((r) => r.kind === kind),
+            ).map(({ kind, label: kindLabel, Icon, color }) => {
+              const refs = el.refs.filter((r) => r.kind === kind)
+              return (
+                <Tooltip
+                  key={kind}
+                  label={`${kindLabel} (${refs.length})`}
+                  withArrow
+                  position="bottom"
+                  openDelay={400}
+                >
+                  <Box
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      cursor: "pointer",
+                      borderRadius: 4,
+                      padding: "4px 5px",
+                      background:
+                        hoveredSlot === kind
+                          ? "var(--mantine-color-default-hover)"
+                          : "transparent",
+                      transition: "background 100ms ease",
+                    }}
+                    onMouseEnter={() => setHoveredSlot(kind)}
+                    onMouseLeave={() => setHoveredSlot(null)}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleRefIconClick(kind)
+                    }}
+                  >
+                    <Icon size={22} color={color} />
+                    <Text
+                      size="xs"
+                      c="dimmed"
+                      style={{ lineHeight: 1, marginTop: 3, fontWeight: 500 }}
                     >
-                      <Popover.Target>
-                        <Box
-                          onMouseEnter={() => setHoveredRefKind(kind)}
-                          onMouseLeave={() => setHoveredRefKind(null)}
-                        >
-                          <Stack gap={0} align="center">
-                            <ActionIcon
-                              size="lg"
-                              variant="subtle"
-                              color="gray"
-                              radius="xl"
-                              draggable
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                e.preventDefault()
-                                handleRefIconClick(kind)
-                              }}
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onDragStart={(e) =>
-                                startRefDrag(e, {
-                                  sourceCollectionId: el.id,
-                                  kind,
-                                  mode: "kind",
-                                  refIds: refs.map((r) => r.id),
-                                })
-                              }
-                            >
-                              <Icon size={22} color={color} />
-                            </ActionIcon>
-                            <Text
-                              size="xs"
-                              c="dimmed"
-                              style={{ lineHeight: 1, marginTop: -1 }}
-                            >
-                              {count}
-                            </Text>
-                          </Stack>
-                        </Box>
-                      </Popover.Target>
-                      <Popover.Dropdown
-                        p={6}
-                        onMouseEnter={() => setHoveredRefKind(kind)}
-                        onMouseLeave={() => setHoveredRefKind(null)}
-                      >
-                        <Stack gap={4}>
-                          {refs.map((r, idx) => (
-                            <Button
-                              key={`${r.id}-${idx}`}
-                              variant="subtle"
-                              color="gray"
-                              size="compact-xs"
-                              fullWidth
-                              draggable
-                              styles={{
-                                inner: { justifyContent: "flex-start" },
-                                label: {
-                                  maxWidth: 200,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                },
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                e.preventDefault()
-                                setHoveredRefKind(null)
-                                handleRefItemClick(kind, r.id)
-                              }}
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onDragStart={(e) =>
-                                startRefDrag(e, {
-                                  sourceCollectionId: el.id,
-                                  kind,
-                                  mode: "single",
-                                  refIds: [r.id],
-                                })
-                              }
-                            >
-                              {labelForRef(kind, r.id)}
-                            </Button>
-                          ))}
-                        </Stack>
-                      </Popover.Dropdown>
-                    </Popover>
-                  )
-                })}
-            </Group>
-          ) : (
-            <Text size="xs" c="dimmed">
-              Empty
-            </Text>
-          )}
+                      {refs.length}
+                    </Text>
+                  </Box>
+                </Tooltip>
+              )
+            })}
+
+            {/* "+" add slots — always to the right of filled items, shown on hover (or always if empty) */}
+            {(isCardHovered || el.refs.length === 0) &&
+              SIX_KINDS.filter(
+                ({ kind }) => !el.refs.some((r) => r.kind === kind),
+              ).map(({ kind, label: kindLabel, Icon, color, manColor }) => (
+                <Tooltip
+                  key={kind}
+                  label={`Add ${kindLabel}`}
+                  withArrow
+                  position="bottom"
+                  openDelay={400}
+                >
+                  <Box
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      cursor: "pointer",
+                      borderRadius: 4,
+                      padding: "4px 5px",
+                      background: `var(--mantine-color-${manColor}-1)`,
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleBubbleClick(kind)
+                    }}
+                  >
+                    <Icon size={22} color={color} />
+                    <Text
+                      size="xs"
+                      c={manColor}
+                      style={{ lineHeight: 1, marginTop: 3, fontWeight: 600 }}
+                    >
+                      +
+                    </Text>
+                  </Box>
+                </Tooltip>
+              ))}
+
+            {/* Note + textfield add buttons — same size/style, only when collection is fully empty */}
+            {el.refs.length === 0 && (
+              <>
+                <Tooltip
+                  label="Add sticky note"
+                  withArrow
+                  position="bottom"
+                  openDelay={400}
+                >
+                  <Box
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      cursor: "pointer",
+                      borderRadius: 4,
+                      padding: "4px 5px",
+                      background: "var(--mantine-color-yellow-1)",
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onCreateNote()
+                    }}
+                  >
+                    <IconNote size={22} color="var(--mantine-color-yellow-7)" />
+                    <Text
+                      size="xs"
+                      c="yellow.7"
+                      style={{ lineHeight: 1, marginTop: 3, fontWeight: 600 }}
+                    >
+                      +
+                    </Text>
+                  </Box>
+                </Tooltip>
+                <Tooltip
+                  label="Add text field"
+                  withArrow
+                  position="bottom"
+                  openDelay={400}
+                >
+                  <Box
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      cursor: "pointer",
+                      borderRadius: 4,
+                      padding: "4px 5px",
+                      background: "var(--mantine-color-gray-1)",
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onCreateText()
+                    }}
+                  >
+                    <IconLetterT
+                      size={22}
+                      color="var(--mantine-color-gray-7)"
+                    />
+                    <Text
+                      size="xs"
+                      c="gray.7"
+                      style={{ lineHeight: 1, marginTop: 3, fontWeight: 600 }}
+                    >
+                      +
+                    </Text>
+                  </Box>
+                </Tooltip>
+              </>
+            )}
+          </Box>
         </Paper>
       )}
 
-      {/* Ghost placeholder when empty and being dragged over */}
-      {!isVisible && isDragOver && (
+      {/* Drag-over ghost when no refs yet and retracted */}
+      {!isExpanded && isDragOver && el.refs.length === 0 && (
         <Box
           style={{
             position: "absolute",
@@ -2078,72 +1915,259 @@ function CollectionEl({
         />
       )}
 
-      {/* Speech-bubble actions (only when selected) */}
-      {showCollectionControls && (
-        <>
-          <MaterialActionBubble
-            index={0}
-            onSelect={(cat) => handleBubbleClick("material", cat)}
-            onHoverStart={activateHover}
-            onHoverEnd={scheduleHoverHide}
-          />
-          {nonMaterialActions.map((a, i) => (
-            <ActionBubble
-              key={a.kind}
-              label={a.label}
-              Icon={a.Icon}
-              color={a.color}
-              onClick={() => handleBubbleClick(a.kind)}
-              index={i + 1}
-              onHoverStart={activateHover}
-              onHoverEnd={scheduleHoverHide}
-            />
-          ))}
-          {processOptions.length > 0 && (
-            <ExperimentActionBubble
-              index={3}
-              processes={processOptions}
-              onSelectProcess={handleAddExperimentFromProcess}
-              onHoverStart={activateHover}
-              onHoverEnd={scheduleHoverHide}
-            />
-          )}
-          {experiments.length > 0 && (
-            <ResultsActionBubble
-              index={processOptions.length > 0 ? 4 : 3}
-              groupedExperiments={groupedExperiments}
-              onSelectExperiment={handleAddResultsForExperiment}
-              onHoverStart={activateHover}
-              onHoverEnd={scheduleHoverHide}
-            />
-          )}
-        </>
-      )}
-
-      {showCollectionControls && el.refs.length > 0 && (
-        <Tooltip label="Divide collection" position="left" withArrow>
-          <ActionIcon
-            size="xs"
-            variant="filled"
-            color="violet"
-            radius="xl"
-            onPointerDown={(e) => {
-              e.stopPropagation()
-              e.preventDefault()
-              onStartDivide()
-            }}
-            onMouseEnter={activateHover}
-            onMouseLeave={scheduleHoverHide}
-            style={{
-              position: "absolute",
-              top: -8,
-              right: 16,
-              boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
-            }}
+      {/* ── EXPANDED VIEW ───────────────────────────────────────────────── */}
+      {isExpanded && (
+        <Paper
+          ref={expandedRef}
+          shadow="lg"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            width: 430,
+            boxSizing: "border-box",
+            padding: "8px 8px 8px 8px",
+            display: "flex",
+            flexDirection: "column",
+            border: `3px solid ${el.color || DEFAULT_ACCENT}`,
+            boxShadow: `0 0 0 3px ${el.color || DEFAULT_ACCENT}33, 0 0 14px 4px ${el.color || DEFAULT_ACCENT}1a`,
+            background: "var(--mantine-color-body)",
+            zIndex: 100,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header: name + divide + close */}
+          <Group
+            justify="space-between"
+            mb={6}
+            wrap="nowrap"
+            style={{ minHeight: 28 }}
           >
-            <IconSeparatorVertical size={10} />
-          </ActionIcon>
-        </Tooltip>
+            <Box
+              style={{ flex: 1, minWidth: 0 }}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              {editingName ? (
+                <TextInput
+                  size="xs"
+                  value={nameBuffer}
+                  autoFocus
+                  onChange={(e) => setNameBuffer(e.currentTarget.value)}
+                  onBlur={commitName}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitName()
+                    if (e.key === "Escape") setEditingName(false)
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <Text
+                  fw={600}
+                  size="sm"
+                  style={{
+                    cursor: "text",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation()
+                    setEditingName(true)
+                    setNameBuffer(el.name)
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  {el.name}
+                </Text>
+              )}
+            </Box>
+            <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+              {el.refs.length > 0 && (
+                <Tooltip label="Divide collection" withArrow openDelay={400}>
+                  <ActionIcon
+                    size="xs"
+                    variant="subtle"
+                    color="violet"
+                    onPointerDown={(e) => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setIsExpanded(false)
+                      onStartDivide()
+                    }}
+                  >
+                    <IconSeparatorVertical size={10} />
+                  </ActionIcon>
+                </Tooltip>
+              )}
+              <ActionIcon
+                size="xs"
+                variant="subtle"
+                color="gray"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setIsExpanded(false)
+                }}
+              >
+                <IconX size={10} />
+              </ActionIcon>
+            </Group>
+          </Group>
+
+          {/* Col 1 (browse) + Col 3 (add) side by side, then one shared submenu panel */}
+          <Box style={{ display: "flex", gap: 0, alignItems: "flex-start" }}>
+            {/* Icon columns */}
+            <Box style={{ flexShrink: 0 }} onMouseLeave={scheduleHoverClose}>
+              {SIX_KINDS.map(
+                ({ kind, label: kindLabel, Icon, color, manColor }) => {
+                  const refs = el.refs.filter((r) => r.kind === kind)
+                  const hasRefs = refs.length > 0
+                  return (
+                    <Box
+                      key={kind}
+                      style={{
+                        height: 36,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                      onMouseEnter={() => setHoveredRowKind(kind)}
+                      onMouseLeave={() => setHoveredRowKind(null)}
+                    >
+                      {/* Col 1: icon + count, hover → show items in shared panel */}
+                      <Box
+                        style={{
+                          width: 52,
+                          height: "100%",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                          paddingLeft: 3,
+                          cursor: hasRefs ? "pointer" : "default",
+                          borderRadius: 4,
+                          background:
+                            hoveredRefKind === kind && hasRefs
+                              ? "var(--mantine-color-default-hover)"
+                              : "transparent",
+                          transition: "background 80ms ease",
+                        }}
+                        onMouseEnter={() => {
+                          if (hasRefs) {
+                            keepHoverOpen()
+                            setHoveredRefKind(kind)
+                          }
+                        }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (hasRefs) handleRefIconClick(kind)
+                        }}
+                      >
+                        <Icon
+                          size={20}
+                          color={color}
+                          style={{ flexShrink: 0, opacity: hasRefs ? 1 : 0.2 }}
+                        />
+                        {hasRefs && (
+                          <Text
+                            size="sm"
+                            c="dimmed"
+                            fw={500}
+                            style={{ lineHeight: 1 }}
+                          >
+                            {refs.length}
+                          </Text>
+                        )}
+                      </Box>
+
+                      {/* Col 3: add button — visible on row hover, when panel is open, or when submenu panel is showing this kind */}
+                      {(hoveredRowKind === kind || addPopoverKind === kind || hoveredRefKind === kind) && (
+                        <Tooltip
+                          label={`Add ${kindLabel}`}
+                          withArrow
+                          openDelay={400}
+                          position="right"
+                        >
+                          <Box
+                            style={{
+                              width: 30,
+                              height: 30,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              cursor: "pointer",
+                              borderRadius: 4,
+                              background: addPopoverKind === kind
+                                ? `var(--mantine-color-${manColor}-2)`
+                                : `var(--mantine-color-${manColor}-1)`,
+                            }}
+                            onPointerDown={(e) => {
+                              e.stopPropagation()
+                              e.preventDefault()
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (
+                                kind === "material" ||
+                                kind === "experiment" ||
+                                kind === "result"
+                              ) {
+                                setAddPopoverKind(
+                                  addPopoverKind === kind ? null : kind,
+                                )
+                              } else {
+                                handleBubbleClick(kind)
+                              }
+                            }}
+                          >
+                            <Text
+                              fw={700}
+                              c={manColor}
+                              style={{ fontSize: 20, lineHeight: 1 }}
+                            >
+                              +
+                            </Text>
+                          </Box>
+                        </Tooltip>
+                      )}
+                    </Box>
+                  )
+                },
+              )}
+            </Box>
+
+            {/* Shared submenu panel — content slides to the active row's vertical position */}
+            <Box
+              style={{
+                flex: 1,
+                minWidth: 0,
+                borderLeft: "1px solid var(--mantine-color-default-border)",
+                marginLeft: 8,
+                paddingLeft: 8,
+                paddingRight: 4,
+              }}
+              onMouseEnter={keepHoverOpen}
+              onMouseLeave={scheduleHoverClose}
+            >
+              {(() => {
+                const kind = hoveredRefKind ?? addPopoverKind
+                if (!kind) return null
+                const rowIndex = SIX_KINDS.findIndex((k) => k.kind === kind)
+                const content =
+                  hoveredRefKind !== null ? renderItemPanel() : renderAddPanel()
+                if (!content) return null
+                return (
+                  <Box style={{ marginTop: rowIndex * 36, paddingTop: 2 }}>
+                    {content}
+                  </Box>
+                )
+              })()}
+            </Box>
+          </Box>
+        </Paper>
       )}
     </Box>
   )
@@ -3231,7 +3255,12 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
       const elRow = Math.round(e.position.y / CELL_H)
       const spanCols = Math.max(1, Math.round(e.size.x / CELL_W))
       const spanRows = Math.max(1, Math.round(e.size.y / CELL_H))
-      return col >= elCol && col < elCol + spanCols && row >= elRow && row < elRow + spanRows
+      return (
+        col >= elCol &&
+        col < elCol + spanCols &&
+        row >= elRow &&
+        row < elRow + spanRows
+      )
     })
     if (textOccupied) return
 
@@ -3304,7 +3333,12 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
       const elRow = Math.round(e.position.y / CELL_H)
       const spanCols = Math.max(1, Math.round(e.size.x / CELL_W))
       const spanRows = Math.max(1, Math.round(e.size.y / CELL_H))
-      return col >= elCol && col < elCol + spanCols && row >= elRow && row < elRow + spanRows
+      return (
+        col >= elCol &&
+        col < elCol + spanCols &&
+        row >= elRow &&
+        row < elRow + spanRows
+      )
     })
     if (textOccupied) return
 
@@ -3896,6 +3930,8 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                         onDragCollectionEnd={() =>
                           setDraggingCollectionId(null)
                         }
+                        onCreateNote={() => handleCreateNote(cellX, cellY)}
+                        onCreateText={() => handleCreateText(cellX, cellY)}
                       />,
                     )
                   }
