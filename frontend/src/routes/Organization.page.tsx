@@ -4,11 +4,13 @@ import {
   Badge,
   Box,
   Button,
+  ColorSwatch,
   Divider,
   Group,
   Loader,
   Modal,
   Paper,
+  Popover,
   rem,
   ScrollArea,
   Stack,
@@ -25,6 +27,7 @@ import { modals } from "@mantine/modals"
 import {
   IconArrowRight,
   IconAtom,
+  IconBold,
   IconBox,
   IconChartBar,
   IconCheck,
@@ -32,8 +35,10 @@ import {
   IconDownload,
   IconFlask,
   IconFolderPlus,
+  IconItalic,
   IconLayersLinked,
   IconLetterT,
+  IconMinus,
   IconNote,
   IconPackage,
   IconPlayerPlay,
@@ -42,6 +47,7 @@ import {
   IconShare,
   IconStack3,
   IconTrash,
+  IconUnderline,
   IconX,
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
@@ -72,6 +78,7 @@ import {
   type Plane,
   type Process,
   type Solution,
+  type TextFormatting,
   useAppContext,
   type Vec2,
 } from "../store/AppContext"
@@ -175,6 +182,203 @@ if (
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Floating format bar — appears above an element when text is selected
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TEXT_COLORS = [
+  "#000000",
+  "#ffffff",
+  "#e03131",
+  "#2f9e44",
+  "#1971c2",
+  "#f08c00",
+  "#ae3ec9",
+  "#0c8599",
+  "#495057",
+  "#868e96",
+]
+const DEFAULT_NOTE_FONT_SIZE = 12
+const DEFAULT_PLAIN_FONT_SIZE = 16
+
+function FloatingFormatBar({
+  formatting,
+  color,
+  onChangeFormatting,
+  onChangeColor,
+}: {
+  formatting: TextFormatting
+  color: string
+  onChangeFormatting: (f: TextFormatting) => void
+  onChangeColor: (c: string) => void
+}) {
+  const fontSize = formatting.fontSize ?? DEFAULT_NOTE_FONT_SIZE
+  return (
+    <Paper
+      shadow="md"
+      p={4}
+      style={{
+        position: "absolute",
+        bottom: 4,
+        left: 4,
+        zIndex: 500,
+        display: "flex",
+        alignItems: "center",
+        gap: 2,
+        whiteSpace: "nowrap",
+        pointerEvents: "auto",
+      }}
+      onMouseDown={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+      }}
+    >
+      {/* Font size */}
+      <ActionIcon
+        size="xs"
+        variant="subtle"
+        color="gray"
+        onClick={() =>
+          onChangeFormatting({
+            ...formatting,
+            fontSize: Math.max(8, fontSize - 1),
+          })
+        }
+      >
+        <IconMinus size={10} />
+      </ActionIcon>
+      <Text size="xs" fw={500} style={{ minWidth: 22, textAlign: "center" }}>
+        {fontSize}
+      </Text>
+      <ActionIcon
+        size="xs"
+        variant="subtle"
+        color="gray"
+        onClick={() =>
+          onChangeFormatting({
+            ...formatting,
+            fontSize: Math.min(72, fontSize + 1),
+          })
+        }
+      >
+        <IconPlus size={10} />
+      </ActionIcon>
+      <Divider orientation="vertical" mx={2} />
+      {/* Bold */}
+      <Tooltip label="Bold" openDelay={600} position="top">
+        <ActionIcon
+          size="xs"
+          variant={formatting.bold ? "filled" : "subtle"}
+          color={formatting.bold ? "blue" : "gray"}
+          onClick={() =>
+            onChangeFormatting({ ...formatting, bold: !formatting.bold })
+          }
+        >
+          <IconBold size={12} />
+        </ActionIcon>
+      </Tooltip>
+      {/* Italic */}
+      <Tooltip label="Italic" openDelay={600} position="top">
+        <ActionIcon
+          size="xs"
+          variant={formatting.italic ? "filled" : "subtle"}
+          color={formatting.italic ? "blue" : "gray"}
+          onClick={() =>
+            onChangeFormatting({ ...formatting, italic: !formatting.italic })
+          }
+        >
+          <IconItalic size={12} />
+        </ActionIcon>
+      </Tooltip>
+      {/* Underline */}
+      <Tooltip label="Underline" openDelay={600} position="top">
+        <ActionIcon
+          size="xs"
+          variant={formatting.underline ? "filled" : "subtle"}
+          color={formatting.underline ? "blue" : "gray"}
+          onClick={() =>
+            onChangeFormatting({
+              ...formatting,
+              underline: !formatting.underline,
+            })
+          }
+        >
+          <IconUnderline size={12} />
+        </ActionIcon>
+      </Tooltip>
+      <Divider orientation="vertical" mx={2} />
+      {/* Color */}
+      <Popover withArrow shadow="md" position="top">
+        <Popover.Target>
+          <Tooltip label="Text color" openDelay={600} position="top">
+            <ActionIcon size="xs" variant="subtle" color="gray">
+              <ColorSwatch color={color} size={14} />
+            </ActionIcon>
+          </Tooltip>
+        </Popover.Target>
+        <Popover.Dropdown p={6}>
+          <Group gap={4} wrap="wrap" w={130}>
+            {TEXT_COLORS.map((c) => (
+              <ColorSwatch
+                key={c}
+                color={c}
+                size={18}
+                style={{
+                  cursor: "pointer",
+                  outline:
+                    color === c
+                      ? "2px solid var(--mantine-color-blue-5)"
+                      : "none",
+                  borderRadius: 3,
+                }}
+                onClick={() => onChangeColor(c)}
+              />
+            ))}
+          </Group>
+        </Popover.Dropdown>
+      </Popover>
+    </Paper>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hyperlink parser
+// ─────────────────────────────────────────────────────────────────────────────
+
+const URL_REGEX = /https?:\/\/[^\s,;）)>\]]+/g
+
+function renderWithLinks(text: string, baseStyle?: React.CSSProperties) {
+  const parts: React.ReactNode[] = []
+  let last = 0
+  let match: RegExpExecArray | null
+  URL_REGEX.lastIndex = 0
+  // biome-ignore lint/suspicious/noAssignInExpressions: regex exec loop pattern
+  while ((match = URL_REGEX.exec(text)) !== null) {
+    if (match.index > last) {
+      parts.push(text.slice(last, match.index))
+    }
+    const url = match[0]
+    parts.push(
+      <a
+        key={match.index}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: "#228be6", textDecoration: "underline", ...baseStyle }}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {url}
+      </a>,
+    )
+    last = match.index + url.length
+  }
+  if (last < text.length) {
+    parts.push(text.slice(last))
+  }
+  return parts
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Text element
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -236,14 +440,13 @@ function TextEl({
 }) {
   const [editing, setEditing] = useState(el.content === "")
   const [dragging, setDragging] = useState(false)
+  const [showFormatBar, setShowFormatBar] = useState(false)
   const dragStart = useRef<{ mouse: Vec2; origin: Vec2 } | null>(null)
   const resizeStart = useRef<{ mouse: Vec2; size: Vec2 } | null>(null)
   const prevEditing = useRef(editing)
 
   const startDrag = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (editing) {
-      return
-    }
+    if (editing) return
     setDragging(true)
     dragStart.current = {
       mouse: { x: ev.clientX, y: ev.clientY },
@@ -253,9 +456,7 @@ function TextEl({
   }
 
   const onPointerMove = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragging || !dragStart.current) {
-      return
-    }
+    if (!dragging || !dragStart.current) return
     const dx = ev.clientX - dragStart.current.mouse.x
     const dy = ev.clientY - dragStart.current.mouse.y
     onUpdate({
@@ -289,9 +490,7 @@ function TextEl({
   }
 
   const onResizeMove = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (!resizeStart.current) {
-      return
-    }
+    if (!resizeStart.current) return
     ev.stopPropagation()
     const dx = ev.clientX - resizeStart.current.mouse.x
     const dy = ev.clientY - resizeStart.current.mouse.y
@@ -316,21 +515,26 @@ function TextEl({
   }
 
   const textColor = el.color || "#000000"
-  const textFormatting = el.formatting || {
-    bold: false,
-    italic: false,
-    underline: false,
-  }
+  const textFormatting = el.formatting || {}
+  const fontSize = textFormatting.fontSize ?? DEFAULT_NOTE_FONT_SIZE
 
   useEffect(() => {
-    if (!prevEditing.current && editing) {
-      onStartEdit?.()
-    }
+    if (!prevEditing.current && editing) onStartEdit?.()
     if (prevEditing.current && !editing) {
       onEditEnd?.()
+      setShowFormatBar(false)
     }
     prevEditing.current = editing
   }, [editing, onEditEnd, onStartEdit])
+
+  const handleFormatChange = (f: TextFormatting) =>
+    onUpdate({ ...el, formatting: f })
+  const handleColorChange = (c: string) => onUpdate({ ...el, color: c })
+
+  const checkSelection = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const t = e.currentTarget
+    setShowFormatBar(t.selectionStart !== t.selectionEnd)
+  }
 
   return (
     <Box
@@ -361,7 +565,7 @@ function TextEl({
         {/* Folded corner */}
         <div className="sticky-fold" />
 
-        {/* Delete button – top-right, outside fold area */}
+        {/* Delete button */}
         <ActionIcon
           size={16}
           variant="transparent"
@@ -391,6 +595,8 @@ function TextEl({
               onUpdate({ ...el, content: e.currentTarget.value })
             }
             onBlur={() => setEditing(false)}
+            onSelect={checkSelection}
+            onKeyUp={checkSelection}
             onPointerDown={(e) => e.stopPropagation()}
             styles={{
               input: {
@@ -399,7 +605,7 @@ function TextEl({
                 resize: "none",
                 color: textColor,
                 fontFamily: "inherit",
-                fontSize: "0.85rem",
+                fontSize,
                 fontWeight: textFormatting.bold ? 700 : 400,
                 fontStyle: textFormatting.italic ? "italic" : "normal",
                 textDecoration: textFormatting.underline ? "underline" : "none",
@@ -409,11 +615,11 @@ function TextEl({
           />
         ) : (
           <Text
-            size="sm"
             style={{
               whiteSpace: "pre-wrap",
               minHeight: rem(40),
               color: textColor,
+              fontSize,
               fontWeight: textFormatting.bold ? 700 : 400,
               fontStyle: textFormatting.italic ? "italic" : "normal",
               textDecoration: textFormatting.underline ? "underline" : "none",
@@ -424,7 +630,9 @@ function TextEl({
               setEditing(true)
             }}
           >
-            {el.content || (
+            {el.content ? (
+              renderWithLinks(el.content)
+            ) : (
               <Text span c="dimmed" size="xs">
                 Double-click to edit…
               </Text>
@@ -459,6 +667,15 @@ function TextEl({
           </svg>
         </div>
       </div>
+      {/* Floating format bar — inside the box at the bottom, on top of content */}
+      {editing && showFormatBar && (
+        <FloatingFormatBar
+          formatting={textFormatting}
+          color={textColor}
+          onChangeFormatting={handleFormatChange}
+          onChangeColor={handleColorChange}
+        />
+      )}
     </Box>
   )
 }
@@ -563,8 +780,9 @@ function PlainTextEl({
     resizeStart.current = null
   }
 
-  // Calculate font size based on element height (responsive to resize)
-  const fontSize = Math.max(12, Math.min(48, el.size.y * 0.6))
+  const [showFormatBar, setShowFormatBar] = useState(false)
+
+  const fontSize = el.formatting?.fontSize ?? DEFAULT_PLAIN_FONT_SIZE
 
   const textStyle: React.CSSProperties = {
     color: el.color,
@@ -572,9 +790,18 @@ function PlainTextEl({
     fontStyle: el.formatting.italic ? "italic" : "normal",
     textDecoration: el.formatting.underline ? "underline" : "none",
     fontSize,
-    lineHeight: 1.2,
+    lineHeight: 1.4,
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
+  }
+
+  const handleFormatChange = (f: TextFormatting) =>
+    onUpdate({ ...el, formatting: f })
+  const handleColorChange = (c: string) => onUpdate({ ...el, color: c })
+
+  const checkSelection = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const t = e.currentTarget
+    setShowFormatBar(t.selectionStart !== t.selectionEnd)
   }
 
   return (
@@ -644,8 +871,11 @@ function PlainTextEl({
             }
             onBlur={() => {
               setEditing(false)
+              setShowFormatBar(false)
               onEditEnd?.()
             }}
+            onSelect={checkSelection}
+            onKeyUp={checkSelection}
             onPointerDown={(e) => e.stopPropagation()}
             styles={{
               input: {
@@ -667,7 +897,9 @@ function PlainTextEl({
               onStartEdit?.()
             }}
           >
-            {el.content || (
+            {el.content ? (
+              renderWithLinks(el.content)
+            ) : (
               <Text span c="dimmed" size="xs" style={{ fontStyle: "italic" }}>
                 Double-click to edit…
               </Text>
@@ -712,6 +944,15 @@ function PlainTextEl({
           </div>
         )}
       </div>
+      {/* Floating format bar — inside the box at the bottom, on top of content */}
+      {editing && showFormatBar && (
+        <FloatingFormatBar
+          formatting={el.formatting}
+          color={el.color}
+          onChangeFormatting={handleFormatChange}
+          onChangeColor={handleColorChange}
+        />
+      )}
     </Box>
   )
 }

@@ -697,7 +697,10 @@ function SolutionCard({
               { label: "perovskite precursor", value: "perovskite precursor" },
               { label: "solvent", value: "solvent" },
               { label: "additive", value: "additive" },
-              { label: "passivation agent/layer", value: "passivation agent/layer" },
+              {
+                label: "passivation agent/layer",
+                value: "passivation agent/layer",
+              },
               { label: "conductor (contact)", value: "conductor (contact)" },
               { label: "encapsulant", value: "encapsulant" },
               { label: "semiconductor (i)", value: "semiconductor (i)" },

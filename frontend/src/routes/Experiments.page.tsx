@@ -8,7 +8,6 @@ import {
   Divider,
   Group,
   Modal,
-  NativeSelect,
   NumberInput,
   Paper,
   Select,
@@ -44,10 +43,17 @@ import {
   type Process,
   type ProcessParameterKey,
   type ProcessStep,
+  type Substrate,
+  type SubstrateOutcome,
+  type SubstrateOutcomeStatus,
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
-import { ChemicalsTab, collectChemicals } from "./Experiments.chemicals"
+import {
+  ChemicalsTab,
+  collectChemicals,
+  computeChemsDone,
+} from "./-Experiments.chemicals"
 
 type SubstrateGeneratorConfig = {
   namePrefix: string
@@ -193,6 +199,8 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
   onChangeNextStepDefault: (stageIndex: number, value: string) => void
   onAddSubstratesForMaterial: (materialId: string) => void
 }) {
+  const [showDetails, setShowDetails] = useState(false)
+
   return (
     <Paper
       withBorder
@@ -201,78 +209,8 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
       mb="md"
       style={{ background: "var(--mantine-color-blue-0)" }}
     >
-      <Text size="sm" fw={600} mb="xs">
-        Sample Information
-      </Text>
-      <Group gap="sm" align="flex-end" wrap="nowrap">
-        <TextInput
-          label="Name Prefix"
-          placeholder="e.g. sample"
-          size="sm"
-          value={generatorConfig.namePrefix}
-          onChange={(e) =>
-            onChangeGeneratorConfig({ namePrefix: e.currentTarget.value })
-          }
-          style={{ flex: 1, minWidth: 180 }}
-        />
-        <Checkbox
-          label="Include Date"
-          checked={generatorConfig.includeDate}
-          onChange={(e) =>
-            onChangeGeneratorConfig({ includeDate: e.currentTarget.checked })
-          }
-        />
-        <Checkbox
-          label="Include Experiment Name"
-          checked={generatorConfig.includeExperimentName}
-          onChange={(e) =>
-            onChangeGeneratorConfig({
-              includeExperimentName: e.currentTarget.checked,
-            })
-          }
-        />
-        <NumberInput
-          label="How Many"
-          size="sm"
-          min={1}
-          max={200}
-          value={generatorConfig.addCount}
-          onChange={(v) =>
-            onChangeGeneratorConfig({ addCount: Number(v) || 1 })
-          }
-          style={{ width: 120 }}
-        />
-      </Group>
-
-      <Divider my="sm" />
-
-      <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
-        Default Values For Next Added Samples
-      </Text>
-      <Group gap="sm" align="flex-end" wrap="wrap">
-        {process.stages.map((stage, idx) => (
-          <Select
-            key={`default-stage-${idx}`}
-            size="xs"
-            label={`#${idx + 1} Step`}
-            w={210}
-            value={nextStepDefaults[idx] ?? stage.alternatives[0]?.id ?? "SKIP"}
-            onChange={(value) =>
-              onChangeNextStepDefault(
-                idx,
-                value ?? stage.alternatives[0]?.id ?? "SKIP",
-              )
-            }
-            data={buildStageStepOptions(
-              stage.alternatives,
-              materialNameById,
-              solutionNameById,
-            )}
-          />
-        ))}
-      </Group>
-
-      <Group justify="center" mt="sm" gap="sm" wrap="wrap">
+      {/* Add Samples buttons — always visible */}
+      <Group justify="center" gap="sm" wrap="wrap">
         {substrateMaterialOptions.map((option) => (
           <Button
             key={`add-substrate-${option.value}`}
@@ -288,11 +226,104 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
       {substrateMaterialOptions.length === 0 && (
         <Alert
           color="yellow"
-          mt="sm"
           title="No substrate materials in selected process"
         >
           Add substrate materials in the process first.
         </Alert>
+      )}
+
+      {/* Discrete "Show details" toggle */}
+      <Group justify="center" mt="xs">
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          color="gray"
+          onClick={() => setShowDetails((v) => !v)}
+          style={{ opacity: 0.6, fontSize: 11 }}
+        >
+          {showDetails ? "▲ Hide details" : "▼ Show details"}
+        </Button>
+      </Group>
+
+      {/* Collapsible details */}
+      {showDetails && (
+        <>
+          <Divider my="sm" />
+          <Text size="sm" fw={600} mb="xs">
+            Sample Information
+          </Text>
+          <Group gap="sm" align="flex-end" wrap="nowrap">
+            <TextInput
+              label="Name Prefix"
+              placeholder="e.g. sample"
+              size="sm"
+              value={generatorConfig.namePrefix}
+              onChange={(e) =>
+                onChangeGeneratorConfig({ namePrefix: e.currentTarget.value })
+              }
+              style={{ flex: 1, minWidth: 180 }}
+            />
+            <Checkbox
+              label="Include Date"
+              checked={generatorConfig.includeDate}
+              onChange={(e) =>
+                onChangeGeneratorConfig({
+                  includeDate: e.currentTarget.checked,
+                })
+              }
+            />
+            <Checkbox
+              label="Include Experiment Name"
+              checked={generatorConfig.includeExperimentName}
+              onChange={(e) =>
+                onChangeGeneratorConfig({
+                  includeExperimentName: e.currentTarget.checked,
+                })
+              }
+            />
+            <NumberInput
+              label="How Many"
+              size="sm"
+              min={1}
+              max={200}
+              value={generatorConfig.addCount}
+              onChange={(v) =>
+                onChangeGeneratorConfig({ addCount: Number(v) || 1 })
+              }
+              style={{ width: 120 }}
+            />
+          </Group>
+
+          <Divider my="sm" />
+
+          <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
+            Default Values For Next Added Samples
+          </Text>
+          <Group gap="sm" align="flex-end" wrap="wrap">
+            {process.stages.map((stage, idx) => (
+              <Select
+                key={`default-stage-${idx}`}
+                size="xs"
+                label={`#${idx + 1} Step`}
+                w={210}
+                value={
+                  nextStepDefaults[idx] ?? stage.alternatives[0]?.id ?? "SKIP"
+                }
+                onChange={(value) =>
+                  onChangeNextStepDefault(
+                    idx,
+                    value ?? stage.alternatives[0]?.id ?? "SKIP",
+                  )
+                }
+                data={buildStageStepOptions(
+                  stage.alternatives,
+                  materialNameById,
+                  solutionNameById,
+                )}
+              />
+            ))}
+          </Group>
+        </>
       )}
     </Paper>
   )
@@ -1418,12 +1449,12 @@ function ExperimentGrid({
 // Three-Step Timeline Header
 // ─────────────────────────────────────────────────────────────────────────────
 
-type ExpTab = "chemicals" | "processing" | "devices"
+type ExpTab = "chemicals" | "processing" | "outcomes"
 
 const EXP_STEPS: Array<{ id: ExpTab; label: string; sublabel: string }> = [
   { id: "chemicals", label: "Step 1", sublabel: "Chemicals" },
   { id: "processing", label: "Step 2", sublabel: "Processing" },
-  { id: "devices", label: "Step 3", sublabel: "Devices" },
+  { id: "outcomes", label: "Step 3", sublabel: "Outcomes" },
 ]
 
 function ExperimentTimeline({
@@ -1524,105 +1555,239 @@ function ExperimentTimeline({
 // Devices Tab
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ARCHITECTURE_OPTIONS: Array<{ value: DeviceArchitecture; label: string }> =
-  [
-    { value: "n-i-p", label: "n-i-p (standard)" },
-    { value: "p-i-n", label: "p-i-n (inverted)" },
-    { value: "n-i-p-n", label: "n-i-p-n" },
-    { value: "p-i-n-p", label: "p-i-n-p" },
-    { value: "custom", label: "Custom" },
-  ]
+const _ARCHITECTURE_OPTIONS: Array<{
+  value: DeviceArchitecture
+  label: string
+}> = [
+  { value: "n-i-p", label: "n-i-p (standard)" },
+  { value: "p-i-n", label: "p-i-n (inverted)" },
+  { value: "n-i-p-n", label: "n-i-p-n" },
+  { value: "p-i-n-p", label: "p-i-n-p" },
+  { value: "custom", label: "Custom" },
+]
 
-function DevicesTab({
+// ─────────────────────────────────────────────────────────────────────────────
+// Outcomes Tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STATUS_META: Record<
+  SubstrateOutcomeStatus,
+  { label: string; color: string; bg: string; border: string }
+> = {
+  complete: {
+    label: "Complete",
+    color: "teal",
+    bg: "var(--mantine-color-teal-0)",
+    border: "var(--mantine-color-teal-3)",
+  },
+  incomplete: {
+    label: "Incomplete",
+    color: "orange",
+    bg: "var(--mantine-color-orange-0)",
+    border: "var(--mantine-color-orange-3)",
+  },
+  discarded: {
+    label: "Discarded",
+    color: "red",
+    bg: "var(--mantine-color-red-0)",
+    border: "var(--mantine-color-red-3)",
+  },
+}
+
+function SubstrateOutcomeRow({
+  substrate,
+  stageOptions,
+  onUpdate,
+}: {
+  substrate: Substrate
+  stageOptions: Array<{ value: string; label: string }>
+  onUpdate: (outcome: SubstrateOutcome | undefined) => void
+}) {
+  const status = substrate.outcome?.status
+  const meta = status ? STATUS_META[status] : null
+
+  const toggleStatus = (s: SubstrateOutcomeStatus) => {
+    if (status === s) {
+      onUpdate(undefined)
+    } else {
+      onUpdate({ ...(substrate.outcome ?? {}), status: s })
+    }
+  }
+
+  return (
+    <Box
+      style={{
+        background: meta?.bg ?? undefined,
+        border: meta
+          ? `1px solid ${meta.border}`
+          : "1px solid var(--mantine-color-gray-2)",
+        borderRadius: 8,
+        padding: "8px 12px",
+        transition: "background 150ms, border 150ms",
+      }}
+    >
+      <Group gap="sm" wrap="nowrap" align="center">
+        {/* Name */}
+        <Text
+          size="sm"
+          fw={600}
+          style={{
+            minWidth: 120,
+            flex: "0 0 120px",
+            textDecoration: status === "discarded" ? "line-through" : undefined,
+            color: meta ? `var(--mantine-color-${meta.color}-7)` : undefined,
+          }}
+        >
+          {substrate.name}
+        </Text>
+
+        {/* Status buttons */}
+        <Group gap={4} wrap="nowrap">
+          {(
+            ["complete", "incomplete", "discarded"] as SubstrateOutcomeStatus[]
+          ).map((s) => (
+            <Button
+              key={s}
+              size="compact-xs"
+              variant={status === s ? "filled" : "light"}
+              color={STATUS_META[s].color}
+              onClick={() => toggleStatus(s)}
+            >
+              {STATUS_META[s].label}
+            </Button>
+          ))}
+        </Group>
+
+        {/* Conditional extras */}
+        {status === "incomplete" && stageOptions.length > 0 && (
+          <Select
+            size="xs"
+            placeholder="Stopped at step…"
+            data={stageOptions}
+            value={substrate.outcome?.stoppedAtStep ?? null}
+            onChange={(v) =>
+              onUpdate({
+                ...substrate.outcome!,
+                stoppedAtStep: v ?? undefined,
+              })
+            }
+            clearable
+            style={{ minWidth: 220, flex: 1 }}
+          />
+        )}
+        {status === "discarded" && (
+          <TextInput
+            size="xs"
+            placeholder="Reason (optional)"
+            value={substrate.outcome?.discardReason ?? ""}
+            onChange={(e) =>
+              onUpdate({
+                ...substrate.outcome!,
+                discardReason: e.currentTarget.value,
+              })
+            }
+            style={{ flex: 1 }}
+          />
+        )}
+      </Group>
+    </Box>
+  )
+}
+
+function OutcomesTab({
   experiment,
+  process,
+  materialNameById,
+  solutionNameById,
   onUpdate,
 }: {
   experiment: Experiment
+  process: Process
+  materialNameById: Map<string, string>
+  solutionNameById: Map<string, string>
   onUpdate: (exp: Experiment) => void
 }) {
-  const u = (patch: Partial<Experiment>) =>
-    onUpdate({ ...experiment, ...patch })
+  const stageOptions = process.stages.map((stage, idx) => {
+    const first = stage.alternatives[0]
+    const method = first?.depositionMethod?.value?.trim()
+    const matName = first?.materialId
+      ? materialNameById.get(first.materialId)
+      : undefined
+    const solName = first?.solutionId
+      ? solutionNameById.get(first.solutionId)
+      : undefined
+    const desc = matName ?? solName ?? first?.name
+    return {
+      value: String(idx),
+      label: [`Step ${idx + 1}`, [method, desc].filter(Boolean).join(": ")]
+        .filter(Boolean)
+        .join(" — "),
+    }
+  })
+
+  const updateSubstrate = (
+    subId: string,
+    outcome: SubstrateOutcome | undefined,
+  ) => {
+    onUpdate({
+      ...experiment,
+      substrates: experiment.substrates.map((s) =>
+        s.id === subId ? { ...s, outcome } : s,
+      ),
+    })
+  }
+
+  const setAll = (status: SubstrateOutcomeStatus) => {
+    onUpdate({
+      ...experiment,
+      substrates: experiment.substrates.map((s) => ({
+        ...s,
+        outcome: { ...(s.outcome ?? {}), status },
+      })),
+    })
+  }
+
+  if (experiment.substrates.length === 0) {
+    return (
+      <Text size="sm" c="dimmed" ta="center" py="xl">
+        No substrates added yet. Add them in the Processing step first.
+      </Text>
+    )
+  }
+
   return (
     <Stack gap="md">
-      <SimpleGrid cols={3} spacing="sm">
-        <Box>
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-            Device Architecture
-          </Text>
-          <NativeSelect
-            size="sm"
-            value={experiment.architecture}
-            onChange={(e) =>
-              u({ architecture: e.currentTarget.value as DeviceArchitecture })
-            }
-            data={ARCHITECTURE_OPTIONS.map((o) => ({
-              label: o.label,
-              value: o.value,
-            }))}
+      {/* Bulk actions */}
+      <Group gap="xs">
+        <Text size="xs" c="dimmed" fw={500} mr={4}>
+          Set all:
+        </Text>
+        {(
+          ["complete", "incomplete", "discarded"] as SubstrateOutcomeStatus[]
+        ).map((s) => (
+          <Button
+            key={s}
+            size="compact-xs"
+            variant="light"
+            color={STATUS_META[s].color}
+            onClick={() => setAll(s)}
+          >
+            {STATUS_META[s].label}
+          </Button>
+        ))}
+      </Group>
+
+      {/* Per-substrate rows */}
+      <Stack gap={4}>
+        {experiment.substrates.map((substrate) => (
+          <SubstrateOutcomeRow
+            key={substrate.id}
+            substrate={substrate}
+            stageOptions={stageOptions}
+            onUpdate={(outcome) => updateSubstrate(substrate.id, outcome)}
           />
-        </Box>
-        <Box>
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-            Device Type
-          </Text>
-          <NativeSelect
-            size="sm"
-            value={experiment.deviceType}
-            onChange={(e) =>
-              u({
-                deviceType: e.currentTarget.value as
-                  | "film"
-                  | "half"
-                  | "full",
-              })
-            }
-            data={[
-              { label: "Test film", value: "film" },
-              { label: "Half device", value: "half" },
-              { label: "Full device", value: "full" },
-            ]}
-          />
-        </Box>
-        <NumberInput
-          label="Device area (cm²)"
-          size="sm"
-          min={0}
-          step={0.01}
-          value={experiment.deviceArea}
-          onChange={(v) => u({ deviceArea: Number(v) || 0 })}
-        />
-      </SimpleGrid>
-      <SimpleGrid cols={3} spacing="sm">
-        <NumberInput
-          label="Devices per substrate"
-          size="sm"
-          min={1}
-          value={experiment.devicesPerSubstrate}
-          onChange={(v) => u({ devicesPerSubstrate: Number(v) || 1 })}
-        />
-        <NumberInput
-          label="Substrate width (cm)"
-          size="sm"
-          min={0}
-          step={0.1}
-          value={experiment.substrateWidth}
-          onChange={(v) => u({ substrateWidth: Number(v) || 0 })}
-        />
-        <NumberInput
-          label="Substrate length (cm)"
-          size="sm"
-          min={0}
-          step={0.1}
-          value={experiment.substrateLength}
-          onChange={(v) => u({ substrateLength: Number(v) || 0 })}
-        />
-      </SimpleGrid>
-      <TextInput
-        label="Substrate material"
-        size="sm"
-        value={experiment.substrateMaterial}
-        onChange={(e) => u({ substrateMaterial: e.currentTarget.value })}
-      />
+        ))}
+      </Stack>
     </Stack>
   )
 }
@@ -2388,13 +2553,17 @@ export default function ExperimentsPage() {
                 materials,
                 solutions,
               )
-              const chemDone =
-                Boolean(selectedExperiment.chemicalsPrep?.prepTime) ||
-                (materialIds.length === 0 && solutionItems.length === 0)
+              const chemDone = computeChemsDone(
+                selectedExperiment.chemicalsPrep,
+                materialIds,
+                solutionItems,
+              )
               const procDone = selectedExperiment.substrates.length > 0
               const devDone =
-                selectedExperiment.deviceArea > 0 &&
-                Boolean(selectedExperiment.substrateMaterial)
+                selectedExperiment.substrates.length > 0 &&
+                selectedExperiment.substrates.every((s) =>
+                  Boolean(s.outcome?.status),
+                )
               return (
                 <>
                   <ExperimentTimeline
@@ -2408,7 +2577,10 @@ export default function ExperimentsPage() {
                   {activeExpTab === "chemicals" && (
                     <Paper withBorder p="md" radius="md">
                       <Group gap="xs" mb="md">
-                        <IconAtom size={18} color="var(--mantine-color-orange-6)" />
+                        <IconAtom
+                          size={18}
+                          color="var(--mantine-color-orange-6)"
+                        />
                         <Text size="sm" fw={700}>
                           Step 1: Chemicals
                         </Text>
@@ -2428,7 +2600,10 @@ export default function ExperimentsPage() {
                     <Stack gap="md">
                       <Paper withBorder p="md" radius="md">
                         <Group gap="xs" mb="md">
-                          <IconLayersIntersect size={18} color="var(--mantine-color-blue-6)" />
+                          <IconLayersIntersect
+                            size={18}
+                            color="var(--mantine-color-blue-6)"
+                          />
                           <Text size="sm" fw={700}>
                             Step 2: Processing
                           </Text>
@@ -2440,7 +2615,10 @@ export default function ExperimentsPage() {
                           solutionNameById={solutionNameById}
                           generatorConfig={generatorConfig}
                           onChangeGeneratorConfig={(patch) =>
-                            setGeneratorConfig((prev) => ({ ...prev, ...patch }))
+                            setGeneratorConfig((prev) => ({
+                              ...prev,
+                              ...patch,
+                            }))
                           }
                           nextStepDefaults={nextStepDefaults}
                           onChangeNextStepDefault={(stageIndex, value) =>
@@ -2468,16 +2646,22 @@ export default function ExperimentsPage() {
                     </Stack>
                   )}
 
-                  {activeExpTab === "devices" && (
+                  {activeExpTab === "outcomes" && (
                     <Paper withBorder p="md" radius="md">
                       <Group gap="xs" mb="md">
-                        <IconLayersIntersect size={18} color="var(--mantine-color-teal-6)" />
+                        <IconCheck
+                          size={18}
+                          color="var(--mantine-color-teal-6)"
+                        />
                         <Text size="sm" fw={700}>
-                          Step 3: Devices
+                          Step 3: Outcomes
                         </Text>
                       </Group>
-                      <DevicesTab
+                      <OutcomesTab
                         experiment={selectedExperiment}
+                        process={selectedProcess}
+                        materialNameById={materialNameById}
+                        solutionNameById={solutionNameById}
                         onUpdate={handleUpdateExperiment}
                       />
                     </Paper>

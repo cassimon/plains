@@ -351,12 +351,21 @@ export type DeviceArchitecture =
   | "p-i-n-p"
   | "custom"
 
+export type SubstrateOutcomeStatus = "complete" | "incomplete" | "discarded"
+
+export type SubstrateOutcome = {
+  status: SubstrateOutcomeStatus
+  stoppedAtStep?: string // for "incomplete": stage index as string
+  discardReason?: string // for "discarded": optional free-text reason
+}
+
 /** A single substrate in an experiment */
 export type Substrate = {
   id: string
   name: string // e.g. "substrate_1", "substrate_2"
   substrateMaterialId?: string
   notes?: string
+  outcome?: SubstrateOutcome
   // Per-substrate parameter values for variation mode
   // Key format: "layerId:paramName", Value: string
   parameterValues?: { [key: string]: string }
@@ -364,19 +373,23 @@ export type Substrate = {
 
 export type ExperimentSolutionBatch = {
   mode: "make" | "take"
-  totalVolumeMl?: string    // for "make" with recipe: target volume in mL
-  multiplier?: string       // for "make" with entity solution: scale factor (×)
-  takenFromExpId?: string   // for "take": source experiment id
+  totalVolumeMl?: string // for "make" with recipe: target volume in mL
+  multiplier?: string // for "make" with entity solution: scale factor (×)
+  takenFromExpId?: string // for "take": source experiment id
   takenFromBatchId?: string // for "take": source batch key
 }
 
 export type ExperimentChemicalsPrep = {
   prepTime?: string // datetime-local when chemicals were prepared
-  materialOverrides?: Record<string, {  // keyed by materialId
-    inventoryLabel?: string
-    purity?: string
-    supplier?: string
-  }>
+  materialOverrides?: Record<
+    string,
+    {
+      // keyed by materialId
+      inventoryLabel?: string
+      purity?: string
+      supplier?: string
+    }
+  >
   solutionBatches?: Record<string, ExperimentSolutionBatch> // keyed by "sol:{id}" or "recipe:{id}"
 }
 
@@ -771,6 +784,7 @@ export type TextFormatting = {
   bold?: boolean
   italic?: boolean
   underline?: boolean
+  fontSize?: number
 }
 
 export type CanvasPlainTextElement = {

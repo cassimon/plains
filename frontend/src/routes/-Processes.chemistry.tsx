@@ -886,13 +886,25 @@ function SolutionCard({
                       { label: "—", value: "" },
                       { label: "n-type (ETL)", value: "n-type (ETL)" },
                       { label: "p-type (HTL)", value: "p-type (HTL)" },
-                      { label: "perovskite precursor", value: "perovskite precursor" },
+                      {
+                        label: "perovskite precursor",
+                        value: "perovskite precursor",
+                      },
                       { label: "solvent", value: "solvent" },
                       { label: "additive", value: "additive" },
-                      { label: "passivation agent/layer", value: "passivation agent/layer" },
-                      { label: "conductor (contact)", value: "conductor (contact)" },
+                      {
+                        label: "passivation agent/layer",
+                        value: "passivation agent/layer",
+                      },
+                      {
+                        label: "conductor (contact)",
+                        value: "conductor (contact)",
+                      },
                       { label: "encapsulant", value: "encapsulant" },
-                      { label: "semiconductor (i)", value: "semiconductor (i)" },
+                      {
+                        label: "semiconductor (i)",
+                        value: "semiconductor (i)",
+                      },
                       { label: "other", value: "other" },
                     ]}
                     style={{ flex: 1 }}
@@ -1103,7 +1115,6 @@ function SolutionCard({
                   {search?.role === "solvent" && (
                     <Box mt={6}>
                       <InlineSearch
-                        role="solvent"
                         onSelect={handleSearchSelect}
                         onCancel={() => setSearch(null)}
                       />
@@ -1289,7 +1300,6 @@ function SolutionCard({
                   {search?.role === "solute" && (
                     <Box mt={6}>
                       <InlineSearch
-                        role="solute"
                         onSelect={handleSearchSelect}
                         onCancel={() => setSearch(null)}
                       />

@@ -75,7 +75,7 @@ import {
   useEntityCollection,
 } from "@/store/AppContext"
 import { DependencyBlockModal } from "../components/DependencyBlockModal"
-import { ChemistryTab } from "./Processes.chemistry"
+import { ChemistryTab } from "./-Processes.chemistry"
 
 const MATERIAL_TYPES = [
   "n-type (ETL)",
@@ -547,7 +547,13 @@ function MaterialParamsPanel({
         error: string | null
         fetchingCid: string | null
       }
-    | { kind: "manual"; name: string; type: string; molarMass: string; density: string }
+    | {
+        kind: "manual"
+        name: string
+        type: string
+        molarMass: string
+        density: string
+      }
 
   const [mode, setMode] = useState<PanelMode>({ kind: "idle" })
 
@@ -1168,7 +1174,9 @@ function isPerovskitePrecursor(
     return recipe?.type?.toLowerCase().includes("perovskite") ?? false
   }
   if (step.inlineMaterial) {
-    return step.inlineMaterial.type?.toLowerCase().includes("perovskite") ?? false
+    return (
+      step.inlineMaterial.type?.toLowerCase().includes("perovskite") ?? false
+    )
   }
   return false
 }
@@ -1368,7 +1376,10 @@ function generateStackCombinations(
   const inlineSubs = process.inlineSubstrates ?? []
   const solutionRecipes = process.solutionRecipes ?? []
 
-  if ((substrateIds.length + inlineSubs.length) === 0 || process.stages.length === 0) {
+  if (
+    substrateIds.length + inlineSubs.length === 0 ||
+    process.stages.length === 0
+  ) {
     return []
   }
 
@@ -1413,12 +1424,22 @@ function generateStackCombinations(
     // Merge consecutive perovskite precursor steps into one "Perovskite" layer
     const merged: MergedEntry[] = []
     for (const step of includedSteps) {
-      const isPero = isPerovskitePrecursor(step, materials, solutions, solutionRecipes)
-      if (isPero && merged.length > 0 && merged[merged.length - 1].isPerovskite) {
+      const isPero = isPerovskitePrecursor(
+        step,
+        materials,
+        solutions,
+        solutionRecipes,
+      )
+      if (
+        isPero &&
+        merged.length > 0 &&
+        merged[merged.length - 1].isPerovskite
+      ) {
         // absorb into previous perovskite group
       } else {
         const recipeName = step.chemRecipeId
-          ? (solutionRecipes.find((r) => r.id === step.chemRecipeId)?.name ?? "")
+          ? (solutionRecipes.find((r) => r.id === step.chemRecipeId)?.name ??
+            "")
           : null
         merged.push({
           step,
@@ -1436,7 +1457,12 @@ function generateStackCombinations(
         name: entry.name,
         color: entry.step.color,
         isSubstrate: false,
-        layerType: getDefaultLayerType(entry.step, materials, solutions, solutionRecipes),
+        layerType: getDefaultLayerType(
+          entry.step,
+          materials,
+          solutions,
+          solutionRecipes,
+        ),
         thicknessNm: "",
         bandgapEv: "",
         perovskiteA: "",
@@ -1456,7 +1482,11 @@ function generateStackCombinations(
     if (!substrate) continue
     for (const combo of combinations) {
       stacks.push({
-        layers: buildLayersForCombo(substrate.id, substrate.name || "Unnamed", combo),
+        layers: buildLayersForCombo(
+          substrate.id,
+          substrate.name || "Unnamed",
+          combo,
+        ),
         combination: combinationCounter,
         architecture: "Unknown",
         buildDevice: "Yes",
@@ -2524,7 +2554,10 @@ export function ProcessesPage() {
   useEffect(() => {
     if (!expandedInlineSubId) return
     const handler = (e: MouseEvent) => {
-      if (inlineSubListRef.current && !inlineSubListRef.current.contains(e.target as Node)) {
+      if (
+        inlineSubListRef.current &&
+        !inlineSubListRef.current.contains(e.target as Node)
+      ) {
         setExpandedInlineSubId(null)
       }
     }
@@ -4387,7 +4420,8 @@ export function ProcessesPage() {
                   const isSelected = selectedProcess?.id === process.id
                   const canSpawnFromList =
                     (process.generatedStacks?.length ?? 0) > 0 &&
-                    ((process.substrateIds ?? []).length > 0 || (process.inlineSubstrates ?? []).length > 0) &&
+                    ((process.substrateIds ?? []).length > 0 ||
+                      (process.inlineSubstrates ?? []).length > 0) &&
                     process.stages.length > 0
                   const collectionColor = getEntityColor("process", process.id)
                   return (
@@ -4423,7 +4457,8 @@ export function ProcessesPage() {
                           </Text>
                         </Box>
                         <Group gap={2} wrap="nowrap">
-                          {((process.substrateIds ?? []).length > 0 || (process.inlineSubstrates ?? []).length > 0) &&
+                          {((process.substrateIds ?? []).length > 0 ||
+                            (process.inlineSubstrates ?? []).length > 0) &&
                             process.stages.length > 0 && (
                               <Tooltip label="New experiment" withArrow>
                                 <ActionIcon
@@ -5084,252 +5119,266 @@ export function ProcessesPage() {
                                     })}
 
                                     {/* Inline substrate cards */}
-                                    <div ref={inlineSubListRef} style={{ display: "contents" }}>
-                                    {inlineSubs.map((sub) => {
-                                      const cannotRemove =
-                                        isLastSubstrate && hasSteps
-                                      return (
-                                        <Box
-                                          key={sub.id}
-                                          data-step-box="true"
-                                          onClick={() =>
-                                            setExpandedInlineSubId(
-                                              expandedInlineSubId === sub.id
-                                                ? null
-                                                : sub.id,
-                                            )
-                                          }
-                                          style={{
-                                            width:
-                                              expandedInlineSubId === sub.id
-                                                ? 320
-                                                : 260,
-                                            borderRadius: 8,
-                                            padding: "10px 12px",
-                                            display: "flex",
-                                            flexDirection: "column",
-                                            gap: 6,
-                                            cursor: "default",
-                                            userSelect: "none",
-                                            background: `linear-gradient(90deg, ${SUBSTRATE_COLOR}2E 0%, transparent 100%)`,
-                                            border:
-                                              expandedInlineSubId === sub.id
-                                                ? `2px solid ${SUBSTRATE_COLOR}`
-                                                : "1px solid var(--mantine-color-gray-3)",
-                                          }}
-                                        >
-                                          <Group
-                                            justify="space-between"
-                                            wrap="nowrap"
-                                            gap="xs"
+                                    <div
+                                      ref={inlineSubListRef}
+                                      style={{ display: "contents" }}
+                                    >
+                                      {inlineSubs.map((sub) => {
+                                        const cannotRemove =
+                                          isLastSubstrate && hasSteps
+                                        return (
+                                          <Box
+                                            key={sub.id}
+                                            data-step-box="true"
+                                            onClick={() =>
+                                              setExpandedInlineSubId(
+                                                expandedInlineSubId === sub.id
+                                                  ? null
+                                                  : sub.id,
+                                              )
+                                            }
+                                            style={{
+                                              width:
+                                                expandedInlineSubId === sub.id
+                                                  ? 320
+                                                  : 260,
+                                              borderRadius: 8,
+                                              padding: "10px 12px",
+                                              display: "flex",
+                                              flexDirection: "column",
+                                              gap: 6,
+                                              cursor: "default",
+                                              userSelect: "none",
+                                              background: `linear-gradient(90deg, ${SUBSTRATE_COLOR}2E 0%, transparent 100%)`,
+                                              border:
+                                                expandedInlineSubId === sub.id
+                                                  ? `2px solid ${SUBSTRATE_COLOR}`
+                                                  : "1px solid var(--mantine-color-gray-3)",
+                                            }}
                                           >
                                             <Group
-                                              gap={6}
+                                              justify="space-between"
                                               wrap="nowrap"
-                                              style={{ flex: 1, minWidth: 0 }}
+                                              gap="xs"
                                             >
-                                              <IconSquare size={14} />
-                                              <Text size="sm" fw={700} truncate>
-                                                {sub.name ||
-                                                  "Unnamed substrate"}
-                                              </Text>
-                                            </Group>
-                                            <Tooltip
-                                              label="Remove all steps first before removing the last substrate"
-                                              disabled={!cannotRemove}
-                                              withArrow
-                                            >
-                                              <ActionIcon
-                                                size="xs"
-                                                variant="subtle"
-                                                color={
-                                                  cannotRemove ? "gray" : "red"
-                                                }
-                                                onClick={(e) => {
-                                                  e.stopPropagation()
-                                                  if (!cannotRemove) {
-                                                    handleRemoveInlineSubstrate(
-                                                      sub.id,
-                                                    )
-                                                    if (
-                                                      expandedInlineSubId ===
-                                                      sub.id
-                                                    )
-                                                      setExpandedInlineSubId(
-                                                        null,
-                                                      )
-                                                  }
-                                                }}
+                                              <Group
+                                                gap={6}
+                                                wrap="nowrap"
+                                                style={{ flex: 1, minWidth: 0 }}
                                               >
-                                                <IconX size={12} />
-                                              </ActionIcon>
-                                            </Tooltip>
-                                          </Group>
-
-                                          {expandedInlineSubId === sub.id ? (
-                                            <Stack
-                                              gap={6}
-                                              onClick={(e) =>
-                                                e.stopPropagation()
-                                              }
-                                            >
-                                              <TextInput
-                                                size="xs"
-                                                label="Name"
-                                                placeholder="e.g. ITO/Glass"
-                                                value={sub.name}
-                                                onChange={(e) =>
-                                                  handleUpdateInlineSubstrate(
-                                                    sub.id,
-                                                    {
-                                                      name: e.currentTarget
-                                                        .value,
-                                                    },
-                                                  )
-                                                }
-                                              />
-                                              <Select
-                                                size="xs"
-                                                label="Rigidity"
-                                                value={sub.rigidity ?? "rigid"}
-                                                data={[
-                                                  {
-                                                    value: "rigid",
-                                                    label: "Rigid",
-                                                  },
-                                                  {
-                                                    value: "flexible",
-                                                    label: "Flexible",
-                                                  },
-                                                ]}
-                                                onChange={(v) =>
-                                                  handleUpdateInlineSubstrate(
-                                                    sub.id,
-                                                    {
-                                                      rigidity:
-                                                        (v as
-                                                          | "rigid"
-                                                          | "flexible") ??
-                                                        "rigid",
-                                                    },
-                                                  )
-                                                }
-                                                comboboxProps={{
-                                                  withinPortal: false,
-                                                }}
-                                              />
-                                              <Group gap={6} wrap="nowrap">
-                                                <NumberInput
-                                                  size="xs"
-                                                  label="Length (cm)"
-                                                  min={0}
-                                                  value={
-                                                    sub.lengthCm
-                                                      ? Number(sub.lengthCm)
-                                                      : ""
-                                                  }
-                                                  onChange={(v) =>
-                                                    handleUpdateInlineSubstrate(
-                                                      sub.id,
-                                                      {
-                                                        lengthCm:
-                                                          typeof v === "number"
-                                                            ? String(v)
-                                                            : "",
-                                                      },
-                                                    )
-                                                  }
-                                                  style={{ flex: 1 }}
-                                                />
-                                                <NumberInput
-                                                  size="xs"
-                                                  label="Width (cm)"
-                                                  min={0}
-                                                  value={
-                                                    sub.widthCm
-                                                      ? Number(sub.widthCm)
-                                                      : ""
-                                                  }
-                                                  onChange={(v) =>
-                                                    handleUpdateInlineSubstrate(
-                                                      sub.id,
-                                                      {
-                                                        widthCm:
-                                                          typeof v === "number"
-                                                            ? String(v)
-                                                            : "",
-                                                      },
-                                                    )
-                                                  }
-                                                  style={{ flex: 1 }}
-                                                />
-                                                <NumberInput
-                                                  size="xs"
-                                                  label="Height (mm)"
-                                                  min={0}
-                                                  value={
-                                                    sub.heightMm
-                                                      ? Number(sub.heightMm)
-                                                      : ""
-                                                  }
-                                                  onChange={(v) =>
-                                                    handleUpdateInlineSubstrate(
-                                                      sub.id,
-                                                      {
-                                                        heightMm:
-                                                          typeof v === "number"
-                                                            ? String(v)
-                                                            : "",
-                                                      },
-                                                    )
-                                                  }
-                                                  style={{ flex: 1 }}
-                                                />
-                                              </Group>
-                                              <NumberInput
-                                                size="xs"
-                                                label="Surface roughness RMS (nm)"
-                                                min={0}
-                                                value={
-                                                  sub.surfaceRoughnessRmsNm
-                                                    ? Number(
-                                                        sub.surfaceRoughnessRmsNm,
-                                                      )
-                                                    : ""
-                                                }
-                                                onChange={(v) =>
-                                                  handleUpdateInlineSubstrate(
-                                                    sub.id,
-                                                    {
-                                                      surfaceRoughnessRmsNm:
-                                                        typeof v === "number"
-                                                          ? String(v)
-                                                          : "",
-                                                    },
-                                                  )
-                                                }
-                                              />
-                                            </Stack>
-                                          ) : (
-                                            <Stack gap={2}>
-                                              <Text size="xs" c="dimmed">
-                                                {sub.rigidity === "flexible"
-                                                  ? "Flexible"
-                                                  : "Rigid"}
-                                              </Text>
-                                              <Text size="xs" c="dimmed">
-                                                {`L ${sub.lengthCm || "2"} cm · W ${sub.widthCm || "2"} cm · H ${sub.heightMm || "—"} mm`}
-                                              </Text>
-                                              {sub.surfaceRoughnessRmsNm && (
-                                                <Text size="xs" c="dimmed">
-                                                  {`Roughness RMS ${sub.surfaceRoughnessRmsNm} nm`}
+                                                <IconSquare size={14} />
+                                                <Text
+                                                  size="sm"
+                                                  fw={700}
+                                                  truncate
+                                                >
+                                                  {sub.name ||
+                                                    "Unnamed substrate"}
                                                 </Text>
-                                              )}
-                                            </Stack>
-                                          )}
-                                        </Box>
-                                      )
-                                    })}
+                                              </Group>
+                                              <Tooltip
+                                                label="Remove all steps first before removing the last substrate"
+                                                disabled={!cannotRemove}
+                                                withArrow
+                                              >
+                                                <ActionIcon
+                                                  size="xs"
+                                                  variant="subtle"
+                                                  color={
+                                                    cannotRemove
+                                                      ? "gray"
+                                                      : "red"
+                                                  }
+                                                  onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    if (!cannotRemove) {
+                                                      handleRemoveInlineSubstrate(
+                                                        sub.id,
+                                                      )
+                                                      if (
+                                                        expandedInlineSubId ===
+                                                        sub.id
+                                                      )
+                                                        setExpandedInlineSubId(
+                                                          null,
+                                                        )
+                                                    }
+                                                  }}
+                                                >
+                                                  <IconX size={12} />
+                                                </ActionIcon>
+                                              </Tooltip>
+                                            </Group>
+
+                                            {expandedInlineSubId === sub.id ? (
+                                              <Stack
+                                                gap={6}
+                                                onClick={(e) =>
+                                                  e.stopPropagation()
+                                                }
+                                              >
+                                                <TextInput
+                                                  size="xs"
+                                                  label="Name"
+                                                  placeholder="e.g. ITO/Glass"
+                                                  value={sub.name}
+                                                  onChange={(e) =>
+                                                    handleUpdateInlineSubstrate(
+                                                      sub.id,
+                                                      {
+                                                        name: e.currentTarget
+                                                          .value,
+                                                      },
+                                                    )
+                                                  }
+                                                />
+                                                <Select
+                                                  size="xs"
+                                                  label="Rigidity"
+                                                  value={
+                                                    sub.rigidity ?? "rigid"
+                                                  }
+                                                  data={[
+                                                    {
+                                                      value: "rigid",
+                                                      label: "Rigid",
+                                                    },
+                                                    {
+                                                      value: "flexible",
+                                                      label: "Flexible",
+                                                    },
+                                                  ]}
+                                                  onChange={(v) =>
+                                                    handleUpdateInlineSubstrate(
+                                                      sub.id,
+                                                      {
+                                                        rigidity:
+                                                          (v as
+                                                            | "rigid"
+                                                            | "flexible") ??
+                                                          "rigid",
+                                                      },
+                                                    )
+                                                  }
+                                                  comboboxProps={{
+                                                    withinPortal: false,
+                                                  }}
+                                                />
+                                                <Group gap={6} wrap="nowrap">
+                                                  <NumberInput
+                                                    size="xs"
+                                                    label="Length (cm)"
+                                                    min={0}
+                                                    value={
+                                                      sub.lengthCm
+                                                        ? Number(sub.lengthCm)
+                                                        : ""
+                                                    }
+                                                    onChange={(v) =>
+                                                      handleUpdateInlineSubstrate(
+                                                        sub.id,
+                                                        {
+                                                          lengthCm:
+                                                            typeof v ===
+                                                            "number"
+                                                              ? String(v)
+                                                              : "",
+                                                        },
+                                                      )
+                                                    }
+                                                    style={{ flex: 1 }}
+                                                  />
+                                                  <NumberInput
+                                                    size="xs"
+                                                    label="Width (cm)"
+                                                    min={0}
+                                                    value={
+                                                      sub.widthCm
+                                                        ? Number(sub.widthCm)
+                                                        : ""
+                                                    }
+                                                    onChange={(v) =>
+                                                      handleUpdateInlineSubstrate(
+                                                        sub.id,
+                                                        {
+                                                          widthCm:
+                                                            typeof v ===
+                                                            "number"
+                                                              ? String(v)
+                                                              : "",
+                                                        },
+                                                      )
+                                                    }
+                                                    style={{ flex: 1 }}
+                                                  />
+                                                  <NumberInput
+                                                    size="xs"
+                                                    label="Height (mm)"
+                                                    min={0}
+                                                    value={
+                                                      sub.heightMm
+                                                        ? Number(sub.heightMm)
+                                                        : ""
+                                                    }
+                                                    onChange={(v) =>
+                                                      handleUpdateInlineSubstrate(
+                                                        sub.id,
+                                                        {
+                                                          heightMm:
+                                                            typeof v ===
+                                                            "number"
+                                                              ? String(v)
+                                                              : "",
+                                                        },
+                                                      )
+                                                    }
+                                                    style={{ flex: 1 }}
+                                                  />
+                                                </Group>
+                                                <NumberInput
+                                                  size="xs"
+                                                  label="Surface roughness RMS (nm)"
+                                                  min={0}
+                                                  value={
+                                                    sub.surfaceRoughnessRmsNm
+                                                      ? Number(
+                                                          sub.surfaceRoughnessRmsNm,
+                                                        )
+                                                      : ""
+                                                  }
+                                                  onChange={(v) =>
+                                                    handleUpdateInlineSubstrate(
+                                                      sub.id,
+                                                      {
+                                                        surfaceRoughnessRmsNm:
+                                                          typeof v === "number"
+                                                            ? String(v)
+                                                            : "",
+                                                      },
+                                                    )
+                                                  }
+                                                />
+                                              </Stack>
+                                            ) : (
+                                              <Stack gap={2}>
+                                                <Text size="xs" c="dimmed">
+                                                  {sub.rigidity === "flexible"
+                                                    ? "Flexible"
+                                                    : "Rigid"}
+                                                </Text>
+                                                <Text size="xs" c="dimmed">
+                                                  {`L ${sub.lengthCm || "2"} cm · W ${sub.widthCm || "2"} cm · H ${sub.heightMm || "—"} mm`}
+                                                </Text>
+                                                {sub.surfaceRoughnessRmsNm && (
+                                                  <Text size="xs" c="dimmed">
+                                                    {`Roughness RMS ${sub.surfaceRoughnessRmsNm} nm`}
+                                                  </Text>
+                                                )}
+                                              </Stack>
+                                            )}
+                                          </Box>
+                                        )
+                                      })}
                                     </div>
 
                                     {substrateSelectingIdx === -1 && (
