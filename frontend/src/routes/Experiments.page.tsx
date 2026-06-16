@@ -37,7 +37,6 @@ import {
   type DeviceArchitecture,
   type Experiment,
   getExperimentStatus,
-  type Material,
   newExperiment,
   PROCESS_PARAMETER_DEFINITIONS,
   type Process,
@@ -129,30 +128,16 @@ function alphabeticSuffix(index: number): string {
   return suffix
 }
 
-function buildStepBaseLabel(
-  step: ProcessStep,
-  materialNameById: Map<string, string>,
-  solutionNameById: Map<string, string>,
-): string {
+function buildStepBaseLabel(step: ProcessStep): string {
   const depositionMethod = step.depositionMethod?.value?.trim() || "Deposition"
-  const materialName = step.materialId
-    ? materialNameById.get(step.materialId)
-    : undefined
-  const solutionName = step.solutionId
-    ? solutionNameById.get(step.solutionId)
-    : undefined
-  const targetName = materialName || solutionName || step.name || "Material"
+  const targetName = step.inlineMaterial?.name || step.name || "Material"
   return `${depositionMethod}: ${targetName}`
 }
 
-function buildStageStepOptions(
-  alternatives: ProcessStep[],
-  materialNameById: Map<string, string>,
-  solutionNameById: Map<string, string>,
-) {
+function buildStageStepOptions(alternatives: ProcessStep[]) {
   const options = alternatives.map((step) => ({
     value: step.id,
-    label: buildStepBaseLabel(step, materialNameById, solutionNameById),
+    label: buildStepBaseLabel(step),
   }))
 
   const totalByLabel = new Map<string, number>()
@@ -181,8 +166,6 @@ function buildStageStepOptions(
 const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
   process,
   substrateMaterialOptions,
-  materialNameById,
-  solutionNameById,
   generatorConfig,
   onChangeGeneratorConfig,
   nextStepDefaults,
@@ -191,8 +174,6 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
 }: {
   process: Process
   substrateMaterialOptions: SubstrateMaterialOption[]
-  materialNameById: Map<string, string>
-  solutionNameById: Map<string, string>
   generatorConfig: SubstrateGeneratorConfig
   onChangeGeneratorConfig: (patch: Partial<SubstrateGeneratorConfig>) => void
   nextStepDefaults: Record<number, string>
@@ -315,11 +296,7 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
                     value ?? stage.alternatives[0]?.id ?? "SKIP",
                   )
                 }
-                data={buildStageStepOptions(
-                  stage.alternatives,
-                  materialNameById,
-                  solutionNameById,
-                )}
+                data={buildStageStepOptions(stage.alternatives)}
               />
             ))}
           </Group>
@@ -414,24 +391,16 @@ function RecipeSelectionModal({
 
 function ProcessStepSelector({
   alternatives,
-  materialNameById,
-  solutionNameById,
   selectedStepId,
   defaultStepId,
   onSelect,
 }: {
   alternatives: ProcessStep[]
-  materialNameById: Map<string, string>
-  solutionNameById: Map<string, string>
   selectedStepId: string | undefined | null
   defaultStepId: string | null
   onSelect: (stepId: string | null) => void
 }) {
-  const data = buildStageStepOptions(
-    alternatives,
-    materialNameById,
-    solutionNameById,
-  ).map((option) =>
+  const data = buildStageStepOptions(alternatives).map((option) =>
     option.value === "SKIP" ? { ...option, label: "Skip this step" } : option,
   )
 
@@ -463,8 +432,6 @@ function ExperimentGrid({
   experiment,
   process,
   substrateMaterialOptions,
-  materialNameById,
-  solutionNameById,
   generatorConfig,
   nextStepDefaults,
   onUpdate,
@@ -473,8 +440,6 @@ function ExperimentGrid({
   experiment: Experiment
   process: Process
   substrateMaterialOptions: SubstrateMaterialOption[]
-  materialNameById: Map<string, string>
-  solutionNameById: Map<string, string>
   generatorConfig: SubstrateGeneratorConfig
   nextStepDefaults: Record<number, string>
   onUpdate: (exp: Experiment) => void
@@ -490,11 +455,7 @@ function ExperimentGrid({
   const stepDisplayById = React.useMemo(() => {
     const map = new Map<string, string>()
     process.stages.forEach((stage) => {
-      const options = buildStageStepOptions(
-        stage.alternatives,
-        materialNameById,
-        solutionNameById,
-      )
+      const options = buildStageStepOptions(stage.alternatives)
       for (const option of options) {
         if (option.value !== "SKIP") {
           map.set(option.value, option.label)
@@ -502,7 +463,7 @@ function ExperimentGrid({
       }
     })
     return map
-  }, [materialNameById, process.stages, solutionNameById])
+  }, [process.stages])
 
   React.useEffect(() => {
     const validIds = new Set(
@@ -1239,8 +1200,6 @@ function ExperimentGrid({
                       >
                         <ProcessStepSelector
                           alternatives={stage.alternatives}
-                          materialNameById={materialNameById}
-                          solutionNameById={solutionNameById}
                           defaultStepId={stage.alternatives[0]?.id ?? null}
                           selectedStepId={getStageSelection(
                             substrate.id,
@@ -1403,11 +1362,7 @@ function ExperimentGrid({
                 value={variationTarget}
                 onChange={setVariationTarget}
                 data={process.stages.flatMap((stage, idx) =>
-                  buildStageStepOptions(
-                    stage.alternatives,
-                    materialNameById,
-                    solutionNameById,
-                  )
+                  buildStageStepOptions(stage.alternatives)
                     .filter((option) => option.value !== "SKIP")
                     .map((option) => ({
                       value: `${idx}:${option.value}`,
@@ -1697,26 +1652,16 @@ function SubstrateOutcomeRow({
 function OutcomesTab({
   experiment,
   process,
-  materialNameById,
-  solutionNameById,
   onUpdate,
 }: {
   experiment: Experiment
   process: Process
-  materialNameById: Map<string, string>
-  solutionNameById: Map<string, string>
   onUpdate: (exp: Experiment) => void
 }) {
   const stageOptions = process.stages.map((stage, idx) => {
     const first = stage.alternatives[0]
     const method = first?.depositionMethod?.value?.trim()
-    const matName = first?.materialId
-      ? materialNameById.get(first.materialId)
-      : undefined
-    const solName = first?.solutionId
-      ? solutionNameById.get(first.solutionId)
-      : undefined
-    const desc = matName ?? solName ?? first?.name
+    const desc = first?.inlineMaterial?.name ?? first?.name
     return {
       value: String(idx),
       label: [`Step ${idx + 1}`, [method, desc].filter(Boolean).join(": ")]
@@ -1801,8 +1746,6 @@ export default function ExperimentsPage() {
   const {
     experiments,
     setExperiments,
-    materials,
-    solutions,
     processes,
     setProcesses,
     activeEntity,
@@ -1894,47 +1837,16 @@ export default function ExperimentsPage() {
   const selectedProcess =
     selectedExperiment &&
     processes.find((p) => p.id === selectedExperiment.processId)
-  const materialNameById = React.useMemo(
-    () =>
-      new Map(
-        materials.map((material) => [
-          material.id,
-          material.name ||
-            material.inventoryLabel ||
-            material.casNumber ||
-            material.id,
-        ]),
-      ),
-    [materials],
-  )
-  const solutionNameById = React.useMemo(
-    () =>
-      new Map(
-        solutions.map((solution) => [
-          solution.id,
-          solution.name || solution.id,
-        ]),
-      ),
-    [solutions],
-  )
   const substrateMaterialOptions = React.useMemo(() => {
     if (!selectedProcess) {
       return []
     }
-    const ids = selectedProcess.substrateIds ?? []
-    return ids.map((id) => {
-      const material = materials.find((m: Material) => m.id === id)
-      return {
-        value: id,
-        label:
-          material?.name ||
-          material?.inventoryLabel ||
-          material?.casNumber ||
-          "Unnamed substrate",
-        heightMm: material?.heightMm ?? "",
-      }
-    })
-  }, [materials, selectedProcess])
+    return (selectedProcess.inlineSubstrates ?? []).map((s) => ({
+      value: s.id,
+      label: s.name || "Substrate",
+      heightMm: s.heightMm ?? "",
+    }))
+  }, [selectedProcess])
 
   React.useEffect(() => {
     if (processes.length === 0) {
@@ -2611,8 +2523,6 @@ export default function ExperimentsPage() {
                         <SubstrateNameGenerator
                           process={selectedProcess}
                           substrateMaterialOptions={substrateMaterialOptions}
-                          materialNameById={materialNameById}
-                          solutionNameById={solutionNameById}
                           generatorConfig={generatorConfig}
                           onChangeGeneratorConfig={(patch) =>
                             setGeneratorConfig((prev) => ({
@@ -2635,8 +2545,6 @@ export default function ExperimentsPage() {
                           experiment={selectedExperiment}
                           process={selectedProcess}
                           substrateMaterialOptions={substrateMaterialOptions}
-                          materialNameById={materialNameById}
-                          solutionNameById={solutionNameById}
                           generatorConfig={generatorConfig}
                           nextStepDefaults={nextStepDefaults}
                           onUpdate={handleUpdateExperiment}
@@ -2660,8 +2568,6 @@ export default function ExperimentsPage() {
                       <OutcomesTab
                         experiment={selectedExperiment}
                         process={selectedProcess}
-                        materialNameById={materialNameById}
-                        solutionNameById={solutionNameById}
                         onUpdate={handleUpdateExperiment}
                       />
                     </Paper>

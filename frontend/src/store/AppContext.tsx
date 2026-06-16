@@ -811,13 +811,7 @@ export type CanvasLineElement = {
  * to Materials, Solutions, Processes, and other app entities.
  */
 export type CollectionRef = {
-  kind:
-    | "material"
-    | "solution"
-    | "experiment"
-    | "result"
-    | "analysis"
-    | "process"
+  kind: "experiment" | "result" | "analysis" | "process"
   id: string
 }
 
@@ -935,10 +929,9 @@ export type DependencyLocation = {
  *   process   ← experiment.processId
  */
 export function getDependentLocations(
-  kind: "material" | "solution" | "experiment" | "process",
+  kind: "process",
   id: string,
   data: {
-    solutions: Solution[]
     experiments: Experiment[]
     processes: Process[]
     planes: Plane[]
@@ -969,33 +962,7 @@ export function getDependentLocations(
     return { planeName: "(No plane)", collectionName: "(No collection)" }
   }
 
-  if (kind === "material") {
-    for (const sol of data.solutions) {
-      if (sol.components.some((c) => c.materialId === id)) {
-        const host = findHost("solution", sol.id)
-        locations.push({
-          ...host,
-          itemKind: "solution",
-          itemName: sol.name,
-          itemId: sol.id,
-        })
-      }
-    }
-    // Materials may be used in process steps (future); add process checks here if/when ProcessStep gets materialId
-  } else if (kind === "solution") {
-    for (const sol of data.solutions) {
-      if (sol.components.some((c) => c.solutionId === id)) {
-        const host = findHost("solution", sol.id)
-        locations.push({
-          ...host,
-          itemKind: "solution",
-          itemName: sol.name,
-          itemId: sol.id,
-        })
-      }
-    }
-    // Solutions may be used in process steps (future); add process checks here if/when ProcessStep gets solutionId
-  } else if (kind === "process") {
+  if (kind === "process") {
     for (const exp of data.experiments) {
       if (exp.processId === id) {
         const host = findHost("experiment", exp.id)
@@ -1016,10 +983,6 @@ export function getDependentLocations(
 
 type AppContextValue = {
   // ── Data ──────────────────────────────────────────────────────────────────
-  materials: Material[]
-  setMaterials: React.Dispatch<React.SetStateAction<Material[]>>
-  solutions: Solution[]
-  setSolutions: React.Dispatch<React.SetStateAction<Solution[]>>
   experiments: Experiment[]
   setExperiments: React.Dispatch<React.SetStateAction<Experiment[]>>
   processes: Process[]
@@ -1099,7 +1062,6 @@ type AppContextValue = {
     selectedProcessId?: string
     selectedExperimentId?: string
     openAddResults?: boolean
-    materialCategory?: MaterialCategory
     processAttachment?: {
       processId: string
       target: "substrate" | "step-material" | "step-solution"
@@ -1117,7 +1079,6 @@ type AppContextValue = {
       selectedProcessId?: string
       selectedExperimentId?: string
       openAddResults?: boolean
-      materialCategory?: MaterialCategory
       processAttachment?: {
         processId: string
         target: "substrate" | "step-material" | "step-solution"
@@ -1131,24 +1092,19 @@ type AppContextValue = {
 
   /** The single entity currently focused in a page's detail view */
   activeEntity: {
-    kind: "experiment" | "material" | "solution" | "process"
+    kind: "experiment" | "process"
     id: string
   } | null
   setActiveEntity: (
     e: {
-      kind: "experiment" | "material" | "solution" | "process"
+      kind: "experiment" | "process"
       id: string
     } | null,
   ) => void
 
   /** Last-selected entity ID per kind — restored when navigating back to a page */
-  lastSelectedByKind: Partial<
-    Record<"experiment" | "material" | "solution" | "process", string>
-  >
-  updateLastSelected: (
-    kind: "experiment" | "material" | "solution" | "process",
-    id: string,
-  ) => void
+  lastSelectedByKind: Partial<Record<"experiment" | "process", string>>
+  updateLastSelected: (kind: "experiment" | "process", id: string) => void
 
   /** Immediately persist the current state (call before logout). */
   flushSave: () => Promise<void>
@@ -1192,8 +1148,6 @@ export function AppProvider({
   }, [getToken])
 
   const backend = providedBackend ?? defaultBackend
-  const [materials, setMaterials] = useState<Material[]>([])
-  const [solutions, setSolutions] = useState<Solution[]>([])
   const [experiments, setExperiments] = useState<Experiment[]>([])
   const [processes, setProcesses] = useState<Process[]>([])
   const [results, setResults] = useState<ExperimentResults[]>([])
@@ -1211,7 +1165,6 @@ export function AppProvider({
     selectedProcessId?: string
     selectedExperimentId?: string
     openAddResults?: boolean
-    materialCategory?: MaterialCategory
     processAttachment?: {
       processId: string
       target: "substrate" | "step-material" | "step-solution"
@@ -1221,14 +1174,14 @@ export function AppProvider({
     requestId: string
   } | null>(null)
   const [activeEntity, setActiveEntity] = useState<{
-    kind: "experiment" | "material" | "solution" | "process"
+    kind: "experiment" | "process"
     id: string
   } | null>(null)
   const [lastSelectedByKind, setLastSelectedByKind] = useState<
-    Partial<Record<"experiment" | "material" | "solution" | "process", string>>
+    Partial<Record<"experiment" | "process", string>>
   >({})
   const updateLastSelected = useCallback(
-    (kind: "experiment" | "material" | "solution" | "process", id: string) => {
+    (kind: "experiment" | "process", id: string) => {
       setLastSelectedByKind((prev) => ({ ...prev, [kind]: id }))
     },
     [],
@@ -1237,16 +1190,12 @@ export function AppProvider({
 
   // Refs for save — avoids stale closure in the interval callback
   const stateRef = useRef<AppSnapshot>({
-    materials,
-    solutions,
     experiments,
     processes,
     results,
     planes,
   })
   stateRef.current = {
-    materials,
-    solutions,
     experiments,
     processes,
     results,
@@ -1300,10 +1249,6 @@ export function AppProvider({
       }
       console.log(
         "[AppContext] loaded snapshot:",
-        "materials:",
-        snapshot.materials.length,
-        "solutions:",
-        snapshot.solutions.length,
         "experiments:",
         snapshot.experiments.length,
         "processes:",
@@ -1313,12 +1258,6 @@ export function AppProvider({
         "planes:",
         snapshot.planes.length,
       )
-      if (snapshot.materials.length > 0) {
-        setMaterials(snapshot.materials)
-      }
-      if (snapshot.solutions.length > 0) {
-        setSolutions(snapshot.solutions)
-      }
       if (snapshot.experiments.length > 0) {
         setExperiments(snapshot.experiments)
       }
@@ -1664,10 +1603,6 @@ export function AppProvider({
   return (
     <AppContext.Provider
       value={{
-        materials,
-        setMaterials,
-        solutions,
-        setSolutions,
         experiments,
         setExperiments,
         processes,

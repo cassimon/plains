@@ -36,8 +36,6 @@ const DEFAULT_ACCENT = "#94a3b8"
 // TODO: Update these paths once all routes are registered
 const pages = [
   { label: "Organization", value: "/organization" as any },
-  { label: "Materials", value: "/materials" as any },
-  { label: "Solutions", value: "/solutions" as any },
   { label: "Processes", value: "/processes" as any },
   { label: "Experiments", value: "/experiments" as any },
   { label: "Results", value: "/results" as any },
@@ -56,8 +54,6 @@ export function AppLayout() {
     activePlaneId,
     setActivePlaneId,
     experiments,
-    materials,
-    solutions,
     processes,
     activeEntity,
     setActiveEntity,
@@ -116,12 +112,6 @@ export function AppLayout() {
     if (!activeEntity) {
       return false
     }
-    if (activeEntity.kind === "material") {
-      return location.pathname.startsWith("/materials")
-    }
-    if (activeEntity.kind === "solution") {
-      return location.pathname.startsWith("/solutions")
-    }
     if (activeEntity.kind === "process") {
       return location.pathname.startsWith("/processes")
     }
@@ -145,27 +135,17 @@ export function AppLayout() {
     let name: string | null = null
     if (activeEntity.kind === "experiment") {
       name = experiments.find((e) => e.id === activeEntity.id)?.name ?? null
-    } else if (activeEntity.kind === "material") {
-      name = materials.find((m) => m.id === activeEntity.id)?.name ?? null
-    } else if (activeEntity.kind === "solution") {
-      name = solutions.find((s) => s.id === activeEntity.id)?.name ?? null
     } else if (activeEntity.kind === "process") {
       name =
         derivedProcesses.find((p) => p.id === activeEntity.id)?.name ?? null
     }
     const iconPath =
-      activeEntity.kind === "experiment"
-        ? "/experiments"
-        : activeEntity.kind === "material"
-          ? "/materials"
-          : activeEntity.kind === "process"
-            ? "/processes"
-            : "/solutions"
+      activeEntity.kind === "experiment" ? "/experiments" : "/processes"
     return {
       entityName: name,
       EntityIcon: pageIcons[iconPath as keyof typeof pageIcons] ?? null,
     }
-  }, [activeEntity, experiments, materials, solutions, derivedProcesses])
+  }, [activeEntity, experiments, derivedProcesses])
 
   // When a collection is selected, compute which page paths have refs in that
   // collection — all others are dimmed across the app until selection changes.
@@ -175,12 +155,6 @@ export function AppLayout() {
     }
     const lit = new Set<string>(["/organization"])
     activeCollection.refs.forEach((r) => {
-      if (r.kind === "material") {
-        lit.add("/materials")
-      }
-      if (r.kind === "solution") {
-        lit.add("/solutions")
-      }
       if (r.kind === "process") {
         lit.add("/processes")
       }

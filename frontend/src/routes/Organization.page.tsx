@@ -26,21 +26,16 @@ import { useDebouncedValue } from "@mantine/hooks"
 import { modals } from "@mantine/modals"
 import {
   IconArrowRight,
-  IconAtom,
   IconBold,
-  IconBox,
   IconChartBar,
   IconCheck,
   IconCopy,
   IconDownload,
-  IconFlask,
   IconFolderPlus,
   IconItalic,
-  IconLayersLinked,
   IconLetterT,
   IconMinus,
   IconNote,
-  IconPackage,
   IconPlayerPlay,
   IconPlus,
   IconSeparatorVertical,
@@ -73,11 +68,8 @@ import {
   type Experiment,
   type ExperimentResults,
   getDependentLocations,
-  type Material,
-  type MaterialCategory,
   type Plane,
   type Process,
-  type Solution,
   type TextFormatting,
   useAppContext,
   type Vec2,
@@ -135,8 +127,6 @@ function snapToCell(x: number, y: number): Vec2 {
 }
 
 const ROUTE_FOR_KIND: Record<CollectionRef["kind"], string> = {
-  material: "/materials",
-  solution: "/solutions",
   experiment: "/experiments",
   process: "/processes",
   result: "/results",
@@ -1150,33 +1140,6 @@ function LineOverlay({
 // Collection element – minimal card with speech-bubble actions when selected
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Sub-menu items for material category selection
-const MATERIAL_SUBMENU_ITEMS: {
-  label: string
-  color: string
-  Icon: React.ElementType
-  category: MaterialCategory
-}[] = [
-  {
-    label: "Compound",
-    color: "teal",
-    Icon: IconAtom,
-    category: "chemical_compound",
-  },
-  {
-    label: "Com. Mixture",
-    color: "cyan",
-    Icon: IconPackage,
-    category: "commercial_mixture",
-  },
-  {
-    label: "Substrate Mat.",
-    color: "lime",
-    Icon: IconLayersLinked,
-    category: "substrate_material",
-  },
-]
-
 function EmptyCellEl({
   cellX,
   cellY,
@@ -1366,7 +1329,7 @@ function EmptyCellEl({
   )
 }
 
-// Ordered list of the 6 entity kinds shown in every collection
+// Ordered list of entity kinds shown in every collection
 const SIX_KINDS: {
   kind: CollectionRef["kind"]
   label: string
@@ -1374,20 +1337,6 @@ const SIX_KINDS: {
   color: string
   manColor: string
 }[] = [
-  {
-    kind: "material",
-    label: "Materials",
-    Icon: IconBox,
-    color: "var(--mantine-color-teal-6)",
-    manColor: "teal",
-  },
-  {
-    kind: "solution",
-    label: "Solutions",
-    Icon: IconFlask,
-    color: "var(--mantine-color-blue-6)",
-    manColor: "blue",
-  },
   {
     kind: "process",
     label: "Processes",
@@ -1444,8 +1393,6 @@ function CollectionEl({
   onCreateText: () => void
 }) {
   const {
-    materials,
-    solutions,
     processes,
     experiments,
     results,
@@ -1537,15 +1484,11 @@ function CollectionEl({
     setEditingName(false)
   }
 
-  const handleBubbleClick = (
-    kind: CollectionRef["kind"],
-    materialCategory?: MaterialCategory,
-  ) => {
+  const handleBubbleClick = (kind: CollectionRef["kind"]) => {
     setPendingCollectionLink({
       collectionId: el.id,
       planeId,
       kind,
-      materialCategory,
       requestId: crypto.randomUUID(),
     })
     navigate({ to: ROUTE_FOR_KIND[kind] })
@@ -1582,26 +1525,13 @@ function CollectionEl({
   const handleRefItemClick = (kind: CollectionRef["kind"], id: string) => {
     setActiveCollectionId(el.id)
     setActivePlaneId(planeId)
-    if (
-      kind === "material" ||
-      kind === "solution" ||
-      kind === "process" ||
-      kind === "experiment"
-    ) {
+    if (kind === "process" || kind === "experiment") {
       setActiveEntity({ kind, id })
     }
     navigate({ to: ROUTE_FOR_KIND[kind] })
   }
 
   const labelForRef = (kind: CollectionRef["kind"], id: string) => {
-    if (kind === "material") {
-      const m = materials.find((x) => x.id === id)
-      return m ? m.name || m.inventoryLabel || m.casNumber || m.id : id
-    }
-    if (kind === "solution") {
-      const s = solutions.find((x) => x.id === id)
-      return s ? s.name || s.id : id
-    }
     if (kind === "process") {
       const p = processes.find((x) => x.id === id)
       return p ? p.name || p.id : id
@@ -1738,33 +1668,6 @@ function CollectionEl({
   const renderAddPanel = () => {
     if (addPopoverKind === null) return null
     const kind = addPopoverKind
-    if (kind === "material") {
-      return (
-        <Stack gap={2} pt={1}>
-          {MATERIAL_SUBMENU_ITEMS.map((item) => (
-            <Button
-              key={item.category}
-              size="compact-xs"
-              variant="subtle"
-              color={item.color}
-              leftSection={<item.Icon size={12} />}
-              styles={{ inner: { justifyContent: "flex-start" } }}
-              onPointerDown={(e) => {
-                e.stopPropagation()
-                e.preventDefault()
-              }}
-              onClick={(e) => {
-                e.stopPropagation()
-                setAddPopoverKind(null)
-                handleBubbleClick("material", item.category)
-              }}
-            >
-              {item.label}
-            </Button>
-          ))}
-        </Stack>
-      )
-    }
     if (kind === "experiment") {
       if (processOptions.length === 0) {
         return (
@@ -2355,11 +2258,7 @@ function CollectionEl({
                             }}
                             onClick={(e) => {
                               e.stopPropagation()
-                              if (
-                                kind === "material" ||
-                                kind === "experiment" ||
-                                kind === "result"
-                              ) {
+                              if (kind === "experiment" || kind === "result") {
                                 setAddPopoverKind(
                                   addPopoverKind === kind ? null : kind,
                                 )
@@ -2429,8 +2328,6 @@ const REF_ICONS: Record<
   CollectionRef["kind"],
   { Icon: React.ElementType; color: string }
 > = {
-  material: { Icon: IconBox, color: "teal" },
-  solution: { Icon: IconFlask, color: "blue" },
   experiment: { Icon: IconPlayerPlay, color: "grape" },
   process: { Icon: IconStack3, color: "gray" },
   result: { Icon: IconDownload, color: "orange" },
@@ -2439,19 +2336,14 @@ const REF_ICONS: Record<
 
 /** Helper to get name for a ref from context data */
 function useRefName() {
-  const { materials, solutions, experiments } = useAppContext()
+  const { experiments, processes } = useAppContext()
   return useCallback(
     (ref: CollectionRef): string => {
       switch (ref.kind) {
-        case "material":
+        case "process":
           return (
-            materials.find((m) => m.id === ref.id)?.name ||
-            `Material ${ref.id.slice(0, 6)}`
-          )
-        case "solution":
-          return (
-            solutions.find((s) => s.id === ref.id)?.name ||
-            `Solution ${ref.id.slice(0, 6)}`
+            processes.find((p) => p.id === ref.id)?.name ||
+            `Process ${ref.id.slice(0, 6)}`
           )
         case "experiment":
           return (
@@ -2466,7 +2358,7 @@ function useRefName() {
           return ref.id.slice(0, 8)
       }
     },
-    [materials, solutions, experiments],
+    [processes, experiments],
   )
 }
 
@@ -3068,10 +2960,6 @@ function DivisionOverlay({
 
 function PlaneCanvas({ plane }: { plane: Plane }) {
   const {
-    materials,
-    setMaterials,
-    solutions,
-    setSolutions,
     experiments,
     setExperiments,
     processes,
@@ -3219,31 +3107,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
         const newRefs: CollectionRef[] = []
 
         for (const ref of moving) {
-          if (ref.kind === "material") {
-            const original = materials.find((m) => m.id === ref.id)
-            if (original) {
-              const copied: Material = {
-                ...original,
-                id: crypto.randomUUID(),
-              }
-              setMaterials((prev) => [...prev, copied])
-              newRefs.push({ kind: "material", id: copied.id })
-            }
-          } else if (ref.kind === "solution") {
-            const original = solutions.find((s) => s.id === ref.id)
-            if (original) {
-              const copied: Solution = {
-                ...original,
-                id: crypto.randomUUID(),
-                components: original.components.map((c) => ({
-                  ...c,
-                  id: crypto.randomUUID(),
-                })),
-              }
-              setSolutions((prev) => [...prev, copied])
-              newRefs.push({ kind: "solution", id: copied.id })
-            }
-          } else if (ref.kind === "experiment") {
+          if (ref.kind === "experiment") {
             const original = experiments.find((e) => e.id === ref.id)
             if (original) {
               const copied: Experiment = {
@@ -3317,13 +3181,8 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
         const dependentRefIds = new Set<string>()
 
         for (const ref of moving) {
-          if (
-            ref.kind === "material" ||
-            ref.kind === "solution" ||
-            ref.kind === "process"
-          ) {
+          if (ref.kind === "process") {
             const deps = getDependentLocations(ref.kind, ref.id, {
-              solutions,
               experiments,
               processes,
               planes,
@@ -3339,12 +3198,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
           // Show modal asking whether to move with dependents or cancel
           const entityNames = moving
             .map((r) => {
-              if (r.kind === "material") {
-                return materials.find((m) => m.id === r.id)?.name || r.id
-              }
-              if (r.kind === "solution") {
-                return solutions.find((s) => s.id === r.id)?.name || r.id
-              }
               if (r.kind === "experiment") {
                 return experiments.find((e) => e.id === r.id)?.name || r.id
               }
@@ -3473,10 +3326,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     [
       plane,
       updatePlane,
-      materials,
-      setMaterials,
-      solutions,
-      setSolutions,
       experiments,
       setExperiments,
       processes,
@@ -4555,21 +4404,15 @@ function WelcomePlaneView() {
 
   /** Count items referenced by collections on a given plane */
   const getPlaneItemCounts = (plane: Plane) => {
-    const matIds = new Set<string>()
-    const solIds = new Set<string>()
     const expIds = new Set<string>()
     for (const el of plane.elements) {
       if (el.type !== "collection") continue
       const col = el as CanvasCollectionElement
       for (const ref of col.refs) {
-        if (ref.kind === "material") matIds.add(ref.id)
-        else if (ref.kind === "solution") solIds.add(ref.id)
-        else if (ref.kind === "experiment") expIds.add(ref.id)
+        if (ref.kind === "experiment") expIds.add(ref.id)
       }
     }
     return {
-      materials: matIds.size,
-      solutions: solIds.size,
       experiments: expIds.size,
       collections: plane.elements.filter((e) => e.type === "collection").length,
     }
@@ -4800,18 +4643,6 @@ function WelcomePlaneView() {
         )}
 
         <Stack gap={4}>
-          <Group gap={6}>
-            <IconBox size={14} color="var(--mantine-color-teal-6)" />
-            <Text size="xs" c="dimmed">
-              {counts.materials} material{counts.materials !== 1 ? "s" : ""}
-            </Text>
-          </Group>
-          <Group gap={6}>
-            <IconFlask size={14} color="var(--mantine-color-blue-6)" />
-            <Text size="xs" c="dimmed">
-              {counts.solutions} solution{counts.solutions !== 1 ? "s" : ""}
-            </Text>
-          </Group>
           <Group gap={6}>
             <IconPlayerPlay size={14} color="var(--mantine-color-grape-6)" />
             <Text size="xs" c="dimmed">

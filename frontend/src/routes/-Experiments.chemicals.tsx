@@ -22,22 +22,25 @@ import type {
   Experiment,
   ExperimentChemicalsPrep,
   ExperimentSolutionBatch,
-  Material,
   Process,
   ProcessSolutionRecipe,
-  Solution,
+  ProcessStepInlineMaterial,
 } from "@/store/AppContext"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
+type MaterialItem = {
+  stepId: string // key for materialOverrides lookup
+  material: ProcessStepInlineMaterial
+}
+
 type SolutionItem = {
-  key: string // "sol:{id}" or "recipe:{id}"
+  key: string // "recipe:{id}"
   label: string
-  kind: "solution" | "recipe"
+  kind: "recipe"
   id: string
-  solution?: Solution
   recipe?: ProcessSolutionRecipe
 }
 
@@ -45,73 +48,47 @@ type SolutionItem = {
 // Public helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function collectChemicals(
-  process: Process,
-  _materials: Material[],
-  solutions: Solution[],
-): { materialIds: string[]; solutionItems: SolutionItem[] } {
-  const substrateIds = new Set([
-    ...(process.substrateIds ?? []),
-    ...(process.inlineSubstrates ?? []).map((s) => s.id),
-  ])
-
-  const matIds = new Set<string>()
-  const solIds = new Set<string>()
+export function collectChemicals(process: Process): {
+  materialItems: MaterialItem[]
+  solutionItems: SolutionItem[]
+} {
   const recIds = new Set<string>()
+  const materialItems: MaterialItem[] = []
+  const seenStepIds = new Set<string>()
 
   for (const stage of process.stages) {
     for (const step of stage.alternatives) {
       if (step.stepCategory === "substrate_preparation") continue
-      if (step.materialId && !substrateIds.has(step.materialId))
-        matIds.add(step.materialId)
-      if (step.solutionId) solIds.add(step.solutionId)
+      if (step.inlineMaterial && !seenStepIds.has(step.id)) {
+        seenStepIds.add(step.id)
+        materialItems.push({ stepId: step.id, material: step.inlineMaterial })
+      }
       if (step.chemRecipeId) recIds.add(step.chemRecipeId)
     }
   }
 
-  for (const solId of solIds) {
-    const sol = solutions.find((s) => s.id === solId)
-    if (sol) {
-      for (const comp of sol.components) {
-        if (comp.materialId) matIds.add(comp.materialId)
-      }
+  const solutionItems: SolutionItem[] = [...recIds].map((id) => {
+    const recipe = (process.solutionRecipes ?? []).find((r) => r.id === id)
+    return {
+      key: `recipe:${id}`,
+      label: recipe?.name ?? id,
+      kind: "recipe" as const,
+      id,
+      recipe,
     }
-  }
+  })
 
-  const solutionItems: SolutionItem[] = [
-    ...[...solIds].map((id) => {
-      const sol = solutions.find((s) => s.id === id)
-      return {
-        key: `sol:${id}`,
-        label: sol?.name ?? id,
-        kind: "solution" as const,
-        id,
-        solution: sol,
-      }
-    }),
-    ...[...recIds].map((id) => {
-      const recipe = (process.solutionRecipes ?? []).find((r) => r.id === id)
-      return {
-        key: `recipe:${id}`,
-        label: recipe?.name ?? id,
-        kind: "recipe" as const,
-        id,
-        recipe,
-      }
-    }),
-  ]
-
-  return { materialIds: [...matIds], solutionItems }
+  return { materialItems, solutionItems }
 }
 
 export function computeChemsDone(
   prep: ExperimentChemicalsPrep | undefined,
-  materialIds: string[],
+  materialItems: Array<{ stepId: string }>,
   solutionItems: Array<{ key: string }>,
 ): boolean {
-  if (materialIds.length === 0 && solutionItems.length === 0) return true
-  const allMatsDone = materialIds.every((id) =>
-    Boolean(prep?.materialOverrides?.[id]?.inventoryLabel),
+  if (materialItems.length === 0 && solutionItems.length === 0) return true
+  const allMatsDone = materialItems.every((item) =>
+    Boolean(prep?.materialOverrides?.[item.stepId]?.inventoryLabel),
   )
   const allSolsDone = solutionItems.every((item) => {
     const batch = prep?.solutionBatches?.[item.key]
@@ -151,22 +128,6 @@ function scaleRecipeQuantities(
     })
   }
   return rows
-}
-
-function scaleSolutionQuantities(
-  sol: Solution,
-  materials: Material[],
-): Array<{ name: string; amount: string; unit: string }> {
-  return sol.components
-    .map((comp) => {
-      const mat = materials.find((m) => m.id === comp.materialId)
-      return {
-        name: mat?.name ?? "Component",
-        amount: comp.amount,
-        unit: comp.unit,
-      }
-    })
-    .filter((r) => Boolean(r.amount))
 }
 
 function rowStyle(isDone: boolean): React.CSSProperties {
@@ -259,13 +220,15 @@ function QuantityTable({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function MaterialOverrideRow({
+  stepId,
   material,
   override,
   onUpdate,
   currentExpId,
   allExperiments,
 }: {
-  material: Material
+  stepId: string
+  material: ProcessStepInlineMaterial
   override?: { inventoryLabel?: string; purity?: string; supplier?: string }
   onUpdate: (patch: {
     inventoryLabel?: string
@@ -289,11 +252,11 @@ function MaterialOverrideRow({
     for (const exp of allExperiments) {
       if (exp.id === currentExpId) continue
       const label =
-        exp.chemicalsPrep?.materialOverrides?.[material.id]?.inventoryLabel
+        exp.chemicalsPrep?.materialOverrides?.[stepId]?.inventoryLabel
       if (label) labels.add(label)
     }
     return [...labels]
-  }, [allExperiments, material.id, currentExpId])
+  }, [allExperiments, stepId, currentExpId])
 
   const isAssigned = Boolean(override?.inventoryLabel)
   // Show inputs when: user clicked Specify, no priors exist, or already assigned
@@ -324,9 +287,9 @@ function MaterialOverrideRow({
               {material.name || "Unnamed"}
             </Text>
           </Group>
-          {material.casNumber && (
+          {material.pubchemCid && (
             <Text size="xs" c="dimmed">
-              CAS {material.casNumber}
+              PubChem {material.pubchemCid}
             </Text>
           )}
         </Box>
@@ -337,7 +300,7 @@ function MaterialOverrideRow({
             <TextInput
               size="xs"
               label="Inventory Label"
-              placeholder={material.inventoryLabel || "e.g. PbI2-Sigma-001"}
+              placeholder="e.g. PbI2-Sigma-001"
               value={localLabel}
               onChange={(e) => setLocalLabel(e.currentTarget.value)}
               onBlur={commitLabel}
@@ -351,7 +314,7 @@ function MaterialOverrideRow({
             <TextInput
               size="xs"
               label="Purity"
-              placeholder={material.purity || "—"}
+              placeholder="—"
               value={override?.purity ?? ""}
               onChange={(e) => onUpdate({ purity: e.currentTarget.value })}
               style={{ width: 100 }}
@@ -359,7 +322,7 @@ function MaterialOverrideRow({
             <TextInput
               size="xs"
               label="Supplier"
-              placeholder={material.supplier || "—"}
+              placeholder="—"
               value={override?.supplier ?? ""}
               onChange={(e) => onUpdate({ supplier: e.currentTarget.value })}
               style={{ width: 110 }}
@@ -422,13 +385,11 @@ type PriorBatch = {
 function SolutionBatchRow({
   item,
   batch,
-  materials,
   priorBatches,
   onUpdateBatch,
 }: {
   item: SolutionItem
   batch?: ExperimentSolutionBatch
-  materials: Material[]
   priorBatches: PriorBatch[]
   onUpdateBatch: (patch: Partial<ExperimentSolutionBatch>) => void
 }) {
@@ -448,7 +409,7 @@ function SolutionBatchRow({
     Math.abs(volumeNum - (parseFloat(asSpecifiedVol) || 0)) < 0.001
 
   const { quantityRows, perBatch } = useMemo(() => {
-    if (item.kind === "recipe" && item.recipe) {
+    if (item.recipe) {
       const displayVol =
         volumeNum > 0
           ? volumeNum
@@ -458,14 +419,8 @@ function SolutionBatchRow({
         perBatch: false,
       }
     }
-    if (item.kind === "solution" && item.solution) {
-      return {
-        quantityRows: scaleSolutionQuantities(item.solution, materials),
-        perBatch: true,
-      }
-    }
     return { quantityRows: [], perBatch: false }
-  }, [item, volumeNum, materials])
+  }, [item, volumeNum])
 
   const quantityLabel =
     item.kind === "recipe" && volumeNum > 0
@@ -486,13 +441,8 @@ function SolutionBatchRow({
               {item.label}
             </Text>
           </Group>
-          <Badge
-            size="xs"
-            variant="light"
-            color={item.kind === "recipe" ? "violet" : "blue"}
-            mt={2}
-          >
-            {item.kind === "recipe" ? "Chemistry Recipe" : "Solution"}
+          <Badge size="xs" variant="light" color="violet" mt={2}>
+            Chemistry Recipe
           </Badge>
         </Box>
 
@@ -585,21 +535,17 @@ function SolutionBatchRow({
 export function ChemicalsTab({
   experiment,
   process,
-  materials,
-  solutions,
   allExperiments,
   onUpdate,
 }: {
   experiment: Experiment
   process: Process
-  materials: Material[]
-  solutions: Solution[]
   allExperiments: Experiment[]
   onUpdate: (exp: Experiment) => void
 }) {
-  const { materialIds, solutionItems } = React.useMemo(
-    () => collectChemicals(process, materials, solutions),
-    [process, materials, solutions],
+  const { materialItems, solutionItems } = React.useMemo(
+    () => collectChemicals(process),
+    [process],
   )
 
   const prep: ExperimentChemicalsPrep = experiment.chemicalsPrep ?? {}
@@ -609,14 +555,14 @@ export function ChemicalsTab({
   }
 
   const updateMaterialOverride = (
-    matId: string,
+    stepId: string,
     patch: { inventoryLabel?: string; purity?: string; supplier?: string },
   ) => {
     const prev = prep.materialOverrides ?? {}
     updatePrep({
       materialOverrides: {
         ...prev,
-        [matId]: { ...(prev[matId] ?? {}), ...patch },
+        [stepId]: { ...(prev[stepId] ?? {}), ...patch },
       },
     })
   }
@@ -634,15 +580,7 @@ export function ChemicalsTab({
     })
   }
 
-  const renderedMaterials = React.useMemo(
-    () =>
-      materialIds
-        .map((id) => materials.find((m) => m.id === id))
-        .filter((m): m is Material => Boolean(m)),
-    [materialIds, materials],
-  )
-
-  if (materialIds.length === 0 && solutionItems.length === 0) {
+  if (materialItems.length === 0 && solutionItems.length === 0) {
     return (
       <Text size="sm" c="dimmed" ta="center" py="xl">
         No materials or solutions are assigned to processing steps yet. Add them
@@ -654,24 +592,22 @@ export function ChemicalsTab({
   return (
     <Stack gap="lg">
       {/* Materials */}
-      {renderedMaterials.length > 0 && (
+      {materialItems.length > 0 && (
         <Box>
           <Group gap="xs" mb="sm">
             <IconAtom size={16} color="var(--mantine-color-orange-6)" />
             <Text size="sm" fw={700} tt="uppercase" c="dimmed">
               Materials
             </Text>
-            <Text size="xs" c="dimmed">
-              (incl. solution components)
-            </Text>
           </Group>
           <Stack gap={6}>
-            {renderedMaterials.map((mat) => (
+            {materialItems.map(({ stepId, material }) => (
               <MaterialOverrideRow
-                key={mat.id}
-                material={mat}
-                override={prep.materialOverrides?.[mat.id]}
-                onUpdate={(patch) => updateMaterialOverride(mat.id, patch)}
+                key={stepId}
+                stepId={stepId}
+                material={material}
+                override={prep.materialOverrides?.[stepId]}
+                onUpdate={(patch) => updateMaterialOverride(stepId, patch)}
                 currentExpId={experiment.id}
                 allExperiments={allExperiments}
               />
@@ -710,7 +646,6 @@ export function ChemicalsTab({
                   key={item.key}
                   item={item}
                   batch={prep.solutionBatches?.[item.key]}
-                  materials={materials}
                   priorBatches={priorBatches}
                   onUpdateBatch={(patch) =>
                     updateSolutionBatch(item.key, patch)

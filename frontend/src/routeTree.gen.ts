@@ -19,11 +19,9 @@ import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutItemsRouteImport } from './routes/_layout/items'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
-import { Route as GuiSolutionsRouteImport } from './routes/_gui/solutions'
 import { Route as GuiResultsRouteImport } from './routes/_gui/results'
 import { Route as GuiProcessesRouteImport } from './routes/_gui/processes'
 import { Route as GuiOrganizationRouteImport } from './routes/_gui/organization'
-import { Route as GuiMaterialsRouteImport } from './routes/_gui/materials'
 import { Route as GuiExportRouteImport } from './routes/_gui/export'
 import { Route as GuiExperimentsRouteImport } from './routes/_gui/experiments'
 import { Route as GuiAnalysisRouteImport } from './routes/_gui/analysis'
@@ -77,11 +75,6 @@ const LayoutAdminRoute = LayoutAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => LayoutRoute,
 } as any)
-const GuiSolutionsRoute = GuiSolutionsRouteImport.update({
-  id: '/solutions',
-  path: '/solutions',
-  getParentRoute: () => GuiRoute,
-} as any)
 const GuiResultsRoute = GuiResultsRouteImport.update({
   id: '/results',
   path: '/results',
@@ -95,11 +88,6 @@ const GuiProcessesRoute = GuiProcessesRouteImport.update({
 const GuiOrganizationRoute = GuiOrganizationRouteImport.update({
   id: '/organization',
   path: '/organization',
-  getParentRoute: () => GuiRoute,
-} as any)
-const GuiMaterialsRoute = GuiMaterialsRouteImport.update({
-  id: '/materials',
-  path: '/materials',
   getParentRoute: () => GuiRoute,
 } as any)
 const GuiExportRoute = GuiExportRouteImport.update({
@@ -132,11 +120,9 @@ export interface FileRoutesByFullPath {
   '/analysis': typeof GuiAnalysisRoute
   '/experiments': typeof GuiExperimentsRoute
   '/export': typeof GuiExportRoute
-  '/materials': typeof GuiMaterialsRoute
   '/organization': typeof GuiOrganizationRoute
   '/processes': typeof GuiProcessesRoute
   '/results': typeof GuiResultsRoute
-  '/solutions': typeof GuiSolutionsRoute
   '/admin': typeof LayoutAdminRoute
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
@@ -151,11 +137,9 @@ export interface FileRoutesByTo {
   '/analysis': typeof GuiAnalysisRoute
   '/experiments': typeof GuiExperimentsRoute
   '/export': typeof GuiExportRoute
-  '/materials': typeof GuiMaterialsRoute
   '/organization': typeof GuiOrganizationRoute
   '/processes': typeof GuiProcessesRoute
   '/results': typeof GuiResultsRoute
-  '/solutions': typeof GuiSolutionsRoute
   '/admin': typeof LayoutAdminRoute
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
@@ -172,11 +156,9 @@ export interface FileRoutesById {
   '/_gui/analysis': typeof GuiAnalysisRoute
   '/_gui/experiments': typeof GuiExperimentsRoute
   '/_gui/export': typeof GuiExportRoute
-  '/_gui/materials': typeof GuiMaterialsRoute
   '/_gui/organization': typeof GuiOrganizationRoute
   '/_gui/processes': typeof GuiProcessesRoute
   '/_gui/results': typeof GuiResultsRoute
-  '/_gui/solutions': typeof GuiSolutionsRoute
   '/_layout/admin': typeof LayoutAdminRoute
   '/_layout/items': typeof LayoutItemsRoute
   '/_layout/settings': typeof LayoutSettingsRoute
@@ -194,11 +176,9 @@ export interface FileRouteTypes {
     | '/analysis'
     | '/experiments'
     | '/export'
-    | '/materials'
     | '/organization'
     | '/processes'
     | '/results'
-    | '/solutions'
     | '/admin'
     | '/items'
     | '/settings'
@@ -213,11 +193,9 @@ export interface FileRouteTypes {
     | '/analysis'
     | '/experiments'
     | '/export'
-    | '/materials'
     | '/organization'
     | '/processes'
     | '/results'
-    | '/solutions'
     | '/admin'
     | '/items'
     | '/settings'
@@ -233,11 +211,9 @@ export interface FileRouteTypes {
     | '/_gui/analysis'
     | '/_gui/experiments'
     | '/_gui/export'
-    | '/_gui/materials'
     | '/_gui/organization'
     | '/_gui/processes'
     | '/_gui/results'
-    | '/_gui/solutions'
     | '/_layout/admin'
     | '/_layout/items'
     | '/_layout/settings'
@@ -327,13 +303,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAdminRouteImport
       parentRoute: typeof LayoutRoute
     }
-    '/_gui/solutions': {
-      id: '/_gui/solutions'
-      path: '/solutions'
-      fullPath: '/solutions'
-      preLoaderRoute: typeof GuiSolutionsRouteImport
-      parentRoute: typeof GuiRoute
-    }
     '/_gui/results': {
       id: '/_gui/results'
       path: '/results'
@@ -353,13 +322,6 @@ declare module '@tanstack/react-router' {
       path: '/organization'
       fullPath: '/organization'
       preLoaderRoute: typeof GuiOrganizationRouteImport
-      parentRoute: typeof GuiRoute
-    }
-    '/_gui/materials': {
-      id: '/_gui/materials'
-      path: '/materials'
-      fullPath: '/materials'
-      preLoaderRoute: typeof GuiMaterialsRouteImport
       parentRoute: typeof GuiRoute
     }
     '/_gui/export': {
@@ -397,22 +359,18 @@ interface GuiRouteChildren {
   GuiAnalysisRoute: typeof GuiAnalysisRoute
   GuiExperimentsRoute: typeof GuiExperimentsRoute
   GuiExportRoute: typeof GuiExportRoute
-  GuiMaterialsRoute: typeof GuiMaterialsRoute
   GuiOrganizationRoute: typeof GuiOrganizationRoute
   GuiProcessesRoute: typeof GuiProcessesRoute
   GuiResultsRoute: typeof GuiResultsRoute
-  GuiSolutionsRoute: typeof GuiSolutionsRoute
 }
 
 const GuiRouteChildren: GuiRouteChildren = {
   GuiAnalysisRoute: GuiAnalysisRoute,
   GuiExperimentsRoute: GuiExperimentsRoute,
   GuiExportRoute: GuiExportRoute,
-  GuiMaterialsRoute: GuiMaterialsRoute,
   GuiOrganizationRoute: GuiOrganizationRoute,
   GuiProcessesRoute: GuiProcessesRoute,
   GuiResultsRoute: GuiResultsRoute,
-  GuiSolutionsRoute: GuiSolutionsRoute,
 }
 
 const GuiRouteWithChildren = GuiRoute._addFileChildren(GuiRouteChildren)

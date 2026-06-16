@@ -20,10 +20,8 @@ import type {
   CanvasElement,
   Experiment,
   ExperimentResults,
-  Material,
   Plane,
   Process,
-  Solution,
 } from "./AppContext"
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -130,8 +128,6 @@ export function createTokenManager(options?: {
 
 /** Full application state snapshot used for initial load and persistence. */
 export type AppSnapshot = {
-  materials: Material[]
-  solutions: Solution[]
   experiments: Experiment[]
   processes: Process[]
   results: ExperimentResults[]
@@ -152,20 +148,6 @@ export interface BackendAdapter {
 
   /** Persist the full application state (called on unmount / periodic save). */
   save(snapshot: AppSnapshot): Promise<void>
-
-  // ── Materials ──────────────────────────────────────────────────────────────
-
-  getMaterials(): Promise<Material[]>
-  createMaterial(material: Material): Promise<Material>
-  updateMaterial(material: Material): Promise<Material>
-  deleteMaterial(id: string): Promise<void>
-
-  // ── Solutions ──────────────────────────────────────────────────────────────
-
-  getSolutions(): Promise<Solution[]>
-  createSolution(solution: Solution): Promise<Solution>
-  updateSolution(solution: Solution): Promise<Solution>
-  deleteSolution(id: string): Promise<void>
 
   // ── Experiments ────────────────────────────────────────────────────────────
 
@@ -218,8 +200,6 @@ export class InMemoryBackend implements BackendAdapter {
 
   constructor(initial?: Partial<AppSnapshot>) {
     this.data = {
-      materials: initial?.materials ?? [],
-      solutions: initial?.solutions ?? [],
       experiments: initial?.experiments ?? [],
       processes: initial?.processes ?? [],
       results: initial?.results ?? [],
@@ -235,8 +215,6 @@ export class InMemoryBackend implements BackendAdapter {
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<AppSnapshot>
         this.data = {
-          materials: parsed.materials ?? this.data.materials,
-          solutions: parsed.solutions ?? this.data.solutions,
           experiments: parsed.experiments ?? this.data.experiments,
           processes: parsed.processes ?? this.data.processes,
           results: parsed.results ?? this.data.results,
@@ -256,44 +234,6 @@ export class InMemoryBackend implements BackendAdapter {
     } catch {
       // Storage full or unavailable
     }
-  }
-
-  // ── Materials ──────────────────────────────────────────────────────────────
-
-  async getMaterials() {
-    return [...this.data.materials]
-  }
-  async createMaterial(m: Material) {
-    this.data.materials = [...this.data.materials, m]
-    return m
-  }
-  async updateMaterial(m: Material) {
-    this.data.materials = this.data.materials.map((x) =>
-      x.id === m.id ? m : x,
-    )
-    return m
-  }
-  async deleteMaterial(id: string) {
-    this.data.materials = this.data.materials.filter((x) => x.id !== id)
-  }
-
-  // ── Solutions ──────────────────────────────────────────────────────────────
-
-  async getSolutions() {
-    return [...this.data.solutions]
-  }
-  async createSolution(s: Solution) {
-    this.data.solutions = [...this.data.solutions, s]
-    return s
-  }
-  async updateSolution(s: Solution) {
-    this.data.solutions = this.data.solutions.map((x) =>
-      x.id === s.id ? s : x,
-    )
-    return s
-  }
-  async deleteSolution(id: string) {
-    this.data.solutions = this.data.solutions.filter((x) => x.id !== id)
   }
 
   // ── Experiments ────────────────────────────────────────────────────────────
@@ -399,8 +339,6 @@ export class InMemoryBackend implements BackendAdapter {
 // ── HTTP adapter ─────────────────────────────────────────────────────────────
 
 const EMPTY_SNAPSHOT: AppSnapshot = {
-  materials: [],
-  solutions: [],
   experiments: [],
   processes: [],
   results: [],
@@ -451,14 +389,10 @@ export class HttpBackend implements BackendAdapter {
         console.log(
           "[HttpBackend] /state/ data keys:",
           Object.keys(raw),
-          "materials:",
-          Array.isArray(raw.materials) ? raw.materials.length : "none",
           "planes:",
           Array.isArray(raw.planes) ? raw.planes.length : "none",
         )
         const hasSnapshotData =
-          Array.isArray(raw.materials) ||
-          Array.isArray(raw.solutions) ||
           Array.isArray(raw.experiments) ||
           Array.isArray(raw.processes) ||
           Array.isArray(raw.results) ||
@@ -466,8 +400,6 @@ export class HttpBackend implements BackendAdapter {
 
         if (hasSnapshotData) {
           this.data = {
-            materials: raw.materials ?? [],
-            solutions: raw.solutions ?? [],
             experiments: raw.experiments ?? [],
             processes: raw.processes ?? [],
             results: raw.results ?? [],
@@ -475,8 +407,6 @@ export class HttpBackend implements BackendAdapter {
           }
           console.log(
             "[HttpBackend] loaded from /state/ snapshot:",
-            "materials:",
-            this.data.materials.length,
             "planes:",
             this.data.planes.length,
             "elements:",
@@ -504,36 +434,6 @@ export class HttpBackend implements BackendAdapter {
       }
       const json = await bulkRes.json()
       // Apply type conversions from API format to AppContext format
-      const materials = (json.materials ?? []).map((m: any) => ({
-        id: m.id,
-        category: "chemical_compound" as const,
-        type: "",
-        name: m.name,
-        supplier: m.supplier ?? "",
-        supplierNumber: "",
-        casNumber: m.cas_number ?? "",
-        pubchemCid: "",
-        inventoryLabel: "",
-        purity: "",
-        stateAtRt: "" as const,
-        substrateRigidity: "" as const,
-      }))
-
-      const solutions = (json.solutions ?? []).map((s: any) => ({
-        id: s.id,
-        name: s.name,
-        handling: s.handling ?? "",
-        creationTime:
-          s.creation_time ?? s.created_at ?? new Date().toISOString(),
-        components: (s.components ?? []).map((c: any) => ({
-          id: c.id,
-          materialId: c.material_id,
-          solutionId: undefined,
-          amount: String(c.amount),
-          unit: c.unit as "mg" | "ml",
-        })),
-      }))
-
       const experiments = (json.experiments ?? []).map((e: any) => ({
         id: e.id,
         name: e.name,
@@ -651,8 +551,6 @@ export class HttpBackend implements BackendAdapter {
       }
 
       this.data = {
-        materials,
-        solutions,
         experiments,
         processes: [],
         results,
@@ -718,8 +616,6 @@ export class HttpBackend implements BackendAdapter {
   async save(snapshot: AppSnapshot): Promise<void> {
     this.data = snapshot
     const summary = {
-      materials: snapshot.materials.length,
-      solutions: snapshot.solutions.length,
       experiments: snapshot.experiments.length,
       processes: snapshot.processes.length,
       results: snapshot.results.length,
@@ -761,40 +657,6 @@ export class HttpBackend implements BackendAdapter {
   }
 
   // ── Per-entity methods (delegate to in-memory copy) ────────────────────────
-
-  async getMaterials() {
-    return [...this.data.materials]
-  }
-  async createMaterial(m: Material) {
-    this.data.materials = [...this.data.materials, m]
-    return m
-  }
-  async updateMaterial(m: Material) {
-    this.data.materials = this.data.materials.map((x) =>
-      x.id === m.id ? m : x,
-    )
-    return m
-  }
-  async deleteMaterial(id: string) {
-    this.data.materials = this.data.materials.filter((x) => x.id !== id)
-  }
-
-  async getSolutions() {
-    return [...this.data.solutions]
-  }
-  async createSolution(s: Solution) {
-    this.data.solutions = [...this.data.solutions, s]
-    return s
-  }
-  async updateSolution(s: Solution) {
-    this.data.solutions = this.data.solutions.map((x) =>
-      x.id === s.id ? s : x,
-    )
-    return s
-  }
-  async deleteSolution(id: string) {
-    this.data.solutions = this.data.solutions.filter((x) => x.id !== id)
-  }
 
   async getExperiments() {
     return [...this.data.experiments]
