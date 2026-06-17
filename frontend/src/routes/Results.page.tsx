@@ -2511,46 +2511,113 @@ function ResultsDetail({
                     </Group>
                   </Paper>
 
-                  <Divider label="Pipeline" labelPosition="center" />
+                  <Group gap={0} align="center" wrap="nowrap" mb="md">
+                    {(
+                      [
+                        {
+                          step: 1 as const,
+                          label: "Step 1",
+                          sublabel: "File Upload",
+                          done: results.files.length > 0,
+                          disabled: false,
+                        },
+                        {
+                          step: 2 as const,
+                          label: "Step 2",
+                          sublabel: "Review",
+                          done: canOpenUpload,
+                          disabled: results.files.length === 0,
+                        },
+                        {
+                          step: 3 as const,
+                          label: "Step 3",
+                          sublabel: "Upload to NOMAD",
+                          done: !!results.nomad,
+                          disabled: !canOpenUpload,
+                        },
+                      ] as const
+                    ).map((s, i) => (
+                      <Fragment key={s.step}>
+                        <Box
+                          onClick={() => !s.disabled && goToStep(s.step)}
+                          style={{
+                            cursor: s.disabled ? "default" : "pointer",
+                            userSelect: "none",
+                            opacity: s.disabled ? 0.45 : 1,
+                          }}
+                        >
+                          <Group gap="xs" align="center" wrap="nowrap">
+                            <Box
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: "50%",
+                                flexShrink: 0,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                background: s.done
+                                  ? "var(--mantine-color-teal-6)"
+                                  : workflowStep === s.step
+                                    ? "var(--mantine-color-blue-6)"
+                                    : "var(--mantine-color-gray-3)",
+                                boxShadow:
+                                  workflowStep === s.step
+                                    ? s.done
+                                      ? "0 0 0 3px var(--mantine-color-teal-2)"
+                                      : "0 0 0 3px var(--mantine-color-blue-2)"
+                                    : "none",
+                                transition: "all 0.15s",
+                              }}
+                            >
+                              {s.done ? (
+                                <IconCheck size={16} color="white" />
+                              ) : (
+                                <Text size="sm" fw={700} c="white">
+                                  {s.step}
+                                </Text>
+                              )}
+                            </Box>
+                            <Box>
+                              <Text
+                                size="xs"
+                                fw={600}
+                                c={
+                                  workflowStep === s.step ? "blue" : "dimmed"
+                                }
+                                tt="uppercase"
+                                lh={1.2}
+                              >
+                                {s.label}
+                              </Text>
+                              <Text
+                                size="sm"
+                                fw={workflowStep === s.step ? 700 : 500}
+                                c={
+                                  workflowStep === s.step ? "blue" : undefined
+                                }
+                                lh={1.2}
+                              >
+                                {s.sublabel}
+                              </Text>
+                            </Box>
+                          </Group>
+                        </Box>
+                        {i < 2 && (
+                          <Box
+                            style={{
+                              flex: 1,
+                              height: 2,
+                              background: "var(--mantine-color-gray-3)",
+                              margin: "0 12px",
+                            }}
+                          />
+                        )}
+                      </Fragment>
+                    ))}
+                  </Group>
 
-                  <Group align="flex-start" wrap="nowrap" gap="md">
-                    <Paper
-                      withBorder
-                      p="sm"
-                      radius="md"
-                      style={{ width: 230, flexShrink: 0 }}
-                    >
-                      <Stack gap="xs">
-                        <Text size="sm" fw={700}>
-                          Process Flow
-                        </Text>
-                        <Button
-                          size="xs"
-                          variant={workflowStep === 1 ? "filled" : "light"}
-                          onClick={() => goToStep(1)}
-                        >
-                          1. File Upload
-                        </Button>
-                        <Button
-                          size="xs"
-                          variant={workflowStep === 2 ? "filled" : "light"}
-                          disabled={results.files.length === 0}
-                          onClick={() => goToStep(2)}
-                        >
-                          2. Review
-                        </Button>
-                        <Button
-                          size="xs"
-                          variant={workflowStep === 3 ? "filled" : "light"}
-                          disabled={!canOpenUpload}
-                          onClick={() => goToStep(3)}
-                        >
-                          3. Upload to NOMAD
-                        </Button>
-                      </Stack>
-                    </Paper>
-
-                    <Box style={{ flex: 1, minWidth: 0 }}>
+                  <Box style={{ flex: 1, minWidth: 0 }}>
                       {workflowStep === 1 && (
                         <Stack gap="xs">
                           <Dropzone
@@ -3143,7 +3210,6 @@ function ResultsDetail({
                         </Paper>
                       )}
                     </Box>
-                  </Group>
                 </>
               )}
             </Paper>

@@ -25,12 +25,10 @@ import {
   IconAtom,
   IconCheck,
   IconChevronDown,
-  IconCircleCheck,
   IconCopy,
   IconCpu,
   IconDownload,
   IconDroplet,
-  IconFlask2,
   IconLayersIntersect,
   IconPlayerPlay,
   IconPlus,
@@ -43,7 +41,7 @@ import {
   IconX,
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   DryingMethodInput,
   summariseQuenchingValue,
@@ -4436,109 +4434,99 @@ export function ProcessesPage() {
 
             {/* 3-Step Progress Flow */}
             <Box px="md" pt="sm" pb="xs">
-              <Group gap={0} align="center">
+              <Group gap={0} align="center" wrap="nowrap">
                 {(
                   [
                     {
                       id: "chemistry" as const,
-                      label: "Chemistry",
-                      Icon: IconFlask2,
+                      label: "Step 1",
+                      sublabel: "Chemistry",
                       done: chemistryDone,
                     },
                     {
                       id: "deposition" as const,
-                      label: "Deposition",
-                      Icon: IconLayersIntersect,
+                      label: "Step 2",
+                      sublabel: "Deposition",
                       done: depositionDone,
                     },
                     {
                       id: "device" as const,
-                      label: "Device Info",
-                      Icon: IconCpu,
+                      label: "Step 3",
+                      sublabel: "Device Info",
                       done: deviceDone,
                     },
                   ] as const
                 ).map((step, i) => {
                   const isActive = activeProcessTab === step.id
                   return (
-                    <Group key={step.id} gap={0} align="center">
+                    <React.Fragment key={step.id}>
                       <Box
-                        component="button"
                         onClick={() => setActiveProcessTab(step.id)}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          padding: "6px 14px",
-                          borderRadius: 8,
-                          border: isActive
-                            ? "1.5px solid var(--mantine-color-blue-5)"
-                            : "1.5px solid transparent",
-                          background: isActive
-                            ? "var(--mantine-color-blue-0)"
-                            : "transparent",
-                          cursor: "pointer",
-                          transition: "all 120ms ease",
-                        }}
+                        style={{ cursor: "pointer", userSelect: "none" }}
                       >
-                        <Box
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: "50%",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            background: step.done
-                              ? "var(--mantine-color-green-6)"
-                              : isActive
-                                ? "var(--mantine-color-blue-5)"
-                                : "var(--mantine-color-gray-4)",
-                            flexShrink: 0,
-                          }}
-                        >
-                          {step.done ? (
-                            <IconCircleCheck size={16} color="white" />
-                          ) : (
-                            <step.Icon size={15} color="white" />
-                          )}
-                        </Box>
-                        <Box>
-                          <Text
-                            size="xs"
-                            c="dimmed"
-                            fw={500}
-                            style={{ lineHeight: 1.1 }}
+                        <Group gap="xs" align="center" wrap="nowrap">
+                          <Box
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: "50%",
+                              flexShrink: 0,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              background: step.done
+                                ? "var(--mantine-color-teal-6)"
+                                : isActive
+                                  ? "var(--mantine-color-blue-6)"
+                                  : "var(--mantine-color-gray-3)",
+                              boxShadow: isActive
+                                ? step.done
+                                  ? "0 0 0 3px var(--mantine-color-teal-2)"
+                                  : "0 0 0 3px var(--mantine-color-blue-2)"
+                                : "none",
+                              transition: "all 0.15s",
+                            }}
                           >
-                            Step {i + 1}
-                          </Text>
-                          <Text
-                            size="sm"
-                            fw={isActive ? 700 : 500}
-                            c={isActive ? "blue" : undefined}
-                            style={{ lineHeight: 1.2 }}
-                          >
-                            {step.label}
-                          </Text>
-                        </Box>
+                            {step.done ? (
+                              <IconCheck size={16} color="white" />
+                            ) : (
+                              <Text size="sm" fw={700} c="white">
+                                {i + 1}
+                              </Text>
+                            )}
+                          </Box>
+                          <Box>
+                            <Text
+                              size="xs"
+                              fw={600}
+                              c={isActive ? "blue" : "dimmed"}
+                              tt="uppercase"
+                              lh={1.2}
+                            >
+                              {step.label}
+                            </Text>
+                            <Text
+                              size="sm"
+                              fw={isActive ? 700 : 500}
+                              c={isActive ? "blue" : undefined}
+                              lh={1.2}
+                            >
+                              {step.sublabel}
+                            </Text>
+                          </Box>
+                        </Group>
                       </Box>
                       {i < 2 && (
                         <Box
                           style={{
-                            width: 32,
+                            flex: 1,
                             height: 2,
-                            background:
-                              i === 0 && depositionDone
-                                ? "var(--mantine-color-green-4)"
-                                : i === 1 && deviceDone
-                                  ? "var(--mantine-color-green-4)"
-                                  : "var(--mantine-color-gray-3)",
-                            borderRadius: 1,
-                            flexShrink: 0,
+                            background: "var(--mantine-color-gray-3)",
+                            margin: "0 12px",
                           }}
                         />
                       )}
-                    </Group>
+                    </React.Fragment>
                   )
                 })}
               </Group>

@@ -1448,19 +1448,21 @@ function ExperimentTimeline({
                   alignItems: "center",
                   justifyContent: "center",
                   background:
-                    activeTab === step.id
-                      ? "var(--mantine-color-blue-6)"
-                      : done[step.id]
-                        ? "var(--mantine-color-teal-6)"
+                    done[step.id]
+                      ? "var(--mantine-color-teal-6)"
+                      : activeTab === step.id
+                        ? "var(--mantine-color-blue-6)"
                         : "var(--mantine-color-gray-3)",
                   boxShadow:
                     activeTab === step.id
-                      ? "0 0 0 3px var(--mantine-color-blue-2)"
+                      ? done[step.id]
+                        ? "0 0 0 3px var(--mantine-color-teal-2)"
+                        : "0 0 0 3px var(--mantine-color-blue-2)"
                       : "none",
                   transition: "all 0.15s",
                 }}
               >
-                {done[step.id] && activeTab !== step.id ? (
+                {done[step.id] ? (
                   <IconCheck size={16} color="white" />
                 ) : (
                   <Text size="sm" fw={700} c="white">
