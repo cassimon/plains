@@ -52,6 +52,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
@@ -409,6 +410,21 @@ if (
       opacity: 0.35;
     }
     .resize-handle:hover { opacity: 0.7; }
+  `
+  document.head.appendChild(s)
+}
+
+// Inject onboarding pulse animation once
+if (typeof document !== "undefined" && !document.getElementById("ob-styles")) {
+  const s = document.createElement("style")
+  s.id = "ob-styles"
+  s.textContent = `
+    @keyframes ob-pulse {
+      0%   { transform: scale(1);    }
+      45%  { transform: scale(1.13); }
+      100% { transform: scale(1);    }
+    }
+    .ob-pulse { animation: ob-pulse 1.7s ease-in-out infinite; }
   `
   document.head.appendChild(s)
 }
@@ -1169,6 +1185,8 @@ function EmptyCellEl({
   } = useAppContext()
   const navigate = useNavigate()
   const [isHovered, setIsHovered] = useState(false)
+  const obLevel = useOnboardingLevel()
+  const obNextKind = ONBOARDING_NEXT_KIND[obLevel]
 
   const createAndLink = (kind: CollectionRef["kind"]) => {
     const color = nextCollectionColor()
@@ -1208,7 +1226,7 @@ function EmptyCellEl({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {/* Center overlay: all 6 kind "+" buttons + note + textfield */}
+      {/* Center overlay: kind "+" buttons (filtered by onboarding) + note + textfield */}
       {isHovered && (
         <Box
           style={{
@@ -1222,16 +1240,24 @@ function EmptyCellEl({
             justifyContent: "center",
           }}
         >
-          {SIX_KINDS.map(
-            ({ kind, label: kindLabel, Icon, color, manColor }) => (
+          {SIX_KINDS.filter(({ kind }) =>
+            ONBOARDING_UNLOCK[obLevel].includes(kind),
+          ).map(({ kind, label: kindLabel, Icon, color, manColor }) => {
+            const isNext = kind === obNextKind
+            return (
               <Tooltip
                 key={kind}
-                label={`Add ${kindLabel}`}
+                label={
+                  isNext && obLevel > 0
+                    ? `${kindLabel} — next step!`
+                    : `Add ${kindLabel}`
+                }
                 withArrow
                 position="bottom"
-                openDelay={400}
+                openDelay={200}
               >
                 <Box
+                  className={isNext ? "ob-pulse" : undefined}
                   style={{
                     display: "flex",
                     flexDirection: "column",
@@ -1239,7 +1265,11 @@ function EmptyCellEl({
                     cursor: "pointer",
                     borderRadius: 4,
                     padding: "4px 5px",
-                    background: `var(--mantine-color-${manColor}-1)`,
+                    background: `var(--mantine-color-${manColor}-${isNext ? "2" : "1"})`,
+                    outline: isNext
+                      ? `2px solid var(--mantine-color-${manColor}-4)`
+                      : undefined,
+                    outlineOffset: 1,
                   }}
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
@@ -1247,7 +1277,7 @@ function EmptyCellEl({
                     createAndLink(kind)
                   }}
                 >
-                  <Icon size={22} color={color} />
+                  <Icon size={isNext ? 24 : 22} color={color} />
                   <Text
                     size="xs"
                     c={manColor}
@@ -1257,8 +1287,8 @@ function EmptyCellEl({
                   </Text>
                 </Box>
               </Tooltip>
-            ),
-          )}
+            )
+          })}
           <Tooltip
             label="Add sticky note"
             withArrow
@@ -1367,6 +1397,148 @@ const SIX_KINDS: {
   },
 ]
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Onboarding
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 0 = no processes yet   → only "process" + note + text unlocked
+ * 1 = has process(es)    → + "experiment" unlocked (highlighted)
+ * 2 = has experiment(s)  → + "result" unlocked (highlighted)
+ * 3 = has result(s)      → + "analysis" unlocked (highlighted)
+ * 4 = complete           → all kinds unlocked, no guidance shown
+ */
+type OnboardingLevel = 0 | 1 | 2 | 3 | 4
+
+const ONBOARDING_UNLOCK: Record<OnboardingLevel, CollectionRef["kind"][]> = {
+  0: ["process"],
+  1: ["process", "experiment"],
+  2: ["process", "experiment", "result"],
+  3: ["process", "experiment", "result", "analysis"],
+  4: ["process", "experiment", "result", "analysis"],
+}
+
+const ONBOARDING_NEXT_KIND: Record<
+  OnboardingLevel,
+  CollectionRef["kind"] | null
+> = {
+  0: "process",
+  1: "experiment",
+  2: "result",
+  3: "analysis",
+  4: null,
+}
+
+const ONBOARDING_STEPS: Record<
+  0 | 1 | 2 | 3,
+  { step: number; title: string; body: string }
+> = {
+  0: {
+    step: 1,
+    title: "Create your first Process",
+    body: "A Process is the recipe for your device — it defines fabrication steps and chemistry. Hover any empty cell and click the Process icon to begin.",
+  },
+  1: {
+    step: 2,
+    title: "Create an Experiment",
+    body: "Process defined! An Experiment is a concrete run of your process — it records dates, substrates, and the actual materials used.",
+  },
+  2: {
+    step: 3,
+    title: "Upload Results",
+    body: "Experiment logged! Add measurement files to capture device performance data for this run.",
+  },
+  3: {
+    step: 4,
+    title: "Run an Analysis",
+    body: "Data uploaded! Create an Analysis to visualise and compare results across experiments.",
+  },
+}
+
+const ONBOARDING_COLORS: Record<0 | 1 | 2 | 3, string> = {
+  0: "gray",
+  1: "grape",
+  2: "orange",
+  3: "red",
+}
+
+function useOnboardingLevel(): OnboardingLevel {
+  const { processes, experiments, results, planes } = useAppContext()
+  return useMemo((): OnboardingLevel => {
+    if (processes.length === 0) return 0
+    if (experiments.length === 0) return 1
+    if (results.length === 0) return 2
+    const analysisCount = planes.reduce((total, p) => {
+      return (
+        total +
+        p.elements
+          .filter((e) => e.type === "collection")
+          .flatMap((e) => (e as CanvasCollectionElement).refs)
+          .filter((r) => r.kind === "analysis").length
+      )
+    }, 0)
+    if (analysisCount === 0) return 3
+    return 4
+  }, [processes.length, experiments.length, results.length, planes])
+}
+
+function OnboardingBanner({ level }: { level: OnboardingLevel }) {
+  if (level === 4) return null
+  const info = ONBOARDING_STEPS[level]
+  const color = ONBOARDING_COLORS[level]
+  const nextMeta = SIX_KINDS.find((k) => k.kind === ONBOARDING_NEXT_KIND[level])
+
+  return (
+    <Box
+      style={{
+        position: "absolute",
+        top: 14,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 200,
+        maxWidth: 480,
+        width: "calc(100% - 48px)",
+        pointerEvents: "none",
+      }}
+    >
+      <Paper
+        shadow="md"
+        px="md"
+        py="sm"
+        radius="md"
+        style={{
+          border: `2px solid var(--mantine-color-${color}-4)`,
+          background: `var(--mantine-color-${color}-0)`,
+          pointerEvents: "auto",
+        }}
+      >
+        <Group gap="sm" wrap="nowrap" align="flex-start">
+          {nextMeta && (
+            <nextMeta.Icon
+              size={22}
+              color={nextMeta.color}
+              style={{ flexShrink: 0, marginTop: 1 }}
+            />
+          )}
+          <Box style={{ flex: 1, minWidth: 0 }}>
+            <Group gap="xs" mb={3} align="center">
+              <Badge size="xs" color={color} variant="filled">
+                Step {info.step} / 4
+              </Badge>
+              <Text size="sm" fw={700}>
+                {info.title}
+              </Text>
+            </Group>
+            <Text size="xs" c="dimmed">
+              {info.body}
+            </Text>
+          </Box>
+        </Group>
+      </Paper>
+    </Box>
+  )
+}
+
 function CollectionEl({
   el,
   planeId,
@@ -1403,6 +1575,8 @@ function CollectionEl({
     setActiveEntity,
     setPendingCollectionLink,
   } = useAppContext()
+  const obLevel = useOnboardingLevel()
+  const obNextKind = ONBOARDING_NEXT_KIND[obLevel]
   const isActive = activeCollectionId === el.id
   const navigate = useNavigate()
   const [isExpanded, setIsExpanded] = useState(false)
@@ -1933,42 +2107,56 @@ function CollectionEl({
             {/* "+" add slots — always to the right of filled items, shown on hover (or always if empty) */}
             {(isCardHovered || el.refs.length === 0) &&
               SIX_KINDS.filter(
-                ({ kind }) => !el.refs.some((r) => r.kind === kind),
-              ).map(({ kind, label: kindLabel, Icon, color, manColor }) => (
-                <Tooltip
-                  key={kind}
-                  label={`Add ${kindLabel}`}
-                  withArrow
-                  position="bottom"
-                  openDelay={400}
-                >
-                  <Box
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      cursor: "pointer",
-                      borderRadius: 4,
-                      padding: "4px 5px",
-                      background: `var(--mantine-color-${manColor}-1)`,
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleBubbleClick(kind)
-                    }}
+                ({ kind }) =>
+                  !el.refs.some((r) => r.kind === kind) &&
+                  ONBOARDING_UNLOCK[obLevel].includes(kind),
+              ).map(({ kind, label: kindLabel, Icon, color, manColor }) => {
+                const isNext = kind === obNextKind
+                return (
+                  <Tooltip
+                    key={kind}
+                    label={
+                      isNext && obLevel > 0
+                        ? `${kindLabel} — next step!`
+                        : `Add ${kindLabel}`
+                    }
+                    withArrow
+                    position="bottom"
+                    openDelay={200}
                   >
-                    <Icon size={22} color={color} />
-                    <Text
-                      size="xs"
-                      c={manColor}
-                      style={{ lineHeight: 1, marginTop: 3, fontWeight: 600 }}
+                    <Box
+                      className={isNext ? "ob-pulse" : undefined}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        cursor: "pointer",
+                        borderRadius: 4,
+                        padding: "4px 5px",
+                        background: `var(--mantine-color-${manColor}-${isNext ? "2" : "1"})`,
+                        outline: isNext
+                          ? `2px solid var(--mantine-color-${manColor}-4)`
+                          : undefined,
+                        outlineOffset: 1,
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleBubbleClick(kind)
+                      }}
                     >
-                      +
-                    </Text>
-                  </Box>
-                </Tooltip>
-              ))}
+                      <Icon size={isNext ? 24 : 22} color={color} />
+                      <Text
+                        size="xs"
+                        c={manColor}
+                        style={{ lineHeight: 1, marginTop: 3, fontWeight: 600 }}
+                      >
+                        +
+                      </Text>
+                    </Box>
+                  </Tooltip>
+                )
+              })}
 
             {/* Note + textfield add buttons — same size/style, only when collection is fully empty */}
             {el.refs.length === 0 && (
@@ -2228,55 +2416,73 @@ function CollectionEl({
                         )}
                       </Box>
 
-                      {/* Col 3: add button — visible on row hover, when panel is open, or when submenu panel is showing this kind */}
-                      {(hoveredRowKind === kind ||
-                        addPopoverKind === kind ||
-                        hoveredRefKind === kind) && (
-                        <Tooltip
-                          label={`Add ${kindLabel}`}
-                          withArrow
-                          openDelay={400}
-                          position="right"
-                        >
-                          <Box
-                            style={{
-                              width: 30,
-                              height: 30,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              cursor: "pointer",
-                              borderRadius: 4,
-                              background:
-                                addPopoverKind === kind
-                                  ? `var(--mantine-color-${manColor}-2)`
-                                  : `var(--mantine-color-${manColor}-1)`,
-                            }}
-                            onPointerDown={(e) => {
-                              e.stopPropagation()
-                              e.preventDefault()
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (kind === "experiment" || kind === "result") {
-                                setAddPopoverKind(
-                                  addPopoverKind === kind ? null : kind,
-                                )
-                              } else {
-                                handleBubbleClick(kind)
-                              }
-                            }}
+                      {/* Col 3: add button — only shown when kind is unlocked and row is hovered/active */}
+                      {ONBOARDING_UNLOCK[obLevel].includes(kind) &&
+                        (hoveredRowKind === kind ||
+                          addPopoverKind === kind ||
+                          hoveredRefKind === kind) && (
+                          <Tooltip
+                            label={
+                              kind === obNextKind && obLevel > 0
+                                ? `${kindLabel} — next step!`
+                                : `Add ${kindLabel}`
+                            }
+                            withArrow
+                            openDelay={200}
+                            position="right"
                           >
-                            <Text
-                              fw={700}
-                              c={manColor}
-                              style={{ fontSize: 20, lineHeight: 1 }}
+                            <Box
+                              className={
+                                kind === obNextKind ? "ob-pulse" : undefined
+                              }
+                              style={{
+                                width: 30,
+                                height: 30,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                cursor: "pointer",
+                                borderRadius: 4,
+                                background:
+                                  addPopoverKind === kind
+                                    ? `var(--mantine-color-${manColor}-2)`
+                                    : kind === obNextKind
+                                      ? `var(--mantine-color-${manColor}-2)`
+                                      : `var(--mantine-color-${manColor}-1)`,
+                                outline:
+                                  kind === obNextKind
+                                    ? `2px solid var(--mantine-color-${manColor}-4)`
+                                    : undefined,
+                                outlineOffset: 1,
+                              }}
+                              onPointerDown={(e) => {
+                                e.stopPropagation()
+                                e.preventDefault()
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (
+                                  kind === "experiment" ||
+                                  kind === "result"
+                                ) {
+                                  setAddPopoverKind(
+                                    addPopoverKind === kind ? null : kind,
+                                  )
+                                } else {
+                                  handleBubbleClick(kind)
+                                }
+                              }}
                             >
-                              +
-                            </Text>
-                          </Box>
-                        </Tooltip>
-                      )}
+                              <Text
+                                fw={700}
+                                c={manColor}
+                                style={{ fontSize: 20, lineHeight: 1 }}
+                              >
+                                +
+                              </Text>
+                            </Box>
+                          </Tooltip>
+                        )}
                     </Box>
                   )
                 },
@@ -2978,6 +3184,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     moveElementToPlane,
   } = useAppContext()
 
+  const obLevel = useOnboardingLevel()
   const colorScheme = useComputedColorScheme("light")
   const isDark = colorScheme === "dark"
 
@@ -4044,6 +4251,9 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               onUpdate={(el) => updateElement(plane.id, el)}
               onDelete={(id) => deleteElement(plane.id, id)}
             />
+
+            {/* Onboarding guidance banner */}
+            <OnboardingBanner level={obLevel} />
           </Box>
 
           {/* Horizontal scrollbar — only shown when elements overflow to the right */}

@@ -1817,7 +1817,6 @@ export default function ExperimentsPage() {
     setExperiments,
     planes,
     updateElement,
-    setActiveExpTab,
   ])
 
   const selectedExperiment = experiments.find((e) => e.id === selectedExpId)

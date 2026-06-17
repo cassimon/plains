@@ -381,7 +381,7 @@ type SearchMode =
     }
 
 type InlineSearchProps = {
-  role: "solvent" | "solute"
+  ingredientRole: "solvent" | "solute"
   onSelect: (
     hit: { cid: string; title: string } | null,
     props: { name?: string; molarMass?: number; density?: number },
@@ -389,7 +389,11 @@ type InlineSearchProps = {
   onCancel: () => void
 }
 
-function InlineSearch({ role, onSelect, onCancel }: InlineSearchProps) {
+function InlineSearch({
+  ingredientRole: role,
+  onSelect,
+  onCancel,
+}: InlineSearchProps) {
   const [mode, setMode] = useState<SearchMode>({
     kind: "searching",
     query: "",
@@ -1115,7 +1119,7 @@ function SolutionCard({
                   {search?.role === "solvent" && (
                     <Box mt={6}>
                       <InlineSearch
-                        role="solvent"
+                        ingredientRole="solvent"
                         onSelect={handleSearchSelect}
                         onCancel={() => setSearch(null)}
                       />
@@ -1301,7 +1305,7 @@ function SolutionCard({
                   {search?.role === "solute" && (
                     <Box mt={6}>
                       <InlineSearch
-                        role="solute"
+                        ingredientRole="solute"
                         onSelect={handleSearchSelect}
                         onCancel={() => setSearch(null)}
                       />
