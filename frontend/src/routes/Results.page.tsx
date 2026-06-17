@@ -58,7 +58,6 @@ import {
   type Experiment,
   type ExperimentResults,
   getExperimentStatus,
-  type Material,
   type MeasurementFile,
   type MeasurementType,
   newExperimentResults,
@@ -677,7 +676,7 @@ function FileTypeBadge({ type }: { type: MeasurementType }) {
 
 function SubstrateCard({
   substrate,
-  substrateMaterial,
+  substrateSpec,
   files,
   onUnmatchFile,
   onUnmatchFiles,
@@ -694,7 +693,7 @@ function SubstrateCard({
   onToggleSelectAll,
 }: {
   substrate: { id: string; name: string; substrateMaterialId?: string }
-  substrateMaterial?: Material
+  substrateSpec?: { name: string; rigidity?: string }
   files: MeasurementFile[]
   onUnmatchFile: (fileId: string) => void
   onUnmatchFiles: (fileIds: string[]) => void
@@ -755,9 +754,9 @@ function SubstrateCard({
             <Text fw={600} size="sm">
               {substrate.name}
             </Text>
-            {substrateMaterial && (
+            {substrateSpec && (
               <Text size="xs" c="dimmed">
-                ({substrateMaterial.type || substrateMaterial.name})
+                ({substrateSpec.rigidity || substrateSpec.name})
               </Text>
             )}
           </div>
@@ -957,6 +956,16 @@ function ResultsDetail({
   const seenUnmatchedGroupIdsRef = useRef<Set<string>>(new Set())
   const { processes } = useAppContext()
   const theme = useMantineTheme()
+
+  // Build a map from inline substrate id → spec for the linked process
+  const substrateSpecMap = useMemo(() => {
+    const linkedProcess = processes.find((p) => p.id === experiment.processId)
+    const map = new Map<string, { name: string; rigidity?: string }>()
+    for (const spec of linkedProcess?.inlineSubstrates ?? []) {
+      map.set(spec.id, { name: spec.name, rigidity: spec.rigidity })
+    }
+    return map
+  }, [processes, experiment.processId])
 
   // NOMAD upload state
   const [nomadConfig, setNomadConfig] = useState<NomadConfigResponse | null>(
@@ -2994,6 +3003,9 @@ function ResultsDetail({
                                     <SubstrateCard
                                       key={substrate.id}
                                       substrate={substrate}
+                                      substrateSpec={substrateSpecMap.get(
+                                        substrate.substrateMaterialId ?? "",
+                                      )}
                                       files={files}
                                       onUnmatchFile={(fileId) =>
                                         handleUnmatchFile(fileId, substrate.id)

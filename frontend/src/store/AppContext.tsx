@@ -391,6 +391,8 @@ export type ExperimentChemicalsPrep = {
     }
   >
   solutionBatches?: Record<string, ExperimentSolutionBatch> // keyed by "sol:{id}" or "recipe:{id}"
+  /** Collection IDs imported from other planes — always shown in chemistry suggestions */
+  importedCollectionIds?: string[]
 }
 
 export type Experiment = {

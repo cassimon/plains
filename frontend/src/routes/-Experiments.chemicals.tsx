@@ -2,37 +2,45 @@ import {
   Badge,
   Box,
   Button,
+  Divider,
   Group,
+  Modal,
   NativeSelect,
   NumberInput,
   Select,
   Stack,
   Text,
   TextInput,
+  Title,
 } from "@mantine/core"
 import {
   IconAtom,
   IconCheck,
   IconDroplet,
   IconFlask2,
+  IconPackageImport,
+  IconWorldSearch,
 } from "@tabler/icons-react"
 import * as React from "react"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
+  CanvasCollectionElement,
   Experiment,
   ExperimentChemicalsPrep,
   ExperimentSolutionBatch,
+  Plane,
   Process,
   ProcessSolutionRecipe,
   ProcessStepInlineMaterial,
 } from "@/store/AppContext"
+import { useAppContext, useEntityCollection } from "@/store/AppContext"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
 type MaterialItem = {
-  stepId: string // key for materialOverrides lookup
+  stepId: string
   material: ProcessStepInlineMaterial
 }
 
@@ -42,6 +50,15 @@ type SolutionItem = {
   kind: "recipe"
   id: string
   recipe?: ProcessSolutionRecipe
+}
+
+type CandidateExp = {
+  exp: Experiment
+  planeName: string
+  planeId: string
+  collectionId: string
+  collectionName: string
+  priority: 0 | 1 | 2 // 0=active-collection, 1=active-plane, 2=imported
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -142,6 +159,124 @@ function rowStyle(isDone: boolean): React.CSSProperties {
   }
 }
 
+function buildExpLocationMap(planes: Plane[]): Map<
+  string,
+  {
+    planeId: string
+    planeName: string
+    collectionId: string
+    collectionName: string
+  }
+> {
+  const map = new Map<
+    string,
+    {
+      planeId: string
+      planeName: string
+      collectionId: string
+      collectionName: string
+    }
+  >()
+  for (const plane of planes) {
+    for (const el of plane.elements) {
+      if (el.type !== "collection") continue
+      const col = el as CanvasCollectionElement
+      for (const ref of col.refs) {
+        if (ref.kind === "experiment" && !map.has(ref.id)) {
+          map.set(ref.id, {
+            planeId: plane.id,
+            planeName: plane.name,
+            collectionId: col.id,
+            collectionName: col.name,
+          })
+        }
+      }
+    }
+  }
+  return map
+}
+
+/**
+ * Returns experiments from the same process as the current experiment,
+ * filtered to those visible from the current plane/collection context,
+ * sorted by priority (0=active collection first).
+ */
+function buildGroupedCandidates(
+  allExperiments: Experiment[],
+  currentExpId: string,
+  currentProcessId: string,
+  currentCollectionId: string | null,
+  planes: Plane[],
+  activePlaneId: string | null,
+  importedCollectionIds: string[],
+): CandidateExp[] {
+  const expLocation = buildExpLocationMap(planes)
+  const importedSet = new Set(importedCollectionIds)
+  const results: CandidateExp[] = []
+
+  for (const exp of allExperiments) {
+    if (exp.id === currentExpId) continue
+    if (exp.processId !== currentProcessId) continue
+
+    const loc = expLocation.get(exp.id)
+    if (!loc) continue
+
+    let priority: 0 | 1 | 2 | undefined
+
+    if (currentCollectionId && loc.collectionId === currentCollectionId) {
+      priority = 0
+    } else if (!activePlaneId || loc.planeId === activePlaneId) {
+      // General view (no plane) or same plane — always show
+      priority = 1
+    } else if (importedSet.has(loc.collectionId)) {
+      priority = 2
+    }
+
+    if (priority === undefined) continue
+
+    results.push({ exp, ...loc, priority })
+  }
+
+  results.sort((a, b) => {
+    if (a.priority !== b.priority) return a.priority - b.priority
+    return (b.exp.date || "").localeCompare(a.exp.date || "")
+  })
+
+  return results
+}
+
+type SuggestionLabel = {
+  label: string
+  collectionName: string
+  collectionId: string
+  priority: 0 | 1 | 2
+}
+
+function groupByCollection(
+  labels: SuggestionLabel[],
+): { groupLabel: string; items: SuggestionLabel[] }[] {
+  const map = new Map<
+    string,
+    { groupLabel: string; items: SuggestionLabel[] }
+  >()
+  for (const item of labels) {
+    if (!map.has(item.collectionId)) {
+      const prefix =
+        item.priority === 0
+          ? "Current collection"
+          : item.priority === 1
+            ? "This plane"
+            : "Imported"
+      map.set(item.collectionId, {
+        groupLabel: `${prefix} — ${item.collectionName}`,
+        items: [],
+      })
+    }
+    map.get(item.collectionId)!.items.push(item)
+  }
+  return [...map.values()]
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Inline quantity table with copy-to-clipboard
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,6 +351,151 @@ function QuantityTable({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Browse other planes modal
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BrowsePlaneModal({
+  opened,
+  onClose,
+  planes,
+  activePlaneId,
+  allExperiments,
+  currentProcessId,
+  importedCollectionIds,
+  onImport,
+  getRelevantInfo,
+}: {
+  opened: boolean
+  onClose: () => void
+  planes: Plane[]
+  activePlaneId: string | null
+  allExperiments: Experiment[]
+  currentProcessId: string
+  importedCollectionIds: string[]
+  onImport: (collectionId: string) => void
+  getRelevantInfo: (exp: Experiment) => string | null
+}) {
+  const importedSet = new Set(importedCollectionIds)
+  const expMap = useMemo(
+    () => new Map(allExperiments.map((e) => [e.id, e])),
+    [allExperiments],
+  )
+
+  const relevantPlanes = useMemo(() => {
+    return planes
+      .filter((p) => p.id !== activePlaneId)
+      .map((plane) => {
+        const collections = plane.elements
+          .filter((el) => el.type === "collection")
+          .map((el) => {
+            const col = el as CanvasCollectionElement
+            const matchingExps = col.refs
+              .filter((r) => r.kind === "experiment")
+              .map((r) => expMap.get(r.id))
+              .filter(
+                (e): e is Experiment =>
+                  e !== undefined && e.processId === currentProcessId,
+              )
+            return { col, matchingExps }
+          })
+          .filter(({ matchingExps }) => matchingExps.length > 0)
+        return { plane, collections }
+      })
+      .filter(({ collections }) => collections.length > 0)
+  }, [planes, activePlaneId, expMap, currentProcessId])
+
+  return (
+    <Modal
+      opened={opened}
+      onClose={onClose}
+      title="Browse other planes"
+      size="lg"
+    >
+      {relevantPlanes.length === 0 ? (
+        <Text c="dimmed" size="sm" ta="center" py="xl">
+          No experiments using the same process were found on other planes.
+        </Text>
+      ) : (
+        <Stack gap="lg">
+          {relevantPlanes.map(({ plane, collections }) => (
+            <Box key={plane.id}>
+              <Title order={5} mb="xs">
+                {plane.name}
+              </Title>
+              <Stack gap="xs">
+                {collections.map(({ col, matchingExps }) => {
+                  const isImported = importedSet.has(col.id)
+                  return (
+                    <Box
+                      key={col.id}
+                      style={{
+                        border: `1px solid ${isImported ? "var(--mantine-color-teal-3)" : "var(--mantine-color-gray-3)"}`,
+                        borderRadius: 8,
+                        padding: "8px 12px",
+                        background: isImported
+                          ? "var(--mantine-color-teal-0)"
+                          : undefined,
+                      }}
+                    >
+                      <Group justify="space-between" mb={4}>
+                        <Group gap="xs">
+                          <Text size="sm" fw={600}>
+                            {col.name}
+                          </Text>
+                          {isImported && (
+                            <Badge size="xs" color="teal" variant="light">
+                              Imported
+                            </Badge>
+                          )}
+                        </Group>
+                        {!isImported && (
+                          <Button
+                            size="compact-xs"
+                            variant="light"
+                            color="teal"
+                            leftSection={<IconPackageImport size={12} />}
+                            onClick={() => onImport(col.id)}
+                          >
+                            Import
+                          </Button>
+                        )}
+                      </Group>
+                      <Stack gap={2}>
+                        {matchingExps.map((exp) => {
+                          const info = getRelevantInfo(exp)
+                          return (
+                            <Group key={exp.id} gap="xs">
+                              <Text size="xs" c="dimmed">
+                                {exp.name || "Untitled"}
+                              </Text>
+                              {exp.date && (
+                                <Text size="xs" c="dimmed">
+                                  ({exp.date})
+                                </Text>
+                              )}
+                              {info && (
+                                <Text size="xs" fw={500}>
+                                  {info}
+                                </Text>
+                              )}
+                            </Group>
+                          )
+                        })}
+                      </Stack>
+                    </Box>
+                  )
+                })}
+              </Stack>
+              <Divider mt="md" />
+            </Box>
+          ))}
+        </Stack>
+      )}
+    </Modal>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Material Override Row
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -224,8 +504,8 @@ function MaterialOverrideRow({
   material,
   override,
   onUpdate,
-  currentExpId,
-  allExperiments,
+  candidates,
+  onBrowse,
 }: {
   stepId: string
   material: ProcessStepInlineMaterial
@@ -235,31 +515,38 @@ function MaterialOverrideRow({
     purity?: string
     supplier?: string
   }) => void
-  currentExpId: string
-  allExperiments: Experiment[]
+  candidates: CandidateExp[]
+  onBrowse: (getRelevantInfo: (exp: Experiment) => string | null) => void
 }) {
   const [specifying, setSpecifying] = useState(false)
-  // Local copy — green state only commits from parent (on blur/Enter or suggestion click)
   const [localLabel, setLocalLabel] = useState(override?.inventoryLabel ?? "")
 
-  // Sync when parent changes (e.g. suggestion clicked from outside)
   useEffect(() => {
     setLocalLabel(override?.inventoryLabel ?? "")
   }, [override?.inventoryLabel])
 
-  const priorLabels = useMemo(() => {
-    const labels = new Set<string>()
-    for (const exp of allExperiments) {
-      if (exp.id === currentExpId) continue
+  const priorLabels = useMemo((): SuggestionLabel[] => {
+    const seen = new Set<string>()
+    const result: SuggestionLabel[] = []
+    for (const c of candidates) {
       const label =
-        exp.chemicalsPrep?.materialOverrides?.[stepId]?.inventoryLabel
-      if (label) labels.add(label)
+        c.exp.chemicalsPrep?.materialOverrides?.[stepId]?.inventoryLabel
+      if (label && !seen.has(label)) {
+        seen.add(label)
+        result.push({
+          label,
+          collectionName: c.collectionName,
+          collectionId: c.collectionId,
+          priority: c.priority,
+        })
+      }
     }
-    return [...labels]
-  }, [allExperiments, stepId, currentExpId])
+    return result
+  }, [candidates, stepId])
+
+  const grouped = useMemo(() => groupByCollection(priorLabels), [priorLabels])
 
   const isAssigned = Boolean(override?.inventoryLabel)
-  // Show inputs when: user clicked Specify, no priors exist, or already assigned
   const showInputs = specifying || priorLabels.length === 0 || isAssigned
 
   const commitLabel = () => {
@@ -268,6 +555,12 @@ function MaterialOverrideRow({
       onUpdate({ inventoryLabel: trimmed })
     }
   }
+
+  const getRelevantInfo = useCallback(
+    (exp: Experiment) =>
+      exp.chemicalsPrep?.materialOverrides?.[stepId]?.inventoryLabel ?? null,
+    [stepId],
+  )
 
   return (
     <Box style={rowStyle(isAssigned)}>
@@ -295,7 +588,6 @@ function MaterialOverrideRow({
         </Box>
 
         {showInputs ? (
-          /* Input fields — always stay visible even when row is green */
           <Group gap="sm" align="flex-end" wrap="wrap" style={{ flex: 1 }}>
             <TextInput
               size="xs"
@@ -305,9 +597,7 @@ function MaterialOverrideRow({
               onChange={(e) => setLocalLabel(e.currentTarget.value)}
               onBlur={commitLabel}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.currentTarget.blur()
-                }
+                if (e.key === "Enter") e.currentTarget.blur()
               }}
               style={{ flex: 1, minWidth: 140 }}
             />
@@ -340,31 +630,50 @@ function MaterialOverrideRow({
             )}
           </Group>
         ) : (
-          /* Suggestion buttons */
-          <Group gap={6} wrap="wrap" align="center" style={{ flex: 1 }}>
-            {priorLabels.map((label) => (
-              <Button
-                key={label}
-                size="compact-xs"
-                variant="light"
-                color="teal"
-                onClick={() => {
-                  onUpdate({ inventoryLabel: label })
-                  setSpecifying(true)
-                }}
-              >
-                {label}
-              </Button>
+          <Stack gap={4} style={{ flex: 1 }}>
+            {grouped.map(({ groupLabel, items }) => (
+              <Box key={groupLabel}>
+                <Text size="10px" c="dimmed" tt="uppercase" fw={600} mb={2}>
+                  {groupLabel}
+                </Text>
+                <Group gap={6} wrap="wrap">
+                  {items.map(({ label }) => (
+                    <Button
+                      key={label}
+                      size="compact-xs"
+                      variant="light"
+                      color="teal"
+                      onClick={() => {
+                        onUpdate({ inventoryLabel: label })
+                        setSpecifying(true)
+                      }}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </Group>
+              </Box>
             ))}
-            <Button
-              size="compact-xs"
-              variant="outline"
-              color="gray"
-              onClick={() => setSpecifying(true)}
-            >
-              Specify
-            </Button>
-          </Group>
+            <Group gap={6} mt={2}>
+              <Button
+                size="compact-xs"
+                variant="outline"
+                color="gray"
+                onClick={() => setSpecifying(true)}
+              >
+                Specify
+              </Button>
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                color="blue"
+                leftSection={<IconWorldSearch size={12} />}
+                onClick={() => onBrowse(getRelevantInfo)}
+              >
+                Browse other planes
+              </Button>
+            </Group>
+          </Stack>
         )}
       </Group>
     </Box>
@@ -375,22 +684,17 @@ function MaterialOverrideRow({
 // Solution Batch Row
 // ─────────────────────────────────────────────────────────────────────────────
 
-type PriorBatch = {
-  expId: string
-  expName: string
-  expDate: string
-  volumeMl?: string
-}
-
 function SolutionBatchRow({
   item,
   batch,
-  priorBatches,
+  candidates,
+  onBrowse,
   onUpdateBatch,
 }: {
   item: SolutionItem
   batch?: ExperimentSolutionBatch
-  priorBatches: PriorBatch[]
+  candidates: CandidateExp[]
+  onBrowse: (getRelevantInfo: (exp: Experiment) => string | null) => void
   onUpdateBatch: (patch: Partial<ExperimentSolutionBatch>) => void
 }) {
   const mode = batch?.mode ?? "make"
@@ -426,6 +730,48 @@ function SolutionBatchRow({
     item.kind === "recipe" && volumeNum > 0
       ? `${item.label} (${volumeNum} mL)`
       : item.label
+
+  // Build grouped Select data from candidates
+  const selectData = useMemo(() => {
+    const groups = new Map<
+      string,
+      { groupLabel: string; items: { value: string; label: string }[] }
+    >()
+    for (const c of candidates) {
+      const b = c.exp.chemicalsPrep?.solutionBatches?.[item.key]
+      if (!b || b.mode !== "make") continue
+      const prefix =
+        c.priority === 0
+          ? "Current collection"
+          : c.priority === 1
+            ? "This plane"
+            : "Imported"
+      const groupKey = `${c.priority}:${c.collectionId}`
+      const groupLabel = `${prefix} — ${c.collectionName}`
+      if (!groups.has(groupKey)) groups.set(groupKey, { groupLabel, items: [] })
+      const vol = b.totalVolumeMl ? ` — ${b.totalVolumeMl} mL` : ""
+      const dateStr = c.exp.date ? ` (${c.exp.date})` : ""
+      groups.get(groupKey)!.items.push({
+        value: c.exp.id,
+        label: `${c.exp.name || "Untitled"}${dateStr}${vol}`,
+      })
+    }
+    return [...groups.values()].map((g) => ({
+      group: g.groupLabel,
+      items: g.items,
+    }))
+  }, [candidates, item.key])
+
+  const hasPriorBatches = selectData.some((g) => g.items.length > 0)
+
+  const getRelevantInfo = useCallback(
+    (exp: Experiment) => {
+      const b = exp.chemicalsPrep?.solutionBatches?.[item.key]
+      if (!b || b.mode !== "make") return null
+      return b.totalVolumeMl ? `${b.totalVolumeMl} mL` : null
+    },
+    [item.key],
+  )
 
   return (
     <Box style={rowStyle(isDone)}>
@@ -487,36 +833,45 @@ function SolutionBatchRow({
             )}
           </Group>
         ) : (
-          <Select
-            size="xs"
-            label="Source batch"
-            placeholder={
-              priorBatches.length === 0
-                ? "No prior batches found"
-                : "Select batch..."
-            }
-            style={{ flex: 1, minWidth: 260 }}
-            disabled={priorBatches.length === 0}
-            data={priorBatches.map((b) => ({
-              value: b.expId,
-              label: `${b.expName}${b.expDate ? ` (${b.expDate})` : ""}${b.volumeMl ? ` — ${b.volumeMl} mL` : ""}`,
-            }))}
-            value={batch?.takenFromExpId ?? null}
-            onChange={(v) => {
-              if (v)
-                onUpdateBatch({ takenFromExpId: v, takenFromBatchId: item.key })
-              else
-                onUpdateBatch({
-                  takenFromExpId: undefined,
-                  takenFromBatchId: undefined,
-                })
-            }}
-            clearable
-          />
+          <Group gap="xs" align="flex-end" style={{ flex: 1 }}>
+            <Select
+              size="xs"
+              label="Source batch"
+              placeholder={
+                hasPriorBatches ? "Select batch..." : "No prior batches found"
+              }
+              style={{ flex: 1, minWidth: 260 }}
+              disabled={!hasPriorBatches}
+              data={selectData}
+              value={batch?.takenFromExpId ?? null}
+              onChange={(v) => {
+                if (v)
+                  onUpdateBatch({
+                    takenFromExpId: v,
+                    takenFromBatchId: item.key,
+                  })
+                else
+                  onUpdateBatch({
+                    takenFromExpId: undefined,
+                    takenFromBatchId: undefined,
+                  })
+              }}
+              clearable
+            />
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="blue"
+              leftSection={<IconWorldSearch size={12} />}
+              style={{ alignSelf: "flex-end", marginBottom: 1 }}
+              onClick={() => onBrowse(getRelevantInfo)}
+            >
+              Browse
+            </Button>
+          </Group>
         )}
       </Group>
 
-      {/* Inline quantity breakdown */}
       {mode === "make" && (
         <QuantityTable
           label={quantityLabel}
@@ -543,12 +898,60 @@ export function ChemicalsTab({
   allExperiments: Experiment[]
   onUpdate: (exp: Experiment) => void
 }) {
+  const { planes, activePlaneId } = useAppContext()
+  const { getEntityCollection } = useEntityCollection()
+
   const { materialItems, solutionItems } = React.useMemo(
     () => collectChemicals(process),
     [process],
   )
 
   const prep: ExperimentChemicalsPrep = experiment.chemicalsPrep ?? {}
+
+  // Find which collection this experiment lives in
+  const experimentCollection = useMemo(
+    () => getEntityCollection("experiment", experiment.id),
+    [getEntityCollection, experiment.id],
+  )
+  const currentCollectionId = experimentCollection?.collection.id ?? null
+
+  const importedCollectionIds = prep.importedCollectionIds ?? []
+
+  // Experiments sharing the same process, filtered+sorted by plane proximity
+  const candidates = useMemo(
+    () =>
+      buildGroupedCandidates(
+        allExperiments,
+        experiment.id,
+        process.id,
+        currentCollectionId,
+        planes,
+        activePlaneId,
+        importedCollectionIds,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      allExperiments,
+      experiment.id,
+      process.id,
+      currentCollectionId,
+      planes,
+      activePlaneId,
+      importedCollectionIds,
+    ],
+  )
+
+  // Single shared "Browse other planes" modal state
+  const [browseInfo, setBrowseInfo] = useState<{
+    getRelevantInfo: (exp: Experiment) => string | null
+  } | null>(null)
+
+  const handleBrowse = useCallback(
+    (getRelevantInfo: (exp: Experiment) => string | null) => {
+      setBrowseInfo({ getRelevantInfo })
+    },
+    [],
+  )
 
   const updatePrep = (patch: Partial<ExperimentChemicalsPrep>) => {
     onUpdate({ ...experiment, chemicalsPrep: { ...prep, ...patch } })
@@ -580,6 +983,13 @@ export function ChemicalsTab({
     })
   }
 
+  const handleImportCollection = (collectionId: string) => {
+    const current = prep.importedCollectionIds ?? []
+    if (!current.includes(collectionId)) {
+      updatePrep({ importedCollectionIds: [...current, collectionId] })
+    }
+  }
+
   if (materialItems.length === 0 && solutionItems.length === 0) {
     return (
       <Text size="sm" c="dimmed" ta="center" py="xl">
@@ -591,6 +1001,24 @@ export function ChemicalsTab({
 
   return (
     <Stack gap="lg">
+      {/* Shared browse modal — one instance for the whole tab */}
+      {browseInfo && (
+        <BrowsePlaneModal
+          opened={true}
+          onClose={() => setBrowseInfo(null)}
+          planes={planes}
+          activePlaneId={activePlaneId}
+          allExperiments={allExperiments}
+          currentProcessId={process.id}
+          importedCollectionIds={importedCollectionIds}
+          onImport={(collId) => {
+            handleImportCollection(collId)
+            setBrowseInfo(null)
+          }}
+          getRelevantInfo={browseInfo.getRelevantInfo}
+        />
+      )}
+
       {/* Materials */}
       {materialItems.length > 0 && (
         <Box>
@@ -608,8 +1036,8 @@ export function ChemicalsTab({
                 material={material}
                 override={prep.materialOverrides?.[stepId]}
                 onUpdate={(patch) => updateMaterialOverride(stepId, patch)}
-                currentExpId={experiment.id}
-                allExperiments={allExperiments}
+                candidates={candidates}
+                onBrowse={handleBrowse}
               />
             ))}
           </Stack>
@@ -626,33 +1054,16 @@ export function ChemicalsTab({
             </Text>
           </Group>
           <Stack gap={6}>
-            {solutionItems.map((item) => {
-              const priorBatches: PriorBatch[] = allExperiments
-                .filter((exp) => exp.id !== experiment.id)
-                .flatMap((exp) => {
-                  const b = exp.chemicalsPrep?.solutionBatches?.[item.key]
-                  if (!b || b.mode !== "make") return []
-                  return [
-                    {
-                      expId: exp.id,
-                      expName: exp.name || "Untitled",
-                      expDate: exp.date || "",
-                      volumeMl: b.totalVolumeMl,
-                    },
-                  ]
-                })
-              return (
-                <SolutionBatchRow
-                  key={item.key}
-                  item={item}
-                  batch={prep.solutionBatches?.[item.key]}
-                  priorBatches={priorBatches}
-                  onUpdateBatch={(patch) =>
-                    updateSolutionBatch(item.key, patch)
-                  }
-                />
-              )
-            })}
+            {solutionItems.map((item) => (
+              <SolutionBatchRow
+                key={item.key}
+                item={item}
+                batch={prep.solutionBatches?.[item.key]}
+                onUpdateBatch={(patch) => updateSolutionBatch(item.key, patch)}
+                candidates={candidates}
+                onBrowse={handleBrowse}
+              />
+            ))}
           </Stack>
         </Box>
       )}
