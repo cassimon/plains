@@ -1115,6 +1115,7 @@ function SolutionCard({
                   {search?.role === "solvent" && (
                     <Box mt={6}>
                       <InlineSearch
+                        role="solvent"
                         onSelect={handleSearchSelect}
                         onCancel={() => setSearch(null)}
                       />
@@ -1300,6 +1301,7 @@ function SolutionCard({
                   {search?.role === "solute" && (
                     <Box mt={6}>
                       <InlineSearch
+                        role="solute"
                         onSelect={handleSearchSelect}
                         onCancel={() => setSearch(null)}
                       />

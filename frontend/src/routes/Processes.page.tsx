@@ -2617,12 +2617,17 @@ export function ProcessesPage() {
         updateElement(planeId, updated)
       }
     }
+
+    // Select the new process and land on the Chemistry tab
+    selectProcess(proc.id)
+    setActiveProcessTab("chemistry")
   }, [
     pendingCollectionLink,
     setPendingCollectionLink,
     setProcesses,
     planes,
     updateElement,
+    selectProcess,
   ])
 
   // Filtered list of visible processes

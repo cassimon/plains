@@ -1797,6 +1797,7 @@ export default function ExperimentsPage() {
     const newExp = newExperiment(processId)
     setExperiments((prev) => [...prev, newExp])
     setSelectedExpId(newExp.id)
+    setActiveExpTab("chemicals")
 
     // Link back to collection
     const plane = planes.find((p) => p.id === planeId)
@@ -1816,6 +1817,7 @@ export default function ExperimentsPage() {
     setExperiments,
     planes,
     updateElement,
+    setActiveExpTab,
   ])
 
   const selectedExperiment = experiments.find((e) => e.id === selectedExpId)
