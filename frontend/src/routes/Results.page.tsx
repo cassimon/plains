@@ -955,7 +955,7 @@ function ResultsDetail({
   const [batchAssignTargetSubstrateId, setBatchAssignTargetSubstrateId] =
     useState<string | null>(null)
   const seenUnmatchedGroupIdsRef = useRef<Set<string>>(new Set())
-  const { materials, processes } = useAppContext()
+  const { processes } = useAppContext()
   const theme = useMantineTheme()
 
   // NOMAD upload state
@@ -2989,16 +2989,11 @@ function ResultsDetail({
                             ) : (
                               <Stack gap="sm">
                                 {experiment.substrates.map((substrate) => {
-                                  const substrateMaterial = materials.find(
-                                    (m) =>
-                                      m.id === substrate.substrateMaterialId,
-                                  )
                                   const files = getSubstrateFiles(substrate.id)
                                   return (
                                     <SubstrateCard
                                       key={substrate.id}
                                       substrate={substrate}
-                                      substrateMaterial={substrateMaterial}
                                       files={files}
                                       onUnmatchFile={(fileId) =>
                                         handleUnmatchFile(fileId, substrate.id)

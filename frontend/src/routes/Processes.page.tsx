@@ -153,10 +153,6 @@ const DEFAULT_SUBSTRATE_DIMENSIONS = {
   heightMm: "",
   surfaceRoughnessRmsNm: "",
 }
-const NEW_CHEMICAL_OPTION = "action:new-material:chemical_compound"
-const NEW_COMMERCIAL_MIXTURE_OPTION = "action:new-material:commercial_mixture"
-const NEW_SOLUTION_OPTION = "action:new-solution"
-
 const STEP_COLOR_PALETTE = [
   "#d96c4f",
   "#5b8c85",
@@ -2504,14 +2500,12 @@ export function ProcessesPage() {
   const navigate = useNavigate()
 
   const {
-    materials,
     experiments,
     processes,
     setProcesses,
     planes,
     updateElement,
     removeCollectionRefs,
-    solutions,
     pendingCollectionLink,
     setPendingCollectionLink,
     activeCollectionId,
@@ -2524,6 +2518,8 @@ export function ProcessesPage() {
     lastSelectedByKind,
     updateLastSelected,
   } = useAppContext()
+  const materials: Material[] = []
+  const solutions: Solution[] = []
   const {
     isEntityVisible,
     getEntityColor,
@@ -2704,49 +2700,6 @@ export function ProcessesPage() {
       )
     }
   }, [selectedProcess, setProcesses, stackInvalidationKey])
-
-  const launchLinkedCreation = useCallback(
-    (config: {
-      kind: "material" | "solution"
-      route: "/materials" | "/solutions"
-      materialCategory?:
-        | "chemical_compound"
-        | "commercial_mixture"
-        | "substrate_material"
-      processAttachment: {
-        target: "substrate" | "step-material" | "step-solution"
-        stepId?: string
-      }
-    }) => {
-      if (!selectedProcess) {
-        return
-      }
-
-      const owner = getEntityCollection("process", selectedProcess.id)
-      setPendingCollectionLink({
-        collectionId: owner?.collection.id ?? activeCollectionId ?? "",
-        planeId: owner?.plane.id ?? activePlaneId ?? "",
-        kind: config.kind,
-        materialCategory: config.materialCategory,
-        processAttachment: {
-          processId: selectedProcess.id,
-          target: config.processAttachment.target,
-          stepId: config.processAttachment.stepId,
-        },
-        returnTo: "/processes",
-        requestId: crypto.randomUUID(),
-      })
-      void navigate({ to: config.route })
-    },
-    [
-      activeCollectionId,
-      activePlaneId,
-      getEntityCollection,
-      navigate,
-      selectedProcess,
-      setPendingCollectionLink,
-    ],
-  )
 
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
 
@@ -3027,7 +2980,6 @@ export function ProcessesPage() {
   const handleDeleteProcess = (id: string) => {
     const proc = processes.find((p) => p.id === id)
     const dependents = getDependentLocations("process", id, {
-      solutions,
       experiments,
       processes,
       planes,
@@ -3595,15 +3547,6 @@ export function ProcessesPage() {
     )
   }
 
-  const _handleCreateSubstrateMaterial = useCallback(() => {
-    launchLinkedCreation({
-      kind: "material",
-      route: "/materials",
-      materialCategory: "substrate_material",
-      processAttachment: { target: "substrate" },
-    })
-  }, [launchLinkedCreation])
-
   // ── Inline substrate handlers ──────────────────────────────────────────────
 
   const handleAddInlineSubstrate = () => {
@@ -3720,18 +3663,15 @@ export function ProcessesPage() {
     )
   }
 
-  const getSubstrateLabel = useCallback(
-    (substrateId: string | undefined) => {
-      if (!substrateId) return null
-      const substrate = materials.find((m) => m.id === substrateId)
-      if (!substrate) return null
-      return {
-        name: substrate.name || "Unnamed substrate",
-        rigidity: substrate.substrateRigidity || "—",
-      }
-    },
-    [materials],
-  )
+  const getSubstrateLabel = useCallback((substrateId: string | undefined) => {
+    if (!substrateId) return null
+    const substrate = materials.find((m) => m.id === substrateId)
+    if (!substrate) return null
+    return {
+      name: substrate.name || "Unnamed substrate",
+      rigidity: substrate.substrateRigidity || "—",
+    }
+  }, [])
 
   const getSourceSuggestions = useCallback(
     (
@@ -3785,7 +3725,7 @@ export function ProcessesPage() {
 
       return suggestions
     },
-    [materials, selectedProcess, selectedStep, solutions],
+    [selectedProcess, selectedStep],
   )
 
   const displayedStages = useMemo(() => {
@@ -3798,98 +3738,11 @@ export function ProcessesPage() {
     }))
   }, [selectedProcess])
 
-  const visibleMaterialOptions = useMemo(
-    () =>
-      materials
-        .filter((material) => isEntityVisible("material", material.id))
-        .filter(
-          (material) =>
-            (material.category ?? "chemical_compound") !== "substrate_material",
-        )
-        .map((material) => ({
-          value: `material:${material.id}`,
-          label: material.name || "Unnamed material",
-        })),
-    [isEntityVisible, materials],
-  )
-
-  const visibleSubstrateOptions = useMemo(
-    () =>
-      materials
-        .filter(
-          (material) =>
-            material.category === "substrate_material" &&
-            isEntityVisible("material", material.id),
-        )
-        .map((material) => ({
-          value: material.id,
-          label: material.name || "Unnamed substrate",
-          rigidity: material.substrateRigidity,
-        })),
-    [isEntityVisible, materials],
-  )
-
-  const visibleSolutionOptions = useMemo(
-    () =>
-      solutions
-        .filter((solution) => isEntityVisible("solution", solution.id))
-        .map((solution) => ({
-          value: `solution:${solution.id}`,
-          label: solution.name || "Unnamed solution",
-        })),
-    [isEntityVisible, solutions],
-  )
-
-  const _sourceOptions = useMemo(
-    () => [
-      ...visibleMaterialOptions.map((option) => ({
-        ...option,
-        label: `Material: ${option.label}`,
-      })),
-      ...visibleSolutionOptions.map((option) => ({
-        ...option,
-        label: `Solution: ${option.label}`,
-      })),
-      { value: NEW_CHEMICAL_OPTION, label: "Add New Chemical" },
-      { value: NEW_COMMERCIAL_MIXTURE_OPTION, label: "Add New Com. Mixture" },
-      { value: NEW_SOLUTION_OPTION, label: "Add New Solution" },
-    ],
-    [visibleMaterialOptions, visibleSolutionOptions],
-  )
-
-  const _wetDepositionSourceOptions = useMemo(
-    () => [
-      ...visibleSolutionOptions.map((option) => ({
-        ...option,
-        label: `Solution: ${option.label}`,
-      })),
-      ...materials
-        .filter((material) => isEntityVisible("material", material.id))
-        .filter(
-          (material) =>
-            (material.category ?? "chemical_compound") !== "substrate_material",
-        )
-        .filter((material) => material.stateAtRt === "liquid")
-        .map((material) => ({
-          value: `material:${material.id}`,
-          label: `Material: ${material.name || "Unnamed material"}`,
-        })),
-      { value: NEW_CHEMICAL_OPTION, label: "Add New Chemical" },
-      { value: NEW_COMMERCIAL_MIXTURE_OPTION, label: "Add New Com. Mixture" },
-      { value: NEW_SOLUTION_OPTION, label: "Add New Solution" },
-    ],
-    [isEntityVisible, materials, visibleSolutionOptions],
-  )
-
-  const _getStepSourceValue = useCallback((step: ProcessStep) => {
-    if (step.materialId) {
-      return `material:${step.materialId}`
-    }
-    if (step.solutionId) {
-      return `solution:${step.solutionId}`
-    }
-    return null
-  }, [])
+  const visibleSubstrateOptions: {
+    value: string
+    label: string
+    rigidity?: string
+  }[] = []
 
   const getStepSourceLabel = useCallback(
     (step: ProcessStep) => {
@@ -3916,98 +3769,37 @@ export function ProcessesPage() {
       }
       return "No material"
     },
-    [materials, selectedProcess, solutions],
+    [selectedProcess],
   )
 
-  const _handleUpdateStepSource = (
-    stepId: string,
-    sourceValue: string | null,
-  ) => {
-    if (!selectedProcess) return
-
-    if (sourceValue === NEW_CHEMICAL_OPTION) {
-      launchLinkedCreation({
-        kind: "material",
-        route: "/materials",
-        materialCategory: "chemical_compound",
-        processAttachment: { target: "step-material", stepId },
-      })
-      return
-    }
-
-    if (sourceValue === NEW_COMMERCIAL_MIXTURE_OPTION) {
-      launchLinkedCreation({
-        kind: "material",
-        route: "/materials",
-        materialCategory: "commercial_mixture",
-        processAttachment: { target: "step-material", stepId },
-      })
-      return
-    }
-
-    if (sourceValue === NEW_SOLUTION_OPTION) {
-      launchLinkedCreation({
-        kind: "solution",
-        route: "/solutions",
-        processAttachment: { target: "step-solution", stepId },
-      })
-      return
-    }
-
-    const [kind, id] = sourceValue?.split(":") ?? []
-    const updated: Process = {
-      ...selectedProcess,
-      stages: selectedProcess.stages.map((stage) => ({
-        ...stage,
-        alternatives: stage.alternatives.map((step) =>
-          step.id === stepId
-            ? {
-                ...step,
-                materialId: kind === "material" ? id : undefined,
-                solutionId: kind === "solution" ? id : undefined,
-              }
-            : step,
-        ),
-      })),
-    }
-    setProcesses((prev) =>
-      prev.map((process) =>
-        process.id === selectedProcess.id ? updated : process,
-      ),
+  const getParameterFlowLines = useCallback((step: ProcessStep) => {
+    const lines = PROCESS_PARAMETER_DEFINITIONS.flatMap(
+      ({ key, label, unit }) => {
+        if (
+          key === "depositionMethod" ||
+          key === "depositionStartTime" ||
+          key === "annealingStartTime"
+        ) {
+          return []
+        }
+        const value = step[key]?.value?.trim()
+        if (!value) {
+          return []
+        }
+        if (key === "dryingMethod") {
+          // Use full human-readable quenching summary
+          const summary = summariseQuenchingValue(value, materials, solutions)
+          return [summary || `${label}: Set`]
+        }
+        return [`${label}: ${value}${unit ? ` ${unit}` : ""}`]
+      },
     )
-  }
 
-  const getParameterFlowLines = useCallback(
-    (step: ProcessStep) => {
-      const lines = PROCESS_PARAMETER_DEFINITIONS.flatMap(
-        ({ key, label, unit }) => {
-          if (
-            key === "depositionMethod" ||
-            key === "depositionStartTime" ||
-            key === "annealingStartTime"
-          ) {
-            return []
-          }
-          const value = step[key]?.value?.trim()
-          if (!value) {
-            return []
-          }
-          if (key === "dryingMethod") {
-            // Use full human-readable quenching summary
-            const summary = summariseQuenchingValue(value, materials, solutions)
-            return [summary || `${label}: Set`]
-          }
-          return [`${label}: ${value}${unit ? ` ${unit}` : ""}`]
-        },
-      )
-
-      if (lines.length === 0) {
-        return ["No parameters set"]
-      }
-      return lines
-    },
-    [materials, solutions],
-  )
+    if (lines.length === 0) {
+      return ["No parameters set"]
+    }
+    return lines
+  }, [])
 
   const selectedStepParameterSections = useMemo(() => {
     if (!selectedStep) {

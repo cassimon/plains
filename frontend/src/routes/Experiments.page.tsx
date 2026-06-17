@@ -34,7 +34,6 @@ import { autoResolveCollection } from "@/lib/autoResolveCollection"
 import type { CollectionConfirmParams } from "../components/SelectCollectionModal"
 import {
   type CanvasCollectionElement,
-  type DeviceArchitecture,
   type Experiment,
   getExperimentStatus,
   newExperiment,
@@ -1510,17 +1509,6 @@ function ExperimentTimeline({
 // Devices Tab
 // ─────────────────────────────────────────────────────────────────────────────
 
-const _ARCHITECTURE_OPTIONS: Array<{
-  value: DeviceArchitecture
-  label: string
-}> = [
-  { value: "n-i-p", label: "n-i-p (standard)" },
-  { value: "p-i-n", label: "p-i-n (inverted)" },
-  { value: "n-i-p-n", label: "n-i-p-n" },
-  { value: "p-i-n-p", label: "p-i-n-p" },
-  { value: "custom", label: "Custom" },
-]
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Outcomes Tab
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2460,14 +2448,11 @@ export default function ExperimentsPage() {
 
             {/* Three-step timeline */}
             {(() => {
-              const { materialIds, solutionItems } = collectChemicals(
-                selectedProcess,
-                materials,
-                solutions,
-              )
+              const { materialItems, solutionItems } =
+                collectChemicals(selectedProcess)
               const chemDone = computeChemsDone(
                 selectedExperiment.chemicalsPrep,
-                materialIds,
+                materialItems,
                 solutionItems,
               )
               const procDone = selectedExperiment.substrates.length > 0
@@ -2500,8 +2485,6 @@ export default function ExperimentsPage() {
                       <ChemicalsTab
                         experiment={selectedExperiment}
                         process={selectedProcess}
-                        materials={materials}
-                        solutions={solutions}
                         allExperiments={experiments}
                         onUpdate={handleUpdateExperiment}
                       />

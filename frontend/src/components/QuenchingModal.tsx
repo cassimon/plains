@@ -15,8 +15,7 @@ import {
   TextInput,
 } from "@mantine/core"
 import { IconX } from "@tabler/icons-react"
-import { useEffect, useMemo, useState } from "react"
-import { useAppContext, useEntityCollection } from "@/store/AppContext"
+import { useEffect, useState } from "react"
 
 // Wrappers that keep combobox dropdowns inside the Modal portal so they don't
 // trigger the modal close via outside-click / focus-trap detection.
@@ -464,37 +463,10 @@ function AntisolventForm({
   state: AntisolventState
   onChange: (s: AntisolventState) => void
 }) {
-  const { materials, solutions } = useAppContext()
-  const { isEntityOnActivePlane } = useEntityCollection()
-
-  const mediaOptions = useMemo(
-    () => [
-      {
-        group: "Materials",
-        items: materials
-          .filter((material) => isEntityOnActivePlane("material", material.id))
-          .filter(
-            (material) =>
-              (material.category ?? "chemical_compound") !==
-              "substrate_material",
-          )
-          .map((material) => {
-            const label = material.name || "Unnamed material"
-            return { value: `material:${material.id}`, label }
-          }),
-      },
-      {
-        group: "Solutions",
-        items: solutions
-          .filter((solution) => isEntityOnActivePlane("solution", solution.id))
-          .map((solution) => {
-            const label = solution.name || "Unnamed solution"
-            return { value: `solution:${solution.id}`, label }
-          }),
-      },
-    ],
-    [isEntityOnActivePlane, materials, solutions],
-  )
+  const mediaOptions: {
+    group: string
+    items: { value: string; label: string }[]
+  }[] = []
 
   function set(patch: Partial<AntisolventState>) {
     onChange({ ...state, ...patch })
@@ -832,8 +804,6 @@ export function DryingMethodInput({
   onChange,
 }: DryingMethodInputProps) {
   const [modalOpen, setModalOpen] = useState(false)
-  const { materials, solutions } = useAppContext()
-
   const hasValue = Boolean(param?.value?.trim())
 
   function handleApply(value: string) {
@@ -916,7 +886,7 @@ export function DryingMethodInput({
           styles={{ inner: { justifyContent: "flex-start" } }}
         >
           <Text size="xs" truncate style={{ maxWidth: "100%" }}>
-            {summariseQuenchingValue(param?.value ?? "", materials, solutions)}
+            {summariseQuenchingValue(param?.value ?? "", [], [])}
           </Text>
         </Button>
       </Box>

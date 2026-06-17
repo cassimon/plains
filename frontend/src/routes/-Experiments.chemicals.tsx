@@ -575,7 +575,7 @@ export function ChemicalsTab({
     updatePrep({
       solutionBatches: {
         ...prev,
-        [key]: { mode: "make", ...(prev[key] ?? {}), ...patch },
+        [key]: { ...{ mode: "make" as const }, ...(prev[key] ?? {}), ...patch },
       },
     })
   }
