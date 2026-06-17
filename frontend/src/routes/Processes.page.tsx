@@ -2643,9 +2643,13 @@ export function ProcessesPage() {
   >(null)
   const processedPendingRequestIdsRef = useRef<Set<string>>(new Set())
   const stackInvalidationByProcessRef = useRef<Map<string, string>>(new Map())
+  const pendingAutoTabRef = useRef<{
+    processId: string
+    tab: "chemistry" | "deposition" | "device"
+  } | null>(null)
   const [activeProcessTab, setActiveProcessTab] = useState<
     "chemistry" | "deposition" | "device"
-  >("deposition")
+  >("chemistry")
   const selectProcess = useCallback(
     (id: string | null) => {
       setActiveEntity(id ? { kind: "process", id } : null)
@@ -2695,9 +2699,10 @@ export function ProcessesPage() {
       }
     }
 
-    // Select the new process and land on the Chemistry tab
+    // Select the new process and land on the Chemistry tab.
+    // Store in ref so the tab is applied once selectedProcess is confirmed non-null.
+    pendingAutoTabRef.current = { processId: proc.id, tab: "chemistry" }
     selectProcess(proc.id)
-    setActiveProcessTab("chemistry")
   }, [
     pendingCollectionLink,
     setPendingCollectionLink,
@@ -2741,6 +2746,14 @@ export function ProcessesPage() {
     () => new Set<number>(selectedProcess?.deletedStackCombinations ?? []),
     [selectedProcess],
   )
+
+  // Apply any pending auto-tab once selectedProcess is confirmed visible
+  useEffect(() => {
+    if (!selectedProcess || !pendingAutoTabRef.current) return
+    if (pendingAutoTabRef.current.processId !== selectedProcess.id) return
+    setActiveProcessTab(pendingAutoTabRef.current.tab)
+    pendingAutoTabRef.current = null
+  }, [selectedProcess])
 
   // Clear persisted stacks only when stack-defining structure/source changes.
   // Parameter edits should not invalidate generated stacks.

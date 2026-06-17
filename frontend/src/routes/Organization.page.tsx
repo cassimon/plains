@@ -1482,18 +1482,27 @@ function useOnboardingLevel(): OnboardingLevel {
   }, [processes.length, experiments.length, results.length, planes])
 }
 
+const ONBOARDING_AUTO_DISMISS_MS = 9000
+
 function OnboardingBanner({ level }: { level: OnboardingLevel }) {
   const [dismissedLevel, setDismissedLevel] = useState<OnboardingLevel | null>(
     null,
   )
   const [visible, setVisible] = useState(false)
 
-  // Slide in after a short delay; reset when level advances
+  // Slide in from below after a short delay; auto-dismiss after a while; reset when level advances
   useEffect(() => {
     if (level === 4 || level === dismissedLevel) return
     setVisible(false)
-    const t = setTimeout(() => setVisible(true), 600)
-    return () => clearTimeout(t)
+    const slideIn = setTimeout(() => setVisible(true), 600)
+    const autoDismiss = setTimeout(
+      () => setDismissedLevel(level),
+      600 + ONBOARDING_AUTO_DISMISS_MS,
+    )
+    return () => {
+      clearTimeout(slideIn)
+      clearTimeout(autoDismiss)
+    }
   }, [level, dismissedLevel])
 
   if (level === 4 || level === dismissedLevel) return null
@@ -1506,9 +1515,9 @@ function OnboardingBanner({ level }: { level: OnboardingLevel }) {
     <Box
       style={{
         position: "absolute",
-        top: 14,
+        bottom: 20,
         left: "50%",
-        transform: `translateX(-50%) translateY(${visible ? "0" : "-18px"})`,
+        transform: `translateX(-50%) translateY(${visible ? "0" : "24px"})`,
         opacity: visible ? 1 : 0,
         transition: "transform 0.4s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.35s ease",
         zIndex: 200,
