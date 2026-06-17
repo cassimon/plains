@@ -4804,7 +4804,7 @@ function WelcomePlaneView() {
 
   const handleAddPlane = () => {
     const p = addPlane(`Plane ${planes.length + 1}`, user?.id)
-    setActivePlaneId(null)
+    setActivePlaneId(p.id)
     setNewPlaneEditingId(p.id)
   }
 
@@ -5242,7 +5242,7 @@ export function OrganizationPage() {
 
   const handleAddPlane = () => {
     const p = addPlane(`Plane ${planes.length + 1}`, user?.id)
-    setActivePlaneId(null)
+    setActivePlaneId(p.id)
     setNewPlaneEditingId(p.id)
   }
 
