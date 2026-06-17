@@ -1163,6 +1163,7 @@ function EmptyCellEl({
   visualY,
   isDragOver,
   planeId,
+  isFirstPlane,
   nextCollectionColor,
   onCreateNote,
   onCreateText,
@@ -1173,6 +1174,7 @@ function EmptyCellEl({
   visualY: number
   isDragOver: boolean
   planeId: string
+  isFirstPlane: boolean
   nextCollectionColor: () => string
   onCreateNote: () => void
   onCreateText: () => void
@@ -1185,7 +1187,8 @@ function EmptyCellEl({
   } = useAppContext()
   const navigate = useNavigate()
   const [isHovered, setIsHovered] = useState(false)
-  const obLevel = useOnboardingLevel()
+  const rawObLevel = useOnboardingLevel()
+  const obLevel: OnboardingLevel = isFirstPlane ? rawObLevel : 4
   const obNextKind = ONBOARDING_NEXT_KIND[obLevel]
 
   const createAndLink = (kind: CollectionRef["kind"]) => {
@@ -1578,6 +1581,7 @@ function OnboardingBanner({ level }: { level: OnboardingLevel }) {
 function CollectionEl({
   el,
   planeId,
+  isFirstPlane,
   onUpdate,
   onDelete,
   pan,
@@ -1591,6 +1595,7 @@ function CollectionEl({
 }: {
   el: CanvasCollectionElement
   planeId: string
+  isFirstPlane: boolean
   onUpdate: (e: CanvasElement) => void
   onDelete: () => void
   pan: Vec2
@@ -1616,7 +1621,8 @@ function CollectionEl({
     setActiveEntity,
     setPendingCollectionLink,
   } = useAppContext()
-  const obLevel = useOnboardingLevel()
+  const rawObLevel = useOnboardingLevel()
+  const obLevel: OnboardingLevel = isFirstPlane ? rawObLevel : 4
   const obNextKind = ONBOARDING_NEXT_KIND[obLevel]
   const isActive = activeCollectionId === el.id
   const navigate = useNavigate()
@@ -3365,6 +3371,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
   } = useAppContext()
 
   const obLevel = useOnboardingLevel()
+  const isFirstPlane = planes[0]?.id === plane.id
   const colorScheme = useComputedColorScheme("light")
   const isDark = colorScheme === "dark"
 
@@ -4361,6 +4368,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                         visualY={visualY}
                         isDragOver={isDragOver}
                         planeId={plane.id}
+                        isFirstPlane={isFirstPlane}
                         nextCollectionColor={nextCollectionColor}
                         onCreateNote={() => handleCreateNote(cellX, cellY)}
                         onCreateText={() => handleCreateText(cellX, cellY)}
@@ -4402,6 +4410,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                         key={el.id}
                         el={el as CanvasCollectionElement}
                         planeId={plane.id}
+                        isFirstPlane={isFirstPlane}
                         onUpdate={(updated) => updateElement(plane.id, updated)}
                         onDelete={() => deleteElement(plane.id, el.id)}
                         pan={elementPan}
@@ -4439,8 +4448,8 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               onDelete={(id) => deleteElement(plane.id, id)}
             />
 
-            {/* Onboarding guidance banner */}
-            <OnboardingBanner level={obLevel} />
+            {/* Onboarding guidance banner — only on the first plane */}
+            {isFirstPlane && <OnboardingBanner level={obLevel} />}
           </Box>
 
           {/* Horizontal scrollbar — only shown when elements overflow to the right */}
