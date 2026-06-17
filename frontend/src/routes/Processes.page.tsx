@@ -1011,21 +1011,24 @@ function parsePerovskiteSiteFormula(rawValue: string): {
     return { components: [] }
   }
 
+  // Ion name = letters only (no digits); coefficient is optional — "Pb" or "MA" → coefficient 1
   const componentRegex =
-    /(\([^)]+\)|[A-Za-z][A-Za-z0-9+-]*)(\d+(?:\.\d+)?|\.\d+)/g
+    /(\([^)]+\)|[A-Za-z]+)(\d+(?:\.\d+)?|\.\d+)?/g
   const components: Array<{ ion: string; coefficient: number }> = []
   let consumedUntil = 0
 
   let match = componentRegex.exec(compact)
   while (match) {
+    // Skip zero-length matches (can happen with optional groups)
+    if (match[0].length === 0) break
     if (match.index !== consumedUntil) {
       return {
         components: [],
         parseError:
-          "Invalid formula syntax. Use Ion+coefficient blocks, e.g. Cs0.1FA0.9",
+          "Invalid formula syntax. Use ion names optionally followed by a coefficient, e.g. MA, Cs0.1FA0.9",
       }
     }
-    const coefficient = Number(match[2])
+    const coefficient = match[2] !== undefined ? Number(match[2]) : 1
     if (!Number.isFinite(coefficient)) {
       return {
         components: [],
@@ -1044,7 +1047,7 @@ function parsePerovskiteSiteFormula(rawValue: string): {
     return {
       components: [],
       parseError:
-        "Invalid formula syntax. Use Ion+coefficient blocks, e.g. I0.75Br0.25",
+        "Invalid formula syntax. Use ion names optionally followed by a coefficient, e.g. I, I0.75Br0.25",
     }
   }
 
@@ -2033,8 +2036,12 @@ function ResultingStacks({
                                 borderRadius: 4,
                                 display: "flex",
                                 alignItems: "center",
-                                border: "1px solid rgba(0,0,0,0.1)",
+                                border:
+                                  isPerovskiteLayer && !isEditing
+                                    ? "2px dashed rgba(255,255,255,0.55)"
+                                    : "1px solid rgba(0,0,0,0.1)",
                                 padding: "0 8px",
+                                cursor: "pointer",
                               }}
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -2251,7 +2258,7 @@ function ResultingStacks({
                                     width: "100%",
                                     display: "flex",
                                     flexDirection: "column",
-                                    gap: 2,
+                                    gap: 4,
                                   }}
                                 >
                                   <Text
@@ -2263,23 +2270,95 @@ function ResultingStacks({
                                       textShadow: "0 1px 2px rgba(0,0,0,0.3)",
                                     }}
                                   >
-                                    Perovskite ABX3
+                                    Perovskite ABX₃
                                   </Text>
-                                  <Text
-                                    size="xs"
-                                    c={
-                                      hasPerovskiteErrors ? "#ffd8d8" : "white"
-                                    }
-                                    ta="center"
+                                  <Box
                                     style={{
-                                      opacity: 0.9,
-                                      textShadow: "0 1px 2px rgba(0,0,0,0.3)",
+                                      display: "flex",
+                                      justifyContent: "center",
+                                      gap: 4,
                                     }}
                                   >
-                                    A: {layer.perovskiteA || "-"} B:{" "}
-                                    {layer.perovskiteB || "-"} X:{" "}
-                                    {layer.perovskiteX || "-"}
-                                  </Text>
+                                    {(
+                                      [
+                                        {
+                                          label: "A",
+                                          value: layer.perovskiteA,
+                                          hasError:
+                                            (perovskiteValidation?.aErrors
+                                              .length ?? 0) > 0,
+                                        },
+                                        {
+                                          label: "B",
+                                          value: layer.perovskiteB,
+                                          hasError:
+                                            (perovskiteValidation?.bErrors
+                                              .length ?? 0) > 0,
+                                        },
+                                        {
+                                          label: "X",
+                                          value: layer.perovskiteX,
+                                          hasError:
+                                            (perovskiteValidation?.xErrors
+                                              .length ?? 0) > 0,
+                                        },
+                                      ] as {
+                                        label: string
+                                        value: string
+                                        hasError: boolean
+                                      }[]
+                                    ).map(({ label, value, hasError }) => (
+                                      <Box
+                                        key={label}
+                                        style={{
+                                          display: "flex",
+                                          flexDirection: "column",
+                                          alignItems: "center",
+                                          background: hasError
+                                            ? "rgba(255,100,100,0.25)"
+                                            : value
+                                              ? "rgba(255,255,255,0.2)"
+                                              : "rgba(255,255,255,0.08)",
+                                          border: hasError
+                                            ? "1px dashed #ff8787"
+                                            : value
+                                              ? "1px solid rgba(255,255,255,0.4)"
+                                              : "1px dashed rgba(255,255,255,0.35)",
+                                          borderRadius: 4,
+                                          padding: "1px 5px",
+                                          minWidth: 32,
+                                        }}
+                                      >
+                                        <Text
+                                          size="9px"
+                                          c="rgba(255,255,255,0.7)"
+                                          fw={700}
+                                          style={{ lineHeight: 1.1 }}
+                                        >
+                                          {label}
+                                        </Text>
+                                        <Text
+                                          size="xs"
+                                          c={
+                                            hasError
+                                              ? "#ffd8d8"
+                                              : value
+                                                ? "white"
+                                                : "rgba(255,255,255,0.4)"
+                                          }
+                                          fw={600}
+                                          style={{
+                                            lineHeight: 1.2,
+                                            fontStyle: value
+                                              ? "normal"
+                                              : "italic",
+                                          }}
+                                        >
+                                          {value || "…"}
+                                        </Text>
+                                      </Box>
+                                    ))}
+                                  </Box>
                                   {hasPerovskiteErrors && (
                                     <Text
                                       size="9px"
