@@ -1010,8 +1010,7 @@ function parsePerovskiteSiteFormula(rawValue: string): {
   }
 
   // Ion name = letters only (no digits); coefficient is optional — "Pb" or "MA" → coefficient 1
-  const componentRegex =
-    /(\([^)]+\)|[A-Za-z]+)(\d+(?:\.\d+)?|\.\d+)?/g
+  const componentRegex = /(\([^)]+\)|[A-Za-z]+)(\d+(?:\.\d+)?|\.\d+)?/g
   const components: Array<{ ion: string; coefficient: number }> = []
   let consumedUntil = 0
 

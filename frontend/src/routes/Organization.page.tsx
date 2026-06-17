@@ -1519,7 +1519,8 @@ function OnboardingBanner({ level }: { level: OnboardingLevel }) {
         left: "50%",
         transform: `translateX(-50%) translateY(${visible ? "0" : "24px"})`,
         opacity: visible ? 1 : 0,
-        transition: "transform 0.4s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.35s ease",
+        transition:
+          "transform 0.4s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.35s ease",
         zIndex: 200,
         maxWidth: 480,
         width: "calc(100% - 48px)",
@@ -1716,7 +1717,10 @@ function CollectionEl({
       }
       if (ref.kind === "experiment") {
         for (const result of results) {
-          if (result.experimentId === ref.id && !collectionRefIds.has(result.id)) {
+          if (
+            result.experimentId === ref.id &&
+            !collectionRefIds.has(result.id)
+          ) {
             let planeName = "(unknown)"
             let collectionName = "(unknown)"
             for (const p of planes) {
@@ -1770,8 +1774,8 @@ function CollectionEl({
         children: (
           <>
             <Text size="sm" mb="sm">
-              The following items outside this collection depend on its contents.
-              Remove those dependencies first.
+              The following items outside this collection depend on its
+              contents. Remove those dependencies first.
             </Text>
             <Table withTableBorder withColumnBorders mb="md" fz="xs">
               <Table.Thead>
@@ -4789,12 +4793,6 @@ function WelcomePlaneView() {
   >([])
   const [isSearching, setIsSearching] = useState(false)
   const [hoveredPlaneId, setHoveredPlaneId] = useState<string | null>(null)
-  const planesRef = useRef(planes)
-
-  useEffect(() => {
-    planesRef.current = planes
-  }, [planes])
-
   /** Count items referenced by collections on a given plane */
   const getPlaneItemCounts = (plane: Plane) => {
     const expIds = new Set<string>()
@@ -4834,41 +4832,55 @@ function WelcomePlaneView() {
 
   const reloadPlanes = useCallback(async () => {
     try {
-      const currentPlaneById = new Map(
-        planesRef.current.map((plane) => [plane.id, plane]),
-      )
       const response = await PlanesService.readPlanes({})
       if (response.data) {
-        // Convert PlanePublic (API) to Plane (AppContext)
-        const convertedPlanes = response.data.map((apiPlane) => {
-          // Create ApiPlane compatible object for the converter
-          const currentPlane = currentPlaneById.get(apiPlane.id)
-          const apiPlaneCompat = {
-            id: apiPlane.id,
-            name: apiPlane.name,
-            owner_id: apiPlane.owner_id,
-            owner: currentPlane?.owner,
-            created_at: apiPlane.created_at ?? null,
-            elements: (apiPlane.elements ?? []).map((e) => ({
-              id: e.id,
-              element_type: e.element_type,
-              x: e.x ?? 0,
-              y: e.y ?? 0,
-              width: e.width ?? 100,
-              height: e.height ?? 100,
-              content: e.content ?? null,
-              color: e.color ?? null,
-            })),
-            shared_with:
-              apiPlane.shared_with?.map((u) => ({
-                id: u.id,
-                email: u.email,
-                full_name: u.full_name ?? null,
-              })) ?? [],
-          }
-          return apiPlaneToPlane(apiPlaneCompat)
+        const serverData = response.data
+        setPlanes((prev) => {
+          const localById = new Map(prev.map((p) => [p.id, p]))
+          const serverIds = new Set(serverData.map((p) => p.id))
+          const converted = serverData.map((apiPlane) => {
+            const currentPlane = localById.get(apiPlane.id)
+            const apiPlaneCompat = {
+              id: apiPlane.id,
+              name: apiPlane.name,
+              owner_id: apiPlane.owner_id,
+              owner: currentPlane?.owner,
+              created_at: apiPlane.created_at ?? null,
+              elements: (apiPlane.elements ?? []).map((e) => ({
+                id: e.id,
+                element_type: e.element_type,
+                x: e.x ?? 0,
+                y: e.y ?? 0,
+                width: e.width ?? 100,
+                height: e.height ?? 100,
+                content: e.content ?? null,
+                color: e.color ?? null,
+              })),
+              shared_with:
+                apiPlane.shared_with?.map((u) => ({
+                  id: u.id,
+                  email: u.email,
+                  full_name: u.full_name ?? null,
+                })) ?? [],
+            }
+            const serverPlane = apiPlaneToPlane(apiPlaneCompat)
+            // For existing local planes: preserve elements (local is authoritative),
+            // and update name + sharing metadata from server.
+            if (currentPlane) {
+              return {
+                ...currentPlane,
+                name: serverPlane.name,
+                owner: serverPlane.owner,
+                sharedWith: serverPlane.sharedWith,
+              }
+            }
+            // New plane from server (e.g. shared by another user since last session)
+            return serverPlane
+          })
+          // Preserve local-only planes (created but not yet synced to server)
+          const localOnly = prev.filter((p) => !serverIds.has(p.id))
+          return [...converted, ...localOnly]
         })
-        setPlanes(convertedPlanes)
       }
     } catch (error) {
       console.error("Failed to reload planes:", error)

@@ -1297,6 +1297,7 @@ export function AppProvider({
 
   // ── Save trigger on data changes (debounced) ───────────────────────────────
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: planes/experiments/results/processes are intentional triggers — the effect body calls scheduleSave() which reads stateRef (always fresh), so values don't need to be used directly
   useEffect(() => {
     if (!loaded) {
       return
@@ -1306,7 +1307,7 @@ export function AppProvider({
       return
     }
     scheduleSave()
-  }, [loaded, scheduleSave])
+  }, [loaded, scheduleSave, planes, experiments, results, processes])
 
   // ── Periodic safety flush + unload / visibility watchdog ──────────────────
 

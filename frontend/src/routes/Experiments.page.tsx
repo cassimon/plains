@@ -1447,12 +1447,11 @@ function ExperimentTimeline({
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  background:
-                    done[step.id]
-                      ? "var(--mantine-color-teal-6)"
-                      : activeTab === step.id
-                        ? "var(--mantine-color-blue-6)"
-                        : "var(--mantine-color-gray-3)",
+                  background: done[step.id]
+                    ? "var(--mantine-color-teal-6)"
+                    : activeTab === step.id
+                      ? "var(--mantine-color-blue-6)"
+                      : "var(--mantine-color-gray-3)",
                   boxShadow:
                     activeTab === step.id
                       ? done[step.id]
