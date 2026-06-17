@@ -1483,7 +1483,21 @@ function useOnboardingLevel(): OnboardingLevel {
 }
 
 function OnboardingBanner({ level }: { level: OnboardingLevel }) {
-  if (level === 4) return null
+  const [dismissedLevel, setDismissedLevel] = useState<OnboardingLevel | null>(
+    null,
+  )
+  const [visible, setVisible] = useState(false)
+
+  // Slide in after a short delay; reset when level advances
+  useEffect(() => {
+    if (level === 4 || level === dismissedLevel) return
+    setVisible(false)
+    const t = setTimeout(() => setVisible(true), 600)
+    return () => clearTimeout(t)
+  }, [level, dismissedLevel])
+
+  if (level === 4 || level === dismissedLevel) return null
+
   const info = ONBOARDING_STEPS[level]
   const color = ONBOARDING_COLORS[level]
   const nextMeta = SIX_KINDS.find((k) => k.kind === ONBOARDING_NEXT_KIND[level])
@@ -1494,7 +1508,9 @@ function OnboardingBanner({ level }: { level: OnboardingLevel }) {
         position: "absolute",
         top: 14,
         left: "50%",
-        transform: "translateX(-50%)",
+        transform: `translateX(-50%) translateY(${visible ? "0" : "-18px"})`,
+        opacity: visible ? 1 : 0,
+        transition: "transform 0.4s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.35s ease",
         zIndex: 200,
         maxWidth: 480,
         width: "calc(100% - 48px)",
@@ -1533,6 +1549,16 @@ function OnboardingBanner({ level }: { level: OnboardingLevel }) {
               {info.body}
             </Text>
           </Box>
+          <ActionIcon
+            size="xs"
+            variant="subtle"
+            color="gray"
+            style={{ flexShrink: 0, marginTop: 1 }}
+            onClick={() => setDismissedLevel(level)}
+            aria-label="Dismiss"
+          >
+            <IconX size={12} />
+          </ActionIcon>
         </Group>
       </Paper>
     </Box>
@@ -1543,6 +1569,7 @@ function CollectionEl({
   el,
   planeId,
   onUpdate,
+  onDelete,
   pan,
   isDragOver,
   isDragging,
@@ -1555,6 +1582,7 @@ function CollectionEl({
   el: CanvasCollectionElement
   planeId: string
   onUpdate: (e: CanvasElement) => void
+  onDelete: () => void
   pan: Vec2
   isDragOver: boolean
   isDragging: boolean
@@ -1566,8 +1594,11 @@ function CollectionEl({
 }) {
   const {
     processes,
+    setProcesses,
     experiments,
+    setExperiments,
     results,
+    setResults,
     planes,
     activeCollectionId,
     setActiveCollectionId,
@@ -1656,6 +1687,126 @@ function CollectionEl({
   const commitName = () => {
     onUpdate({ ...el, name: nameBuffer.trim() || el.name })
     setEditingName(false)
+  }
+
+  const handleDeleteCollection = () => {
+    const collectionRefIds = new Set(el.refs.map((r) => r.id))
+
+    // Find blocking external dependencies (items outside this collection that reference items inside it)
+    const blockingDeps: DependencyLocation[] = []
+    for (const ref of el.refs) {
+      if (ref.kind === "process") {
+        const deps = getDependentLocations("process", ref.id, {
+          experiments,
+          processes,
+          planes,
+        })
+        for (const dep of deps) {
+          if (!collectionRefIds.has(dep.itemId)) blockingDeps.push(dep)
+        }
+      }
+      if (ref.kind === "experiment") {
+        for (const result of results) {
+          if (result.experimentId === ref.id && !collectionRefIds.has(result.id)) {
+            let planeName = "(unknown)"
+            let collectionName = "(unknown)"
+            for (const p of planes) {
+              for (const e of p.elements) {
+                if (
+                  e.type === "collection" &&
+                  (e as CanvasCollectionElement).refs.some(
+                    (r) => r.kind === "result" && r.id === result.id,
+                  )
+                ) {
+                  planeName = p.name
+                  collectionName = (e as CanvasCollectionElement).name
+                }
+              }
+            }
+            blockingDeps.push({
+              planeName,
+              collectionName,
+              itemKind: "result",
+              itemName: `Result (${result.id.slice(0, 6)}…)`,
+              itemId: result.id,
+            })
+          }
+        }
+      }
+    }
+
+    const doDelete = () => {
+      const processIds = new Set(
+        el.refs.filter((r) => r.kind === "process").map((r) => r.id),
+      )
+      const experimentIds = new Set(
+        el.refs.filter((r) => r.kind === "experiment").map((r) => r.id),
+      )
+      const resultIds = new Set(
+        el.refs.filter((r) => r.kind === "result").map((r) => r.id),
+      )
+      if (processIds.size)
+        setProcesses((prev) => prev.filter((p) => !processIds.has(p.id)))
+      if (experimentIds.size)
+        setExperiments((prev) => prev.filter((e) => !experimentIds.has(e.id)))
+      if (resultIds.size)
+        setResults((prev) => prev.filter((r) => !resultIds.has(r.id)))
+      setIsExpanded(false)
+      onDelete()
+    }
+
+    if (blockingDeps.length > 0) {
+      modals.open({
+        title: "Cannot delete collection",
+        children: (
+          <>
+            <Text size="sm" mb="sm">
+              The following items outside this collection depend on its contents.
+              Remove those dependencies first.
+            </Text>
+            <Table withTableBorder withColumnBorders mb="md" fz="xs">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Plane</Table.Th>
+                  <Table.Th>Collection</Table.Th>
+                  <Table.Th>Item</Table.Th>
+                  <Table.Th>Type</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {blockingDeps.map((dep, i) => (
+                  <Table.Tr key={`${dep.itemId}-${i}`}>
+                    <Table.Td>{dep.planeName}</Table.Td>
+                    <Table.Td>{dep.collectionName}</Table.Td>
+                    <Table.Td>{dep.itemName}</Table.Td>
+                    <Table.Td>
+                      <Text size="xs" c="dimmed" tt="capitalize">
+                        {dep.itemKind}
+                      </Text>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </>
+        ),
+      })
+      return
+    }
+
+    modals.openConfirmModal({
+      title: `Delete "${el.name}"?`,
+      children: (
+        <Text size="sm">
+          This will permanently delete the collection and all{" "}
+          <strong>{el.refs.length}</strong> item
+          {el.refs.length !== 1 ? "s" : ""} within it. This cannot be undone.
+        </Text>
+      ),
+      labels: { confirm: "Delete", cancel: "Cancel" },
+      confirmProps: { color: "red" },
+      onConfirm: doDelete,
+    })
   }
 
   const handleBubbleClick = (kind: CollectionRef["kind"]) => {
@@ -2332,6 +2483,22 @@ function CollectionEl({
                     }}
                   >
                     <IconSeparatorVertical size={10} />
+                  </ActionIcon>
+                </Tooltip>
+              )}
+              {el.refs.length > 0 && (
+                <Tooltip label="Delete collection" withArrow openDelay={400}>
+                  <ActionIcon
+                    size="xs"
+                    variant="subtle"
+                    color="red"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDeleteCollection()
+                    }}
+                  >
+                    <IconTrash size={10} />
                   </ActionIcon>
                 </Tooltip>
               )}
@@ -3491,15 +3658,19 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
 
               updatePlane({
                 ...plane,
-                elements: plane.elements.map((e) => {
-                  if (e.id === source.id && e.type === "collection") {
-                    return { ...e, refs: nextSourceRefs }
-                  }
-                  if (e.id === target.id && e.type === "collection") {
-                    return { ...e, refs: nextTargetRefs }
-                  }
-                  return e
-                }),
+                elements: plane.elements
+                  .filter(
+                    (e) => !(e.id === source.id && nextSourceRefs.length === 0),
+                  )
+                  .map((e) => {
+                    if (e.id === source.id && e.type === "collection") {
+                      return { ...e, refs: nextSourceRefs }
+                    }
+                    if (e.id === target.id && e.type === "collection") {
+                      return { ...e, refs: nextTargetRefs }
+                    }
+                    return e
+                  }),
               })
             },
           })
@@ -3517,15 +3688,19 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
 
           updatePlane({
             ...plane,
-            elements: plane.elements.map((e) => {
-              if (e.id === source.id && e.type === "collection") {
-                return { ...e, refs: nextSourceRefs }
-              }
-              if (e.id === target.id && e.type === "collection") {
-                return { ...e, refs: nextTargetRefs }
-              }
-              return e
-            }),
+            elements: plane.elements
+              .filter(
+                (e) => !(e.id === source.id && nextSourceRefs.length === 0),
+              )
+              .map((e) => {
+                if (e.id === source.id && e.type === "collection") {
+                  return { ...e, refs: nextSourceRefs }
+                }
+                if (e.id === target.id && e.type === "collection") {
+                  return { ...e, refs: nextTargetRefs }
+                }
+                return e
+              }),
           })
         }
       }
@@ -3608,16 +3783,14 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
         color,
         refs: refsToMove,
       }
-      updatePlane({
-        ...plane,
-        elements: [
-          ...plane.elements.map((e) => {
-            if (e.id === source.id) return { ...e, refs: nextSourceRefs }
-            return e
-          }),
-          newEl,
-        ],
-      })
+      const baseElements =
+        nextSourceRefs.length === 0
+          ? plane.elements.filter((e) => e.id !== source.id)
+          : plane.elements.map((e) => {
+              if (e.id === source.id) return { ...e, refs: nextSourceRefs }
+              return e
+            })
+      updatePlane({ ...plane, elements: [...baseElements, newEl] })
       setActiveCollectionId(newEl.id)
     }
   }
@@ -4217,6 +4390,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                         el={el as CanvasCollectionElement}
                         planeId={plane.id}
                         onUpdate={(updated) => updateElement(plane.id, updated)}
+                        onDelete={() => deleteElement(plane.id, el.id)}
                         pan={elementPan}
                         isDragOver={
                           isDragOver && draggingCollectionId !== el.id
