@@ -2094,34 +2094,97 @@ function ResultsDetail({
       lastArchivePath,
       filesCount: results.files.length,
       deviceGroupsCount: results.deviceGroups.length,
+      uploadedFilesCount: uploadedFiles.length,
     })
-
-    if (!lastArchivePath) {
-      console.warn(
-        "[handlePrepareUpload] no server archive path — the file upload to the backend " +
-          "may have failed or not yet completed when the files were dropped. " +
-          "Check earlier console errors from handleDrop.",
-      )
-      notifications.show({
-        title: "No Archive",
-        message: "Please upload files first",
-        color: "orange",
-      })
-      return false
-    }
 
     setPreparingUpload(true)
     try {
+      let archivePath = lastArchivePath
+
+      if (!archivePath) {
+        // The drop-time upload may have failed (e.g. too many multipart fields).
+        // Retry it here so the button is the reliable trigger.
+        if (uploadedFiles.length === 0) {
+          console.warn(
+            "[handlePrepareUpload] no archive and no files to upload",
+          )
+          notifications.show({
+            title: "No Files",
+            message: "Please drop your result files first, then try again",
+            color: "orange",
+          })
+          return false
+        }
+
+        console.log(
+          "[handlePrepareUpload] no existing archive — uploading files now",
+          {
+            fileCount: uploadedFiles.length,
+          },
+        )
+        const form = new FormData()
+        form.append("experiment_id", experiment.id)
+        form.append("experiment_name", experiment.name)
+        for (const f of uploadedFiles) {
+          form.append("files", f)
+        }
+        const uploadToken =
+          typeof OpenAPI.TOKEN === "function"
+            ? await OpenAPI.TOKEN({} as any)
+            : (OpenAPI.TOKEN ?? undefined)
+        const uploadRes = await fetch(
+          `${OpenAPI.BASE}/api/v1/nomad/upload/files`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${uploadToken}` },
+            body: form,
+          },
+        )
+        if (!uploadRes.ok) {
+          const text = await uploadRes.text()
+          console.error(
+            "[handlePrepareUpload] file upload failed",
+            uploadRes.status,
+            text,
+          )
+          notifications.show({
+            title: "Upload Error",
+            message: `File upload failed: ${uploadRes.status} — ${text}`,
+            color: "red",
+          })
+          return false
+        }
+        const uploadData = (await uploadRes.json()) as {
+          archive_path?: string
+        }
+        if (!uploadData?.archive_path) {
+          console.warn(
+            "[handlePrepareUpload] file upload returned no archive_path",
+            uploadData,
+          )
+          notifications.show({
+            title: "Upload Error",
+            message: "Server did not return an archive path",
+            color: "red",
+          })
+          return false
+        }
+        archivePath = uploadData.archive_path
+        setLastArchivePath(archivePath)
+        console.log("[handlePrepareUpload] archive created", { archivePath })
+      }
+
+      // Add YAML metadata to the archive
       const requestData = buildNomadUploadRequest()
       console.log("[handlePrepareUpload] sending metadata request", {
-        archivePath: lastArchivePath,
+        archivePath,
         measurementFiles: requestData.measurement_files.length,
         deviceGroups: requestData.device_groups.length,
         ignoredFiles: requestData.ignored_files?.length ?? 0,
       })
 
       const formData = new FormData()
-      formData.append("archive_path", lastArchivePath)
+      formData.append("archive_path", archivePath)
       formData.append("request_json", JSON.stringify(requestData))
 
       const token =
@@ -2137,7 +2200,7 @@ function ResultsDetail({
         body: formData,
       })
 
-      console.log("[handlePrepareUpload] backend response", {
+      console.log("[handlePrepareUpload] metadata response", {
         status: res.status,
         ok: res.ok,
       })
@@ -2145,7 +2208,7 @@ function ResultsDetail({
       if (!res.ok) {
         const text = await res.text()
         console.error(
-          "[handlePrepareUpload] backend returned error",
+          "[handlePrepareUpload] metadata endpoint error",
           res.status,
           text,
         )
@@ -2162,9 +2225,7 @@ function ResultsDetail({
         const data = (await res.json()) as { metadata_file_count?: number }
         metadataFileCount = data.metadata_file_count || 0
       } catch (_err) {
-        // Some successful backend/proxy paths can return an empty or
-        // non-JSON body after writing the archive. Treat the 2xx status as
-        // authoritative so the workflow can still advance.
+        // Treat 2xx as authoritative even if body is not JSON.
       }
 
       console.log("[handlePrepareUpload] success", { metadataFileCount })
@@ -2190,9 +2251,12 @@ function ResultsDetail({
     }
   }, [
     buildNomadUploadRequest,
+    experiment.id,
+    experiment.name,
     lastArchivePath,
     results.deviceGroups.length,
     results.files.length,
+    uploadedFiles,
   ])
 
   const handleUploadToNomad = useCallback(async () => {

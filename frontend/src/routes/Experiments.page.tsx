@@ -458,6 +458,22 @@ function ExperimentGrid({
   )
   const nameInputRefs = React.useRef<Array<HTMLInputElement | null>>([])
 
+  // Pre-create stable ref callbacks so Mantine's useMergedRef doesn't see a new
+  // function on every render (which would recreate its merged ref and trigger
+  // React's assignRefs → mergeRefs cycle for every re-render).
+  // Only recreate when the number of substrates changes, not on every edit.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally keyed only on length
+  const nameRefCallbacks = React.useMemo(
+    () =>
+      experiment.substrates.map(
+        (_substrate, idx) => (node: HTMLInputElement | null) => {
+          nameInputRefs.current[idx] = node
+        },
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [experiment.substrates.length],
+  )
+
   const stepDisplayById = React.useMemo(() => {
     const map = new Map<string, string>()
     process.stages.forEach((stage) => {
@@ -1199,7 +1215,7 @@ function ExperimentGrid({
               </tr>
             </thead>
             <tbody>
-              {experiment.substrates.map((substrate) => (
+              {experiment.substrates.map((substrate, substrateIndex) => (
                 <tr
                   key={substrate.id}
                   style={{
@@ -1232,13 +1248,7 @@ function ExperimentGrid({
                     }}
                   >
                     <DeferredTextInput
-                      ref={(node) => {
-                        nameInputRefs.current[
-                          experiment.substrates.findIndex(
-                            (s) => s.id === substrate.id,
-                          )
-                        ] = node
-                      }}
+                      ref={nameRefCallbacks[substrateIndex]}
                       size="xs"
                       value={substrate.name}
                       onBlur={(value) =>
@@ -1813,6 +1823,12 @@ export default function ExperimentsPage() {
   // Track processed pending request IDs to avoid double-firing
   const processedPendingRequestIdsRef = useRef(new Set<string>())
 
+  // Keep planes in a ref so the pendingCollectionLink effect can read the latest
+  // planes without depending on them (the effect calls updateElement which modifies
+  // planes, which would otherwise cause the effect to re-run unnecessarily).
+  const planesRef = useRef(planes)
+  planesRef.current = planes
+
   // Auto-create experiment + link to collection when navigated from action bubble
   React.useEffect(() => {
     if (!pendingCollectionLink || pendingCollectionLink.kind !== "experiment") {
@@ -1838,7 +1854,7 @@ export default function ExperimentsPage() {
     setActiveExpTab("chemicals")
 
     // Link back to collection
-    const plane = planes.find((p) => p.id === planeId)
+    const plane = planesRef.current.find((p) => p.id === planeId)
     if (plane) {
       const col = plane.elements.find((e) => e.id === collectionId)
       if (col && col.type === "collection") {
@@ -1853,7 +1869,6 @@ export default function ExperimentsPage() {
     setPendingCollectionLink,
     processes,
     setExperiments,
-    planes,
     updateElement,
   ])
 
@@ -1895,6 +1910,12 @@ export default function ExperimentsPage() {
   const experimentsRef = useRef(experiments)
   experimentsRef.current = experiments
 
+  // Keep a ref so effect 4 can read the latest activeEntity without taking it
+  // as a dep — adding activeEntity to effect 4 deps would re-trigger the effect
+  // whenever effect 3 sets a new activeEntity object, causing an extra cycle.
+  const activeEntityRef = useRef(activeEntity)
+  activeEntityRef.current = activeEntity
+
   React.useEffect(() => {
     if (activeEntity?.kind !== "experiment") {
       return
@@ -1907,6 +1928,14 @@ export default function ExperimentsPage() {
 
   React.useEffect(() => {
     if (!selectedExpId) {
+      return
+    }
+    // Guard: skip if activeEntity already reflects this experiment to prevent
+    // the effect-3 ↔ effect-4 feedback loop from causing excessive re-renders.
+    if (
+      activeEntityRef.current?.kind === "experiment" &&
+      activeEntityRef.current.id === selectedExpId
+    ) {
       return
     }
     setActiveEntity({ kind: "experiment", id: selectedExpId })

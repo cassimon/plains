@@ -3,10 +3,16 @@ import logging
 import sentry_sdk
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
+from starlette.formparsers import MultiPartParser
 from starlette.middleware.cors import CORSMiddleware
 
 from app.api.main import api_router
 from app.core.config import settings
+
+# Allow large multipart uploads (many files at once). python-multipart
+# defaults to 1000 fields which breaks when researchers drop 1000+ measurement
+# files in a single drag-and-drop operation.
+MultiPartParser.max_fields = 100_000
 
 logging.basicConfig(level=logging.INFO)
 

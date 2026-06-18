@@ -1196,7 +1196,10 @@ export function AppProvider({
   >({})
   const updateLastSelected = useCallback(
     (kind: "experiment" | "process", id: string) => {
-      setLastSelectedByKind((prev) => ({ ...prev, [kind]: id }))
+      setLastSelectedByKind((prev) => {
+        if (prev[kind] === id) return prev
+        return { ...prev, [kind]: id }
+      })
     },
     [],
   )
