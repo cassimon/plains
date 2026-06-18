@@ -38,6 +38,7 @@ import {
 } from "@tabler/icons-react"
 import { useBlocker } from "@tanstack/react-router"
 import {
+  type CSSProperties,
   Fragment,
   useCallback,
   useEffect,
@@ -65,6 +66,10 @@ import {
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
+
+// Reserved assignedSubstrateId values for special file categories
+const IGNORE_SUBSTRATE_ID = "__ignore__"
+const GENERAL_INFO_SUBSTRATE_ID = "__general_info__"
 
 // Type for NOMAD upload request (not exported in generated types because it's a Form field)
 type NomadUploadRequest = {
@@ -107,6 +112,7 @@ type NomadUploadRequest = {
   }>
   notes?: string
   custom_metadata?: Record<string, any>
+  ignored_files?: string[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -896,6 +902,241 @@ function SubstrateCard({
                         ? `${file.value.toFixed(2)}%`
                         : "—"}
                     </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Tooltip label="Move to unmatched" withArrow>
+                      <ActionIcon
+                        size="xs"
+                        variant="subtle"
+                        color="red"
+                        onClick={() => onUnmatchFile(file.id)}
+                      >
+                        <IconX size={12} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Box>
+      )}
+    </Paper>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Special Category Card — Ignore / General Info
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SpecialCategoryCard({
+  label,
+  description,
+  accentColor,
+  files,
+  onUnmatchFile,
+  onUnmatchFiles,
+  onDeleteFiles,
+  onDropFile,
+  onDropGroup,
+  onDragEnter,
+  onDragLeave,
+  isDropTarget,
+  expanded,
+  onToggleExpand,
+  selectedFileIds,
+  onToggleSelectFile,
+  onToggleSelectAll,
+}: {
+  label: string
+  description: string
+  accentColor: string
+  files: MeasurementFile[]
+  onUnmatchFile: (fileId: string) => void
+  onUnmatchFiles: (fileIds: string[]) => void
+  onDeleteFiles: (fileIds: string[]) => void
+  onDropFile: (fileId: string) => void
+  onDropGroup: (groupId: string) => void
+  onDragEnter: () => void
+  onDragLeave: () => void
+  isDropTarget: boolean
+  expanded: boolean
+  onToggleExpand: () => void
+  selectedFileIds: Set<string>
+  onToggleSelectFile: (fileId: string, checked: boolean) => void
+  onToggleSelectAll: (checked: boolean) => void
+}) {
+  const selectedCount = files.filter((f) => selectedFileIds.has(f.id)).length
+  const allSelected = files.length > 0 && selectedCount === files.length
+
+  return (
+    <Paper
+      withBorder
+      p="sm"
+      radius="md"
+      onDragOver={(e) => {
+        e.preventDefault()
+        onDragEnter()
+      }}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => {
+        e.preventDefault()
+        const data = e.dataTransfer.getData("text/plain")
+        if (data) {
+          if (data.startsWith("group:")) {
+            onDropGroup(data.substring(6))
+          } else {
+            onDropFile(data)
+          }
+        }
+        onDragLeave()
+      }}
+      style={{
+        borderStyle: "dashed",
+        borderColor: isDropTarget
+          ? `var(--mantine-color-${accentColor}-5)`
+          : `var(--mantine-color-${accentColor}-4)`,
+        background: isDropTarget
+          ? `var(--mantine-color-${accentColor}-0)`
+          : undefined,
+      }}
+    >
+      <Group justify="space-between" mb="xs">
+        <Group gap="sm">
+          <ActionIcon variant="subtle" size="sm" onClick={onToggleExpand}>
+            {expanded ? (
+              <IconChevronDown size={14} />
+            ) : (
+              <IconChevronRight size={14} />
+            )}
+          </ActionIcon>
+          <div>
+            <Text fw={600} size="sm">
+              {label}
+            </Text>
+            <Text size="xs" c="dimmed">
+              {description}
+            </Text>
+          </div>
+        </Group>
+        <Badge
+          size="xs"
+          variant="light"
+          color={files.length > 0 ? accentColor : "gray"}
+        >
+          {files.length} file{files.length !== 1 ? "s" : ""}
+        </Badge>
+      </Group>
+
+      {expanded && files.length > 0 && (
+        <Box mt="sm" pl="xl">
+          <Group justify="space-between" mb="xs">
+            <Group gap="xs">
+              <Checkbox
+                size="xs"
+                checked={allSelected}
+                indeterminate={
+                  selectedCount > 0 && selectedCount < files.length
+                }
+                onChange={(e) => onToggleSelectAll(e.currentTarget.checked)}
+                aria-label={`Select all files in ${label}`}
+              />
+              <Text size="xs" c="dimmed">
+                {selectedCount} selected
+              </Text>
+            </Group>
+            <Group gap="xs">
+              <Button
+                size="xs"
+                variant="light"
+                disabled={selectedCount === 0}
+                onClick={() =>
+                  onUnmatchFiles(
+                    files
+                      .filter((f) => selectedFileIds.has(f.id))
+                      .map((f) => f.id),
+                  )
+                }
+              >
+                Move {selectedCount} to unmatched
+              </Button>
+              <Button
+                size="xs"
+                color="red"
+                variant="light"
+                disabled={selectedCount === 0}
+                onClick={() =>
+                  onDeleteFiles(
+                    files
+                      .filter((f) => selectedFileIds.has(f.id))
+                      .map((f) => f.id),
+                  )
+                }
+              >
+                Delete {selectedCount}
+              </Button>
+            </Group>
+          </Group>
+          <Table striped>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th style={{ width: 36 }} />
+                <Table.Th>File</Table.Th>
+                <Table.Th>Type</Table.Th>
+                <Table.Th style={{ width: 40 }} />
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {files.map((file) => (
+                <Table.Tr
+                  key={file.id}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("text/plain", file.id)
+                    e.dataTransfer.effectAllowed = "move"
+                  }}
+                  style={{ cursor: "grab" }}
+                >
+                  <Table.Td>
+                    <Checkbox
+                      size="xs"
+                      checked={selectedFileIds.has(file.id)}
+                      onChange={(e) =>
+                        onToggleSelectFile(file.id, e.currentTarget.checked)
+                      }
+                      aria-label={`Select file ${file.fileName}`}
+                    />
+                  </Table.Td>
+                  <Table.Td style={{ maxWidth: 260 }}>
+                    <Tooltip
+                      label={file.fileName}
+                      position="top-start"
+                      withArrow
+                      openDelay={300}
+                    >
+                      <Group
+                        gap={4}
+                        wrap="nowrap"
+                        style={{ overflow: "hidden" }}
+                      >
+                        <IconFile size={14} style={{ flexShrink: 0 }} />
+                        <Text
+                          size="xs"
+                          style={{
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            maxWidth: 220,
+                            cursor: "default",
+                          }}
+                        >
+                          {file.fileName}
+                        </Text>
+                      </Group>
+                    </Tooltip>
+                  </Table.Td>
+                  <Table.Td>
+                    <FileTypeBadge type={file.fileType} />
                   </Table.Td>
                   <Table.Td>
                     <Tooltip label="Move to unmatched" withArrow>
@@ -1767,9 +2008,31 @@ function ResultsDetail({
     name: s.name,
   }))
 
+  const allAssignTargets = [
+    ...substrates,
+    { id: IGNORE_SUBSTRATE_ID, name: "Ignore" },
+    { id: GENERAL_INFO_SUBSTRATE_ID, name: "General Info" },
+  ]
+
   const buildNomadUploadRequest = useCallback((): NomadUploadRequest => {
     const linkedProcess =
       processes.find((p) => p.id === experiment.processId) ?? null
+
+    // Collect file names that should be stripped from the archive entirely
+    const ignoredFileNames = new Set(
+      results.deviceGroups
+        .filter((g) => g.assignedSubstrateId === IGNORE_SUBSTRATE_ID)
+        .flatMap((g) => g.files.map((f) => f.fileName)),
+    )
+
+    // Active device groups: exclude Ignore and General Info (no substrate metadata)
+    const activeDeviceGroups = results.deviceGroups.filter(
+      (g) =>
+        g.assignedSubstrateId !== null &&
+        g.assignedSubstrateId !== IGNORE_SUBSTRATE_ID &&
+        g.assignedSubstrateId !== GENERAL_INFO_SUBSTRATE_ID,
+    )
+
     return {
       experiment_id: experiment.id,
       experiment_name: experiment.name,
@@ -1778,20 +2041,23 @@ function ResultsDetail({
         process: linkedProcess,
       },
       substrates,
-      measurement_files: results.files.map((f) => ({
-        fileName: f.fileName,
-        fileType: f.fileType,
-        deviceName: f.deviceName,
-        cell: f.cell,
-        pixel: f.pixel,
-        value: f.value,
-        voc: f.voc,
-        jsc: f.jsc,
-        ff: f.ff,
-        user: f.user,
-        measurementDate: f.measurementDate,
-      })),
-      device_groups: results.deviceGroups.map((g) => ({
+      // General Info files stay in archive (not filtered here), only Ignore files removed
+      measurement_files: results.files
+        .filter((f) => !ignoredFileNames.has(f.fileName))
+        .map((f) => ({
+          fileName: f.fileName,
+          fileType: f.fileType,
+          deviceName: f.deviceName,
+          cell: f.cell,
+          pixel: f.pixel,
+          value: f.value,
+          voc: f.voc,
+          jsc: f.jsc,
+          ff: f.ff,
+          user: f.user,
+          measurementDate: f.measurementDate,
+        })),
+      device_groups: activeDeviceGroups.map((g) => ({
         id: g.id,
         deviceName: g.deviceName,
         assignedSubstrateId: g.assignedSubstrateId ?? undefined,
@@ -1809,6 +2075,7 @@ function ResultsDetail({
           measurementDate: f.measurementDate,
         })),
       })),
+      ignored_files: Array.from(ignoredFileNames),
     }
   }, [experiment, processes, results.deviceGroups, results.files, substrates])
 
@@ -2213,11 +2480,16 @@ function ResultsDetail({
 
     setSelectedSubstrateFileIdsBySubstrate((prev) => {
       const next: Record<string, Set<string>> = {}
-      for (const substrate of experiment.substrates) {
-        const currentSelection = prev[substrate.id] ?? new Set<string>()
+      const allCategoryIds = [
+        ...experiment.substrates.map((s) => s.id),
+        IGNORE_SUBSTRATE_ID,
+        GENERAL_INFO_SUBSTRATE_ID,
+      ]
+      for (const catId of allCategoryIds) {
+        const currentSelection = prev[catId] ?? new Set<string>()
         const currentFileIds = new Set(
           results.deviceGroups
-            .filter((g) => g.assignedSubstrateId === substrate.id)
+            .filter((g) => g.assignedSubstrateId === catId)
             .flatMap((g) => g.files.map((f) => f.id)),
         )
         const filtered = new Set<string>()
@@ -2226,7 +2498,7 @@ function ResultsDetail({
             filtered.add(id)
           }
         }
-        next[substrate.id] = filtered
+        next[catId] = filtered
       }
       return next
     })
@@ -2429,88 +2701,6 @@ function ResultsDetail({
             <Paper withBorder radius="md" p="md">
               {isResultsCardOpen && (
                 <>
-                  <Paper
-                    withBorder
-                    p="xs"
-                    radius="md"
-                    style={{ background: "var(--mantine-color-gray-0)" }}
-                  >
-                    <Group justify="space-between" align="center">
-                      <Text
-                        size="sm"
-                        fw={600}
-                        c={
-                          workflowStep === 2 && totalUnmatchedFiles > 0
-                            ? "red"
-                            : undefined
-                        }
-                      >
-                        {instructionText}
-                      </Text>
-                      <Group gap="xs">
-                        {workflowStep === 1 && (
-                          <Button
-                            size="xs"
-                            disabled={results.files.length === 0}
-                            onClick={() => goToStep(2)}
-                          >
-                            Next
-                          </Button>
-                        )}
-                        {workflowStep === 2 && totalUnmatchedFiles > 0 && (
-                          <Button size="xs" disabled>
-                            Assign unmatched first
-                          </Button>
-                        )}
-                        {workflowStep === 2 && totalUnmatchedFiles === 0 && (
-                          <Button
-                            size="xs"
-                            color="green"
-                            onClick={() => {
-                              void (async () => {
-                                if (reviewConfirmed) {
-                                  setWorkflowStep(3)
-                                  return
-                                }
-
-                                await handlePrepareUpload()
-                              })()
-                            }}
-                            loading={preparingUpload}
-                            disabled={preparingUpload}
-                          >
-                            {preparingUpload
-                              ? "Preparing upload..."
-                              : "Confirm review and proceed"}
-                          </Button>
-                        )}
-                        {workflowStep === 3 && (
-                          <Button
-                            size="xs"
-                            color="green"
-                            leftSection={
-                              nomadUploading ? (
-                                <Loader size={14} color="white" />
-                              ) : (
-                                <IconCloudUpload size={14} />
-                              )
-                            }
-                            disabled={
-                              nomadUploading ||
-                              !nomadConfig?.enabled ||
-                              !canOpenUpload
-                            }
-                            onClick={handleUploadToNomad}
-                          >
-                            {nomadUploading
-                              ? "Uploading..."
-                              : "Upload data to NOMAD"}
-                          </Button>
-                        )}
-                      </Group>
-                    </Group>
-                  </Paper>
-
                   <Group gap={0} align="center" wrap="nowrap" mb="md">
                     {(
                       [
@@ -2613,6 +2803,89 @@ function ResultsDetail({
                     ))}
                   </Group>
 
+                  <Paper
+                    withBorder
+                    p="xs"
+                    radius="md"
+                    mb="md"
+                    style={{ background: "var(--mantine-color-gray-0)" }}
+                  >
+                    <Group justify="space-between" align="center">
+                      <Text
+                        size="sm"
+                        fw={600}
+                        c={
+                          workflowStep === 2 && totalUnmatchedFiles > 0
+                            ? "red"
+                            : undefined
+                        }
+                      >
+                        {instructionText}
+                      </Text>
+                      <Group gap="xs">
+                        {workflowStep === 1 && (
+                          <Button
+                            size="xs"
+                            disabled={results.files.length === 0}
+                            onClick={() => goToStep(2)}
+                          >
+                            Next
+                          </Button>
+                        )}
+                        {workflowStep === 2 && totalUnmatchedFiles > 0 && (
+                          <Button size="xs" disabled>
+                            Assign unmatched first
+                          </Button>
+                        )}
+                        {workflowStep === 2 && totalUnmatchedFiles === 0 && (
+                          <Button
+                            size="xs"
+                            color="green"
+                            onClick={() => {
+                              void (async () => {
+                                if (reviewConfirmed) {
+                                  setWorkflowStep(3)
+                                  return
+                                }
+
+                                await handlePrepareUpload()
+                              })()
+                            }}
+                            loading={preparingUpload}
+                            disabled={preparingUpload}
+                          >
+                            {preparingUpload
+                              ? "Preparing upload..."
+                              : "Confirm review and proceed"}
+                          </Button>
+                        )}
+                        {workflowStep === 3 && (
+                          <Button
+                            size="xs"
+                            color="green"
+                            leftSection={
+                              nomadUploading ? (
+                                <Loader size={14} color="white" />
+                              ) : (
+                                <IconCloudUpload size={14} />
+                              )
+                            }
+                            disabled={
+                              nomadUploading ||
+                              !nomadConfig?.enabled ||
+                              !canOpenUpload
+                            }
+                            onClick={handleUploadToNomad}
+                          >
+                            {nomadUploading
+                              ? "Uploading..."
+                              : "Upload data to NOMAD"}
+                          </Button>
+                        )}
+                      </Group>
+                    </Group>
+                  </Paper>
+
                   <Box style={{ flex: 1, minWidth: 0 }}>
                     {workflowStep === 1 && (
                       <Stack gap="xs">
@@ -2631,18 +2904,24 @@ function ResultsDetail({
                             "image/tiff",
                           ]}
                           maxSize={50 * 1024 ** 2}
-                          style={{
-                            borderStyle: "dashed",
-                            borderWidth: 2,
-                            borderColor:
-                              results.files.length > 0
-                                ? "var(--mantine-color-green-4)"
-                                : "var(--mantine-color-gray-4)",
-                            background:
-                              results.files.length > 0
-                                ? "var(--mantine-color-green-0)"
-                                : "var(--mantine-color-gray-0)",
-                          }}
+                          style={
+                            {
+                              borderStyle: "dashed",
+                              borderWidth: 2,
+                              borderColor:
+                                results.files.length > 0
+                                  ? "var(--mantine-color-green-4)"
+                                  : "var(--mantine-color-gray-4)",
+                              background:
+                                results.files.length > 0
+                                  ? "var(--mantine-color-green-0)"
+                                  : "var(--mantine-color-gray-0)",
+                              "--dropzone-reject-bg":
+                                "var(--mantine-color-green-0)",
+                              "--dropzone-reject-color":
+                                "var(--mantine-color-green-9)",
+                            } as CSSProperties
+                          }
                         >
                           <Group
                             justify="center"
@@ -2658,9 +2937,9 @@ function ResultsDetail({
                               />
                             </Dropzone.Accept>
                             <Dropzone.Reject>
-                              <IconX
+                              <IconCheck
                                 size={48}
-                                color={theme.colors.red[6]}
+                                color={theme.colors.green[6]}
                                 stroke={1.5}
                               />
                             </Dropzone.Reject>
@@ -2758,7 +3037,7 @@ function ResultsDetail({
                                     placeholder="Batch assign to..."
                                     value={batchAssignTargetSubstrateId}
                                     onChange={setBatchAssignTargetSubstrateId}
-                                    data={substrates.map((s) => ({
+                                    data={allAssignTargets.map((s) => ({
                                       value: s.id,
                                       label: s.name,
                                     }))}
@@ -3129,6 +3408,154 @@ function ResultsDetail({
                               })}
                             </Stack>
                           )}
+
+                          <Divider
+                            label="Special Categories"
+                            labelPosition="center"
+                            mt="xs"
+                          />
+
+                          <SpecialCategoryCard
+                            label="Ignore"
+                            description="Excluded from upload entirely"
+                            accentColor="gray"
+                            files={getSubstrateFiles(IGNORE_SUBSTRATE_ID)}
+                            onUnmatchFile={(fileId) =>
+                              moveFilesToUnmatched([fileId])
+                            }
+                            onUnmatchFiles={moveFilesToUnmatched}
+                            onDeleteFiles={(fileIds) => {
+                              handleDeleteFiles(fileIds)
+                              setSelectedSubstrateFileIdsBySubstrate(
+                                (prev) => ({
+                                  ...prev,
+                                  [IGNORE_SUBSTRATE_ID]: new Set<string>(),
+                                }),
+                              )
+                            }}
+                            onDropFile={(fileId) =>
+                              handleAssignFileToSubstrate(
+                                fileId,
+                                IGNORE_SUBSTRATE_ID,
+                              )
+                            }
+                            onDropGroup={(groupId) =>
+                              handleAssignGroupToSubstrate(
+                                groupId,
+                                IGNORE_SUBSTRATE_ID,
+                              )
+                            }
+                            onDragEnter={() =>
+                              setDropTargetGroupId(IGNORE_SUBSTRATE_ID)
+                            }
+                            onDragLeave={() =>
+                              setDropTargetGroupId((prev) =>
+                                prev === IGNORE_SUBSTRATE_ID ? null : prev,
+                              )
+                            }
+                            isDropTarget={
+                              dropTargetGroupId === IGNORE_SUBSTRATE_ID
+                            }
+                            expanded={expandedSubstrates.has(
+                              IGNORE_SUBSTRATE_ID,
+                            )}
+                            onToggleExpand={() =>
+                              toggleSubstrateExpand(IGNORE_SUBSTRATE_ID)
+                            }
+                            selectedFileIds={
+                              selectedSubstrateFileIdsBySubstrate[
+                                IGNORE_SUBSTRATE_ID
+                              ] ?? new Set<string>()
+                            }
+                            onToggleSelectFile={(fileId, checked) =>
+                              toggleSelectSubstrateFile(
+                                IGNORE_SUBSTRATE_ID,
+                                fileId,
+                                checked,
+                              )
+                            }
+                            onToggleSelectAll={(checked) =>
+                              toggleSelectAllSubstrateFiles(
+                                IGNORE_SUBSTRATE_ID,
+                                getSubstrateFiles(IGNORE_SUBSTRATE_ID).map(
+                                  (f) => f.id,
+                                ),
+                                checked,
+                              )
+                            }
+                          />
+
+                          <SpecialCategoryCard
+                            label="General Info"
+                            description="In archive, no metadata generated"
+                            accentColor="grape"
+                            files={getSubstrateFiles(GENERAL_INFO_SUBSTRATE_ID)}
+                            onUnmatchFile={(fileId) =>
+                              moveFilesToUnmatched([fileId])
+                            }
+                            onUnmatchFiles={moveFilesToUnmatched}
+                            onDeleteFiles={(fileIds) => {
+                              handleDeleteFiles(fileIds)
+                              setSelectedSubstrateFileIdsBySubstrate(
+                                (prev) => ({
+                                  ...prev,
+                                  [GENERAL_INFO_SUBSTRATE_ID]: new Set<string>(),
+                                }),
+                              )
+                            }}
+                            onDropFile={(fileId) =>
+                              handleAssignFileToSubstrate(
+                                fileId,
+                                GENERAL_INFO_SUBSTRATE_ID,
+                              )
+                            }
+                            onDropGroup={(groupId) =>
+                              handleAssignGroupToSubstrate(
+                                groupId,
+                                GENERAL_INFO_SUBSTRATE_ID,
+                              )
+                            }
+                            onDragEnter={() =>
+                              setDropTargetGroupId(GENERAL_INFO_SUBSTRATE_ID)
+                            }
+                            onDragLeave={() =>
+                              setDropTargetGroupId((prev) =>
+                                prev === GENERAL_INFO_SUBSTRATE_ID
+                                  ? null
+                                  : prev,
+                              )
+                            }
+                            isDropTarget={
+                              dropTargetGroupId === GENERAL_INFO_SUBSTRATE_ID
+                            }
+                            expanded={expandedSubstrates.has(
+                              GENERAL_INFO_SUBSTRATE_ID,
+                            )}
+                            onToggleExpand={() =>
+                              toggleSubstrateExpand(GENERAL_INFO_SUBSTRATE_ID)
+                            }
+                            selectedFileIds={
+                              selectedSubstrateFileIdsBySubstrate[
+                                GENERAL_INFO_SUBSTRATE_ID
+                              ] ?? new Set<string>()
+                            }
+                            onToggleSelectFile={(fileId, checked) =>
+                              toggleSelectSubstrateFile(
+                                GENERAL_INFO_SUBSTRATE_ID,
+                                fileId,
+                                checked,
+                              )
+                            }
+                            onToggleSelectAll={(checked) =>
+                              toggleSelectAllSubstrateFiles(
+                                GENERAL_INFO_SUBSTRATE_ID,
+                                getSubstrateFiles(
+                                  GENERAL_INFO_SUBSTRATE_ID,
+                                ).map((f) => f.id),
+                                checked,
+                              )
+                            }
+                          />
                         </Stack>
                       </Paper>
                     </Group>

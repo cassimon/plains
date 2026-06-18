@@ -139,6 +139,7 @@ class NomadUploadRequest(BaseModel):
     device_groups: list[DeviceGroupInfo] = []
     notes: str | None = None
     custom_metadata: dict[str, Any] | None = None
+    ignored_files: list[str] = []
 
 
 class NomadMetadataPreview(BaseModel):
@@ -390,8 +391,12 @@ async def add_metadata_to_archive(
             for filename, content in archives.items()
         ]
         
-        # Add metadata to the existing archive
-        add_metadata_to_zip(candidate, archive_yaml_files)
+        # Add metadata to the existing archive, removing any ignored files
+        add_metadata_to_zip(
+            candidate,
+            archive_yaml_files,
+            files_to_remove=request.ignored_files,
+        )
         
         logger.info(f"Added {len(archive_yaml_files)} YAML metadata files to archive {candidate}")
         

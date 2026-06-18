@@ -193,55 +193,67 @@ def create_secure_zip(
 def add_metadata_to_zip(
     zip_path: Path,
     metadata_files: list[tuple[str, str]],
+    files_to_remove: list[str] | None = None,
 ) -> Path:
     """
-    Add metadata YAML files to an existing zip archive.
-    
+    Add metadata YAML files to an existing zip archive, optionally removing files.
+
     This function modifies the zip archive in place by:
     1. Reading all existing files
-    2. Creating a new zip with existing files + new metadata files
+    2. Creating a new zip with existing files + new metadata files, minus any ignored files
     3. Replacing the original zip
-    
+
     Args:
         zip_path: Path to the existing zip file
         metadata_files: List of (filename, yaml_content) tuples to add
-    
+        files_to_remove: Optional list of bare filenames to strip from the archive
+                         (used for the "Ignore" category — files excluded from upload)
+
     Returns:
         Path to the updated zip file (same as input)
-    
+
     Raises:
         FileNotFoundError: If zip_path doesn't exist
     """
     if not zip_path.exists():
         raise FileNotFoundError(f"Zip archive not found: {zip_path}")
-    
+
+    remove_set: set[str] = {Path(f).name for f in (files_to_remove or [])}
+
     # Create temporary zip file
     temp_zip = zip_path.with_suffix('.tmp.zip')
-    
+
     try:
         # Read existing files and add new metadata
         with zipfile.ZipFile(zip_path, 'r') as old_zip:
             with zipfile.ZipFile(temp_zip, 'w', zipfile.ZIP_DEFLATED) as new_zip:
-                # Copy existing files (skip any existing .yaml files to avoid conflicts)
+                # Copy existing files, skipping YAML files and ignored files
                 for item in old_zip.namelist():
-                    if not item.endswith('.yaml'):
-                        new_zip.writestr(item, old_zip.read(item))
-                
+                    if item.endswith('.yaml'):
+                        continue
+                    if Path(item).name in remove_set:
+                        logger.info(f"Stripping ignored file from archive: {item}")
+                        continue
+                    new_zip.writestr(item, old_zip.read(item))
+
                 # Add new metadata YAML files
                 for meta_filename, yaml_content in metadata_files:
                     safe_meta = Path(meta_filename).name
                     new_zip.writestr(safe_meta, yaml_content)
-        
+
         # Replace original with updated version
         temp_zip.replace(zip_path)
-        logger.info(f"Added {len(metadata_files)} metadata files to archive: {zip_path} ({zip_path.stat().st_size} bytes)")
-        
+        logger.info(
+            f"Updated archive {zip_path}: added {len(metadata_files)} metadata files, "
+            f"removed {len(remove_set)} ignored files ({zip_path.stat().st_size} bytes)"
+        )
+
     except Exception as e:
         # Clean up temp file on error
         if temp_zip.exists():
             temp_zip.unlink()
         raise e
-    
+
     return zip_path
 
 
