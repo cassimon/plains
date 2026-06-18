@@ -206,7 +206,9 @@ export type ProcessSolutionRecipe = {
   id: string
   name: string
   type?: string // same options as Material.type: "n-type (ETL)", "p-type (HTL)", etc.
-  isCommercial?: boolean // commercial product — no solvent/solute breakdown
+  isCommercial?: boolean // commercial product — composition tracked without amounts; no addedSolutions
+  commercialName?: string // commercial product name / catalogue entry
+  supplierNumber?: string // supplier catalogue/article number
   handlingPreparation?: string
   handlingBeforeUse?: string
   totalSolventVolumeMl: string
@@ -397,6 +399,7 @@ export type ExperimentChemicalsPrep = {
       inventoryLabel?: string
       purity?: string
       supplier?: string
+      productId?: string
     }
   >
   solutionBatches?: Record<string, ExperimentSolutionBatch> // keyed by "sol:{id}" or "recipe:{id}"

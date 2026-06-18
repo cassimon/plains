@@ -2390,7 +2390,7 @@ export default function ExperimentsPage() {
 
                   <Box>
                     <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                      Date of Execution
+                      Start Date
                     </Text>
                     <TextInput
                       type="date"

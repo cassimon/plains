@@ -1682,6 +1682,16 @@ function ResultsDetail({
               // ignore
             }
             setLastArchivePath(data.archive_path)
+            console.log("[handleDrop] server archive created", {
+              archivePath: data.archive_path,
+              fileCount: data.file_count,
+            })
+          } else {
+            console.warn(
+              "[handleDrop] server returned 2xx but no archive_path — " +
+                "'Confirm review and proceed' will fail. Response body:",
+              data,
+            )
           }
           notifications.show({
             title: "Files Uploaded",
@@ -2080,7 +2090,18 @@ function ResultsDetail({
   }, [experiment, processes, results.deviceGroups, results.files, substrates])
 
   const handlePrepareUpload = useCallback(async (): Promise<boolean> => {
+    console.log("[handlePrepareUpload] called", {
+      lastArchivePath,
+      filesCount: results.files.length,
+      deviceGroupsCount: results.deviceGroups.length,
+    })
+
     if (!lastArchivePath) {
+      console.warn(
+        "[handlePrepareUpload] no server archive path — the file upload to the backend " +
+          "may have failed or not yet completed when the files were dropped. " +
+          "Check earlier console errors from handleDrop.",
+      )
       notifications.show({
         title: "No Archive",
         message: "Please upload files first",
@@ -2092,6 +2113,12 @@ function ResultsDetail({
     setPreparingUpload(true)
     try {
       const requestData = buildNomadUploadRequest()
+      console.log("[handlePrepareUpload] sending metadata request", {
+        archivePath: lastArchivePath,
+        measurementFiles: requestData.measurement_files.length,
+        deviceGroups: requestData.device_groups.length,
+        ignoredFiles: requestData.ignored_files?.length ?? 0,
+      })
 
       const formData = new FormData()
       formData.append("archive_path", lastArchivePath)
@@ -2110,8 +2137,18 @@ function ResultsDetail({
         body: formData,
       })
 
+      console.log("[handlePrepareUpload] backend response", {
+        status: res.status,
+        ok: res.ok,
+      })
+
       if (!res.ok) {
         const text = await res.text()
+        console.error(
+          "[handlePrepareUpload] backend returned error",
+          res.status,
+          text,
+        )
         notifications.show({
           title: "Preparation Error",
           message: `Failed to prepare upload: ${res.status} ${text}`,
@@ -2130,6 +2167,7 @@ function ResultsDetail({
         // authoritative so the workflow can still advance.
       }
 
+      console.log("[handlePrepareUpload] success", { metadataFileCount })
       setReviewConfirmed(true)
       setWorkflowStep(3)
 
@@ -2140,7 +2178,7 @@ function ResultsDetail({
       })
       return true
     } catch (err) {
-      console.error("prepare upload error", err)
+      console.error("[handlePrepareUpload] unexpected error", err)
       notifications.show({
         title: "Preparation Error",
         message: err instanceof Error ? err.message : String(err),
@@ -2150,7 +2188,12 @@ function ResultsDetail({
     } finally {
       setPreparingUpload(false)
     }
-  }, [buildNomadUploadRequest, lastArchivePath])
+  }, [
+    buildNomadUploadRequest,
+    lastArchivePath,
+    results.deviceGroups.length,
+    results.files.length,
+  ])
 
   const handleUploadToNomad = useCallback(async () => {
     if (!nomadConfig?.enabled) {
@@ -3499,7 +3542,8 @@ function ResultsDetail({
                               setSelectedSubstrateFileIdsBySubstrate(
                                 (prev) => ({
                                   ...prev,
-                                  [GENERAL_INFO_SUBSTRATE_ID]: new Set<string>(),
+                                  [GENERAL_INFO_SUBSTRATE_ID]:
+                                    new Set<string>(),
                                 }),
                               )
                             }}

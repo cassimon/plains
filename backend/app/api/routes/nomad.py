@@ -328,24 +328,49 @@ async def add_metadata_to_archive(
         Dict with success status, archive info, and metadata file count
     """
     _require_nomad_upload_authorized(current_user)
-    
+
+    logger.info(
+        "[add_metadata_to_archive] request received — archive_path=%s user=%s",
+        archive_path,
+        current_user.email,
+    )
+
     try:
         request = NomadUploadRequest.model_validate_json(request_json)
     except Exception as e:
-        logger.error("Invalid NOMAD upload metadata", exc_info=True)
+        logger.error(
+            "[add_metadata_to_archive] could not parse request_json: %s", e, exc_info=True
+        )
         raise HTTPException(status_code=422, detail="Invalid upload request metadata")
-    
+
+    logger.info(
+        "[add_metadata_to_archive] parsed request — experiment=%s files=%d groups=%d ignored=%d",
+        request.experiment_id,
+        len(request.measurement_files),
+        len(request.device_groups),
+        len(request.ignored_files),
+    )
+
     # Validate archive path
     try:
         candidate = Path(archive_path).resolve()
     except Exception as e:
+        logger.error("[add_metadata_to_archive] invalid archive path: %s", archive_path)
         raise HTTPException(status_code=400, detail="Invalid archive path") from e
-    
+
     allowed_root = TEMP_UPLOAD_DIR.resolve()
     if not str(candidate).startswith(str(allowed_root)):
+        logger.error(
+            "[add_metadata_to_archive] archive path outside allowed root: %s (allowed: %s)",
+            candidate,
+            allowed_root,
+        )
         raise HTTPException(status_code=403, detail="Archive path is not allowed")
-    
+
     if not candidate.exists():
+        logger.error(
+            "[add_metadata_to_archive] archive not found on disk: %s", candidate
+        )
         raise HTTPException(status_code=404, detail="Archive not found")
     
     try:
@@ -397,9 +422,15 @@ async def add_metadata_to_archive(
             archive_yaml_files,
             files_to_remove=request.ignored_files,
         )
-        
-        logger.info(f"Added {len(archive_yaml_files)} YAML metadata files to archive {candidate}")
-        
+
+        logger.info(
+            "[add_metadata_to_archive] done — added %d YAML files, removed %d ignored files, archive=%s size=%d",
+            len(archive_yaml_files),
+            len(request.ignored_files),
+            candidate,
+            candidate.stat().st_size,
+        )
+
         return {
             "success": True,
             "archive_path": str(candidate),

@@ -23,6 +23,7 @@ import { modals } from "@mantine/modals"
 import {
   IconArrowBackUp,
   IconAtom,
+  IconBrush,
   IconCheck,
   IconChevronDown,
   IconCopy,
@@ -73,7 +74,10 @@ import {
   useEntityCollection,
 } from "@/store/AppContext"
 import { DependencyBlockModal } from "../components/DependencyBlockModal"
-import { ChemistryTab } from "./-Processes.chemistry"
+import {
+  ChemistryTab,
+  PEROVSKITE_MATERIAL_SUGGESTIONS,
+} from "./-Processes.chemistry"
 
 const MATERIAL_TYPES = [
   "n-type (ETL)",
@@ -131,7 +135,7 @@ const STEP_CATEGORIES: Array<{
   {
     value: "substrate_preparation",
     label: "Substrate Preparation",
-    icon: <IconSquare size={14} />,
+    icon: <IconBrush size={14} />,
   },
 ]
 
@@ -140,7 +144,7 @@ const STEP_CATEGORY_ICON_MAP: Record<ProcessStepCategory, React.ReactNode> = {
   dry_deposition: <IconLayersIntersect size={14} />,
   surface_treatment: <IconSparkles size={14} />,
   doping_aging: <IconAtom size={14} />,
-  substrate_preparation: <IconSquare size={14} />,
+  substrate_preparation: <IconBrush size={14} />,
 }
 
 const SUBSTRATE_COLOR = "#6e8c9e"
@@ -550,6 +554,83 @@ function MaterialParamsPanel({
       }
 
   const [mode, setMode] = useState<PanelMode>({ kind: "idle" })
+  const [highlightedIdx, setHighlightedIdx] = useState(-1)
+
+  const filteredSuggestions = useMemo(() => {
+    if (mode.kind !== "pubchem") return []
+    const q = mode.query.toLowerCase().trim()
+    if (q.length === 0) return []
+    return PEROVSKITE_MATERIAL_SUGGESTIONS.filter(
+      (s) =>
+        s.abbr.toLowerCase().startsWith(q) ||
+        s.name.toLowerCase().startsWith(q) ||
+        s.name.toLowerCase().includes(q),
+    ).slice(0, 8)
+  }, [mode])
+
+  const showSuggestions =
+    mode.kind === "pubchem" &&
+    filteredSuggestions.length > 0 &&
+    mode.hits.length === 0 &&
+    !mode.loading
+
+  const handleSuggestionSelect = async (
+    s: (typeof PEROVSKITE_MATERIAL_SUGGESTIONS)[number],
+  ) => {
+    if (!s.pubchemCid) {
+      setMode((prev) =>
+        prev.kind === "pubchem"
+          ? {
+              ...prev,
+              query: s.searchQuery,
+              loading: true,
+              error: null,
+              hits: [],
+            }
+          : prev,
+      )
+      try {
+        const hits = await searchPubChemStep(s.searchQuery)
+        setMode((prev) =>
+          prev.kind === "pubchem"
+            ? {
+                ...prev,
+                loading: false,
+                hits,
+                error: hits.length === 0 ? "No results." : null,
+              }
+            : prev,
+        )
+      } catch {
+        setMode((prev) =>
+          prev.kind === "pubchem"
+            ? { ...prev, loading: false, error: "Search failed." }
+            : prev,
+        )
+      }
+      return
+    }
+    setMode((prev) =>
+      prev.kind === "pubchem"
+        ? { ...prev, loading: true, error: null, hits: [] }
+        : prev,
+    )
+    try {
+      const props = await fetchPubChemPropsStep(s.pubchemCid)
+      onSetInlineMaterial({ name: s.name, pubchemCid: s.pubchemCid, ...props })
+      setMode({ kind: "idle" })
+    } catch {
+      setMode((prev) =>
+        prev.kind === "pubchem"
+          ? {
+              ...prev,
+              loading: false,
+              error: "Fetch failed, try searching manually.",
+            }
+          : prev,
+      )
+    }
+  }
 
   const currentLabel = step.chemRecipeId
     ? (recipes.find((r) => r.id === step.chemRecipeId)?.name ?? "Recipe")
@@ -682,14 +763,35 @@ function MaterialParamsPanel({
               <Group gap="xs" wrap="nowrap">
                 <TextInput
                   size="xs"
-                  placeholder="Search PubChem…"
+                  placeholder="Name or abbreviation (e.g. DMF, MAI, PbI2)…"
                   value={mode.query}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    setHighlightedIdx(-1)
                     setMode({ ...mode, query: e.currentTarget.value })
-                  }
+                  }}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") doSearch()
-                    if (e.key === "Escape") setMode({ kind: "idle" })
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault()
+                      setHighlightedIdx((prev) =>
+                        Math.min(prev + 1, filteredSuggestions.length - 1),
+                      )
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault()
+                      setHighlightedIdx((prev) => Math.max(prev - 1, -1))
+                    } else if (e.key === "Enter") {
+                      if (
+                        highlightedIdx >= 0 &&
+                        filteredSuggestions[highlightedIdx]
+                      ) {
+                        void handleSuggestionSelect(
+                          filteredSuggestions[highlightedIdx],
+                        )
+                      } else {
+                        void doSearch()
+                      }
+                    } else if (e.key === "Escape") {
+                      setMode({ kind: "idle" })
+                    }
                   }}
                   autoFocus
                   style={{ flex: 1 }}
@@ -710,6 +812,51 @@ function MaterialParamsPanel({
                   <IconX size={13} />
                 </ActionIcon>
               </Group>
+              {showSuggestions && (
+                <Box
+                  style={{
+                    border: "1px solid var(--mantine-color-gray-3)",
+                    borderRadius: 6,
+                    overflow: "hidden",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                  }}
+                >
+                  {filteredSuggestions.map((s, idx) => (
+                    <Box
+                      key={`${s.abbr}-${idx}`}
+                      onClick={() => void handleSuggestionSelect(s)}
+                      onMouseEnter={() => setHighlightedIdx(idx)}
+                      style={{
+                        padding: "5px 10px",
+                        background:
+                          idx === highlightedIdx
+                            ? "var(--mantine-color-blue-0)"
+                            : "white",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        borderBottom:
+                          idx < filteredSuggestions.length - 1
+                            ? "1px solid var(--mantine-color-gray-1)"
+                            : "none",
+                      }}
+                    >
+                      <Text
+                        size="xs"
+                        fw={700}
+                        style={{ width: 70, flexShrink: 0 }}
+                        c="blue.6"
+                      >
+                        {s.abbr}
+                      </Text>
+                      <Text size="xs" c="dimmed" style={{ flex: 1 }} truncate>
+                        {s.name}
+                      </Text>
+                    </Box>
+                  ))}
+                </Box>
+              )}
               {mode.error && (
                 <Text size="xs" c="red">
                   {mode.error}
@@ -5140,14 +5287,17 @@ export function ProcessesPage() {
                                                           idx,
                                                           value,
                                                         )
+                                                        setSubstrateSelectingIdx(
+                                                          idx,
+                                                        )
                                                       } else {
                                                         handleRemoveSubstrate(
                                                           subId,
                                                         )
+                                                        setSubstrateSelectingIdx(
+                                                          null,
+                                                        )
                                                       }
-                                                      setSubstrateSelectingIdx(
-                                                        null,
-                                                      )
                                                     }}
                                                   />
 
@@ -5591,9 +5741,14 @@ export function ProcessesPage() {
                                             }}
                                             onClick={(e) => e.stopPropagation()}
                                             onChange={(value) => {
-                                              if (value)
+                                              if (value) {
                                                 handleAddSubstrate(value)
-                                              setSubstrateSelectingIdx(null)
+                                                setSubstrateSelectingIdx(
+                                                  subIds.length,
+                                                )
+                                              } else {
+                                                setSubstrateSelectingIdx(null)
+                                              }
                                             }}
                                           />
                                         </Stack>
@@ -5896,7 +6051,12 @@ export function ProcessesPage() {
                                                       step.id ? (
                                                         <TextInput
                                                           size="xs"
-                                                          placeholder="Deposition method"
+                                                          placeholder={
+                                                            step.stepCategory ===
+                                                            "substrate_preparation"
+                                                              ? "Cleaning method"
+                                                              : "Deposition method"
+                                                          }
                                                           autoFocus={
                                                             pendingFocusStepId ===
                                                             step.id

@@ -19,10 +19,11 @@ import {
   IconDroplet,
   IconFlask2,
   IconPackageImport,
+  IconPlus,
   IconWorldSearch,
 } from "@tabler/icons-react"
 import * as React from "react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import type {
   CanvasCollectionElement,
   Experiment,
@@ -42,7 +43,7 @@ import { useAppContext, useEntityCollection } from "@/store/AppContext"
 type MaterialItem = {
   stepId: string
   material: ProcessStepInlineMaterial
-  sourceRecipeName?: string // set when this item is an ingredient from a solution recipe
+  sourceRecipeName?: string
   ingredientType?: "solvent" | "solute"
 }
 
@@ -60,7 +61,14 @@ type CandidateExp = {
   planeId: string
   collectionId: string
   collectionName: string
-  priority: 0 | 1 | 2 // 0=active-collection, 1=active-plane, 2=imported
+  priority: 0 | 1 | 2
+}
+
+type ChemicalEntry = {
+  inventoryLabel: string
+  purity?: string
+  supplier?: string
+  productId?: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -232,11 +240,6 @@ function buildExpLocationMap(planes: Plane[]): Map<
   return map
 }
 
-/**
- * Returns experiments from the same process as the current experiment,
- * filtered to those visible from the current plane/collection context,
- * sorted by priority (0=active collection first).
- */
 function buildGroupedCandidates(
   allExperiments: Experiment[],
   currentExpId: string,
@@ -262,14 +265,12 @@ function buildGroupedCandidates(
     if (currentCollectionId && loc.collectionId === currentCollectionId) {
       priority = 0
     } else if (!activePlaneId || loc.planeId === activePlaneId) {
-      // General view (no plane) or same plane — always show
       priority = 1
     } else if (importedSet.has(loc.collectionId)) {
       priority = 2
     }
 
     if (priority === undefined) continue
-
     results.push({ exp, ...loc, priority })
   }
 
@@ -279,38 +280,6 @@ function buildGroupedCandidates(
   })
 
   return results
-}
-
-type SuggestionLabel = {
-  label: string
-  collectionName: string
-  collectionId: string
-  priority: 0 | 1 | 2
-}
-
-function groupByCollection(
-  labels: SuggestionLabel[],
-): { groupLabel: string; items: SuggestionLabel[] }[] {
-  const map = new Map<
-    string,
-    { groupLabel: string; items: SuggestionLabel[] }
-  >()
-  for (const item of labels) {
-    if (!map.has(item.collectionId)) {
-      const prefix =
-        item.priority === 0
-          ? "Current collection"
-          : item.priority === 1
-            ? "This plane"
-            : "Imported"
-      map.set(item.collectionId, {
-        groupLabel: `${prefix} — ${item.collectionName}`,
-        items: [],
-      })
-    }
-    map.get(item.collectionId)!.items.push(item)
-  }
-  return [...map.values()]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -540,50 +509,42 @@ function MaterialOverrideRow({
   material,
   override,
   onUpdate,
-  candidates,
+  knownEntries,
   onBrowse,
 }: {
   stepId: string
   material: ProcessStepInlineMaterial
-  override?: { inventoryLabel?: string; purity?: string; supplier?: string }
+  override?: {
+    inventoryLabel?: string
+    purity?: string
+    supplier?: string
+    productId?: string
+  }
   onUpdate: (patch: {
     inventoryLabel?: string
     purity?: string
     supplier?: string
+    productId?: string
   }) => void
-  candidates: CandidateExp[]
+  knownEntries: ChemicalEntry[]
   onBrowse: (getRelevantInfo: (exp: Experiment) => string | null) => void
 }) {
   const [specifying, setSpecifying] = useState(false)
   const [localLabel, setLocalLabel] = useState(override?.inventoryLabel ?? "")
+  const labelRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
+  React.useEffect(() => {
     setLocalLabel(override?.inventoryLabel ?? "")
   }, [override?.inventoryLabel])
 
-  const priorLabels = useMemo((): SuggestionLabel[] => {
-    const seen = new Set<string>()
-    const result: SuggestionLabel[] = []
-    for (const c of candidates) {
-      const label =
-        c.exp.chemicalsPrep?.materialOverrides?.[stepId]?.inventoryLabel
-      if (label && !seen.has(label)) {
-        seen.add(label)
-        result.push({
-          label,
-          collectionName: c.collectionName,
-          collectionId: c.collectionId,
-          priority: c.priority,
-        })
-      }
-    }
-    return result
-  }, [candidates, stepId])
-
-  const grouped = useMemo(() => groupByCollection(priorLabels), [priorLabels])
-
   const isAssigned = Boolean(override?.inventoryLabel)
-  const showInputs = specifying || priorLabels.length === 0 || isAssigned
+  const showDetail = isAssigned || specifying
+
+  const getRelevantInfo = useCallback(
+    (exp: Experiment) =>
+      exp.chemicalsPrep?.materialOverrides?.[stepId]?.inventoryLabel ?? null,
+    [stepId],
+  )
 
   const commitLabel = () => {
     const trimmed = localLabel.trim()
@@ -592,16 +553,21 @@ function MaterialOverrideRow({
     }
   }
 
-  const getRelevantInfo = useCallback(
-    (exp: Experiment) =>
-      exp.chemicalsPrep?.materialOverrides?.[stepId]?.inventoryLabel ?? null,
-    [stepId],
-  )
+  const handleQuickAssign = (entry: ChemicalEntry) => {
+    onUpdate(entry)
+    setLocalLabel(entry.inventoryLabel)
+    setSpecifying(true)
+  }
+
+  const handleAddNew = () => {
+    setSpecifying(true)
+    requestAnimationFrame(() => labelRef.current?.focus())
+  }
 
   return (
     <Box style={rowStyle(isAssigned)}>
       <Group gap="sm" align="flex-start" wrap="nowrap">
-        {/* Material name + CAS */}
+        {/* Material name */}
         <Box style={{ minWidth: 160, flex: "0 0 160px" }}>
           <Group gap={4} align="center" wrap="nowrap">
             {isAssigned && (
@@ -623,9 +589,11 @@ function MaterialOverrideRow({
           )}
         </Box>
 
-        {showInputs ? (
+        {showDetail ? (
+          /* Detail form */
           <Group gap="sm" align="flex-end" wrap="wrap" style={{ flex: 1 }}>
             <TextInput
+              ref={labelRef}
               size="xs"
               label="Inventory Label"
               withAsterisk
@@ -655,7 +623,7 @@ function MaterialOverrideRow({
               placeholder="—"
               value={override?.purity ?? ""}
               onChange={(e) => onUpdate({ purity: e.currentTarget.value })}
-              style={{ width: 100 }}
+              style={{ width: 90 }}
             />
             <TextInput
               size="xs"
@@ -663,9 +631,17 @@ function MaterialOverrideRow({
               placeholder="—"
               value={override?.supplier ?? ""}
               onChange={(e) => onUpdate({ supplier: e.currentTarget.value })}
-              style={{ width: 110 }}
+              style={{ width: 100 }}
             />
-            {!isAssigned && priorLabels.length > 0 && (
+            <TextInput
+              size="xs"
+              label="Product ID"
+              placeholder="—"
+              value={override?.productId ?? ""}
+              onChange={(e) => onUpdate({ productId: e.currentTarget.value })}
+              style={{ width: 100 }}
+            />
+            {!isAssigned && (
               <Button
                 size="compact-xs"
                 variant="subtle"
@@ -673,43 +649,44 @@ function MaterialOverrideRow({
                 style={{ alignSelf: "flex-end", marginBottom: 1 }}
                 onClick={() => setSpecifying(false)}
               >
-                ← Suggestions
+                ← Back
               </Button>
             )}
           </Group>
         ) : (
-          <Stack gap={4} style={{ flex: 1 }}>
-            {grouped.map(({ groupLabel, items }) => (
-              <Box key={groupLabel}>
-                <Text size="10px" c="dimmed" tt="uppercase" fw={600} mb={2}>
-                  {groupLabel}
-                </Text>
-                <Group gap={6} wrap="wrap">
-                  {items.map(({ label }) => (
-                    <Button
-                      key={label}
-                      size="compact-xs"
-                      variant="light"
-                      color="teal"
-                      onClick={() => {
-                        onUpdate({ inventoryLabel: label })
-                        setSpecifying(true)
-                      }}
-                    >
-                      {label}
-                    </Button>
-                  ))}
-                </Group>
-              </Box>
-            ))}
-            <Group gap={6} mt={2}>
+          /* Fast-assign panel */
+          <Stack gap={6} style={{ flex: 1 }}>
+            {knownEntries.length > 0 && (
+              <Group gap={6} wrap="wrap">
+                {knownEntries.map((entry) => (
+                  <Button
+                    key={entry.inventoryLabel}
+                    size="compact-xs"
+                    variant="light"
+                    color="teal"
+                    onClick={() => handleQuickAssign(entry)}
+                  >
+                    {entry.inventoryLabel}
+                    {(entry.purity || entry.supplier) && (
+                      <Text span size="10px" c="dimmed" ml={4}>
+                        {[entry.purity, entry.supplier]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </Text>
+                    )}
+                  </Button>
+                ))}
+              </Group>
+            )}
+            <Group gap={6} wrap="wrap">
               <Button
                 size="compact-xs"
                 variant="outline"
-                color="gray"
-                onClick={() => setSpecifying(true)}
+                color="blue"
+                leftSection={<IconPlus size={12} />}
+                onClick={handleAddNew}
               >
-                Specify
+                Add Inventory Chemical
               </Button>
               <Button
                 size="compact-xs"
@@ -751,6 +728,10 @@ function SolutionBatchRow({
   const isDone =
     mode === "take" ? Boolean(batch?.takenFromExpId) : volumeNum > 0
 
+  // Start in detail view if batch data has been set already
+  const [showDetail, setShowDetail] = useState(Boolean(batch))
+  const quantityWrapperRef = useRef<HTMLDivElement>(null)
+
   const asSpecifiedVol =
     item.kind === "recipe" && item.recipe
       ? item.recipe.totalSolventVolumeMl
@@ -779,7 +760,6 @@ function SolutionBatchRow({
       ? `${item.label} (${volumeNum} mL)`
       : item.label
 
-  // Build grouped Select data from candidates
   const selectData = useMemo(() => {
     const groups = new Map<
       string,
@@ -821,6 +801,70 @@ function SolutionBatchRow({
     [item.key],
   )
 
+  const handleMakeFresh1ml = () => {
+    onUpdateBatch({ mode: "make", totalVolumeMl: "1" })
+    setShowDetail(true)
+  }
+
+  const handleMakeFreshCustom = () => {
+    onUpdateBatch({ mode: "make", totalVolumeMl: "" })
+    setShowDetail(true)
+    requestAnimationFrame(() => {
+      quantityWrapperRef.current?.querySelector("input")?.focus()
+    })
+  }
+
+  const handleReuse = () => {
+    onUpdateBatch({ mode: "take" })
+    setShowDetail(true)
+  }
+
+  /* Quick-pick panel — shown before any choice is made */
+  if (!showDetail) {
+    return (
+      <Box style={rowStyle(false)}>
+        <Group gap="sm" align="center" wrap="wrap">
+          <Box style={{ minWidth: 180, flex: "0 0 180px" }}>
+            <Group gap={4} wrap="nowrap" align="center">
+              <IconDroplet size={14} color="var(--mantine-color-blue-5)" />
+              <Text size="sm" fw={600} truncate>
+                {item.label}
+              </Text>
+            </Group>
+            <Badge size="xs" variant="light" color="violet" mt={2}>
+              Chemistry Recipe
+            </Badge>
+          </Box>
+          <Button
+            size="compact-sm"
+            variant="filled"
+            color="teal"
+            onClick={handleMakeFresh1ml}
+          >
+            Make fresh: 1 mL
+          </Button>
+          <Button
+            size="compact-sm"
+            variant="light"
+            color="teal"
+            onClick={handleMakeFreshCustom}
+          >
+            Make fresh: custom
+          </Button>
+          <Button
+            size="compact-sm"
+            variant="light"
+            color="blue"
+            onClick={handleReuse}
+          >
+            Reuse from experiment
+          </Button>
+        </Group>
+      </Box>
+    )
+  }
+
+  /* Detail form */
   return (
     <Box style={rowStyle(isDone)}>
       <Group gap="sm" align="flex-end" wrap="wrap">
@@ -850,24 +894,28 @@ function SolutionBatchRow({
           }
           data={[
             { label: "Make fresh", value: "make" },
-            { label: "Take from batch", value: "take" },
+            { label: "Reuse from experiment", value: "take" },
           ]}
-          style={{ width: 140 }}
+          style={{ width: 175 }}
         />
 
         {mode === "make" ? (
           <Group gap="sm" align="flex-end">
-            <NumberInput
-              size="xs"
-              label="Quantity (mL)"
-              min={0}
-              step={0.5}
-              value={volumeNum}
-              onChange={(v) =>
-                onUpdateBatch({ totalVolumeMl: v !== "" ? String(v) : "0" })
-              }
-              style={{ width: 140 }}
-            />
+            <div ref={quantityWrapperRef}>
+              <NumberInput
+                size="xs"
+                label="Quantity (mL)"
+                min={0}
+                step={0.5}
+                value={volumeNum || ""}
+                onChange={(v) =>
+                  onUpdateBatch({
+                    totalVolumeMl: v !== "" ? String(v) : "0",
+                  })
+                }
+                style={{ width: 140 }}
+              />
+            </div>
             {asSpecifiedVol && (
               <Button
                 size="compact-xs"
@@ -884,9 +932,11 @@ function SolutionBatchRow({
           <Group gap="xs" align="flex-end" style={{ flex: 1 }}>
             <Select
               size="xs"
-              label="Source batch"
+              label="Source experiment"
               placeholder={
-                hasPriorBatches ? "Select batch..." : "No prior batches found"
+                hasPriorBatches
+                  ? "Select experiment..."
+                  : "No prior batches found"
               }
               style={{ flex: 1, minWidth: 260 }}
               disabled={!hasPriorBatches}
@@ -917,6 +967,18 @@ function SolutionBatchRow({
               Browse
             </Button>
           </Group>
+        )}
+
+        {!isDone && (
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            color="gray"
+            style={{ alignSelf: "flex-end", marginBottom: 1 }}
+            onClick={() => setShowDetail(false)}
+          >
+            ← Back
+          </Button>
         )}
       </Group>
 
@@ -956,16 +1018,13 @@ export function ChemicalsTab({
 
   const prep: ExperimentChemicalsPrep = experiment.chemicalsPrep ?? {}
 
-  // Find which collection this experiment lives in
   const experimentCollection = useMemo(
     () => getEntityCollection("experiment", experiment.id),
     [getEntityCollection, experiment.id],
   )
   const currentCollectionId = experimentCollection?.collection.id ?? null
-
   const importedCollectionIds = prep.importedCollectionIds ?? []
 
-  // Experiments sharing the same process, filtered+sorted by plane proximity
   const candidates = useMemo(
     () =>
       buildGroupedCandidates(
@@ -989,7 +1048,43 @@ export function ChemicalsTab({
     ],
   )
 
-  // Single shared "Browse other planes" modal state
+  // Build CID → known inventory entries map from same-process candidate experiments
+  const cidToEntries = useMemo(() => {
+    const stepToCid = new Map(
+      materialItems
+        .filter((m) => m.material.pubchemCid)
+        .map((m) => [m.stepId, m.material.pubchemCid!]),
+    )
+    const map = new Map<string, ChemicalEntry[]>()
+    for (const c of candidates) {
+      const overrides = c.exp.chemicalsPrep?.materialOverrides ?? {}
+      for (const [sid, ovr] of Object.entries(overrides)) {
+        if (!ovr.inventoryLabel) continue
+        const cid = stepToCid.get(sid)
+        if (!cid) continue
+        if (!map.has(cid)) map.set(cid, [])
+        const entries = map.get(cid)!
+        const isDupe = entries.some(
+          (e) =>
+            e.inventoryLabel === ovr.inventoryLabel && e.purity === ovr.purity,
+        )
+        if (!isDupe) {
+          entries.push({
+            inventoryLabel: ovr.inventoryLabel,
+            purity: ovr.purity,
+            supplier: ovr.supplier,
+            productId: ovr.productId,
+          })
+        }
+      }
+    }
+    return map
+  }, [materialItems, candidates])
+
+  const anyMakeFresh = solutionItems.some(
+    (item) => prep.solutionBatches?.[item.key]?.mode === "make",
+  )
+
   const [browseInfo, setBrowseInfo] = useState<{
     getRelevantInfo: (exp: Experiment) => string | null
   } | null>(null)
@@ -1007,7 +1102,12 @@ export function ChemicalsTab({
 
   const updateMaterialOverride = (
     stepId: string,
-    patch: { inventoryLabel?: string; purity?: string; supplier?: string },
+    patch: {
+      inventoryLabel?: string
+      purity?: string
+      supplier?: string
+      productId?: string
+    },
   ) => {
     const prev = prep.materialOverrides ?? {}
     updatePrep({
@@ -1049,7 +1149,7 @@ export function ChemicalsTab({
 
   return (
     <Stack gap="lg">
-      {/* Shared browse modal — one instance for the whole tab */}
+      {/* Shared browse modal */}
       {browseInfo && (
         <BrowsePlaneModal
           opened={true}
@@ -1074,7 +1174,6 @@ export function ChemicalsTab({
           const ingredientMaterials = materialItems.filter(
             (m) => m.sourceRecipeName,
           )
-          // Group ingredients by recipe name
           const byRecipe = new Map<string, MaterialItem[]>()
           for (const item of ingredientMaterials) {
             const rn = item.sourceRecipeName!
@@ -1097,7 +1196,11 @@ export function ChemicalsTab({
                     material={material}
                     override={prep.materialOverrides?.[stepId]}
                     onUpdate={(patch) => updateMaterialOverride(stepId, patch)}
-                    candidates={candidates}
+                    knownEntries={
+                      material.pubchemCid
+                        ? (cidToEntries.get(material.pubchemCid) ?? [])
+                        : []
+                    }
                     onBrowse={handleBrowse}
                   />
                 ))}
@@ -1111,7 +1214,7 @@ export function ChemicalsTab({
                             color="var(--mantine-color-blue-5)"
                           />
                           <Text size="10px" c="dimmed" tt="uppercase" fw={600}>
-                            From recipe: {recipeName}
+                            From solution: {recipeName}
                           </Text>
                         </Group>
                         <Stack gap={6}>
@@ -1124,7 +1227,12 @@ export function ChemicalsTab({
                               onUpdate={(patch) =>
                                 updateMaterialOverride(stepId, patch)
                               }
-                              candidates={candidates}
+                              knownEntries={
+                                material.pubchemCid
+                                  ? (cidToEntries.get(material.pubchemCid) ??
+                                    [])
+                                  : []
+                              }
                               onBrowse={handleBrowse}
                             />
                           ))}
@@ -1141,11 +1249,25 @@ export function ChemicalsTab({
       {/* Solutions & Recipes */}
       {solutionItems.length > 0 && (
         <Box>
-          <Group gap="xs" mb="sm">
-            <IconFlask2 size={16} color="var(--mantine-color-blue-6)" />
-            <Text size="sm" fw={700} tt="uppercase" c="dimmed">
-              Solutions & Recipes
-            </Text>
+          <Group gap="xs" mb="sm" justify="space-between" align="flex-end">
+            <Group gap="xs">
+              <IconFlask2 size={16} color="var(--mantine-color-blue-6)" />
+              <Text size="sm" fw={700} tt="uppercase" c="dimmed">
+                Solutions & Recipes
+              </Text>
+            </Group>
+            {anyMakeFresh && (
+              <TextInput
+                type="datetime-local"
+                size="xs"
+                label="Solutions prepared at"
+                value={prep.prepTime ?? ""}
+                onChange={(e) =>
+                  updatePrep({ prepTime: e.currentTarget.value })
+                }
+                style={{ width: 220 }}
+              />
+            )}
           </Group>
           <Stack gap={6}>
             {solutionItems.map((item) => (
