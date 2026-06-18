@@ -201,6 +201,8 @@ export type ProcessSolutionRecipe = {
   id: string
   name: string
   type?: string // same options as Material.type: "n-type (ETL)", "p-type (HTL)", etc.
+  handlingPreparation?: string
+  handlingBeforeUse?: string
   totalSolventVolumeMl: string
   solvents: ProcessSolvent[]
   solutes: ProcessSolute[]

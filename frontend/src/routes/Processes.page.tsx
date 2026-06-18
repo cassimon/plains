@@ -2796,6 +2796,8 @@ export function ProcessesPage() {
   }, [selectedProcess, setProcesses, stackInvalidationKey])
 
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
+  const [changeTypeMenuOpenForStepId, setChangeTypeMenuOpenForStepId] =
+    useState<string | null>(null)
 
   const selectedStep: ProcessStep | null = useMemo(() => {
     if (!selectedProcess || !selectedStepId) return null
@@ -3307,6 +3309,95 @@ export function ProcessesPage() {
     setPendingFocusStepId(step.id)
   }
 
+  const handleChangeStepCategory = useCallback(
+    (stepId: string, newCategory: ProcessStepCategory) => {
+      if (!selectedProcess) return
+      const step = selectedProcess.stages
+        .flatMap((s) => s.alternatives)
+        .find((s) => s.id === stepId)
+      if (!step) return
+
+      const { deposition: newDep, annealing: newAnn } =
+        getParameterSections(newCategory)
+      const newValidKeys = new Set<ProcessParameterKey>([...newDep, ...newAnn])
+      const allParamKeys = PROCESS_PARAMETER_DEFINITIONS.map((d) => d.key)
+      const lostKeys = allParamKeys.filter(
+        (k) => step[k] !== undefined && !newValidKeys.has(k),
+      )
+
+      const doApply = () => {
+        const updatedProcess: Process = {
+          ...selectedProcess,
+          stages: selectedProcess.stages.map((stage) => ({
+            ...stage,
+            alternatives: stage.alternatives.map((s) => {
+              if (s.id !== stepId) return s
+              const next: ProcessStep = { ...s, stepCategory: newCategory }
+              for (const k of allParamKeys) {
+                if (!newValidKeys.has(k)) {
+                  delete next[k]
+                }
+              }
+              return next
+            }),
+          })),
+        }
+        setProcesses((prev) =>
+          prev.map((p) => (p.id === selectedProcess.id ? updatedProcess : p)),
+        )
+      }
+
+      if (lostKeys.length > 0) {
+        const lostLabels = lostKeys.map(
+          (k) => PROCESS_DETAIL_DEFINITIONS.get(k)?.label ?? k,
+        )
+        const newLabel =
+          STEP_CATEGORIES.find((c) => c.value === newCategory)?.label ??
+          newCategory
+        const modalId = `change-step-type-${stepId}`
+        modals.open({
+          modalId,
+          title: "Parameters will be lost",
+          children: (
+            <Stack gap="md">
+              <Text size="sm">
+                Changing to <strong>{newLabel}</strong> will delete the
+                following filled-in parameters:
+              </Text>
+              <Stack gap={4}>
+                {lostLabels.map((label) => (
+                  <Text key={label} size="sm" c="red">
+                    • {label}
+                  </Text>
+                ))}
+              </Stack>
+              <Group justify="flex-end" gap="sm">
+                <Button
+                  variant="default"
+                  onClick={() => modals.close(modalId)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  color="red"
+                  onClick={() => {
+                    modals.close(modalId)
+                    doApply()
+                  }}
+                >
+                  Change anyway
+                </Button>
+              </Group>
+            </Stack>
+          ),
+        })
+      } else {
+        doApply()
+      }
+    },
+    [selectedProcess, setProcesses],
+  )
+
   const handleUpdateProcessName = (name: string) => {
     if (!selectedProcess) return
     const updated: Process = { ...selectedProcess, name }
@@ -3515,6 +3606,38 @@ export function ProcessesPage() {
     )
     return hasSubstrate && hasDepositionStep
   }, [selectedProcess])
+
+  /**
+   * "empty"           — substrate chosen, no steps yet → show only "Add Substrate Preparation"
+   * "substrate-only"  — only substrate_preparation steps exist → show all, substrate_prep first
+   * "mixed"           — at least one non-substrate-prep step exists → substrate_prep last (default)
+   */
+  const stepsOnboardingState = useMemo(():
+    | "empty"
+    | "substrate-only"
+    | "mixed" => {
+    const stages = selectedProcess?.stages ?? []
+    if (stages.length === 0) return "empty"
+    const hasNonSubstratePrepStep = stages.some((stage) =>
+      stage.alternatives.some(
+        (step) => step.stepCategory !== "substrate_preparation",
+      ),
+    )
+    return hasNonSubstratePrepStep ? "mixed" : "substrate-only"
+  }, [selectedProcess])
+
+  const orderedStepCategories = useMemo(() => {
+    if (stepsOnboardingState === "substrate-only") {
+      const subPrepCat = STEP_CATEGORIES.find(
+        (c) => c.value === "substrate_preparation",
+      )
+      const rest = STEP_CATEGORIES.filter(
+        (c) => c.value !== "substrate_preparation",
+      )
+      return subPrepCat ? [subPrepCat, ...rest] : STEP_CATEGORIES
+    }
+    return STEP_CATEGORIES
+  }, [stepsOnboardingState])
 
   const chemistryDone = (selectedProcess?.solutionRecipes?.length ?? 0) > 0
   const depositionDone = hasBothSubstrateAndStep
@@ -3866,34 +3989,42 @@ export function ProcessesPage() {
     [selectedProcess],
   )
 
-  const getParameterFlowLines = useCallback((step: ProcessStep) => {
-    const lines = PROCESS_PARAMETER_DEFINITIONS.flatMap(
-      ({ key, label, unit }) => {
-        if (
-          key === "depositionMethod" ||
-          key === "depositionStartTime" ||
-          key === "annealingStartTime"
-        ) {
-          return []
-        }
-        const value = step[key]?.value?.trim()
-        if (!value) {
-          return []
-        }
-        if (key === "dryingMethod") {
-          // Use full human-readable quenching summary
-          const summary = summariseQuenchingValue(value, materials, solutions)
-          return [summary || `${label}: Set`]
-        }
-        return [`${label}: ${value}${unit ? ` ${unit}` : ""}`]
-      },
-    )
+  const getParameterFlowLines = useCallback(
+    (step: ProcessStep) => {
+      const lines = PROCESS_PARAMETER_DEFINITIONS.flatMap(
+        ({ key, label, unit }) => {
+          if (
+            key === "depositionMethod" ||
+            key === "depositionStartTime" ||
+            key === "annealingStartTime"
+          ) {
+            return []
+          }
+          const value = step[key]?.value?.trim()
+          if (!value) {
+            return []
+          }
+          if (key === "dryingMethod") {
+            // Use full human-readable quenching summary
+            const summary = summariseQuenchingValue(
+              value,
+              materials,
+              solutions,
+              selectedProcess?.solutionRecipes,
+            )
+            return [summary || `${label}: Set`]
+          }
+          return [`${label}: ${value}${unit ? ` ${unit}` : ""}`]
+        },
+      )
 
-    if (lines.length === 0) {
-      return ["No parameters set"]
-    }
-    return lines
-  }, [])
+      if (lines.length === 0) {
+        return ["No parameters set"]
+      }
+      return lines
+    },
+    [selectedProcess?.solutionRecipes],
+  )
 
   const selectedStepParameterSections = useMemo(() => {
     if (!selectedStep) {
@@ -3913,18 +4044,16 @@ export function ProcessesPage() {
       }}
     >
       <Stack gap="md">
-        {/* Material Parameters — above deposition params, for non-substrate steps */}
-        {selectedStep.stepCategory !== "substrate_preparation" && (
-          <MaterialParamsPanel
-            step={selectedStep}
-            stepColor={selectedStep.color}
-            recipes={selectedProcess?.solutionRecipes ?? []}
-            onSetRecipe={(id) => handleSetStepChemRecipe(selectedStep.id, id)}
-            onSetInlineMaterial={(mat) =>
-              handleSetStepInlineMaterial(selectedStep.id, mat)
-            }
-          />
-        )}
+        {/* Material Parameters — above deposition params */}
+        <MaterialParamsPanel
+          step={selectedStep}
+          stepColor={selectedStep.color}
+          recipes={selectedProcess?.solutionRecipes ?? []}
+          onSetRecipe={(id) => handleSetStepChemRecipe(selectedStep.id, id)}
+          onSetInlineMaterial={(mat) =>
+            handleSetStepInlineMaterial(selectedStep.id, mat)
+          }
+        />
 
         {selectedStepParameterSections && (
           <>
@@ -3957,6 +4086,9 @@ export function ProcessesPage() {
                             param={selectedStep[key]}
                             onChange={(param) =>
                               handleUpdateStepParam(selectedStep.id, key, param)
+                            }
+                            processSolutionRecipes={
+                              selectedProcess?.solutionRecipes ?? []
                             }
                           />
                         ) : (
@@ -5511,11 +5643,76 @@ export function ProcessesPage() {
                                                         minWidth: 0,
                                                       }}
                                                     >
-                                                      {
-                                                        STEP_CATEGORY_ICON_MAP[
-                                                          step.stepCategory
-                                                        ]
-                                                      }
+                                                      <Menu
+                                                        shadow="md"
+                                                        width={200}
+                                                        opened={
+                                                          changeTypeMenuOpenForStepId ===
+                                                          step.id
+                                                        }
+                                                        onClose={() =>
+                                                          setChangeTypeMenuOpenForStepId(
+                                                            null,
+                                                          )
+                                                        }
+                                                      >
+                                                        <Menu.Target>
+                                                          <Tooltip
+                                                            label="Change step type"
+                                                            withArrow
+                                                            openDelay={600}
+                                                          >
+                                                            <ActionIcon
+                                                              size={18}
+                                                              variant="subtle"
+                                                              color="gray"
+                                                              onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                setChangeTypeMenuOpenForStepId(
+                                                                  (prev) =>
+                                                                    prev ===
+                                                                    step.id
+                                                                      ? null
+                                                                      : step.id,
+                                                                )
+                                                              }}
+                                                            >
+                                                              {
+                                                                STEP_CATEGORY_ICON_MAP[
+                                                                  step
+                                                                    .stepCategory
+                                                                ]
+                                                              }
+                                                            </ActionIcon>
+                                                          </Tooltip>
+                                                        </Menu.Target>
+                                                        <Menu.Dropdown>
+                                                          {STEP_CATEGORIES.filter(
+                                                            (c) =>
+                                                              c.value !==
+                                                              step.stepCategory,
+                                                          ).map((category) => (
+                                                            <Menu.Item
+                                                              key={`change-type-${step.id}-${category.value}`}
+                                                              leftSection={
+                                                                category.icon
+                                                              }
+                                                              onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                setChangeTypeMenuOpenForStepId(
+                                                                  null,
+                                                                )
+                                                                handleChangeStepCategory(
+                                                                  step.id,
+                                                                  category.value,
+                                                                )
+                                                              }}
+                                                            >
+                                                              {category.label}
+                                                            </Menu.Item>
+                                                          ))}
+                                                        </Menu.Dropdown>
+                                                      </Menu>
                                                       {stage.alternatives
                                                         .length > 1 && (
                                                         <Text
@@ -5725,20 +5922,22 @@ export function ProcessesPage() {
                                           </Button>
                                         </Menu.Target>
                                         <Menu.Dropdown>
-                                          {STEP_CATEGORIES.map((category) => (
-                                            <Menu.Item
-                                              key={`alt-${stage.index}-${category.value}`}
-                                              leftSection={category.icon}
-                                              onClick={() =>
-                                                handleAddAlternativeStep(
-                                                  stage.index,
-                                                  category.value,
-                                                )
-                                              }
-                                            >
-                                              {category.label}
-                                            </Menu.Item>
-                                          ))}
+                                          {orderedStepCategories.map(
+                                            (category) => (
+                                              <Menu.Item
+                                                key={`alt-${stage.index}-${category.value}`}
+                                                leftSection={category.icon}
+                                                onClick={() =>
+                                                  handleAddAlternativeStep(
+                                                    stage.index,
+                                                    category.value,
+                                                  )
+                                                }
+                                              >
+                                                {category.label}
+                                              </Menu.Item>
+                                            ),
+                                          )}
                                         </Menu.Dropdown>
                                       </Menu>
                                     </Box>
@@ -5811,30 +6010,43 @@ export function ProcessesPage() {
                           }}
                         >
                           <Group justify="center" gap="sm">
-                            <Menu shadow="md" width={240}>
-                              <Menu.Target>
-                                <Button
-                                  size="xs"
-                                  variant="subtle"
-                                  leftSection={<IconPlus size={14} />}
-                                >
-                                  Add Next Step
-                                </Button>
-                              </Menu.Target>
-                              <Menu.Dropdown>
-                                {STEP_CATEGORIES.map((category) => (
-                                  <Menu.Item
-                                    key={`next-${category.value}`}
-                                    leftSection={category.icon}
-                                    onClick={() =>
-                                      handleAddProcessStep(category.value)
-                                    }
+                            {stepsOnboardingState === "empty" ? (
+                              <Button
+                                size="xs"
+                                variant="subtle"
+                                leftSection={<IconPlus size={14} />}
+                                onClick={() =>
+                                  handleAddProcessStep("substrate_preparation")
+                                }
+                              >
+                                Add Substrate Preparation
+                              </Button>
+                            ) : (
+                              <Menu shadow="md" width={240}>
+                                <Menu.Target>
+                                  <Button
+                                    size="xs"
+                                    variant="subtle"
+                                    leftSection={<IconPlus size={14} />}
                                   >
-                                    {category.label}
-                                  </Menu.Item>
-                                ))}
-                              </Menu.Dropdown>
-                            </Menu>
+                                    Add Next Step
+                                  </Button>
+                                </Menu.Target>
+                                <Menu.Dropdown>
+                                  {orderedStepCategories.map((category) => (
+                                    <Menu.Item
+                                      key={`next-${category.value}`}
+                                      leftSection={category.icon}
+                                      onClick={() =>
+                                        handleAddProcessStep(category.value)
+                                      }
+                                    >
+                                      {category.label}
+                                    </Menu.Item>
+                                  ))}
+                                </Menu.Dropdown>
+                              </Menu>
+                            )}
                           </Group>
 
                           {hasBothSubstrateAndStep && (

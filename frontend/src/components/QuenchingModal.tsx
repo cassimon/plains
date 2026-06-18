@@ -14,8 +14,81 @@ import {
   Text,
   TextInput,
 } from "@mantine/core"
-import { IconX } from "@tabler/icons-react"
-import { useEffect, useState } from "react"
+import { IconSearch, IconX } from "@tabler/icons-react"
+import { useEffect, useRef, useState } from "react"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Common antisolvent abbreviations → PubChem search query
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ANTISOLVENT_SUGGESTIONS: ReadonlyArray<{
+  abbr: string
+  name: string
+  searchQuery: string
+}> = [
+  { abbr: "CB", name: "Chlorobenzene", searchQuery: "Chlorobenzene" },
+  {
+    abbr: "DCB",
+    name: "1,2-Dichlorobenzene",
+    searchQuery: "1,2-Dichlorobenzene",
+  },
+  {
+    abbr: "oDCB",
+    name: "o-Dichlorobenzene",
+    searchQuery: "1,2-Dichlorobenzene",
+  },
+  { abbr: "Toluene", name: "Toluene", searchQuery: "Toluene" },
+  { abbr: "Anisole", name: "Anisole", searchQuery: "Anisole" },
+  { abbr: "Et2O", name: "Diethyl ether", searchQuery: "Diethyl ether" },
+  { abbr: "CHCl3", name: "Chloroform", searchQuery: "Chloroform" },
+  { abbr: "EtAc", name: "Ethyl acetate", searchQuery: "Ethyl acetate" },
+  { abbr: "MeAc", name: "Methyl acetate", searchQuery: "Methyl acetate" },
+  { abbr: "ACN", name: "Acetonitrile", searchQuery: "Acetonitrile" },
+  { abbr: "IPA", name: "Isopropanol", searchQuery: "Isopropyl alcohol" },
+  { abbr: "Acetone", name: "Acetone", searchQuery: "Acetone" },
+  {
+    abbr: "DMF",
+    name: "N,N-Dimethylformamide",
+    searchQuery: "N,N-Dimethylformamide",
+  },
+  {
+    abbr: "DMSO",
+    name: "Dimethyl sulfoxide",
+    searchQuery: "Dimethyl sulfoxide",
+  },
+]
+
+type PubChemSearchHit = { cid: string; title: string; formula: string }
+
+async function searchPubChemByName(query: string): Promise<PubChemSearchHit[]> {
+  const cidRes = await fetch(
+    `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(query)}/cids/JSON`,
+  )
+  if (!cidRes.ok) return []
+  const cidData = (await cidRes.json()) as {
+    IdentifierList?: { CID?: number[] }
+  }
+  const cids = (cidData.IdentifierList?.CID ?? []).slice(0, 10)
+  if (cids.length === 0) return []
+  const propRes = await fetch(
+    `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cids.join(",")}/property/Title,MolecularFormula/JSON`,
+  )
+  if (!propRes.ok) return []
+  const propData = (await propRes.json()) as {
+    PropertyTable?: {
+      Properties?: Array<{
+        CID: number
+        Title?: string
+        MolecularFormula?: string
+      }>
+    }
+  }
+  return (propData.PropertyTable?.Properties ?? []).map((p) => ({
+    cid: String(p.CID),
+    title: p.Title ?? `CID ${p.CID}`,
+    formula: p.MolecularFormula ?? "",
+  }))
+}
 
 // Wrappers that keep combobox dropdowns inside the Modal portal so they don't
 // trigger the modal close via outside-click / focus-trap detection.
@@ -33,7 +106,7 @@ function ModalAutocomplete(props: AutocompleteProps) {
 export type QuenchingType = "Gas" | "Antisolvent" | "Vacuum"
 
 type MediaReference = {
-  kind: "material" | "solution"
+  kind: "material" | "solution" | "recipe"
   id: string
 }
 
@@ -48,15 +121,18 @@ interface GasState {
   nozzleWidth: string
   nozzleWidthUnit: "mm" | "cm"
   nozzleForm: string
+  timeUntilStart: string
 }
 
 interface AntisolventState {
   media: string
+  mediaPubChemCid: string
   flowRate: string
   depositionMethod: string
   height: string
   heightUnit: "mm" | "cm"
   volume: string
+  timeUntilStart: string
 }
 
 interface VacuumState {
@@ -67,6 +143,7 @@ interface VacuumState {
   pumpModel: string
   deadVolume: string
   evacuationTime: string
+  timeUntilStart: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -85,17 +162,20 @@ function defaultGas(): GasState {
     nozzleWidth: "",
     nozzleWidthUnit: "mm",
     nozzleForm: "",
+    timeUntilStart: "",
   }
 }
 
 function defaultAntisolvent(): AntisolventState {
   return {
     media: "",
+    mediaPubChemCid: "",
     flowRate: "",
     depositionMethod: "",
     height: "",
     heightUnit: "mm",
     volume: "",
+    timeUntilStart: "",
   }
 }
 
@@ -108,6 +188,7 @@ function defaultVacuum(): VacuumState {
     pumpModel: "",
     deadVolume: "",
     evacuationTime: "",
+    timeUntilStart: "",
   }
 }
 
@@ -118,7 +199,8 @@ function parseMediaReference(value: string): MediaReference | null {
   if (idx === -1) return null
   const kind = trimmed.slice(0, idx)
   const id = trimmed.slice(idx + 1).trim()
-  if (!id || (kind !== "material" && kind !== "solution")) return null
+  if (!id || (kind !== "material" && kind !== "solution" && kind !== "recipe"))
+    return null
   return { kind, id }
 }
 
@@ -126,6 +208,7 @@ function getMediaLabel(
   value: string,
   materials: Array<{ id: string; name: string }>,
   solutions: Array<{ id: string; name: string }>,
+  recipes?: Array<{ id: string; name: string }>,
 ): string {
   const ref = parseMediaReference(value)
   if (!ref) return value
@@ -134,6 +217,9 @@ function getMediaLabel(
       materials.find((material) => material.id === ref.id)?.name ||
       "Unnamed material"
     )
+  }
+  if (ref.kind === "recipe") {
+    return recipes?.find((r) => r.id === ref.id)?.name || "Unnamed solution"
   }
   return (
     solutions.find((solution) => solution.id === ref.id)?.name ||
@@ -162,8 +248,11 @@ function buildQuenchingString(
     if (gas.nozzleWidth)
       parts.push(`nozzleWidth=${gas.nozzleWidth} ${gas.nozzleWidthUnit}`)
     if (gas.nozzleForm) parts.push(`nozzleForm=${gas.nozzleForm}`)
+    if (gas.timeUntilStart) parts.push(`timeUntilStart=${gas.timeUntilStart}`)
   } else if (type === "Antisolvent") {
     if (antisolvent.media) parts.push(`media=${antisolvent.media}`)
+    if (antisolvent.mediaPubChemCid)
+      parts.push(`mediaCid=${antisolvent.mediaPubChemCid}`)
     if (antisolvent.flowRate)
       parts.push(`flowRate=${antisolvent.flowRate} ul/s`)
     if (antisolvent.depositionMethod)
@@ -171,6 +260,8 @@ function buildQuenchingString(
     if (antisolvent.height)
       parts.push(`height=${antisolvent.height} ${antisolvent.heightUnit}`)
     if (antisolvent.volume) parts.push(`volume=${antisolvent.volume} mL`)
+    if (antisolvent.timeUntilStart)
+      parts.push(`timeUntilStart=${antisolvent.timeUntilStart}`)
   } else if (type === "Vacuum") {
     if (vacuum.height)
       parts.push(`height=${vacuum.height} ${vacuum.heightUnit}`)
@@ -180,6 +271,8 @@ function buildQuenchingString(
     if (vacuum.deadVolume) parts.push(`deadVolume=${vacuum.deadVolume} m3`)
     if (vacuum.evacuationTime)
       parts.push(`evacuationTime=${vacuum.evacuationTime} s`)
+    if (vacuum.timeUntilStart)
+      parts.push(`timeUntilStart=${vacuum.timeUntilStart}`)
   }
 
   return parts.join("|")
@@ -246,11 +339,13 @@ function parseQuenchingValue(value: string): {
       ) as GasState["nozzleWidthUnit"]
     }
     if (pairs.nozzleForm) gas.nozzleForm = pairs.nozzleForm
+    if (pairs.timeUntilStart) gas.timeUntilStart = pairs.timeUntilStart
     base.gas = gas
   } else if (type === "Antisolvent") {
     const anti = defaultAntisolvent()
     if (pairs.media) anti.media = pairs.media
     if (pairs.material) anti.media = pairs.material
+    if (pairs.mediaCid) anti.mediaPubChemCid = pairs.mediaCid
     if (pairs.flowRate) {
       const parts = pairs.flowRate.split(" ")
       anti.flowRate = parts[0] ?? ""
@@ -272,6 +367,7 @@ function parseQuenchingValue(value: string): {
       const parts = pairs.pressure.split(" ")
       anti.volume = parts[0] ?? ""
     }
+    if (pairs.timeUntilStart) anti.timeUntilStart = pairs.timeUntilStart
     base.antisolvent = anti
   } else if (type === "Vacuum") {
     const vac = defaultVacuum()
@@ -298,6 +394,7 @@ function parseQuenchingValue(value: string): {
       const parts = pairs.evacuationTime.split(" ")
       vac.evacuationTime = parts[0] ?? ""
     }
+    if (pairs.timeUntilStart) vac.timeUntilStart = pairs.timeUntilStart
     base.vacuum = vac
   }
 
@@ -452,6 +549,21 @@ function GasForm({
           placeholder="e.g. round"
         />
       </Box>
+
+      <Box style={{ gridColumn: "span 2" }}>
+        <FieldLabel>Time until Start (s)</FieldLabel>
+        <NumberInput
+          size="xs"
+          value={
+            state.timeUntilStart !== "" ? Number(state.timeUntilStart) : ""
+          }
+          onChange={(v) =>
+            set({ timeUntilStart: typeof v === "number" ? String(v) : "" })
+          }
+          placeholder="e.g. 10"
+          min={0}
+        />
+      </Box>
     </SimpleGrid>
   )
 }
@@ -459,32 +571,308 @@ function GasForm({
 function AntisolventForm({
   state,
   onChange,
+  processSolutionRecipes = [],
 }: {
   state: AntisolventState
   onChange: (s: AntisolventState) => void
+  processSolutionRecipes?: Array<{ id: string; name: string }>
 }) {
-  const mediaOptions: {
-    group: string
-    items: { value: string; label: string }[]
-  }[] = []
+  type SearchState =
+    | { kind: "idle" }
+    | {
+        kind: "active"
+        query: string
+        loading: boolean
+        hits: PubChemSearchHit[]
+        error: string | null
+      }
+
+  const [searchState, setSearchState] = useState<SearchState>({ kind: "idle" })
+  const [highlightedIdx, setHighlightedIdx] = useState(-1)
+  const searchRef = useRef<HTMLInputElement>(null)
 
   function set(patch: Partial<AntisolventState>) {
     onChange({ ...state, ...patch })
   }
 
+  const filteredSuggestions =
+    searchState.kind === "active" && searchState.query.length > 0
+      ? ANTISOLVENT_SUGGESTIONS.filter((s) => {
+          const q = searchState.query.toLowerCase()
+          return (
+            s.abbr.toLowerCase().startsWith(q) ||
+            s.name.toLowerCase().startsWith(q) ||
+            s.name.toLowerCase().includes(q)
+          )
+        }).slice(0, 6)
+      : []
+
+  const showSuggestions =
+    searchState.kind === "active" &&
+    filteredSuggestions.length > 0 &&
+    searchState.hits.length === 0 &&
+    !searchState.loading
+
+  const doSearchWithQuery = async (q: string) => {
+    const trimmed = q.trim()
+    if (!trimmed) return
+    setHighlightedIdx(-1)
+    setSearchState((prev) =>
+      prev.kind === "active"
+        ? { ...prev, query: trimmed, loading: true, error: null, hits: [] }
+        : prev,
+    )
+    try {
+      const hits = await searchPubChemByName(trimmed)
+      setSearchState((prev) =>
+        prev.kind === "active"
+          ? {
+              ...prev,
+              loading: false,
+              hits,
+              error: hits.length === 0 ? "No compounds found." : null,
+            }
+          : prev,
+      )
+    } catch {
+      setSearchState((prev) =>
+        prev.kind === "active"
+          ? { ...prev, loading: false, error: "Search failed." }
+          : prev,
+      )
+    }
+  }
+
+  const doSearch = () => {
+    if (searchState.kind !== "active") return
+    doSearchWithQuery(searchState.query)
+  }
+
+  const handleHitSelect = (hit: PubChemSearchHit) => {
+    set({ media: hit.title, mediaPubChemCid: hit.cid })
+    setSearchState({ kind: "idle" })
+    setHighlightedIdx(-1)
+  }
+
+  const mediaDisplayName = state.media
+    ? getMediaLabel(state.media, [], [], processSolutionRecipes)
+    : ""
+
   return (
     <SimpleGrid cols={2} spacing="sm" verticalSpacing="sm">
       <Box style={{ gridColumn: "span 2" }}>
-        <FieldLabel>Material / Solution</FieldLabel>
-        <ModalSelect
-          size="xs"
-          data={mediaOptions}
-          value={state.media || null}
-          onChange={(v) => set({ media: v ?? "" })}
-          placeholder="Select material or solution"
-          searchable
-          clearable
-        />
+        <FieldLabel>Antisolvent</FieldLabel>
+
+        {/* Current selection */}
+        {state.media && (
+          <Group gap="xs" mb={6} wrap="nowrap">
+            <Text size="xs" fw={600} style={{ flex: 1 }} truncate>
+              {mediaDisplayName}
+              {state.mediaPubChemCid && !state.media.startsWith("recipe:") && (
+                <Text span size="xs" c="dimmed">
+                  {" "}
+                  (CID {state.mediaPubChemCid})
+                </Text>
+              )}
+            </Text>
+            <ActionIcon
+              size="xs"
+              variant="subtle"
+              color="red"
+              onClick={() => set({ media: "", mediaPubChemCid: "" })}
+            >
+              <IconX size={10} />
+            </ActionIcon>
+          </Group>
+        )}
+
+        {/* Process solution recipe chips */}
+        {processSolutionRecipes.length > 0 && (
+          <Box mb={8}>
+            <Text size="xs" c="dimmed" mb={4}>
+              Process solutions:
+            </Text>
+            <Group gap={4} wrap="wrap">
+              {processSolutionRecipes.map((r) => (
+                <Button
+                  key={r.id}
+                  size="xs"
+                  variant={
+                    state.media === `recipe:${r.id}` ? "filled" : "light"
+                  }
+                  color="teal"
+                  onClick={() => {
+                    set({ media: `recipe:${r.id}`, mediaPubChemCid: "" })
+                    setSearchState({ kind: "idle" })
+                  }}
+                >
+                  {r.name || "Unnamed"}
+                </Button>
+              ))}
+            </Group>
+          </Box>
+        )}
+
+        {/* PubChem inline search */}
+        {searchState.kind === "idle" ? (
+          <Button
+            size="xs"
+            variant="subtle"
+            leftSection={<IconSearch size={12} />}
+            onClick={() =>
+              setSearchState({
+                kind: "active",
+                query: "",
+                loading: false,
+                hits: [],
+                error: null,
+              })
+            }
+          >
+            Search PubChem
+          </Button>
+        ) : (
+          <Stack gap="xs">
+            <Group gap="xs" wrap="nowrap">
+              <TextInput
+                ref={searchRef}
+                size="xs"
+                placeholder="e.g. Chlorobenzene, CB, Toluene…"
+                value={searchState.query}
+                onChange={(e) => {
+                  setHighlightedIdx(-1)
+                  setSearchState({
+                    ...searchState,
+                    query: e.currentTarget.value,
+                  })
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault()
+                    setHighlightedIdx((prev) =>
+                      Math.min(prev + 1, filteredSuggestions.length - 1),
+                    )
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault()
+                    setHighlightedIdx((prev) => Math.max(prev - 1, -1))
+                  } else if (e.key === "Enter") {
+                    if (
+                      highlightedIdx >= 0 &&
+                      filteredSuggestions[highlightedIdx]
+                    ) {
+                      doSearchWithQuery(
+                        filteredSuggestions[highlightedIdx].searchQuery,
+                      )
+                    } else {
+                      doSearch()
+                    }
+                  } else if (e.key === "Escape") {
+                    setSearchState({ kind: "idle" })
+                  }
+                }}
+                style={{ flex: 1 }}
+              />
+              <ActionIcon
+                size="sm"
+                variant="filled"
+                onClick={doSearch}
+                loading={searchState.loading}
+              >
+                <IconSearch size={13} />
+              </ActionIcon>
+              <ActionIcon
+                size="sm"
+                variant="subtle"
+                onClick={() => setSearchState({ kind: "idle" })}
+              >
+                <IconX size={13} />
+              </ActionIcon>
+            </Group>
+
+            {showSuggestions && (
+              <Box
+                style={{
+                  border: "1px solid var(--mantine-color-gray-3)",
+                  borderRadius: 6,
+                  overflow: "hidden",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                }}
+              >
+                {filteredSuggestions.map((s, idx) => (
+                  <Box
+                    key={`${s.abbr}-${idx}`}
+                    onClick={() => doSearchWithQuery(s.searchQuery)}
+                    onMouseEnter={() => setHighlightedIdx(idx)}
+                    style={{
+                      padding: "5px 10px",
+                      background:
+                        idx === highlightedIdx
+                          ? "var(--mantine-color-blue-0)"
+                          : "white",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      borderBottom:
+                        idx < filteredSuggestions.length - 1
+                          ? "1px solid var(--mantine-color-gray-1)"
+                          : "none",
+                    }}
+                  >
+                    <Text
+                      size="xs"
+                      fw={700}
+                      style={{ width: 70, flexShrink: 0 }}
+                      c="blue.6"
+                    >
+                      {s.abbr}
+                    </Text>
+                    <Text size="xs" c="dimmed" style={{ flex: 1 }} truncate>
+                      {s.name}
+                    </Text>
+                  </Box>
+                ))}
+              </Box>
+            )}
+
+            {searchState.error && (
+              <Text size="xs" c="red">
+                {searchState.error}
+              </Text>
+            )}
+
+            {searchState.hits.length > 0 && (
+              <Stack gap={3} style={{ maxHeight: 160, overflowY: "auto" }}>
+                {searchState.hits.map((hit) => (
+                  <Box
+                    key={hit.cid}
+                    onClick={() => handleHitSelect(hit)}
+                    style={{
+                      padding: "5px 8px",
+                      borderRadius: 5,
+                      border: "1px solid var(--mantine-color-gray-3)",
+                      cursor: "pointer",
+                      background: "white",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <Box>
+                      <Text size="xs" fw={600}>
+                        {hit.title}
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        CID {hit.cid}
+                        {hit.formula ? ` · ${hit.formula}` : ""}
+                      </Text>
+                    </Box>
+                  </Box>
+                ))}
+              </Stack>
+            )}
+          </Stack>
+        )}
       </Box>
 
       <Box>
@@ -545,6 +933,21 @@ function AntisolventForm({
             set({ volume: typeof v === "number" ? String(v) : "" })
           }
           placeholder="e.g. 0.2"
+          min={0}
+        />
+      </Box>
+
+      <Box style={{ gridColumn: "span 2" }}>
+        <FieldLabel>Time until Start (s)</FieldLabel>
+        <NumberInput
+          size="xs"
+          value={
+            state.timeUntilStart !== "" ? Number(state.timeUntilStart) : ""
+          }
+          onChange={(v) =>
+            set({ timeUntilStart: typeof v === "number" ? String(v) : "" })
+          }
+          placeholder="e.g. 10"
           min={0}
         />
       </Box>
@@ -653,6 +1056,21 @@ function VacuumForm({
           min={0}
         />
       </Box>
+
+      <Box style={{ gridColumn: "span 2" }}>
+        <FieldLabel>Time until Start (s)</FieldLabel>
+        <NumberInput
+          size="xs"
+          value={
+            state.timeUntilStart !== "" ? Number(state.timeUntilStart) : ""
+          }
+          onChange={(v) =>
+            set({ timeUntilStart: typeof v === "number" ? String(v) : "" })
+          }
+          placeholder="e.g. 10"
+          min={0}
+        />
+      </Box>
     </SimpleGrid>
   )
 }
@@ -666,6 +1084,7 @@ export interface QuenchingModalProps {
   initialValue?: string
   onClose: () => void
   onApply: (value: string) => void
+  processSolutionRecipes?: Array<{ id: string; name: string }>
 }
 
 export function QuenchingModal({
@@ -673,6 +1092,7 @@ export function QuenchingModal({
   initialValue,
   onClose,
   onApply,
+  processSolutionRecipes,
 }: QuenchingModalProps) {
   const [type, setType] = useState<QuenchingType>("Gas")
   const [gas, setGas] = useState<GasState>(defaultGas())
@@ -729,7 +1149,11 @@ export function QuenchingModal({
 
         {type === "Gas" && <GasForm state={gas} onChange={setGas} />}
         {type === "Antisolvent" && (
-          <AntisolventForm state={antisolvent} onChange={setAntisolvent} />
+          <AntisolventForm
+            state={antisolvent}
+            onChange={setAntisolvent}
+            processSolutionRecipes={processSolutionRecipes}
+          />
         )}
         {type === "Vacuum" && (
           <VacuumForm state={vacuum} onChange={setVacuum} />
@@ -757,6 +1181,7 @@ export interface DryingMethodInputProps {
   onChange: (
     param: { value: string; mode: "constant" | "variation" } | undefined,
   ) => void
+  processSolutionRecipes?: Array<{ id: string; name: string }>
 }
 
 /** Render a compact human-readable summary of a quenching string. */
@@ -764,6 +1189,7 @@ export function summariseQuenchingValue(
   value: string,
   materials: Array<{ id: string; name: string }>,
   solutions: Array<{ id: string; name: string }>,
+  recipes?: Array<{ id: string; name: string }>,
 ): string {
   if (!value) return ""
   const pairs: Record<string, string> = {}
@@ -783,16 +1209,19 @@ export function summariseQuenchingValue(
     if (pairs.pressure) parts.push(`${pairs.pressure}`)
     if (pairs.height) parts.push(`h=${pairs.height}`)
     if (pairs.nozzleForm) parts.push(pairs.nozzleForm)
+    if (pairs.timeUntilStart) parts.push(`t_start=${pairs.timeUntilStart} s`)
   } else if (type === "Antisolvent") {
     const media = pairs.media || pairs.material
-    if (media) parts.push(getMediaLabel(media, materials, solutions))
+    if (media) parts.push(getMediaLabel(media, materials, solutions, recipes))
     if (pairs.depositionMethod) parts.push(pairs.depositionMethod)
     if (pairs.flowRate) parts.push(`${pairs.flowRate}`)
     if (pairs.height) parts.push(`h=${pairs.height}`)
+    if (pairs.timeUntilStart) parts.push(`t_start=${pairs.timeUntilStart} s`)
   } else if (type === "Vacuum") {
     if (pairs.height) parts.push(`h=${pairs.height}`)
     if (pairs.evacuationTime) parts.push(`t=${pairs.evacuationTime}`)
     if (pairs.pumpModel) parts.push(pairs.pumpModel)
+    if (pairs.timeUntilStart) parts.push(`t_start=${pairs.timeUntilStart} s`)
   }
 
   return parts.join(" | ")
@@ -802,6 +1231,7 @@ export function DryingMethodInput({
   label,
   param,
   onChange,
+  processSolutionRecipes,
 }: DryingMethodInputProps) {
   const [modalOpen, setModalOpen] = useState(false)
   const hasValue = Boolean(param?.value?.trim())
@@ -849,6 +1279,7 @@ export function DryingMethodInput({
           initialValue=""
           onClose={() => setModalOpen(false)}
           onApply={handleApply}
+          processSolutionRecipes={processSolutionRecipes}
         />
       </>
     )
@@ -886,7 +1317,12 @@ export function DryingMethodInput({
           styles={{ inner: { justifyContent: "flex-start" } }}
         >
           <Text size="xs" truncate style={{ maxWidth: "100%" }}>
-            {summariseQuenchingValue(param?.value ?? "", [], [])}
+            {summariseQuenchingValue(
+              param?.value ?? "",
+              [],
+              [],
+              processSolutionRecipes,
+            )}
           </Text>
         </Button>
       </Box>
@@ -896,6 +1332,7 @@ export function DryingMethodInput({
         initialValue={param?.value}
         onClose={() => setModalOpen(false)}
         onApply={handleApply}
+        processSolutionRecipes={processSolutionRecipes}
       />
     </>
   )

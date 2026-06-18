@@ -10,6 +10,7 @@ import {
   Popover,
   Stack,
   Text,
+  Textarea,
   TextInput,
   Tooltip,
 } from "@mantine/core"
@@ -21,13 +22,221 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type {
   Process,
   ProcessSolute,
   ProcessSolutionRecipe,
   ProcessSolvent,
 } from "../store/AppContext"
+
+// ── Common perovskite / OPV materials with abbreviation → PubChem search mapping ──
+
+const PEROVSKITE_MATERIAL_SUGGESTIONS: ReadonlyArray<{
+  abbr: string
+  name: string
+  searchQuery: string
+}> = [
+  // Solvents
+  {
+    abbr: "DMF",
+    name: "N,N-Dimethylformamide",
+    searchQuery: "N,N-Dimethylformamide",
+  },
+  {
+    abbr: "DMSO",
+    name: "Dimethyl sulfoxide",
+    searchQuery: "Dimethyl sulfoxide",
+  },
+  { abbr: "GBL", name: "γ-Butyrolactone", searchQuery: "gamma-butyrolactone" },
+  {
+    abbr: "NMP",
+    name: "N-Methyl-2-pyrrolidone",
+    searchQuery: "N-Methyl-2-pyrrolidone",
+  },
+  { abbr: "CB", name: "Chlorobenzene", searchQuery: "Chlorobenzene" },
+  {
+    abbr: "DCB",
+    name: "1,2-Dichlorobenzene",
+    searchQuery: "1,2-Dichlorobenzene",
+  },
+  {
+    abbr: "oDCB",
+    name: "o-Dichlorobenzene",
+    searchQuery: "1,2-Dichlorobenzene",
+  },
+  { abbr: "IPA", name: "Isopropanol", searchQuery: "Isopropyl alcohol" },
+  { abbr: "EtOH", name: "Ethanol", searchQuery: "Ethanol" },
+  { abbr: "MeOH", name: "Methanol", searchQuery: "Methanol" },
+  { abbr: "ACN", name: "Acetonitrile", searchQuery: "Acetonitrile" },
+  { abbr: "THF", name: "Tetrahydrofuran", searchQuery: "Tetrahydrofuran" },
+  { abbr: "CHCl3", name: "Chloroform", searchQuery: "Chloroform" },
+  { abbr: "Toluene", name: "Toluene", searchQuery: "Toluene" },
+  { abbr: "Anisole", name: "Anisole", searchQuery: "Anisole" },
+  { abbr: "Acetone", name: "Acetone", searchQuery: "Acetone" },
+  { abbr: "Et2O", name: "Diethyl ether", searchQuery: "Diethyl ether" },
+  // Perovskite halide salts
+  {
+    abbr: "MAI",
+    name: "Methylammonium iodide",
+    searchQuery: "Methylammonium iodide",
+  },
+  {
+    abbr: "MABr",
+    name: "Methylammonium bromide",
+    searchQuery: "Methylammonium bromide",
+  },
+  {
+    abbr: "MACl",
+    name: "Methylammonium chloride",
+    searchQuery: "Methylammonium chloride",
+  },
+  {
+    abbr: "FAI",
+    name: "Formamidinium iodide",
+    searchQuery: "Formamidinium iodide",
+  },
+  {
+    abbr: "FABr",
+    name: "Formamidinium bromide",
+    searchQuery: "Formamidinium bromide",
+  },
+  {
+    abbr: "FACl",
+    name: "Formamidinium chloride",
+    searchQuery: "Formamidinium chloride",
+  },
+  { abbr: "PbI2", name: "Lead(II) iodide", searchQuery: "Lead iodide" },
+  { abbr: "PbBr2", name: "Lead(II) bromide", searchQuery: "Lead bromide" },
+  { abbr: "PbCl2", name: "Lead(II) chloride", searchQuery: "Lead chloride" },
+  { abbr: "SnI2", name: "Tin(II) iodide", searchQuery: "Stannous iodide" },
+  { abbr: "SnF2", name: "Tin(II) fluoride", searchQuery: "Stannous fluoride" },
+  { abbr: "CsI", name: "Cesium iodide", searchQuery: "Cesium iodide" },
+  { abbr: "CsBr", name: "Cesium bromide", searchQuery: "Cesium bromide" },
+  { abbr: "RbI", name: "Rubidium iodide", searchQuery: "Rubidium iodide" },
+  { abbr: "KI", name: "Potassium iodide", searchQuery: "Potassium iodide" },
+  // ETL / electron acceptors
+  {
+    abbr: "PCBM",
+    name: "PC61BM",
+    searchQuery: "Phenyl-C61-butyric acid methyl ester",
+  },
+  {
+    abbr: "PC61BM",
+    name: "[6,6]-Phenyl-C61-butyric acid methyl ester",
+    searchQuery: "Phenyl-C61-butyric acid methyl ester",
+  },
+  {
+    abbr: "PC71BM",
+    name: "[6,6]-Phenyl-C71-butyric acid methyl ester",
+    searchQuery: "Phenyl-C71-butyric acid methyl ester",
+  },
+  {
+    abbr: "C60",
+    name: "Buckminsterfullerene",
+    searchQuery: "Buckminsterfullerene",
+  },
+  { abbr: "C70", name: "C70 fullerene", searchQuery: "C70 fullerene" },
+  { abbr: "BCP", name: "Bathocuproine", searchQuery: "Bathocuproine" },
+  {
+    abbr: "Bphen",
+    name: "Bathophenanthroline",
+    searchQuery: "Bathophenanthroline",
+  },
+  { abbr: "ITIC", name: "ITIC non-fullerene acceptor", searchQuery: "ITIC" },
+  { abbr: "Y6", name: "Y6 (BTP-eC9)", searchQuery: "BTP-eC9" },
+  // HTL / hole transport
+  {
+    abbr: "Spiro-OMeTAD",
+    name: "Spiro-OMeTAD",
+    searchQuery:
+      "2,2',7,7'-tetrakis(N,N-di-p-methoxyphenylamine)-9,9'-spirobifluorene",
+  },
+  {
+    abbr: "Spiro",
+    name: "Spiro-OMeTAD",
+    searchQuery:
+      "2,2',7,7'-tetrakis(N,N-di-p-methoxyphenylamine)-9,9'-spirobifluorene",
+  },
+  {
+    abbr: "PTAA",
+    name: "Poly[bis(4-phenyl)(2,4,6-trimethylphenyl)amine]",
+    searchQuery: "PTAA polymer",
+  },
+  {
+    abbr: "P3HT",
+    name: "Poly(3-hexylthiophene)",
+    searchQuery: "Poly(3-hexylthiophene)",
+  },
+  {
+    abbr: "PEDOT:PSS",
+    name: "PEDOT:PSS",
+    searchQuery: "poly(3,4-ethylenedioxythiophene) polystyrene sulfonate",
+  },
+  {
+    abbr: "CuSCN",
+    name: "Copper(I) thiocyanate",
+    searchQuery: "Copper thiocyanate",
+  },
+  { abbr: "NiO", name: "Nickel(II) oxide", searchQuery: "Nickel oxide" },
+  // Dopants and additives
+  {
+    abbr: "LiTFSI",
+    name: "Lithium bis(trifluoromethanesulfonyl)imide",
+    searchQuery: "Lithium bis(trifluoromethanesulfonyl)imide",
+  },
+  {
+    abbr: "TBP",
+    name: "4-tert-Butylpyridine",
+    searchQuery: "4-tert-Butylpyridine",
+  },
+  {
+    abbr: "FK102",
+    name: "FK102 cobalt(III) TFSI",
+    searchQuery:
+      "tris(2-(1H-pyrazol-1-yl)-4-tert-butylpyridine)cobalt(III) bis(trifluoromethylsulfonyl)imide",
+  },
+  {
+    abbr: "FK209",
+    name: "FK209 cobalt(III) TFSI",
+    searchQuery: "cobalt tris(bis(trifluoromethanesulfonyl)imide)",
+  },
+  {
+    abbr: "PEAI",
+    name: "Phenylethylammonium iodide",
+    searchQuery: "phenethylammonium iodide",
+  },
+  {
+    abbr: "PEABr",
+    name: "Phenylethylammonium bromide",
+    searchQuery: "phenethylammonium bromide",
+  },
+  {
+    abbr: "PEACl",
+    name: "Phenylethylammonium chloride",
+    searchQuery: "phenethylammonium chloride",
+  },
+  {
+    abbr: "BAI",
+    name: "n-Butylammonium iodide",
+    searchQuery: "butylammonium iodide",
+  },
+  {
+    abbr: "OAI",
+    name: "Octylammonium iodide",
+    searchQuery: "octylammonium iodide",
+  },
+  {
+    abbr: "PMMA",
+    name: "Poly(methyl methacrylate)",
+    searchQuery: "Poly(methyl methacrylate)",
+  },
+  {
+    abbr: "PCBA",
+    name: "Phenyl-C61-butyric acid",
+    searchQuery: "phenyl C61 butyric acid",
+  },
+]
 
 // ── Color palette (used for auto-assignment only) ─────────────────────────────
 
@@ -402,19 +611,43 @@ function InlineSearch({
     error: null,
     fetchingCid: null,
   })
+  const [highlightedIdx, setHighlightedIdx] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
-  const doSearch = async () => {
-    if (mode.kind !== "searching") return
-    const q = mode.query.trim()
-    if (!q) return
-    setMode({ ...mode, loading: true, error: null, hits: [] })
+  const searchQuery = mode.kind === "searching" ? mode.query : ""
+
+  const filteredSuggestions = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim()
+    if (q.length === 0) return []
+    return PEROVSKITE_MATERIAL_SUGGESTIONS.filter(
+      (s) =>
+        s.abbr.toLowerCase().startsWith(q) ||
+        s.name.toLowerCase().startsWith(q) ||
+        s.name.toLowerCase().includes(q),
+    ).slice(0, 8)
+  }, [searchQuery])
+
+  const showSuggestions =
+    mode.kind === "searching" &&
+    filteredSuggestions.length > 0 &&
+    mode.hits.length === 0 &&
+    !mode.loading
+
+  const doSearchWithQuery = async (q: string) => {
+    const trimmed = q.trim()
+    if (!trimmed) return
+    setHighlightedIdx(-1)
+    setMode((prev) =>
+      prev.kind === "searching"
+        ? { ...prev, query: trimmed, loading: true, error: null, hits: [] }
+        : prev,
+    )
     try {
-      const results = await searchPubChem(q)
+      const results = await searchPubChem(trimmed)
       setMode((prev) =>
         prev.kind === "searching"
           ? {
@@ -436,6 +669,11 @@ function InlineSearch({
           : prev,
       )
     }
+  }
+
+  const doSearch = () => {
+    if (mode.kind !== "searching") return
+    doSearchWithQuery(mode.query)
   }
 
   const handleHitClick = async (hit: PubChemHit) => {
@@ -555,12 +793,35 @@ function InlineSearch({
           <TextInput
             ref={inputRef}
             size="xs"
-            placeholder="Search PubChem by name…"
+            placeholder="Name or abbreviation (e.g. DMF, MAI, PbI2)…"
             value={query}
-            onChange={(e) => setMode({ ...mode, query: e.currentTarget.value })}
+            onChange={(e) => {
+              setHighlightedIdx(-1)
+              setMode({ ...mode, query: e.currentTarget.value })
+            }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") doSearch()
-              if (e.key === "Escape") onCancel()
+              if (e.key === "ArrowDown") {
+                e.preventDefault()
+                setHighlightedIdx((prev) =>
+                  Math.min(prev + 1, filteredSuggestions.length - 1),
+                )
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault()
+                setHighlightedIdx((prev) => Math.max(prev - 1, -1))
+              } else if (e.key === "Enter") {
+                if (
+                  highlightedIdx >= 0 &&
+                  filteredSuggestions[highlightedIdx]
+                ) {
+                  doSearchWithQuery(
+                    filteredSuggestions[highlightedIdx].searchQuery,
+                  )
+                } else {
+                  doSearch()
+                }
+              } else if (e.key === "Escape") {
+                onCancel()
+              }
             }}
             style={{ flex: 1 }}
           />
@@ -576,6 +837,52 @@ function InlineSearch({
             <IconX size={13} />
           </ActionIcon>
         </Group>
+
+        {showSuggestions && (
+          <Box
+            style={{
+              border: "1px solid var(--mantine-color-gray-3)",
+              borderRadius: 6,
+              overflow: "hidden",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+            }}
+          >
+            {filteredSuggestions.map((s, idx) => (
+              <Box
+                key={`${s.abbr}-${idx}`}
+                onClick={() => doSearchWithQuery(s.searchQuery)}
+                onMouseEnter={() => setHighlightedIdx(idx)}
+                style={{
+                  padding: "5px 10px",
+                  background:
+                    idx === highlightedIdx
+                      ? "var(--mantine-color-blue-0)"
+                      : "white",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  borderBottom:
+                    idx < filteredSuggestions.length - 1
+                      ? "1px solid var(--mantine-color-gray-1)"
+                      : "none",
+                }}
+              >
+                <Text
+                  size="xs"
+                  fw={700}
+                  style={{ width: 80, flexShrink: 0 }}
+                  c="blue.6"
+                >
+                  {s.abbr}
+                </Text>
+                <Text size="xs" c="dimmed" style={{ flex: 1 }} truncate>
+                  {s.name}
+                </Text>
+              </Box>
+            ))}
+          </Box>
+        )}
 
         {error && (
           <Text size="xs" c="red">
@@ -884,6 +1191,7 @@ function SolutionCard({
                   />
                   <NativeSelect
                     label="Type"
+                    withAsterisk
                     value={recipe.type ?? ""}
                     onChange={(e) => update({ type: e.currentTarget.value })}
                     data={[
@@ -927,6 +1235,32 @@ function SolutionCard({
                       })
                     }
                     min={0}
+                    style={{ flex: 1 }}
+                  />
+                </Group>
+
+                {/* Handling notes */}
+                <Group gap="sm" wrap="nowrap" align="flex-start">
+                  <Textarea
+                    label="Handling (Preparation)"
+                    placeholder="e.g. prepare in N₂ glovebox, keep away from moisture"
+                    value={recipe.handlingPreparation ?? ""}
+                    onChange={(e) =>
+                      update({ handlingPreparation: e.currentTarget.value })
+                    }
+                    autosize
+                    minRows={2}
+                    style={{ flex: 1 }}
+                  />
+                  <Textarea
+                    label="Handling (Before use)"
+                    placeholder="e.g. stir at 60 °C for 1 h, filter before use"
+                    value={recipe.handlingBeforeUse ?? ""}
+                    onChange={(e) =>
+                      update({ handlingBeforeUse: e.currentTarget.value })
+                    }
+                    autosize
+                    minRows={2}
                     style={{ flex: 1 }}
                   />
                 </Group>
@@ -989,8 +1323,13 @@ function SolutionCard({
                         <Text size="xs" c="dimmed" style={{ width: 110 }}>
                           PubChem CID
                         </Text>
-                        <Text size="xs" c="dimmed" style={{ width: 80 }}>
-                          Vol. ratio
+                        <Text
+                          size="xs"
+                          c="blue.6"
+                          fw={600}
+                          style={{ width: 80 }}
+                        >
+                          Vol. ratio ★
                         </Text>
                         <Text size="xs" c="dimmed" style={{ width: 80 }}>
                           ρ (g/mL)
@@ -1070,6 +1409,12 @@ function SolutionCard({
                               })
                             }
                             style={{ width: 80 }}
+                            styles={{
+                              input: {
+                                borderColor: "var(--mantine-color-blue-4)",
+                                borderWidth: "1.5px",
+                              },
+                            }}
                           />
                           <NumberInput
                             size="xs"
@@ -1159,11 +1504,21 @@ function SolutionCard({
                           <Text size="xs" c="dimmed" style={{ width: 110 }}>
                             PubChem CID
                           </Text>
-                          <Text size="xs" c="dimmed" style={{ width: 80 }}>
-                            Amount
+                          <Text
+                            size="xs"
+                            c="blue.6"
+                            fw={600}
+                            style={{ width: 80 }}
+                          >
+                            Amount ★
                           </Text>
-                          <Text size="xs" c="dimmed" style={{ width: 60 }}>
-                            Unit
+                          <Text
+                            size="xs"
+                            c="blue.6"
+                            fw={600}
+                            style={{ width: 60 }}
+                          >
+                            Unit ★
                           </Text>
                           <Text size="xs" c="dimmed" style={{ width: 80 }}>
                             ρ (g/mL)
@@ -1244,6 +1599,12 @@ function SolutionCard({
                               })
                             }
                             style={{ width: 80 }}
+                            styles={{
+                              input: {
+                                borderColor: "var(--mantine-color-blue-4)",
+                                borderWidth: "1.5px",
+                              },
+                            }}
                           />
                           <NativeSelect
                             size="xs"
@@ -1256,6 +1617,12 @@ function SolutionCard({
                             }
                             data={SOLUTE_UNITS as unknown as string[]}
                             style={{ width: 60 }}
+                            styles={{
+                              input: {
+                                borderColor: "var(--mantine-color-blue-4)",
+                                borderWidth: "1.5px",
+                              },
+                            }}
                           />
                           <NumberInput
                             size="xs"
@@ -1342,7 +1709,7 @@ export function ChemistryTab({
     const r: ProcessSolutionRecipe = {
       id: crypto.randomUUID(),
       name: "",
-      totalSolventVolumeMl: "",
+      totalSolventVolumeMl: "1",
       solvents: [],
       solutes: [],
     }
