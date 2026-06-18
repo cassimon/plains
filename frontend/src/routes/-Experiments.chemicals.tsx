@@ -42,6 +42,8 @@ import { useAppContext, useEntityCollection } from "@/store/AppContext"
 type MaterialItem = {
   stepId: string
   material: ProcessStepInlineMaterial
+  sourceRecipeName?: string // set when this item is an ingredient from a solution recipe
+  ingredientType?: "solvent" | "solute"
 }
 
 type SolutionItem = {
@@ -94,6 +96,40 @@ export function collectChemicals(process: Process): {
       recipe,
     }
   })
+
+  // Add solvents and solutes from each solution recipe as individual material items
+  const seenIngredientKeys = new Set<string>()
+  for (const item of solutionItems) {
+    if (!item.recipe) continue
+    for (const sv of item.recipe.solvents) {
+      const key = `ingredient:${item.id}:${sv.id}`
+      if (seenIngredientKeys.has(key)) continue
+      seenIngredientKeys.add(key)
+      materialItems.push({
+        stepId: key,
+        material: {
+          name: sv.name || "Solvent",
+          pubchemCid: sv.pubchemCid || undefined,
+        },
+        sourceRecipeName: item.recipe.name,
+        ingredientType: "solvent",
+      })
+    }
+    for (const sl of item.recipe.solutes) {
+      const key = `ingredient:${item.id}:${sl.id}`
+      if (seenIngredientKeys.has(key)) continue
+      seenIngredientKeys.add(key)
+      materialItems.push({
+        stepId: key,
+        material: {
+          name: sl.name || "Solute",
+          pubchemCid: sl.pubchemCid || undefined,
+        },
+        sourceRecipeName: item.recipe.name,
+        ingredientType: "solute",
+      })
+    }
+  }
 
   return { materialItems, solutionItems }
 }
@@ -592,6 +628,7 @@ function MaterialOverrideRow({
             <TextInput
               size="xs"
               label="Inventory Label"
+              withAsterisk
               placeholder="e.g. PbI2-Sigma-001"
               value={localLabel}
               onChange={(e) => setLocalLabel(e.currentTarget.value)}
@@ -600,6 +637,17 @@ function MaterialOverrideRow({
                 if (e.key === "Enter") e.currentTarget.blur()
               }}
               style={{ flex: 1, minWidth: 140 }}
+              styles={{
+                label: {
+                  fontWeight: 700,
+                  color: "var(--mantine-color-orange-7)",
+                },
+                input: {
+                  borderColor: localLabel
+                    ? undefined
+                    : "var(--mantine-color-orange-4)",
+                },
+              }}
             />
             <TextInput
               size="xs"
@@ -1020,29 +1068,75 @@ export function ChemicalsTab({
       )}
 
       {/* Materials */}
-      {materialItems.length > 0 && (
-        <Box>
-          <Group gap="xs" mb="sm">
-            <IconAtom size={16} color="var(--mantine-color-orange-6)" />
-            <Text size="sm" fw={700} tt="uppercase" c="dimmed">
-              Materials
-            </Text>
-          </Group>
-          <Stack gap={6}>
-            {materialItems.map(({ stepId, material }) => (
-              <MaterialOverrideRow
-                key={stepId}
-                stepId={stepId}
-                material={material}
-                override={prep.materialOverrides?.[stepId]}
-                onUpdate={(patch) => updateMaterialOverride(stepId, patch)}
-                candidates={candidates}
-                onBrowse={handleBrowse}
-              />
-            ))}
-          </Stack>
-        </Box>
-      )}
+      {materialItems.length > 0 &&
+        (() => {
+          const stepMaterials = materialItems.filter((m) => !m.sourceRecipeName)
+          const ingredientMaterials = materialItems.filter(
+            (m) => m.sourceRecipeName,
+          )
+          // Group ingredients by recipe name
+          const byRecipe = new Map<string, MaterialItem[]>()
+          for (const item of ingredientMaterials) {
+            const rn = item.sourceRecipeName!
+            if (!byRecipe.has(rn)) byRecipe.set(rn, [])
+            byRecipe.get(rn)!.push(item)
+          }
+          return (
+            <Box>
+              <Group gap="xs" mb="sm">
+                <IconAtom size={16} color="var(--mantine-color-orange-6)" />
+                <Text size="sm" fw={700} tt="uppercase" c="dimmed">
+                  Materials
+                </Text>
+              </Group>
+              <Stack gap={6}>
+                {stepMaterials.map(({ stepId, material }) => (
+                  <MaterialOverrideRow
+                    key={stepId}
+                    stepId={stepId}
+                    material={material}
+                    override={prep.materialOverrides?.[stepId]}
+                    onUpdate={(patch) => updateMaterialOverride(stepId, patch)}
+                    candidates={candidates}
+                    onBrowse={handleBrowse}
+                  />
+                ))}
+                {byRecipe.size > 0 && (
+                  <Stack gap="sm" mt={stepMaterials.length > 0 ? "xs" : 0}>
+                    {[...byRecipe.entries()].map(([recipeName, items]) => (
+                      <Box key={recipeName}>
+                        <Group gap={4} mb={4} align="center">
+                          <IconFlask2
+                            size={13}
+                            color="var(--mantine-color-blue-5)"
+                          />
+                          <Text size="10px" c="dimmed" tt="uppercase" fw={600}>
+                            From recipe: {recipeName}
+                          </Text>
+                        </Group>
+                        <Stack gap={6}>
+                          {items.map(({ stepId, material }) => (
+                            <MaterialOverrideRow
+                              key={stepId}
+                              stepId={stepId}
+                              material={material}
+                              override={prep.materialOverrides?.[stepId]}
+                              onUpdate={(patch) =>
+                                updateMaterialOverride(stepId, patch)
+                              }
+                              candidates={candidates}
+                              onBrowse={handleBrowse}
+                            />
+                          ))}
+                        </Stack>
+                      </Box>
+                    ))}
+                  </Stack>
+                )}
+              </Stack>
+            </Box>
+          )
+        })()}
 
       {/* Solutions & Recipes */}
       {solutionItems.length > 0 && (

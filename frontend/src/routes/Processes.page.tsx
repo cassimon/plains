@@ -885,6 +885,19 @@ type StackLayer = {
   perovskiteX: string
 }
 
+type StackModification = {
+  category: "surface_treatment" | "doping_aging" | "substrate_preparation"
+  label: string
+  material: string
+  followsLayerStepId: string | null // null = before any real layer (e.g. substrate prep)
+}
+
+const MODIFICATION_CATEGORY_LABELS: Record<string, string> = {
+  substrate_preparation: "Preparation",
+  surface_treatment: "Surface Treatment",
+  doping_aging: "Aging/Doping",
+}
+
 const LAYER_TYPE_OPTIONS = ["ETL", "HTL", "absorber", "contact", "interlayer"]
 
 // Based on NOMAD perovskite schema ion lists (ion_vars.py).
@@ -1219,6 +1232,7 @@ function getDefaultLayerType(
 
 type GeneratedStack = {
   layers: StackLayer[]
+  modifications?: StackModification[]
   combination: number // for identifying which alternative combo this represents
   architecture?: string
   buildDevice?: "Yes" | "No"
@@ -1300,8 +1314,12 @@ function shouldIncludeLayer(
   materials: Material[],
   solutions: Solution[],
 ): boolean {
-  // Exclude solvents, surface modifiers, etc.
-  if (step.stepCategory === "surface_treatment") {
+  // These categories never become device layers — tracked as modifications instead
+  if (
+    step.stepCategory === "surface_treatment" ||
+    step.stepCategory === "doping_aging" ||
+    step.stepCategory === "substrate_preparation"
+  ) {
     return false
   }
 
@@ -1469,6 +1487,62 @@ function generateStackCombinations(
     return layers
   }
 
+  function buildModificationsForCombo(
+    combo: ProcessStep[],
+  ): StackModification[] {
+    const modCategorySet = new Set([
+      "substrate_preparation",
+      "surface_treatment",
+      "doping_aging",
+    ])
+    // Mirror the perovskite-merge logic from buildLayersForCombo to track
+    // the correct merged-layer id that each modification step follows.
+    let currentLayerId: string | null = null
+    let lastWasPerovskite = false
+    // followsId -> category -> names[]
+    const pending = new Map<string | null, Map<string, string[]>>()
+    for (const step of combo) {
+      if (!modCategorySet.has(step.stepCategory)) {
+        // Real layer step — update the current layer tracker
+        const isPero = isPerovskitePrecursor(
+          step,
+          materials,
+          solutions,
+          solutionRecipes,
+        )
+        if (isPero && lastWasPerovskite) {
+          // Absorbed into the previous perovskite merge — id stays the same
+        } else {
+          currentLayerId = step.id
+          lastWasPerovskite = isPero
+        }
+      } else {
+        // Modification step — associate with the most recent real layer
+        const name = getLayerName(step, materials, solutions)
+        if (!pending.has(currentLayerId)) {
+          pending.set(currentLayerId, new Map())
+        }
+        const catMap = pending.get(currentLayerId)!
+        catMap.set(step.stepCategory, [
+          ...(catMap.get(step.stepCategory) ?? []),
+          name,
+        ])
+      }
+    }
+    const result: StackModification[] = []
+    for (const [followsId, catMap] of pending.entries()) {
+      for (const [cat, names] of catMap.entries()) {
+        result.push({
+          category: cat as StackModification["category"],
+          label: MODIFICATION_CATEGORY_LABELS[cat] ?? cat,
+          material: names.join(", "),
+          followsLayerStepId: followsId,
+        })
+      }
+    }
+    return result
+  }
+
   // Convert each substrate + step combination to a stack
   const stacks: GeneratedStack[] = []
   let combinationCounter = 0
@@ -1483,6 +1557,7 @@ function generateStackCombinations(
           substrate.name || "Unnamed",
           combo,
         ),
+        modifications: buildModificationsForCombo(combo),
         combination: combinationCounter,
         architecture: "Unknown",
         buildDevice: "Yes",
@@ -1497,6 +1572,7 @@ function generateStackCombinations(
     for (const combo of combinations) {
       stacks.push({
         layers: buildLayersForCombo(sub.id, sub.name || "Unnamed", combo),
+        modifications: buildModificationsForCombo(combo),
         combination: combinationCounter,
         architecture: "Unknown",
         buildDevice: "Yes",
@@ -1625,6 +1701,14 @@ function ResultingStacks({
       <Group gap="xl" wrap="wrap" align="flex-start" justify="center">
         {activeStacks.map((stack) => {
           const stackIdx = stacks.indexOf(stack)
+          const hasMods = (stack.modifications?.length ?? 0) > 0
+          const modsByLayerId = new Map<string | null, StackModification[]>()
+          if (hasMods) {
+            for (const mod of stack.modifications!) {
+              const key = mod.followsLayerStepId ?? null
+              modsByLayerId.set(key, [...(modsByLayerId.get(key) ?? []), mod])
+            }
+          }
           return (
             <Paper
               key={`stack-${stack.combination}`}
@@ -1792,7 +1876,7 @@ function ResultingStacks({
                 </Group>
               </Box>
 
-              {/* Column headers */}
+              {/* Column headers row — Type | Layer | nm | Modifications */}
               <Box
                 style={{
                   display: "flex",
@@ -1816,6 +1900,20 @@ function ResultingStacks({
                     nm
                   </Text>
                 </Box>
+                {(stack.modifications?.length ?? 0) > 0 && (
+                  <Box
+                    style={{
+                      width: 160,
+                      flexShrink: 0,
+                      paddingLeft: 10,
+                      borderLeft: "1px solid var(--mantine-color-gray-2)",
+                    }}
+                  >
+                    <Text size="10px" c="dimmed" fw={600} tt="uppercase">
+                      Modifications
+                    </Text>
+                  </Box>
+                )}
               </Box>
 
               <Box
@@ -1859,7 +1957,10 @@ function ResultingStacks({
                         >
                           {isEditing ? (
                             <Box
-                              style={{ width: "100%", position: "relative" }}
+                              style={{
+                                width: "100%",
+                                position: "relative",
+                              }}
                             >
                               <ActionIcon
                                 size="xs"
@@ -1908,6 +2009,29 @@ function ResultingStacks({
                           )}
                         </Box>
                         <Box style={{ width: 92, flexShrink: 0 }} />
+                        {hasMods && (
+                          <Box
+                            style={{
+                              width: 160,
+                              flexShrink: 0,
+                              paddingLeft: 10,
+                              borderLeft:
+                                "1px solid var(--mantine-color-gray-2)",
+                              alignSelf: "flex-start",
+                            }}
+                          >
+                            {(modsByLayerId.get(null) ?? []).map((mod) => (
+                              <Box key={mod.category} mb={4}>
+                                <Text size="10px" c="dimmed" lh={1.2}>
+                                  {mod.label}
+                                </Text>
+                                <Text size="11px" fw={500} lh={1.3}>
+                                  {mod.material || "—"}
+                                </Text>
+                              </Box>
+                            ))}
+                          </Box>
+                        )}
                       </Box>
                     )
                   }
@@ -1915,7 +2039,11 @@ function ResultingStacks({
                   return (
                     <Box
                       key={`layer-${layer.id}`}
-                      style={{ display: "flex", alignItems: "center", gap: 4 }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
                     >
                       {(() => {
                         const isPerovskiteLayer = layer.name
@@ -2453,6 +2581,31 @@ function ResultingStacks({
                                 </button>
                               )}
                             </Box>
+                            {hasMods && (
+                              <Box
+                                style={{
+                                  width: 160,
+                                  flexShrink: 0,
+                                  paddingLeft: 10,
+                                  borderLeft:
+                                    "1px solid var(--mantine-color-gray-2)",
+                                  alignSelf: "flex-start",
+                                }}
+                              >
+                                {(modsByLayerId.get(layer.id) ?? []).map(
+                                  (mod) => (
+                                    <Box key={mod.category} mb={4}>
+                                      <Text size="10px" c="dimmed" lh={1.2}>
+                                        {mod.label}
+                                      </Text>
+                                      <Text size="11px" fw={500} lh={1.3}>
+                                        {mod.material || "—"}
+                                      </Text>
+                                    </Box>
+                                  ),
+                                )}
+                              </Box>
+                            )}
                           </>
                         )
                       })()}
@@ -2460,8 +2613,7 @@ function ResultingStacks({
                   )
                 })}
               </Box>
-
-              {/* Param count badge */}
+              {/* Param count badge aligned under nm column */}
               {(() => {
                 let paramCount = stack.layers
                   .filter((l) => !l.isSubstrate)
@@ -2473,23 +2625,36 @@ function ResultingStacks({
                     if (l.perovskiteX) acc++
                     return acc
                   }, 0)
-                // Add stack-level parameters
                 if (stack.architecture && stack.architecture !== "Unknown")
                   paramCount++
-                // Only count device parameters if buildDevice is Yes
                 if (stack.buildDevice !== "No") {
                   if (stack.pixelAreaCm2) paramCount++
                   if (stack.numberOfPixels) paramCount++
                 }
-
                 return paramCount > 0 ? (
                   <Box
-                    mt="xs"
-                    style={{ display: "flex", justifyContent: "flex-end" }}
+                    mt={4}
+                    style={{
+                      display: "flex",
+                      paddingRight: 20,
+                      gap: 4,
+                    }}
                   >
-                    <Badge size="xs" variant="light" color="teal">
-                      + {paramCount} param{paramCount !== 1 ? "s" : ""}
-                    </Badge>
+                    <Box style={{ width: 96, flexShrink: 0 }} />
+                    <Box style={{ flex: 1 }} />
+                    <Box
+                      style={{
+                        width: 92,
+                        flexShrink: 0,
+                        display: "flex",
+                        justifyContent: "flex-end",
+                      }}
+                    >
+                      <Badge size="xs" variant="light" color="teal">
+                        + {paramCount} param
+                        {paramCount !== 1 ? "s" : ""}
+                      </Badge>
+                    </Box>
                   </Box>
                 ) : null
               })()}
@@ -3372,10 +3537,7 @@ export function ProcessesPage() {
                 ))}
               </Stack>
               <Group justify="flex-end" gap="sm">
-                <Button
-                  variant="default"
-                  onClick={() => modals.close(modalId)}
-                >
+                <Button variant="default" onClick={() => modals.close(modalId)}>
                   Cancel
                 </Button>
                 <Button
@@ -4596,7 +4758,7 @@ export function ProcessesPage() {
                     {
                       id: "device" as const,
                       label: "Step 3",
-                      sublabel: "Device Info",
+                      sublabel: "Stacks & Devices",
                       done: deviceDone,
                     },
                   ] as const
@@ -4686,6 +4848,8 @@ export function ProcessesPage() {
                       prev.map((p) => (p.id === updated.id ? updated : p)),
                     )
                   }
+                  planes={planes}
+                  allProcesses={processes}
                 />
               )}
 

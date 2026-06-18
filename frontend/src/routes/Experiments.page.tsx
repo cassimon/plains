@@ -10,6 +10,7 @@ import {
   Modal,
   NumberInput,
   Paper,
+  Popover,
   Select,
   SimpleGrid,
   Stack,
@@ -189,8 +190,20 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
       mb="md"
       style={{ background: "var(--mantine-color-blue-0)" }}
     >
-      {/* Add Samples buttons — always visible */}
-      <Group justify="center" gap="sm" wrap="wrap">
+      {/* Add Samples buttons + count — always visible */}
+      <Group justify="center" gap="sm" wrap="wrap" align="flex-end">
+        <NumberInput
+          size="sm"
+          min={1}
+          max={200}
+          value={generatorConfig.addCount}
+          onChange={(v) =>
+            onChangeGeneratorConfig({ addCount: Number(v) || 1 })
+          }
+          style={{ width: 90 }}
+          styles={{ input: { textAlign: "center" } }}
+          aria-label="How many substrates to add"
+        />
         {substrateMaterialOptions.map((option) => (
           <Button
             key={`add-substrate-${option.value}`}
@@ -199,7 +212,7 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
             leftSection={<IconPlus size={16} />}
             onClick={() => onAddSubstratesForMaterial(option.value)}
           >
-            {`Add Samples: ${option.label}`}
+            {`Add ${generatorConfig.addCount}× ${option.label}`}
           </Button>
         ))}
       </Group>
@@ -260,17 +273,6 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
                   includeExperimentName: e.currentTarget.checked,
                 })
               }
-            />
-            <NumberInput
-              label="How Many"
-              size="sm"
-              min={1}
-              max={200}
-              value={generatorConfig.addCount}
-              onChange={(v) =>
-                onChangeGeneratorConfig({ addCount: Number(v) || 1 })
-              }
-              style={{ width: 120 }}
             />
           </Group>
 
@@ -444,7 +446,12 @@ function ExperimentGrid({
   onUpdate: (exp: Experiment) => void
   onUpdateProcess: (process: Process) => void
 }) {
-  const [variationTarget, setVariationTarget] = useState<string | null>(null)
+  const [variationPopoverStageIdx, setVariationPopoverStageIdx] = useState<
+    number | null
+  >(null)
+  const [variationAltStepId, setVariationAltStepId] = useState<string | null>(
+    null,
+  )
   const [variationParam, setVariationParam] = useState<string | null>(null)
   const [selectedSubstrateIds, setSelectedSubstrateIds] = useState<Set<string>>(
     new Set(),
@@ -567,20 +574,13 @@ function ExperimentGrid({
   }, [experiment.substrates, process.stages, stepDisplayById])
 
   const selectedVariationStep = React.useMemo(() => {
-    if (!variationTarget) {
-      return null
-    }
-    const [stageIndexRaw, stepId] = variationTarget.split(":")
-    const stageIndex = Number(stageIndexRaw)
-    if (!Number.isFinite(stageIndex)) {
-      return null
-    }
+    if (variationPopoverStageIdx === null || !variationAltStepId) return null
     return (
-      process.stages[stageIndex]?.alternatives.find(
-        (step) => step.id === stepId,
+      process.stages[variationPopoverStageIdx]?.alternatives.find(
+        (step) => step.id === variationAltStepId,
       ) ?? null
     )
-  }, [process.stages, variationTarget])
+  }, [process.stages, variationPopoverStageIdx, variationAltStepId])
 
   const variationParamOptions = React.useMemo(() => {
     if (!selectedVariationStep) {
@@ -770,9 +770,14 @@ function ExperimentGrid({
   }
 
   const handleAddVariation = () => {
-    if (!variationTarget || !variationParam) return
-    const [stageIndexRaw, stepId] = variationTarget.split(":")
-    const stageIndex = Number(stageIndexRaw)
+    if (
+      variationPopoverStageIdx === null ||
+      !variationAltStepId ||
+      !variationParam
+    )
+      return
+    const stageIndex = variationPopoverStageIdx
+    const stepId = variationAltStepId
     const paramKey = variationParam as ProcessParameterKey
     const targetStep = process.stages[stageIndex]?.alternatives.find(
       (step) => step.id === stepId,
@@ -829,7 +834,8 @@ function ExperimentGrid({
 
     onUpdateProcess(updatedProcess)
     onUpdate(updatedExperiment)
-    setVariationTarget(null)
+    setVariationPopoverStageIdx(null)
+    setVariationAltStepId(null)
     setVariationParam(null)
   }
 
@@ -953,100 +959,114 @@ function ExperimentGrid({
     )
   const partiallySelected = selectedSubstrateIds.size > 0 && !allSelected
 
+  // Group variation columns by stage index so they render right after their stage column
+  const variationColumnsByStageIdx = React.useMemo(() => {
+    const map = new Map<number, (typeof variationColumns)[number][]>()
+    for (const col of variationColumns) {
+      if (!map.has(col.stageIndex)) map.set(col.stageIndex, [])
+      map.get(col.stageIndex)!.push(col)
+    }
+    return map
+  }, [variationColumns])
+
   return (
     <>
       {experiment.substrates.length > 0 && (
-        <Group align="flex-start" wrap="nowrap" gap="md" mb="lg">
-          <Box style={{ overflowX: "auto", flex: 1 }}>
-            <Group justify="space-between" mb="xs">
-              <Group gap="xs">
-                <Button
-                  size="xs"
-                  variant="light"
-                  onClick={handleSelectAllSubstrates}
-                >
-                  Select All
-                </Button>
-                <Button
-                  size="xs"
-                  variant="default"
-                  onClick={handleSelectNoSubstrates}
-                >
-                  Select None
-                </Button>
-              </Group>
-              <Group gap="xs">
-                <Text size="xs" c="dimmed">
-                  {selectedSubstrateIds.size} selected
-                </Text>
-                <Button
-                  size="xs"
-                  color="red"
-                  variant="light"
-                  disabled={selectedSubstrateIds.size === 0}
-                  onClick={handleDeleteSelectedSubstrates}
-                >
-                  Delete Selected
-                </Button>
-              </Group>
+        <Box mb="lg" style={{ overflowX: "auto" }}>
+          <Group justify="space-between" mb="xs">
+            <Group gap="xs">
+              <Button
+                size="xs"
+                variant="light"
+                onClick={handleSelectAllSubstrates}
+              >
+                Select All
+              </Button>
+              <Button
+                size="xs"
+                variant="default"
+                onClick={handleSelectNoSubstrates}
+              >
+                Select None
+              </Button>
             </Group>
-            <table
-              style={{
-                borderCollapse: "collapse",
-                width: "100%",
-                fontSize: "14px",
-              }}
-            >
-              <thead>
-                <tr style={{ background: "var(--mantine-color-gray-1)" }}>
-                  <th
-                    style={{
-                      padding: "12px 8px",
-                      textAlign: "center",
-                      fontWeight: 600,
-                      borderBottom: "2px solid var(--mantine-color-gray-3)",
-                      minWidth: "46px",
+            <Group gap="xs">
+              <Text size="xs" c="dimmed">
+                {selectedSubstrateIds.size} selected
+              </Text>
+              <Button
+                size="xs"
+                color="red"
+                variant="light"
+                disabled={selectedSubstrateIds.size === 0}
+                onClick={handleDeleteSelectedSubstrates}
+              >
+                Delete Selected
+              </Button>
+            </Group>
+          </Group>
+          <table
+            style={{
+              borderCollapse: "collapse",
+              width: "100%",
+              fontSize: "14px",
+            }}
+          >
+            <thead>
+              <tr style={{ background: "var(--mantine-color-gray-1)" }}>
+                <th
+                  style={{
+                    padding: "12px 8px",
+                    textAlign: "center",
+                    fontWeight: 600,
+                    borderBottom: "2px solid var(--mantine-color-gray-3)",
+                    minWidth: "46px",
+                  }}
+                >
+                  <Checkbox
+                    checked={allSelected}
+                    indeterminate={partiallySelected}
+                    onChange={(e) => {
+                      if (e.currentTarget.checked) {
+                        handleSelectAllSubstrates()
+                      } else {
+                        handleSelectNoSubstrates()
+                      }
                     }}
-                  >
-                    <Checkbox
-                      checked={allSelected}
-                      indeterminate={partiallySelected}
-                      onChange={(e) => {
-                        if (e.currentTarget.checked) {
-                          handleSelectAllSubstrates()
-                        } else {
-                          handleSelectNoSubstrates()
-                        }
-                      }}
-                      aria-label="Select all substrates"
-                    />
-                  </th>
-                  <th
-                    style={{
-                      padding: "12px 8px",
-                      textAlign: "left",
-                      fontWeight: 600,
-                      borderBottom: "2px solid var(--mantine-color-gray-3)",
-                      minWidth: "150px",
-                    }}
-                  >
-                    Substrate
-                  </th>
-                  <th
-                    style={{
-                      padding: "12px 8px",
-                      textAlign: "left",
-                      fontWeight: 600,
-                      borderBottom: "2px solid var(--mantine-color-gray-3)",
-                      minWidth: "170px",
-                    }}
-                  >
-                    Material
-                  </th>
-                  {process.stages.map((stage, idx) => {
-                    return (
+                    aria-label="Select all substrates"
+                  />
+                </th>
+                <th
+                  style={{
+                    padding: "12px 8px",
+                    textAlign: "left",
+                    fontWeight: 600,
+                    borderBottom: "2px solid var(--mantine-color-gray-3)",
+                    minWidth: "150px",
+                  }}
+                >
+                  Substrate
+                </th>
+                <th
+                  style={{
+                    padding: "12px 8px",
+                    textAlign: "left",
+                    fontWeight: 600,
+                    borderBottom: "2px solid var(--mantine-color-gray-3)",
+                    minWidth: "170px",
+                  }}
+                >
+                  Material
+                </th>
+                {process.stages.map((stage, idx) => {
+                  const stageVarCols = variationColumnsByStageIdx.get(idx) ?? []
+                  const isOpen = variationPopoverStageIdx === idx
+                  const altOptions = buildStageStepOptions(
+                    stage.alternatives,
+                  ).filter((o) => o.value !== "SKIP")
+                  return (
+                    <React.Fragment key={`stage-${idx}`}>
                       <th
-                        key={`stage-${idx}`}
                         style={{
                           padding: "12px 8px",
                           textAlign: "left",
@@ -1055,257 +1075,320 @@ function ExperimentGrid({
                           minWidth: "180px",
                         }}
                       >
-                        <Group justify="space-between" gap="xs">
-                          <Text size="sm">#{idx + 1} Step</Text>
-                          {stage.alternatives.length > 1 && (
-                            <Badge size="xs" variant="light" color="orange">
-                              {stage.alternatives.length} options
-                            </Badge>
-                          )}
+                        <Group justify="space-between" gap="xs" wrap="nowrap">
+                          <Group gap="xs" wrap="nowrap">
+                            <Text size="sm">#{idx + 1} Step</Text>
+                            {stage.alternatives.length > 1 && (
+                              <Badge size="xs" variant="light" color="orange">
+                                {stage.alternatives.length} options
+                              </Badge>
+                            )}
+                          </Group>
+                          <Popover
+                            opened={isOpen}
+                            onClose={() => setVariationPopoverStageIdx(null)}
+                            position="bottom-end"
+                            withArrow
+                            shadow="md"
+                            trapFocus
+                          >
+                            <Popover.Target>
+                              <Tooltip label="Add parameter variation">
+                                <ActionIcon
+                                  size="xs"
+                                  variant="subtle"
+                                  color="blue"
+                                  onClick={() => {
+                                    if (isOpen) {
+                                      setVariationPopoverStageIdx(null)
+                                    } else {
+                                      setVariationPopoverStageIdx(idx)
+                                      setVariationAltStepId(
+                                        stage.alternatives[0]?.id ?? null,
+                                      )
+                                      setVariationParam(null)
+                                    }
+                                  }}
+                                >
+                                  <IconPlus size={10} />
+                                </ActionIcon>
+                              </Tooltip>
+                            </Popover.Target>
+                            <Popover.Dropdown>
+                              <Stack gap="xs" style={{ minWidth: 220 }}>
+                                <Text size="xs" fw={600}>
+                                  Add Parameter Variation
+                                </Text>
+                                {stage.alternatives.length > 1 && (
+                                  <Select
+                                    size="xs"
+                                    label="Alternative"
+                                    data={altOptions}
+                                    value={variationAltStepId}
+                                    onChange={(v) => {
+                                      setVariationAltStepId(v)
+                                      setVariationParam(null)
+                                    }}
+                                  />
+                                )}
+                                <Select
+                                  size="xs"
+                                  label="Parameter"
+                                  placeholder="Select parameter..."
+                                  data={variationParamOptions}
+                                  value={variationParam}
+                                  onChange={setVariationParam}
+                                  disabled={variationParamOptions.length === 0}
+                                />
+                                <Button
+                                  size="xs"
+                                  disabled={
+                                    !variationAltStepId || !variationParam
+                                  }
+                                  onClick={handleAddVariation}
+                                >
+                                  Add Variation
+                                </Button>
+                              </Stack>
+                            </Popover.Dropdown>
+                          </Popover>
                         </Group>
                       </th>
-                    )
-                  })}
-                  {variationColumns.map((column) => (
-                    <th
-                      key={`variation-col-${column.stepId}-${column.paramKey}`}
-                      style={{
-                        padding: "12px 8px",
-                        textAlign: "left",
-                        fontWeight: 600,
-                        borderBottom: "2px solid var(--mantine-color-gray-3)",
-                        minWidth: "190px",
-                      }}
-                    >
-                      <Group justify="space-between" gap="xs" wrap="nowrap">
-                        <Text size="sm">{column.label}</Text>
-                        <Tooltip label="Delete variation column">
-                          <ActionIcon
-                            size="xs"
-                            variant="subtle"
-                            color="red"
-                            onClick={() => removeVariationColumn(column)}
-                          >
-                            <IconTrash size={12} />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
-                    </th>
-                  ))}
-                  <th
-                    style={{
-                      padding: "12px 8px",
-                      textAlign: "center",
-                      fontWeight: 600,
-                      borderBottom: "2px solid var(--mantine-color-gray-3)",
-                      minWidth: "80px",
-                    }}
-                  >
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {experiment.substrates.map((substrate) => (
-                  <tr
-                    key={substrate.id}
-                    style={{
-                      borderBottom: "1px solid var(--mantine-color-gray-2)",
-                    }}
-                  >
-                    <td
-                      style={{
-                        padding: "8px 8px",
-                        textAlign: "center",
-                        background: "var(--mantine-color-gray-0)",
-                      }}
-                    >
-                      <Checkbox
-                        checked={selectedSubstrateIds.has(substrate.id)}
-                        onChange={(e) =>
-                          handleToggleSubstrateSelection(
-                            substrate.id,
-                            e.currentTarget.checked,
-                          )
-                        }
-                        aria-label={`Select substrate ${substrate.name}`}
-                      />
-                    </td>
-                    <td
-                      style={{
-                        padding: "12px 8px",
-                        fontWeight: 500,
-                        background: "var(--mantine-color-gray-0)",
-                      }}
-                    >
-                      <DeferredTextInput
-                        ref={(node) => {
-                          nameInputRefs.current[
-                            experiment.substrates.findIndex(
-                              (s) => s.id === substrate.id,
-                            )
-                          ] = node
-                        }}
-                        size="xs"
-                        value={substrate.name}
-                        onBlur={(value) =>
-                          handleSubstrateNameChange(substrate.id, value)
-                        }
-                        onFocus={(e) => e.currentTarget.select()}
-                        onKeyDown={(e) => {
-                          const currentIndex = experiment.substrates.findIndex(
-                            (s) => s.id === substrate.id,
-                          )
-                          if (e.key === "Enter") {
-                            e.preventDefault()
-                            const value = e.currentTarget.value
-                            handleSubstrateNameChange(substrate.id, value)
-                            focusNameInput(currentIndex + 1)
-                          }
-                          if (e.key === "Tab") {
-                            e.preventDefault()
-                            focusNameInput(
-                              e.shiftKey ? currentIndex - 1 : currentIndex + 1,
-                            )
-                          }
-                        }}
-                        styles={{ input: { fontWeight: 500 } }}
-                      />
-                    </td>
-
-                    <td
-                      style={{
-                        padding: "8px 4px",
-                        background: "var(--mantine-color-gray-0)",
-                      }}
-                    >
-                      <Select
-                        size="xs"
-                        placeholder="Select material"
-                        data={substrateMaterialOptions}
-                        value={substrate.substrateMaterialId ?? null}
-                        onChange={(value) =>
-                          handleSubstrateMaterialChange(substrate.id, value)
-                        }
-                      />
-                    </td>
-
-                    {process.stages.map((stage, stageIdx) => (
-                      <td
-                        key={`${substrate.id}-stage-${stageIdx}`}
-                        style={{
-                          padding: "8px 4px",
-                        }}
-                      >
-                        <ProcessStepSelector
-                          alternatives={stage.alternatives}
-                          defaultStepId={stage.alternatives[0]?.id ?? null}
-                          selectedStepId={getStageSelection(
-                            substrate.id,
-                            stageIdx,
-                          )}
-                          onSelect={(stepId) =>
-                            handleStepSelect(substrate.id, stageIdx, stepId)
-                          }
-                        />
-                      </td>
-                    ))}
-
-                    {variationColumns.map((column) => {
-                      const key = `${column.stepId}:${column.paramKey}`
-                      const editable = isVariationCellEditable(
-                        substrate.id,
-                        column.stageIndex,
-                        column.stepId,
-                      )
-                      return (
-                        <td
-                          key={`${substrate.id}-${key}`}
+                      {stageVarCols.map((col) => (
+                        <th
+                          key={`variation-col-${col.stepId}-${col.paramKey}`}
                           style={{
-                            padding: "8px 4px",
+                            padding: "12px 8px",
+                            textAlign: "left",
+                            fontWeight: 600,
+                            borderBottom:
+                              "2px solid var(--mantine-color-gray-3)",
+                            minWidth: "190px",
+                            background: "var(--mantine-color-blue-0)",
                           }}
                         >
-                          <DeferredTextInput
-                            size="xs"
-                            value={substrate.parameterValues?.[key] ?? ""}
-                            disabled={!editable}
-                            styles={
-                              !editable
-                                ? { input: { opacity: 0.55 } }
-                                : undefined
-                            }
-                            onBlur={(value) =>
-                              handleVariationValueChange(
-                                substrate.id,
-                                column.stepId,
-                                column.paramKey,
-                                value,
-                              )
-                            }
-                          />
-                        </td>
-                      )
-                    })}
-
-                    <td
-                      style={{
-                        padding: "8px 4px",
-                        textAlign: "center",
-                      }}
-                    >
-                      <Group justify="center" gap={2} wrap="nowrap">
-                        <Tooltip label="Duplicate substrate">
-                          <ActionIcon
-                            size="sm"
-                            variant="subtle"
-                            color="teal"
-                            onClick={() =>
-                              handleDuplicateSubstrate(substrate.id)
-                            }
-                          >
-                            <IconCopy size={14} />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Remove substrate">
-                          <ActionIcon
-                            size="sm"
-                            variant="subtle"
-                            color="red"
-                            onClick={() => handleRemoveSubstrate(substrate.id)}
-                          >
-                            <IconTrash size={14} />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
-                    </td>
-                  </tr>
-                ))}
-
-                <tr style={{ background: "var(--mantine-color-gray-0)" }}>
+                          <Group justify="space-between" gap="xs" wrap="nowrap">
+                            <Text size="xs">{col.label}</Text>
+                            <Tooltip label="Delete variation column">
+                              <ActionIcon
+                                size="xs"
+                                variant="subtle"
+                                color="red"
+                                onClick={() => removeVariationColumn(col)}
+                              >
+                                <IconTrash size={12} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </Group>
+                        </th>
+                      ))}
+                    </React.Fragment>
+                  )
+                })}
+                <th
+                  style={{
+                    padding: "12px 8px",
+                    textAlign: "center",
+                    fontWeight: 600,
+                    borderBottom: "2px solid var(--mantine-color-gray-3)",
+                    minWidth: "80px",
+                  }}
+                >
+                  Action
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {experiment.substrates.map((substrate) => (
+                <tr
+                  key={substrate.id}
+                  style={{
+                    borderBottom: "1px solid var(--mantine-color-gray-2)",
+                  }}
+                >
                   <td
                     style={{
-                      borderTop: "2px solid var(--mantine-color-gray-2)",
-                    }}
-                  />
-                  <td
-                    style={{
-                      padding: "10px 8px",
-                      fontWeight: 600,
-                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                      padding: "8px 8px",
+                      textAlign: "center",
+                      background: "var(--mantine-color-gray-0)",
                     }}
                   >
-                    Processing Times
+                    <Checkbox
+                      checked={selectedSubstrateIds.has(substrate.id)}
+                      onChange={(e) =>
+                        handleToggleSubstrateSelection(
+                          substrate.id,
+                          e.currentTarget.checked,
+                        )
+                      }
+                      aria-label={`Select substrate ${substrate.name}`}
+                    />
                   </td>
                   <td
                     style={{
-                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                      padding: "12px 8px",
+                      fontWeight: 500,
+                      background: "var(--mantine-color-gray-0)",
                     }}
-                  />
-                  {process.stages.map((stage, idx) => {
-                    const processingKey = `stage:${idx}`
+                  >
+                    <DeferredTextInput
+                      ref={(node) => {
+                        nameInputRefs.current[
+                          experiment.substrates.findIndex(
+                            (s) => s.id === substrate.id,
+                          )
+                        ] = node
+                      }}
+                      size="xs"
+                      value={substrate.name}
+                      onBlur={(value) =>
+                        handleSubstrateNameChange(substrate.id, value)
+                      }
+                      onFocus={(e) => e.currentTarget.select()}
+                      onKeyDown={(e) => {
+                        const currentIndex = experiment.substrates.findIndex(
+                          (s) => s.id === substrate.id,
+                        )
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          const value = e.currentTarget.value
+                          handleSubstrateNameChange(substrate.id, value)
+                          focusNameInput(currentIndex + 1)
+                        }
+                        if (e.key === "Tab") {
+                          e.preventDefault()
+                          focusNameInput(
+                            e.shiftKey ? currentIndex - 1 : currentIndex + 1,
+                          )
+                        }
+                      }}
+                      styles={{ input: { fontWeight: 500 } }}
+                    />
+                  </td>
+                  <td
+                    style={{
+                      padding: "8px 4px",
+                      background: "var(--mantine-color-gray-0)",
+                    }}
+                  >
+                    <Select
+                      size="xs"
+                      placeholder="Select material"
+                      data={substrateMaterialOptions}
+                      value={substrate.substrateMaterialId ?? null}
+                      onChange={(value) =>
+                        handleSubstrateMaterialChange(substrate.id, value)
+                      }
+                    />
+                  </td>
+                  {process.stages.map((stage, stageIdx) => {
+                    const stageVarCols =
+                      variationColumnsByStageIdx.get(stageIdx) ?? []
                     return (
+                      <React.Fragment key={`${substrate.id}-stage-${stageIdx}`}>
+                        <td style={{ padding: "8px 4px" }}>
+                          <ProcessStepSelector
+                            alternatives={stage.alternatives}
+                            defaultStepId={stage.alternatives[0]?.id ?? null}
+                            selectedStepId={getStageSelection(
+                              substrate.id,
+                              stageIdx,
+                            )}
+                            onSelect={(stepId) =>
+                              handleStepSelect(substrate.id, stageIdx, stepId)
+                            }
+                          />
+                        </td>
+                        {stageVarCols.map((column) => {
+                          const key = `${column.stepId}:${column.paramKey}`
+                          const editable = isVariationCellEditable(
+                            substrate.id,
+                            column.stageIndex,
+                            column.stepId,
+                          )
+                          return (
+                            <td
+                              key={`${substrate.id}-${key}`}
+                              style={{
+                                padding: "8px 4px",
+                                background: "var(--mantine-color-blue-0)",
+                              }}
+                            >
+                              <DeferredTextInput
+                                size="xs"
+                                value={substrate.parameterValues?.[key] ?? ""}
+                                disabled={!editable}
+                                styles={
+                                  !editable
+                                    ? { input: { opacity: 0.55 } }
+                                    : undefined
+                                }
+                                onBlur={(value) =>
+                                  handleVariationValueChange(
+                                    substrate.id,
+                                    column.stepId,
+                                    column.paramKey,
+                                    value,
+                                  )
+                                }
+                              />
+                            </td>
+                          )
+                        })}
+                      </React.Fragment>
+                    )
+                  })}
+                  <td style={{ padding: "8px 4px", textAlign: "center" }}>
+                    <Group justify="center" gap={2} wrap="nowrap">
+                      <Tooltip label="Duplicate substrate">
+                        <ActionIcon
+                          size="sm"
+                          variant="subtle"
+                          color="teal"
+                          onClick={() => handleDuplicateSubstrate(substrate.id)}
+                        >
+                          <IconCopy size={14} />
+                        </ActionIcon>
+                      </Tooltip>
+                      <Tooltip label="Remove substrate">
+                        <ActionIcon
+                          size="sm"
+                          variant="subtle"
+                          color="red"
+                          onClick={() => handleRemoveSubstrate(substrate.id)}
+                        >
+                          <IconTrash size={14} />
+                        </ActionIcon>
+                      </Tooltip>
+                    </Group>
+                  </td>
+                </tr>
+              ))}
+
+              <tr style={{ background: "var(--mantine-color-gray-0)" }}>
+                <td
+                  style={{ borderTop: "2px solid var(--mantine-color-gray-2)" }}
+                />
+                <td
+                  style={{
+                    padding: "10px 8px",
+                    fontWeight: 600,
+                    borderTop: "2px solid var(--mantine-color-gray-2)",
+                  }}
+                >
+                  Processing Times
+                </td>
+                <td
+                  style={{ borderTop: "2px solid var(--mantine-color-gray-2)" }}
+                />
+                {process.stages.map((stage, idx) => {
+                  const processingKey = `stage:${idx}`
+                  const stageVarCols = variationColumnsByStageIdx.get(idx) ?? []
+                  return (
+                    <React.Fragment
+                      key={`processing-time-${stage.index}-${idx}`}
+                    >
                       <td
-                        key={`processing-time-${stage.index}-${idx}`}
                         style={{
                           padding: "8px 4px",
                           borderTop: "2px solid var(--mantine-color-gray-2)",
@@ -1322,71 +1405,25 @@ function ExperimentGrid({
                           }
                         />
                       </td>
-                    )
-                  })}
-                  {variationColumns.map((column) => (
-                    <td
-                      key={`processing-variation-${column.stepId}-${column.paramKey}`}
-                      style={{
-                        borderTop: "2px solid var(--mantine-color-gray-2)",
-                      }}
-                    />
-                  ))}
-                  <td
-                    style={{
-                      borderTop: "2px solid var(--mantine-color-gray-2)",
-                    }}
-                  />
-                </tr>
-              </tbody>
-            </table>
-          </Box>
-
-          <Paper
-            withBorder
-            p="md"
-            radius="md"
-            style={{ width: 320, background: "var(--mantine-color-blue-0)" }}
-          >
-            <Text size="sm" fw={600} mb="xs">
-              Add Parameter Variation
-            </Text>
-            <Text size="xs" c="dimmed" mb="sm">
-              Create variation columns for selected process steps.
-            </Text>
-            <Stack gap="sm">
-              <Select
-                placeholder="Select step..."
-                searchable
-                value={variationTarget}
-                onChange={setVariationTarget}
-                data={process.stages.flatMap((stage, idx) =>
-                  buildStageStepOptions(stage.alternatives)
-                    .filter((option) => option.value !== "SKIP")
-                    .map((option) => ({
-                      value: `${idx}:${option.value}`,
-                      label: `#${idx + 1} Step - ${option.label}`,
-                    })),
-                )}
-                size="sm"
-              />
-              <Select
-                placeholder="Select parameter..."
-                value={variationParam}
-                onChange={setVariationParam}
-                data={variationParamOptions}
-                size="sm"
-              />
-              <Button
-                size="sm"
-                disabled={!variationTarget || !variationParam}
-                onClick={handleAddVariation}
-              >
-                Add Variation
-              </Button>
-            </Stack>
-          </Paper>
-        </Group>
+                      {stageVarCols.map((col) => (
+                        <td
+                          key={`processing-var-${col.stepId}-${col.paramKey}`}
+                          style={{
+                            borderTop: "2px solid var(--mantine-color-gray-2)",
+                            background: "var(--mantine-color-blue-0)",
+                          }}
+                        />
+                      ))}
+                    </React.Fragment>
+                  )
+                })}
+                <td
+                  style={{ borderTop: "2px solid var(--mantine-color-gray-2)" }}
+                />
+              </tr>
+            </tbody>
+          </table>
+        </Box>
       )}
 
       {experiment.substrates.length === 0 && (
@@ -2481,7 +2518,8 @@ export default function ExperimentsPage() {
                           color="var(--mantine-color-orange-6)"
                         />
                         <Text size="sm" fw={700}>
-                          Step 1: Chemicals
+                          Step 1: Which chemicals did you use in this
+                          experiment?
                         </Text>
                       </Group>
                       <ChemicalsTab

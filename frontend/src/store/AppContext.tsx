@@ -197,15 +197,22 @@ export type ProcessSolute = ProcessChemIngredient & {
   color: string
 }
 
+export type ProcessAddedSolution = {
+  recipeId: string
+  volumeMl: string
+}
+
 export type ProcessSolutionRecipe = {
   id: string
   name: string
   type?: string // same options as Material.type: "n-type (ETL)", "p-type (HTL)", etc.
+  isCommercial?: boolean // commercial product — no solvent/solute breakdown
   handlingPreparation?: string
   handlingBeforeUse?: string
   totalSolventVolumeMl: string
   solvents: ProcessSolvent[]
   solutes: ProcessSolute[]
+  addedSolutions?: ProcessAddedSolution[] // other process solutions mixed in (volumes in mL)
 }
 
 /** Persisted generated layer for process-derived stack editor */
