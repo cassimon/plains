@@ -2574,6 +2574,20 @@ export default function ExperimentsPage() {
                         allExperiments={experiments}
                         onUpdate={handleUpdateExperiment}
                       />
+                      {(selectedExperimentStatus === "ready" ||
+                        selectedExperimentStatus === "finished") && (
+                        <Group justify="center" mt="xl">
+                          <Button
+                            size="lg"
+                            color="green"
+                            variant="subtle"
+                            leftSection={<IconDownload size={20} />}
+                            onClick={handleAddResultsForSelectedExperiment}
+                          >
+                            Add Results
+                          </Button>
+                        </Group>
+                      )}
                     </Paper>
                   )}
 
@@ -2619,6 +2633,20 @@ export default function ExperimentsPage() {
                           onUpdate={handleUpdateExperiment}
                           onUpdateProcess={handleUpdateProcess}
                         />
+                        {(selectedExperimentStatus === "ready" ||
+                          selectedExperimentStatus === "finished") && (
+                          <Group justify="center" mt="xl">
+                            <Button
+                              size="lg"
+                              color="green"
+                              variant="subtle"
+                              leftSection={<IconDownload size={20} />}
+                              onClick={handleAddResultsForSelectedExperiment}
+                            >
+                              Add Results
+                            </Button>
+                          </Group>
+                        )}
                       </Paper>
                     </Stack>
                   )}
@@ -2639,6 +2667,20 @@ export default function ExperimentsPage() {
                         process={selectedProcess}
                         onUpdate={handleUpdateExperiment}
                       />
+                      {(selectedExperimentStatus === "ready" ||
+                        selectedExperimentStatus === "finished") && (
+                        <Group justify="center" mt="xl">
+                          <Button
+                            size="lg"
+                            color="green"
+                            variant="subtle"
+                            leftSection={<IconDownload size={20} />}
+                            onClick={handleAddResultsForSelectedExperiment}
+                          >
+                            Add Results
+                          </Button>
+                        </Group>
+                      )}
                     </Paper>
                   )}
                 </>
