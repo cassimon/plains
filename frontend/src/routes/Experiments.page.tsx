@@ -2439,12 +2439,7 @@ export default function ExperimentsPage() {
           <Stack gap="md">
             {/* Header with title and meta info */}
             <Group justify="space-between" align="flex-start">
-              <Paper
-                withBorder
-                p="sm"
-                radius="md"
-                style={{ flex: 1 }}
-              >
+              <Paper withBorder p="sm" radius="md" style={{ flex: 1 }}>
                 <SimpleGrid cols={3} spacing="sm">
                   <TextInput
                     label="Experiment Name"
@@ -2589,7 +2584,8 @@ export default function ExperimentsPage() {
                             color="var(--mantine-color-blue-6)"
                           />
                           <Text size="sm" fw={700}>
-                            Step 2: Please specify how many substrates you prepared and what steps and parameters you use!
+                            Step 2: Please specify how many substrates you
+                            prepared and what steps and parameters you use!
                           </Text>
                         </Group>
                         <SubstrateNameGenerator

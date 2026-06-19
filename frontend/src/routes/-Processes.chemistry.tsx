@@ -552,11 +552,15 @@ function soluteMassG(s: ProcessSolute): number | null {
 // Returns total mass (g) of the solution, or null if any component density/molar mass is missing.
 function solutionTotalMassG(recipe: ProcessSolutionRecipe): number | null {
   const solventVolMl = Number(recipe.totalSolventVolumeMl)
-  const totalRatio = recipe.solvents.reduce((s, v) => s + (v.volumeRatio || 0), 0)
+  const totalRatio = recipe.solvents.reduce(
+    (s, v) => s + (v.volumeRatio || 0),
+    0,
+  )
   let total = 0
   for (const sv of recipe.solvents) {
     if (!sv.density) return null
-    const vol = totalRatio > 0 ? (sv.volumeRatio / totalRatio) * solventVolMl : 0
+    const vol =
+      totalRatio > 0 ? (sv.volumeRatio / totalRatio) * solventVolMl : 0
     total += vol * sv.density
   }
   for (const s of recipe.solutes) {
@@ -618,7 +622,11 @@ function ColorDot({
           }}
         />
       </Popover.Target>
-      <Popover.Dropdown p={8} onClick={(e) => e.stopPropagation()} data-color-dot-popover>
+      <Popover.Dropdown
+        p={8}
+        onClick={(e) => e.stopPropagation()}
+        data-color-dot-popover
+      >
         <ColorPicker
           format="hex"
           value={color}
@@ -1178,7 +1186,11 @@ function concentrationSummary(
           ? (massG / totalMassG) * 100
           : null
 
-      if (molPerMlSolvent === null && molPerMlTotal === null && wPercent === null)
+      if (
+        molPerMlSolvent === null &&
+        molPerMlTotal === null &&
+        wPercent === null
+      )
         return null
 
       return { name: s.name || "?", molPerMlSolvent, molPerMlTotal, wPercent }
@@ -1360,14 +1372,17 @@ function SolutionCard({
 
   const missingSoluteNames = recipe.isCommercial
     ? []
-    : recipe.solutes.filter((s) => !s.amount).map((s) => s.name || "unnamed solute")
+    : recipe.solutes
+        .filter((s) => !s.amount)
+        .map((s) => s.name || "unnamed solute")
   const hasComponent =
     recipe.solvents.length > 0 ||
     recipe.solutes.length > 0 ||
     (recipe.addedSolutions ?? []).length > 0
   const missingItems: string[] = []
   if (!recipe.type) missingItems.push("set a type")
-  if (!hasComponent) missingItems.push("add at least one solvent, solute, or stock solution")
+  if (!hasComponent)
+    missingItems.push("add at least one solvent, solute, or stock solution")
   if (missingSoluteNames.length > 0)
     missingItems.push(`set amount for: ${missingSoluteNames.join(", ")}`)
   const isComplete = missingItems.length === 0
@@ -1571,7 +1586,6 @@ function SolutionCard({
                     style={{ flex: 1 }}
                   />
                 </Group>
-
 
                 {/* Commercial-only fields */}
                 {recipe.isCommercial && (

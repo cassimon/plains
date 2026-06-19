@@ -284,7 +284,9 @@ export function getProcessStatus(process: Process): "incomplete" | "complete" {
   // Step 3: Stacks & Devices — at least one stack has been generated
   const deviceDone = (process.generatedStacks?.length ?? 0) > 0
 
-  return chemistryDone && depositionDone && deviceDone ? "complete" : "incomplete"
+  return chemistryDone && depositionDone && deviceDone
+    ? "complete"
+    : "incomplete"
 }
 
 /** Helper to create a new process step */
