@@ -801,8 +801,11 @@ function SolutionBatchRow({
     [item.key],
   )
 
-  const handleMakeFresh1ml = () => {
-    onUpdateBatch({ mode: "make", totalVolumeMl: "1" })
+  const defaultVolMl =
+    asSpecifiedVol && parseFloat(asSpecifiedVol) > 0 ? asSpecifiedVol : "1"
+
+  const handleMakeFreshDefault = () => {
+    onUpdateBatch({ mode: "make", totalVolumeMl: defaultVolMl })
     setShowDetail(true)
   }
 
@@ -839,9 +842,9 @@ function SolutionBatchRow({
             size="compact-sm"
             variant="filled"
             color="teal"
-            onClick={handleMakeFresh1ml}
+            onClick={handleMakeFreshDefault}
           >
-            Make fresh: 1 mL
+            Make fresh: {defaultVolMl} mL
           </Button>
           <Button
             size="compact-sm"

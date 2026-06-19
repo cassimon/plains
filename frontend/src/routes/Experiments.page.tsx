@@ -2060,8 +2060,6 @@ export default function ExperimentsPage() {
 
   const handleAddResultsForExperiment = useCallback(
     (exp: Experiment) => {
-      const status = getExperimentStatus(exp)
-      if (status !== "complete") return
       setPendingCollectionLink({
         collectionId: "",
         planeId: "",

@@ -3919,41 +3919,54 @@ export function ResultsPage() {
     },
   })
 
-  const selectExperiment = async (id: string | null) => {
-    if (selectedExperimentId && id !== selectedExperimentId) {
-      const activeResult = results.find(
-        (r) => r.experimentId === selectedExperimentId,
-      )
-      const hasInProgressPipeline =
-        (!!activeResult && activeResult.files.length > 0) ||
-        (() => {
-          try {
-            return !!sessionStorage.getItem(
-              `nomad_archive:${selectedExperimentId}`,
-            )
-          } catch (_e) {
-            return false
-          }
-        })()
+  // Refs so the useCallback below can read the latest values without being
+  // listed as deps (CLAUDE.md Pattern #3: exclude mutated state from effect deps).
+  const selectExperimentIdRef = useRef(selectedExperimentId)
+  selectExperimentIdRef.current = selectedExperimentId
+  const selectResultsRef = useRef(results)
+  selectResultsRef.current = results
 
-      if (hasInProgressPipeline) {
-        void discardArchiveForExperiment(selectedExperimentId)
-        const resultToRemove = results.find(
-          (r) => r.experimentId === selectedExperimentId,
+  const selectExperiment = useCallback(
+    async (id: string | null) => {
+      const prevId = selectExperimentIdRef.current
+      if (prevId && id !== prevId) {
+        const activeResult = selectResultsRef.current.find(
+          (r) => r.experimentId === prevId,
         )
-        setResults((prev) =>
-          prev.filter((r) => r.experimentId !== selectedExperimentId),
-        )
-        if (resultToRemove) {
-          removeCollectionRefs("result", [resultToRemove.id])
+        const hasInProgressPipeline =
+          (!!activeResult && activeResult.files.length > 0) ||
+          (() => {
+            try {
+              return !!sessionStorage.getItem(`nomad_archive:${prevId}`)
+            } catch (_e) {
+              return false
+            }
+          })()
+
+        if (hasInProgressPipeline) {
+          void discardArchiveForExperiment(prevId)
+          const resultToRemove = selectResultsRef.current.find(
+            (r) => r.experimentId === prevId,
+          )
+          setResults((prev) => prev.filter((r) => r.experimentId !== prevId))
+          if (resultToRemove) {
+            removeCollectionRefs("result", [resultToRemove.id])
+          }
         }
       }
-    }
 
-    setSelectedExperimentId(id)
-    setActiveEntity(id ? { kind: "experiment", id } : null)
-    if (id) updateLastSelected("experiment", id)
-  }
+      setSelectedExperimentId(id)
+      setActiveEntity(id ? { kind: "experiment", id } : null)
+      if (id) updateLastSelected("experiment", id)
+    },
+    [
+      discardArchiveForExperiment,
+      removeCollectionRefs,
+      setResults,
+      setActiveEntity,
+      updateLastSelected,
+    ],
+  )
 
   const selectedExperiment = experiments.find(
     (e) => e.id === selectedExperimentId,
@@ -3961,6 +3974,14 @@ export function ResultsPage() {
   const experimentResults =
     results.find((r) => r.experimentId === selectedExperimentId) ?? null
   const processedPendingRequestIdsRef = useRef<Set<string>>(new Set())
+
+  // Stable callback passed to ResultsDetail so its autoOpen effect doesn't fire
+  // on every parent render (CLAUDE.md Pattern #2: break effect feedback loops).
+  const handleAutoOpenHandled = useCallback(() => {
+    setAutoOpenAddResultsExperimentId((prev) =>
+      prev === selectedExperimentId ? null : prev,
+    )
+  }, [selectedExperimentId])
 
   // When arriving from a collection's "Add Results" action, preselect the
   // linked experiment to make result linking explicit and predictable.
@@ -4113,14 +4134,20 @@ export function ResultsPage() {
     )
   }
 
-  // Filter experiments that are at least "ready" status
-  const visibleExperiments = experiments.filter((e) => {
-    if (!isEntityVisible("experiment", e.id)) {
-      return false
-    }
-    const status = getExperimentStatus(e)
-    return status === "complete"
-  })
+  // Filter experiments that are at least "ready" status. Accept experiments
+  // with name+date set OR those that have substrates (3-step workflow done).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: isEntityVisible identity is not tracked (stable hook value)
+  const visibleExperiments = useMemo(
+    () =>
+      experiments.filter((e) => {
+        if (!isEntityVisible("experiment", e.id)) {
+          return false
+        }
+        if (getExperimentStatus(e) === "complete") return true
+        return e.substrates.length > 0
+      }),
+    [experiments],
+  )
 
   useEffect(() => {
     if (
@@ -4144,11 +4171,7 @@ export function ResultsPage() {
             autoOpenAddResults={
               autoOpenAddResultsExperimentId === selectedExperiment.id
             }
-            onAutoOpenHandled={() => {
-              setAutoOpenAddResultsExperimentId((prev) =>
-                prev === selectedExperiment.id ? null : prev,
-              )
-            }}
+            onAutoOpenHandled={handleAutoOpenHandled}
             onUpdateResults={updateResults}
             onUpdateExperiment={(updatedExp) => {
               setExperiments((prev) =>
