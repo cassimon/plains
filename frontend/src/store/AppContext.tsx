@@ -1214,10 +1214,17 @@ export function AppProvider({
     results,
     planes,
   })
+  // Incomplete results (files uploaded but no NOMAD upload_id) must never be
+  // persisted — they represent an in-progress workflow that should not survive
+  // a page refresh/crash/tab-close. Filter them out of every save snapshot so
+  // this invariant holds regardless of how navigation or unmounting occurs.
+  const persistableResults = results.filter(
+    (r) => r.files.length === 0 || !!r.nomad?.upload_id,
+  )
   stateRef.current = {
     experiments,
     processes,
-    results,
+    results: persistableResults,
     planes,
   }
   const dirtyRef = useRef(false)
@@ -1283,11 +1290,43 @@ export function AppProvider({
       if (snapshot.processes.length > 0) {
         setProcesses(snapshot.processes)
       }
-      if (snapshot.results.length > 0) {
-        setResults(snapshot.results)
+      // Strip any incomplete in-progress results that survived a refresh/crash.
+      // They should never have been persisted (filtered from the save snapshot),
+      // but may exist in older snapshots written before this guard was added.
+      const staleResultIds = new Set(
+        snapshot.results
+          .filter((r) => r.files.length > 0 && !r.nomad?.upload_id)
+          .map((r) => r.id),
+      )
+      const completeResults = snapshot.results.filter(
+        (r) => !staleResultIds.has(r.id),
+      )
+      if (completeResults.length > 0) {
+        setResults(completeResults)
       }
       if (snapshot.planes.length > 0) {
         setPlanes(snapshot.planes)
+        // After planes are set, strip collection refs that pointed to stale
+        // results (functional update composes on top of the setPlanes above).
+        if (staleResultIds.size > 0) {
+          setPlanes((prev) =>
+            prev.map((plane) => {
+              const nextElements = plane.elements.map((el) => {
+                if (el.type !== "collection") return el
+                const col = el as CanvasCollectionElement
+                const nextRefs = col.refs.filter(
+                  (ref) =>
+                    !(ref.kind === "result" && staleResultIds.has(ref.id)),
+                )
+                if (nextRefs.length === col.refs.length) return el
+                return { ...col, refs: nextRefs }
+              })
+              return nextElements.some((el, i) => el !== plane.elements[i])
+                ? { ...plane, elements: nextElements }
+                : plane
+            }),
+          )
+        }
         setActivePlaneId((current) => {
           if (
             current &&

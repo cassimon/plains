@@ -51,7 +51,7 @@ _QuotedDumper.add_representer(str, _represent_str_quoted)
 _QuotedDumper.add_representer(float, _represent_float_safe)
 _QuotedDumper.add_representer(list, _represent_list_flow_if_flat)
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, SessionDep, TokenDep
@@ -192,32 +192,37 @@ def get_nomad_config(current_user: CurrentUser) -> NomadConfigResponse:
 
 @router.post("/upload/files")
 async def upload_files_for_nomad(
+    request: Request,
     session: SessionDep,
     current_user: CurrentUser,
-    experiment_id: str = Form(...),
-    experiment_name: str = Form(...),
-    files: list[UploadFile] = File(...),
-    request_json: str | None = Form(None),
 ) -> dict[str, Any]:
     """
     Upload files and create a temporary secure zip archive.
-    
+
     Files are:
     1. Validated for safety
     2. Compressed into a zip archive
     3. Optionally combined with NOMAD metadata YAML files (if request_json provided)
     4. Stored temporarily for later NOMAD upload
-    
+
     Returns the archive ID for use in the upload step.
-    
+
     If request_json is provided, YAML metadata files will be generated and included
     in the archive. This allows the frontend to prepare the upload earlier in the workflow.
     """
     _require_nomad_upload_authorized(current_user)
 
+    # Parse form manually so we can raise the per-request limits above Starlette's
+    # default of 1000 files — researchers routinely drop thousands of files at once.
+    form = await request.form(max_files=100_000, max_fields=100_000)
+    experiment_id = str(form.get("experiment_id") or "")
+    experiment_name = str(form.get("experiment_name") or "")
+    request_json: str | None = form.get("request_json")  # type: ignore[assignment]
+    files: list[UploadFile] = form.getlist("files")  # type: ignore[assignment]
+
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
-    
+
     # Read file contents
     file_data: list[tuple[str, bytes]] = []
     for f in files:
@@ -235,24 +240,24 @@ async def upload_files_for_nomad(
     archive_yaml_files: list[tuple[str, str]] = []
     if request_json:
         try:
-            request = NomadUploadRequest.model_validate_json(request_json)
-            
+            upload_request = NomadUploadRequest.model_validate_json(request_json)
+
             experiment_snapshot = None
             process_snapshot = None
-            if request.custom_metadata and isinstance(request.custom_metadata, dict):
-                candidate = request.custom_metadata.get("experiment")
+            if upload_request.custom_metadata and isinstance(upload_request.custom_metadata, dict):
+                candidate = upload_request.custom_metadata.get("experiment")
                 if isinstance(candidate, dict):
                     experiment_snapshot = candidate
-                proc_candidate = request.custom_metadata.get("process")
+                proc_candidate = upload_request.custom_metadata.get("process")
                 if isinstance(proc_candidate, dict):
                     process_snapshot = proc_candidate
 
-            measurement_files_dicts = [f.model_dump() for f in request.measurement_files]
-            device_groups_dicts = [g.model_dump() for g in request.device_groups]
+            measurement_files_dicts = [f.model_dump() for f in upload_request.measurement_files]
+            device_groups_dicts = [g.model_dump() for g in upload_request.device_groups]
 
             # Generate per-archive YAML files
             archives = create_nomad_metadata_yaml(
-                experiment_id=request.experiment_id,
+                experiment_id=upload_request.experiment_id,
                 user_name=current_user.full_name or current_user.email,
                 session=session,
                 upload_archive_basename=archive_basename,

@@ -3905,6 +3905,10 @@ export function ResultsPage() {
     [discardArchiveForExperiment, setResults, removeCollectionRefs, results],
   )
 
+  // Silently clean up any in-progress pipelines when navigating away.
+  // No confirm dialog — incomplete results are never persisted to the backend
+  // (filtered from the save snapshot), so there is no data to "lose"; we just
+  // need to discard the temporary server archive and clear in-memory state.
   useBlocker({
     shouldBlockFn: async ({ current, next }) => {
       if (current.pathname === next.pathname) {
@@ -3916,15 +3920,7 @@ export function ResultsPage() {
         return false
       }
 
-      const shouldDiscard = window.confirm(
-        "You are leaving in the middle of the upload process. Your current data and temporary archive will be discarded. Continue?",
-      )
-
-      if (!shouldDiscard) {
-        return true
-      }
-
-      await discardInProgressPipelines(inProgressIds)
+      void discardInProgressPipelines(inProgressIds)
       return false
     },
   })
@@ -3947,15 +3943,7 @@ export function ResultsPage() {
         })()
 
       if (hasInProgressPipeline) {
-        const shouldDiscard = window.confirm(
-          "You are leaving in the middle of the upload process. Your current data and temporary archive will be discarded. Continue?",
-        )
-        if (!shouldDiscard) {
-          return
-        }
-
-        await discardArchiveForExperiment(selectedExperimentId)
-
+        void discardArchiveForExperiment(selectedExperimentId)
         const resultToRemove = results.find(
           (r) => r.experimentId === selectedExperimentId,
         )
