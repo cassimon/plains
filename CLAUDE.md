@@ -102,6 +102,51 @@ All primary keys are UUIDs. All entities use cascade deletes. Each entity table 
 ### NOMAD Integration
 NOMAD auth credentials are read from a file outside the project root at `../sensitive config/.nomad_auth`. The backend routes are in `api/routes/nomad.py` and the service logic in `services/nomad.py`. Upload flow: zip measurement files → generate YAML metadata → POST to NOMAD API.
 
+## React + Vite + Mantine: Strict Mode Pitfalls
+
+React Strict Mode (active in Vite dev) double-invokes effects and renders. Combined with Mantine hooks (`useMergedRef`, etc.), this creates infinite render loops if not handled carefully. Apply these patterns whenever adding new features to the frontend:
+
+### 1. Never pass inline ref callbacks to Mantine components
+Mantine's `useMergedRef` treats a new function reference as a changed ref and re-fires `assignRefs → mergeRefs` on every render, causing an infinite loop. Stabilize ref callbacks with `useMemo`, keyed only on what actually changes (e.g. array length, not contents):
+
+```tsx
+// BAD — new function on every render
+ref={(node) => { myRefs.current[idx] = node }}
+
+// GOOD — stable per array length
+const refCallbacks = React.useMemo(
+  () => items.map((_item, idx) => (node: HTMLElement | null) => { myRefs.current[idx] = node }),
+  [items.length], // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally keyed only on length
+)
+```
+
+### 2. Break effect ↔ effect feedback loops with refs
+When effect A sets state X and effect B depends on X but also triggers A again, use a ref to read the latest value of X inside effect B without listing X as a dependency. Add an early-exit guard to prevent redundant state updates:
+
+```tsx
+const activeEntityRef = useRef(activeEntity)
+activeEntityRef.current = activeEntity  // keep in sync on every render
+
+useEffect(() => {
+  // Guard: skip if already up-to-date to break the A↔B cycle
+  if (activeEntityRef.current?.id === selectedId) return
+  setActiveEntity({ kind: "experiment", id: selectedId })
+}, [selectedId, setActiveEntity])
+```
+
+### 3. Exclude mutated state from effect deps using refs
+When an effect reads a value (e.g. `planes`) only to pass it to a mutation (`updateElement`), listing it as a dependency causes the effect to re-run after every mutation. Store it in a ref instead:
+
+```tsx
+const planesRef = useRef(planes)
+planesRef.current = planes  // kept current on every render
+
+useEffect(() => {
+  const plane = planesRef.current.find(...)  // read from ref, not from dep list
+  updateElement(...)
+}, [/* planes intentionally omitted */])
+```
+
 ## Development URLs
 
 | Service | URL |
