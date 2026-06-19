@@ -4853,7 +4853,11 @@ function WelcomePlaneView() {
               id: apiPlane.id,
               name: apiPlane.name,
               owner_id: apiPlane.owner_id,
-              owner: apiPlane.owner,
+              owner: {
+                id: apiPlane.owner.id,
+                email: apiPlane.owner.email,
+                full_name: apiPlane.owner.full_name ?? null,
+              },
               created_at: apiPlane.created_at ?? null,
               elements: (apiPlane.elements ?? []).map((e) => ({
                 id: e.id,
