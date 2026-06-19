@@ -1461,22 +1461,6 @@ function SolutionCard({
                       },
                     }}
                   />
-                  <NumberInput
-                    label="Total solvent volume (mL)"
-                    placeholder="e.g. 5"
-                    value={
-                      recipe.totalSolventVolumeMl !== ""
-                        ? Number(recipe.totalSolventVolumeMl)
-                        : ""
-                    }
-                    onChange={(v) =>
-                      update({
-                        totalSolventVolumeMl: v !== "" ? String(v) : "",
-                      })
-                    }
-                    min={0}
-                    style={{ flex: 1 }}
-                  />
                 </Group>
 
                 {/* Handling notes */}
@@ -1562,20 +1546,50 @@ function SolutionCard({
 
                 {/* Solvents */}
                 <Box>
-                  <Group justify="space-between" mb={6}>
+                  <Group justify="space-between" align="center" mb={6}>
                     <Text size="sm" fw={600}>
                       Solvents
                     </Text>
-                    <Button
-                      size="xs"
-                      variant="subtle"
-                      leftSection={<IconPlus size={12} />}
-                      onClick={() =>
-                        setSearch({ role: "solvent", ingredientId: null })
-                      }
-                    >
-                      Add Solvent
-                    </Button>
+                    <Group gap="sm" align="center">
+                      <NumberInput
+                        label={
+                          <Text size="xs" c="blue.6" fw={700}>
+                            Total vol. (mL) ★
+                          </Text>
+                        }
+                        placeholder="e.g. 5"
+                        value={
+                          recipe.totalSolventVolumeMl !== ""
+                            ? Number(recipe.totalSolventVolumeMl)
+                            : ""
+                        }
+                        onChange={(v) =>
+                          update({
+                            totalSolventVolumeMl: v !== "" ? String(v) : "",
+                          })
+                        }
+                        min={0}
+                        size="xs"
+                        style={{ width: 140 }}
+                        styles={{
+                          input: {
+                            borderColor: "var(--mantine-color-blue-4)",
+                            borderWidth: "1.5px",
+                          },
+                        }}
+                      />
+                      <Button
+                        size="xs"
+                        variant="subtle"
+                        leftSection={<IconPlus size={12} />}
+                        onClick={() =>
+                          setSearch({ role: "solvent", ingredientId: null })
+                        }
+                        style={{ marginTop: 18 }}
+                      >
+                        Add Solvent
+                      </Button>
+                    </Group>
                   </Group>
 
                   {recipe.solvents.length > 0 && (
