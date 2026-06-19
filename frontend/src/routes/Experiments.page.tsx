@@ -42,6 +42,7 @@ import {
   PROCESS_PARAMETER_DEFINITIONS,
   type Process,
   type ProcessParameterKey,
+  type ProcessSolutionRecipe,
   type ProcessStep,
   type Substrate,
   type SubstrateOutcome,
@@ -129,16 +130,28 @@ function alphabeticSuffix(index: number): string {
   return suffix
 }
 
-function buildStepBaseLabel(step: ProcessStep): string {
+function buildStepBaseLabel(
+  step: ProcessStep,
+  solutionRecipes: ProcessSolutionRecipe[] = [],
+): string {
   const depositionMethod = step.depositionMethod?.value?.trim() || "Deposition"
-  const targetName = step.inlineMaterial?.name || step.name || "Material"
-  return `${depositionMethod}: ${targetName}`
+  const materialName =
+    step.inlineMaterial?.name ||
+    (step.chemRecipeId
+      ? (solutionRecipes.find((r) => r.id === step.chemRecipeId)?.name ?? null)
+      : null)
+  return materialName
+    ? `${depositionMethod}: ${materialName}`
+    : depositionMethod
 }
 
-function buildStageStepOptions(alternatives: ProcessStep[]) {
+function buildStageStepOptions(
+  alternatives: ProcessStep[],
+  solutionRecipes: ProcessSolutionRecipe[] = [],
+) {
   const options = alternatives.map((step) => ({
     value: step.id,
-    label: buildStepBaseLabel(step),
+    label: buildStepBaseLabel(step, solutionRecipes),
   }))
 
   const totalByLabel = new Map<string, number>()
@@ -298,7 +311,10 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
                     value ?? stage.alternatives[0]?.id ?? "SKIP",
                   )
                 }
-                data={buildStageStepOptions(stage.alternatives)}
+                data={buildStageStepOptions(
+                  stage.alternatives,
+                  process.solutionRecipes ?? [],
+                )}
               />
             ))}
           </Group>
@@ -393,17 +409,20 @@ function RecipeSelectionModal({
 
 function ProcessStepSelector({
   alternatives,
+  solutionRecipes,
   selectedStepId,
   defaultStepId,
   onSelect,
 }: {
   alternatives: ProcessStep[]
+  solutionRecipes: ProcessSolutionRecipe[]
   selectedStepId: string | undefined | null
   defaultStepId: string | null
   onSelect: (stepId: string | null) => void
 }) {
-  const data = buildStageStepOptions(alternatives).map((option) =>
-    option.value === "SKIP" ? { ...option, label: "Skip this step" } : option,
+  const data = buildStageStepOptions(alternatives, solutionRecipes).map(
+    (option) =>
+      option.value === "SKIP" ? { ...option, label: "Skip this step" } : option,
   )
 
   const handleChange = (value: string | null) => {
@@ -476,9 +495,10 @@ function ExperimentGrid({
   )
 
   const stepDisplayById = React.useMemo(() => {
+    const recipes = process.solutionRecipes ?? []
     const map = new Map<string, string>()
     process.stages.forEach((stage) => {
-      const options = buildStageStepOptions(stage.alternatives)
+      const options = buildStageStepOptions(stage.alternatives, recipes)
       for (const option of options) {
         if (option.value !== "SKIP") {
           map.set(option.value, option.label)
@@ -486,7 +506,7 @@ function ExperimentGrid({
       }
     })
     return map
-  }, [process.stages])
+  }, [process.stages, process.solutionRecipes])
 
   React.useEffect(() => {
     const validIds = new Set(
@@ -1080,6 +1100,7 @@ function ExperimentGrid({
                   const isOpen = variationPopoverStageIdx === idx
                   const altOptions = buildStageStepOptions(
                     stage.alternatives,
+                    process.solutionRecipes ?? [],
                   ).filter((o) => o.value !== "SKIP")
                   return (
                     <React.Fragment key={`stage-${idx}`}>
@@ -1300,6 +1321,7 @@ function ExperimentGrid({
                         <td style={{ padding: "8px 4px" }}>
                           <ProcessStepSelector
                             alternatives={stage.alternatives}
+                            solutionRecipes={process.solutionRecipes ?? []}
                             defaultStepId={stage.alternatives[0]?.id ?? null}
                             selectedStepId={getStageSelection(
                               substrate.id,
@@ -1891,6 +1913,44 @@ export default function ExperimentsPage() {
     }))
   }, [selectedProcess])
 
+  const allExpStepsDone = React.useMemo(() => {
+    if (!selectedExperiment || !selectedProcess) return false
+    const { materialItems, solutionItems } = collectChemicals(selectedProcess)
+    const chemDone = computeChemsDone(
+      selectedExperiment.chemicalsPrep,
+      materialItems,
+      solutionItems,
+    )
+    const procDone = selectedExperiment.substrates.length > 0
+    const devDone =
+      selectedExperiment.substrates.length > 0 &&
+      selectedExperiment.substrates.every((s) => Boolean(s.outcome?.status))
+    return chemDone && procDone && devDone
+  }, [selectedExperiment, selectedProcess])
+
+  const expAllStepsDoneMap = React.useMemo(() => {
+    const map = new Map<string, boolean>()
+    for (const exp of experiments) {
+      const process = processes.find((p) => p.id === exp.processId)
+      if (!process) {
+        map.set(exp.id, false)
+        continue
+      }
+      const { materialItems, solutionItems } = collectChemicals(process)
+      const chemDone = computeChemsDone(
+        exp.chemicalsPrep,
+        materialItems,
+        solutionItems,
+      )
+      const procDone = exp.substrates.length > 0
+      const devDone =
+        exp.substrates.length > 0 &&
+        exp.substrates.every((s) => Boolean(s.outcome?.status))
+      map.set(exp.id, chemDone && procDone && devDone)
+    }
+    return map
+  }, [experiments, processes])
+
   React.useEffect(() => {
     if (processes.length === 0) {
       setNewExperimentProcessId(null)
@@ -2018,15 +2078,11 @@ export default function ExperimentsPage() {
   )
 
   const handleAddResultsForSelectedExperiment = useCallback(() => {
-    if (!selectedExperiment || selectedExperimentStatus !== "complete") {
+    if (!selectedExperiment || !allExpStepsDone) {
       return
     }
     handleAddResultsForExperiment(selectedExperiment)
-  }, [
-    handleAddResultsForExperiment,
-    selectedExperiment,
-    selectedExperimentStatus,
-  ])
+  }, [handleAddResultsForExperiment, selectedExperiment, allExpStepsDone])
 
   // Update experiment
   const handleUpdateExperiment = useCallback(
@@ -2297,7 +2353,7 @@ export default function ExperimentsPage() {
                             {status === "complete" ? "Complete" : "Incomplete"}
                           </Badge>
                           <Group gap={2} wrap="nowrap">
-                            {status === "complete" && (
+                            {expAllStepsDoneMap.get(exp.id) && (
                               <Tooltip label="Add Results" withArrow>
                                 <ActionIcon
                                   size="sm"
@@ -2443,7 +2499,7 @@ export default function ExperimentsPage() {
                           ? "Complete"
                           : "Incomplete"}
                       </Badge>
-                      {selectedExperimentStatus === "complete" && (
+                      {allExpStepsDone && (
                         <Button
                           size="lg"
                           color="green"
@@ -2515,6 +2571,7 @@ export default function ExperimentsPage() {
                 selectedExperiment.substrates.every((s) =>
                   Boolean(s.outcome?.status),
                 )
+              const allStepsDone = chemDone && procDone && devDone
               return (
                 <>
                   <ExperimentTimeline
@@ -2544,7 +2601,7 @@ export default function ExperimentsPage() {
                         allExperiments={experiments}
                         onUpdate={handleUpdateExperiment}
                       />
-                      {selectedExperimentStatus === "complete" && (
+                      {allStepsDone && (
                         <Group justify="center" mt="xl">
                           <Button
                             size="lg"
@@ -2602,7 +2659,7 @@ export default function ExperimentsPage() {
                           onUpdate={handleUpdateExperiment}
                           onUpdateProcess={handleUpdateProcess}
                         />
-                        {selectedExperimentStatus === "complete" && (
+                        {allStepsDone && (
                           <Group justify="center" mt="xl">
                             <Button
                               size="lg"
@@ -2635,7 +2692,7 @@ export default function ExperimentsPage() {
                         process={selectedProcess}
                         onUpdate={handleUpdateExperiment}
                       />
-                      {selectedExperimentStatus === "complete" && (
+                      {allStepsDone && (
                         <Group justify="center" mt="xl">
                           <Button
                             size="lg"

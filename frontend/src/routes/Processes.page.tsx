@@ -5098,17 +5098,21 @@ export function ProcessesPage() {
                         onRecover={handleRecoverStack}
                         onRefresh={handleGenerateStacks}
                       />
-                      <Group justify="center" mt="lg">
-                        <Button
-                          size="lg"
-                          color="green"
-                          variant="subtle"
-                          leftSection={<IconPlayerPlay size={20} />}
-                          onClick={() => handleSpawnExperiment(selectedProcess)}
-                        >
-                          Create Experiment from Process
-                        </Button>
-                      </Group>
+                      {chemistryDone && depositionDone && (
+                        <Group justify="center" mt="lg">
+                          <Button
+                            size="lg"
+                            color="green"
+                            variant="subtle"
+                            leftSection={<IconPlayerPlay size={20} />}
+                            onClick={() =>
+                              handleSpawnExperiment(selectedProcess)
+                            }
+                          >
+                            Create Experiment from Process
+                          </Button>
+                        </Group>
+                      )}
                     </>
                   ) : (
                     <Box
