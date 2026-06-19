@@ -1159,6 +1159,7 @@ function SolutionCard({
   const [addingSolution, setAddingSolution] = useState(false)
   const [newSolutionId, setNewSolutionId] = useState("")
   const [newSolutionVolumeMl, setNewSolutionVolumeMl] = useState("")
+  const [newSoluteId, setNewSoluteId] = useState<string | null>(null)
 
   const update = (patch: Partial<ProcessSolutionRecipe>) =>
     onUpdate({ ...recipe, ...patch })
@@ -1235,6 +1236,7 @@ function SolutionCard({
           density: props.density,
         }
         update({ solutes: [...recipe.solutes, newSolute] })
+        setNewSoluteId(newSolute.id)
       }
     }
   }
@@ -1302,12 +1304,28 @@ function SolutionCard({
     .map((s) => `${s.amount || "—"} ${s.unit} ${s.name || "?"}`)
     .join(", ")
 
+  const missingSoluteNames = recipe.isCommercial
+    ? []
+    : recipe.solutes.filter((s) => !s.amount).map((s) => s.name || "unnamed solute")
+  const hasComponent =
+    recipe.solvents.length > 0 ||
+    recipe.solutes.length > 0 ||
+    (recipe.addedSolutions ?? []).length > 0
+  const missingItems: string[] = []
+  if (!recipe.type) missingItems.push("set a type")
+  if (!hasComponent) missingItems.push("add at least one solvent, solute, or stock solution")
+  if (missingSoluteNames.length > 0)
+    missingItems.push(`set amount for: ${missingSoluteNames.join(", ")}`)
+  const isComplete = missingItems.length === 0
+
   return (
     <Box
       style={{
-        border: expanded
-          ? "1.5px solid var(--mantine-color-blue-4)"
-          : "1px solid var(--mantine-color-gray-3)",
+        border: isComplete
+          ? "1.5px solid var(--mantine-color-green-5)"
+          : expanded
+            ? "1.5px solid var(--mantine-color-blue-4)"
+            : "1px solid var(--mantine-color-gray-3)",
         borderRadius: 10,
         overflow: "hidden",
         transition: "border-color 150ms",
@@ -1321,9 +1339,11 @@ function SolutionCard({
           gap: 12,
           padding: "10px 14px",
           cursor: "pointer",
-          background: expanded
-            ? "var(--mantine-color-blue-0)"
-            : "var(--mantine-color-gray-0)",
+          background: isComplete
+            ? "var(--mantine-color-green-0)"
+            : expanded
+              ? "var(--mantine-color-blue-0)"
+              : "var(--mantine-color-gray-0)",
         }}
         onClick={onToggle}
       >
@@ -1360,14 +1380,9 @@ function SolutionCard({
             {solventLine}
             {solutesSummary ? ` · ${solutesSummary}` : ""}
           </Text>
-          {concentrations.length > 0 && (
-            <Text size="xs" c="teal" fw={500} truncate>
-              {concentrations
-                .map(
-                  (c) =>
-                    `${c.name}: ${c.molPerMl < 0.001 ? c.molPerMl.toExponential(2) : c.molPerMl.toFixed(4)} mol/mL`,
-                )
-                .join(" · ")}
+          {!isComplete && (
+            <Text size="xs" c="orange.7" fw={500} truncate>
+              {missingItems.join(" · ")}
             </Text>
           )}
         </Box>
@@ -1503,36 +1518,6 @@ function SolutionCard({
                   />
                 </Group>
 
-                {/* Concentration box */}
-                {concentrations.length > 0 && (
-                  <Box
-                    p="xs"
-                    style={{
-                      background: "var(--mantine-color-teal-0)",
-                      border: "1px solid var(--mantine-color-teal-2)",
-                      borderRadius: 6,
-                    }}
-                  >
-                    <Text size="xs" fw={700} c="teal" mb={4}>
-                      Concentration
-                    </Text>
-                    <Group gap="lg" wrap="wrap">
-                      {concentrations.map((c) => (
-                        <Box key={c.name}>
-                          <Text size="xs" fw={600}>
-                            {c.name}
-                          </Text>
-                          <Text size="xs" c="dimmed">
-                            {c.molPerMl < 0.001
-                              ? c.molPerMl.toExponential(3)
-                              : c.molPerMl.toFixed(4)}{" "}
-                            mol/mL
-                          </Text>
-                        </Box>
-                      ))}
-                    </Group>
-                  </Box>
-                )}
 
                 {/* Commercial-only fields */}
                 {recipe.isCommercial && (
@@ -1895,6 +1880,7 @@ function SolutionCard({
                                 value={s.amount !== "" ? Number(s.amount) : ""}
                                 placeholder="0"
                                 min={0}
+                                autoFocus={s.id === newSoluteId}
                                 onChange={(v) =>
                                   updateSolute(s.id, {
                                     amount: v !== "" ? String(v) : "",
@@ -2147,6 +2133,35 @@ function SolutionCard({
                 {/* end !isCommercial Solutions */}
               </Stack>
             </Box>
+          </Group>
+        </Box>
+      )}
+      {concentrations.length > 0 && (
+        <Box
+          p="xs"
+          style={{
+            background: "var(--mantine-color-teal-0)",
+            borderTop: "1px solid var(--mantine-color-teal-2)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Text size="xs" fw={700} c="teal" mb={4}>
+            Concentration
+          </Text>
+          <Group gap="lg" wrap="wrap">
+            {concentrations.map((c) => (
+              <Box key={c.name}>
+                <Text size="xs" fw={600}>
+                  {c.name}
+                </Text>
+                <Text size="xs" c="dimmed">
+                  {c.molPerMl < 0.001
+                    ? c.molPerMl.toExponential(3)
+                    : c.molPerMl.toFixed(4)}{" "}
+                  mol/mL
+                </Text>
+              </Box>
+            ))}
           </Group>
         </Box>
       )}

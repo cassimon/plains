@@ -263,6 +263,12 @@ export type Process = {
 /** Compute process completion status */
 export function getProcessStatus(process: Process): "incomplete" | "complete" {
   if (!process.name.trim()) return "incomplete"
+
+  // Step 1: Chemistry — has at least one solution recipe, or chemistry is skipped
+  const chemistryDone =
+    !!process.skipChemistry || (process.solutionRecipes?.length ?? 0) > 0
+
+  // Step 2: Deposition — has substrates AND at least one non-prep deposition step
   const hasSubstrate =
     (process.substrateIds ?? []).length > 0 ||
     (process.inlineSubstrates ?? []).length > 0
@@ -273,7 +279,12 @@ export function getProcessStatus(process: Process): "incomplete" | "complete" {
         step.stepCategory !== "substrate_preparation",
     ),
   )
-  return hasSubstrate && hasDepositionStep ? "complete" : "incomplete"
+  const depositionDone = hasSubstrate && hasDepositionStep
+
+  // Step 3: Stacks & Devices — at least one stack has been generated
+  const deviceDone = (process.generatedStacks?.length ?? 0) > 0
+
+  return chemistryDone && depositionDone && deviceDone ? "complete" : "incomplete"
 }
 
 /** Helper to create a new process step */
