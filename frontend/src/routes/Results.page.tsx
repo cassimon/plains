@@ -27,6 +27,7 @@ import {
   IconAlertTriangle,
   IconCheck,
   IconChevronDown,
+  IconChevronLeft,
   IconChevronRight,
   IconCloudUpload,
   IconExternalLink,
@@ -3089,7 +3090,6 @@ function ResultsDetail({
                     )}
                     <Group
                       align="flex-start"
-                      grow
                       wrap="nowrap"
                       onDragOverCapture={handleReviewDragOverCapture}
                       onWheelCapture={handleReviewWheelWhileDragging}
@@ -3103,7 +3103,7 @@ function ResultsDetail({
                           p="sm"
                           radius="md"
                           style={{
-                            flex: 1,
+                            flex: 2,
                             minWidth: 0,
                             borderColor: "var(--mantine-color-red-4)",
                             background: "var(--mantine-color-red-0)",
@@ -3823,6 +3823,7 @@ export function ResultsPage() {
   >(() => lastSelectedByKind.experiment ?? null)
   const [autoOpenAddResultsExperimentId, setAutoOpenAddResultsExperimentId] =
     useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const discardArchiveForExperiment = useCallback(
     async (experimentId: string) => {
@@ -4162,8 +4163,170 @@ export function ResultsPage() {
 
   return (
     <Box style={{ display: "flex", height: "calc(100vh - 60px)" }}>
+      {/* Left Sidebar: Experiment List */}
+      <Box
+        style={{
+          width: sidebarOpen ? 260 : 48,
+          borderRight: "1px solid var(--mantine-color-default-border)",
+          display: "flex",
+          flexDirection: "column",
+          transition: "width 200ms ease",
+          overflow: "hidden",
+          flexShrink: 0,
+        }}
+      >
+        {/* Header row: toggle button + title */}
+        <Group
+          justify={sidebarOpen ? "space-between" : "center"}
+          px={sidebarOpen ? "sm" : 0}
+          style={{
+            height: 48,
+            flexShrink: 0,
+            borderBottom: "1px solid var(--mantine-color-default-border)",
+          }}
+        >
+          {sidebarOpen && (
+            <Title order={6} style={{ whiteSpace: "nowrap" }}>
+              Experiments
+            </Title>
+          )}
+          <Tooltip
+            label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+            position={sidebarOpen ? "bottom" : "right"}
+            withArrow
+          >
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              onClick={() => setSidebarOpen((o) => !o)}
+            >
+              {sidebarOpen ? (
+                <IconChevronLeft size={16} />
+              ) : (
+                <IconChevronRight size={16} />
+              )}
+            </ActionIcon>
+          </Tooltip>
+        </Group>
+
+        {sidebarOpen ? (
+          /* Expanded: full experiment cards */
+          <ScrollArea style={{ flex: 1 }} p="sm">
+            <Stack gap="sm">
+              {visibleExperiments.length === 0 ? (
+                <Paper
+                  p="lg"
+                  ta="center"
+                  style={{ background: "var(--mantine-color-gray-0)" }}
+                >
+                  <IconFlask size={32} color="var(--mantine-color-gray-5)" />
+                  <Text size="sm" c="dimmed" mt="sm">
+                    No ready experiments
+                  </Text>
+                  <Text size="xs" c="dimmed" mt="xs">
+                    Complete an experiment first
+                  </Text>
+                </Paper>
+              ) : (
+                visibleExperiments.map((exp) => {
+                  const expResults = results.find(
+                    (r) => r.experimentId === exp.id,
+                  )
+                  const hasUnfinishedUpload =
+                    !!expResults &&
+                    expResults.files.length > 0 &&
+                    !exp.hasCompletedUpload
+                  return (
+                    <ExperimentListItem
+                      key={exp.id}
+                      experiment={exp}
+                      isSelected={selectedExperimentId === exp.id}
+                      onSelect={() => selectExperiment(exp.id)}
+                      collectionColor={
+                        getEntityColor("experiment", exp.id) ?? undefined
+                      }
+                      hasUnfinishedUpload={hasUnfinishedUpload}
+                    />
+                  )
+                })
+              )}
+            </Stack>
+          </ScrollArea>
+        ) : (
+          /* Collapsed: icon per experiment */
+          <ScrollArea style={{ flex: 1 }}>
+            <Stack gap={4} py="xs" align="center">
+              {visibleExperiments.map((exp) => {
+                const expResults = results.find(
+                  (r) => r.experimentId === exp.id,
+                )
+                const hasUnfinishedUpload =
+                  !!expResults &&
+                  expResults.files.length > 0 &&
+                  !exp.hasCompletedUpload
+                const color =
+                  getEntityColor("experiment", exp.id) ??
+                  "var(--mantine-color-blue-5)"
+                const isSelected = selectedExperimentId === exp.id
+                return (
+                  <Tooltip
+                    key={exp.id}
+                    label={
+                      <Stack gap={2}>
+                        <Text size="xs" fw={600}>
+                          {exp.name || "Untitled"}
+                        </Text>
+                        {exp.date && (
+                          <Text size="xs" c="dimmed">
+                            {exp.date}
+                          </Text>
+                        )}
+                        {hasUnfinishedUpload && (
+                          <Text size="xs" c="orange">
+                            Unfinished upload
+                          </Text>
+                        )}
+                      </Stack>
+                    }
+                    position="right"
+                    withArrow
+                  >
+                    <ActionIcon
+                      size="lg"
+                      variant={isSelected ? "filled" : "subtle"}
+                      onClick={() => selectExperiment(exp.id)}
+                      style={{
+                        color: isSelected ? "white" : color,
+                        background: isSelected ? color : undefined,
+                        borderRadius: 8,
+                        position: "relative",
+                      }}
+                    >
+                      <IconFlask size={18} />
+                      {hasUnfinishedUpload && (
+                        <Box
+                          style={{
+                            position: "absolute",
+                            top: 4,
+                            right: 4,
+                            width: 6,
+                            height: 6,
+                            borderRadius: "50%",
+                            background: "var(--mantine-color-orange-5)",
+                          }}
+                        />
+                      )}
+                    </ActionIcon>
+                  </Tooltip>
+                )
+              })}
+            </Stack>
+          </ScrollArea>
+        )}
+      </Box>
+
       {/* Main: Results Detail */}
-      <Box style={{ flex: 1, background: "var(--mantine-color-gray-0)" }}>
+      <Box style={{ flex: 1, minWidth: 0, background: "var(--mantine-color-gray-0)" }}>
         {selectedExperiment ? (
           <ResultsDetail
             experiment={selectedExperiment}
@@ -4198,68 +4361,6 @@ export function ResultsPage() {
             </Text>
           </Box>
         )}
-      </Box>
-
-      {/* Right Sidebar: Experiment List */}
-      <Box
-        style={{
-          width: 280,
-          borderLeft: "1px solid var(--mantine-color-default-border)",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <Group
-          justify="space-between"
-          p="md"
-          style={{
-            borderBottom: "1px solid var(--mantine-color-default-border)",
-          }}
-        >
-          <Title order={5}>Experiments</Title>
-        </Group>
-
-        <ScrollArea style={{ flex: 1 }} p="sm">
-          <Stack gap="sm">
-            {visibleExperiments.length === 0 ? (
-              <Paper
-                p="lg"
-                ta="center"
-                style={{ background: "var(--mantine-color-gray-0)" }}
-              >
-                <IconFlask size={32} color="var(--mantine-color-gray-5)" />
-                <Text size="sm" c="dimmed" mt="sm">
-                  No ready experiments
-                </Text>
-                <Text size="xs" c="dimmed" mt="xs">
-                  Complete an experiment first
-                </Text>
-              </Paper>
-            ) : (
-              visibleExperiments.map((exp) => {
-                const expResults = results.find(
-                  (r) => r.experimentId === exp.id,
-                )
-                const hasUnfinishedUpload =
-                  !!expResults &&
-                  expResults.files.length > 0 &&
-                  !exp.hasCompletedUpload
-                return (
-                  <ExperimentListItem
-                    key={exp.id}
-                    experiment={exp}
-                    isSelected={selectedExperimentId === exp.id}
-                    onSelect={() => selectExperiment(exp.id)}
-                    collectionColor={
-                      getEntityColor("experiment", exp.id) ?? undefined
-                    }
-                    hasUnfinishedUpload={hasUnfinishedUpload}
-                  />
-                )
-              })
-            )}
-          </Stack>
-        </ScrollArea>
       </Box>
     </Box>
   )
