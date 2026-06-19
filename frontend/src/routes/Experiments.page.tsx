@@ -2443,9 +2443,9 @@ export default function ExperimentsPage() {
                 withBorder
                 p="sm"
                 radius="md"
-                style={{ flex: 1, background: "var(--mantine-color-gray-1)" }}
+                style={{ flex: 1 }}
               >
-                <SimpleGrid cols={4} spacing="sm">
+                <SimpleGrid cols={3} spacing="sm">
                   <TextInput
                     label="Experiment Name"
                     placeholder="Name"
@@ -2474,31 +2474,6 @@ export default function ExperimentsPage() {
                       }
                       size="sm"
                     />
-                  </Box>
-
-                  <Box>
-                    <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                      Status
-                    </Text>
-                    <Group gap="xs" wrap="nowrap">
-                      <Badge
-                        size="lg"
-                        color={allExpStepsDone ? "green" : "yellow"}
-                      >
-                        {allExpStepsDone ? "Complete" : "Incomplete"}
-                      </Badge>
-                      {allExpStepsDone && (
-                        <Button
-                          size="lg"
-                          color="green"
-                          variant="subtle"
-                          leftSection={<IconDownload size={20} />}
-                          onClick={handleAddResultsForSelectedExperiment}
-                        >
-                          Add Results
-                        </Button>
-                      )}
-                    </Group>
                   </Box>
 
                   <Paper
@@ -2614,7 +2589,7 @@ export default function ExperimentsPage() {
                             color="var(--mantine-color-blue-6)"
                           />
                           <Text size="sm" fw={700}>
-                            Step 2: Processing
+                            Step 2: Please specify how many substrates you prepared and what steps and parameters you use!
                           </Text>
                         </Group>
                         <SubstrateNameGenerator
