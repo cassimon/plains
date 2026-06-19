@@ -26,7 +26,6 @@ import {
   IconAtom,
   IconBrush,
   IconCheck,
-  IconChevronDown,
   IconCopy,
   IconCpu,
   IconDownload,
@@ -4609,65 +4608,70 @@ export function ProcessesPage() {
                               setSelectedStepId(null)
                             }}
                           >
-                            <Group justify="space-between">
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <Group gap="xs" wrap="nowrap">
-                                  <Text
-                                    size="sm"
-                                    fw={isSelected ? 600 : 400}
-                                    truncate
-                                  >
-                                    {process.name || "Untitled"}
-                                  </Text>
-                                  <Badge
-                                    size="xs"
-                                    color={
-                                      getProcessStatus(process) === "complete"
-                                        ? "green"
-                                        : "red"
-                                    }
-                                    variant="dot"
-                                    style={{ flexShrink: 0 }}
-                                  >
-                                    {getProcessStatus(process) === "complete"
-                                      ? "Complete"
-                                      : "Incomplete"}
-                                  </Badge>
-                                </Group>
-                                <Text size="xs" c="dimmed">
-                                  {process.stages.length} step
-                                  {process.stages.length !== 1 ? "s" : ""}
-                                </Text>
-                              </div>
-                              <Menu shadow="md" width={160}>
-                                <Menu.Target>
+                            <Stack gap={4}>
+                              <Text
+                                size="sm"
+                                fw={isSelected ? 600 : 400}
+                                truncate
+                              >
+                                {process.name || "Untitled"}
+                              </Text>
+                              <Group justify="space-between" wrap="nowrap">
+                                <Badge
+                                  size="xs"
+                                  color={
+                                    getProcessStatus(process) === "complete"
+                                      ? "green"
+                                      : "red"
+                                  }
+                                  variant="dot"
+                                >
+                                  {getProcessStatus(process) === "complete"
+                                    ? "Complete"
+                                    : "Incomplete"}
+                                </Badge>
+                                <Group gap={2} wrap="nowrap">
                                   <ActionIcon
                                     size="sm"
                                     variant="subtle"
-                                    color="gray"
+                                    color="teal"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleCopyProcess(process)
+                                    }}
                                   >
-                                    <IconChevronDown size={14} />
+                                    <IconCopy size={14} />
                                   </ActionIcon>
-                                </Menu.Target>
-                                <Menu.Dropdown>
-                                  <Menu.Item
-                                    leftSection={<IconCopy size={14} />}
-                                    onClick={() => handleCopyProcess(process)}
-                                  >
-                                    Copy
-                                  </Menu.Item>
-                                  <Menu.Item
-                                    leftSection={<IconTrash size={14} />}
+                                  <ActionIcon
+                                    size="sm"
+                                    variant="subtle"
                                     color="red"
-                                    onClick={() =>
+                                    onClick={(e) => {
+                                      e.stopPropagation()
                                       handleDeleteProcess(process.id)
-                                    }
+                                    }}
                                   >
-                                    Delete
-                                  </Menu.Item>
-                                </Menu.Dropdown>
-                              </Menu>
-                            </Group>
+                                    <IconTrash size={14} />
+                                  </ActionIcon>
+                                </Group>
+                              </Group>
+                              <Text size="xs" c="dimmed">
+                                {process.solutionRecipes?.length ?? 0} sol ·{" "}
+                                {
+                                  process.stages.filter((s) =>
+                                    s.alternatives.some(
+                                      (a) =>
+                                        a.stepCategory !==
+                                          "surface_treatment" &&
+                                        a.stepCategory !==
+                                          "substrate_preparation",
+                                    ),
+                                  ).length
+                                }{" "}
+                                dep · {process.generatedStacks?.length ?? 0}{" "}
+                                stacks
+                              </Text>
+                            </Stack>
                           </Paper>
                         )
                       }),
@@ -4712,65 +4716,70 @@ export function ProcessesPage() {
                               setSelectedStepId(null)
                             }}
                           >
-                            <Group justify="space-between">
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <Group gap="xs" wrap="nowrap">
-                                  <Text
-                                    size="sm"
-                                    fw={isSelected ? 600 : 400}
-                                    truncate
-                                  >
-                                    {process.name || "Untitled"}
-                                  </Text>
-                                  <Badge
-                                    size="xs"
-                                    color={
-                                      getProcessStatus(process) === "complete"
-                                        ? "green"
-                                        : "red"
-                                    }
-                                    variant="dot"
-                                    style={{ flexShrink: 0 }}
-                                  >
-                                    {getProcessStatus(process) === "complete"
-                                      ? "Complete"
-                                      : "Incomplete"}
-                                  </Badge>
-                                </Group>
-                                <Text size="xs" c="dimmed">
-                                  {process.stages.length} step
-                                  {process.stages.length !== 1 ? "s" : ""}
-                                </Text>
-                              </div>
-                              <Menu shadow="md" width={160}>
-                                <Menu.Target>
+                            <Stack gap={4}>
+                              <Text
+                                size="sm"
+                                fw={isSelected ? 600 : 400}
+                                truncate
+                              >
+                                {process.name || "Untitled"}
+                              </Text>
+                              <Group justify="space-between" wrap="nowrap">
+                                <Badge
+                                  size="xs"
+                                  color={
+                                    getProcessStatus(process) === "complete"
+                                      ? "green"
+                                      : "red"
+                                  }
+                                  variant="dot"
+                                >
+                                  {getProcessStatus(process) === "complete"
+                                    ? "Complete"
+                                    : "Incomplete"}
+                                </Badge>
+                                <Group gap={2} wrap="nowrap">
                                   <ActionIcon
                                     size="sm"
                                     variant="subtle"
-                                    color="gray"
+                                    color="teal"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleCopyProcess(process)
+                                    }}
                                   >
-                                    <IconChevronDown size={14} />
+                                    <IconCopy size={14} />
                                   </ActionIcon>
-                                </Menu.Target>
-                                <Menu.Dropdown>
-                                  <Menu.Item
-                                    leftSection={<IconCopy size={14} />}
-                                    onClick={() => handleCopyProcess(process)}
-                                  >
-                                    Copy
-                                  </Menu.Item>
-                                  <Menu.Item
-                                    leftSection={<IconTrash size={14} />}
+                                  <ActionIcon
+                                    size="sm"
+                                    variant="subtle"
                                     color="red"
-                                    onClick={() =>
+                                    onClick={(e) => {
+                                      e.stopPropagation()
                                       handleDeleteProcess(process.id)
-                                    }
+                                    }}
                                   >
-                                    Delete
-                                  </Menu.Item>
-                                </Menu.Dropdown>
-                              </Menu>
-                            </Group>
+                                    <IconTrash size={14} />
+                                  </ActionIcon>
+                                </Group>
+                              </Group>
+                              <Text size="xs" c="dimmed">
+                                {process.solutionRecipes?.length ?? 0} sol ·{" "}
+                                {
+                                  process.stages.filter((s) =>
+                                    s.alternatives.some(
+                                      (a) =>
+                                        a.stepCategory !==
+                                          "surface_treatment" &&
+                                        a.stepCategory !==
+                                          "substrate_preparation",
+                                    ),
+                                  ).length
+                                }{" "}
+                                dep · {process.generatedStacks?.length ?? 0}{" "}
+                                stacks
+                              </Text>
+                            </Stack>
                           </Paper>
                         )
                       }),
@@ -4809,75 +4818,81 @@ export function ProcessesPage() {
                         setSelectedStepId(null)
                       }}
                     >
-                      <Group justify="space-between" wrap="nowrap">
-                        <Box style={{ flex: 1, minWidth: 0 }}>
-                          <Group gap="xs" mb={4} wrap="nowrap">
-                            <Text size="sm" fw={600} truncate>
-                              {process.name || "Untitled"}
-                            </Text>
-                            <Badge
-                              size="xs"
-                              color={
-                                getProcessStatus(process) === "complete"
-                                  ? "green"
-                                  : "red"
-                              }
-                              variant="dot"
-                              style={{ flexShrink: 0 }}
+                      <Stack gap={4}>
+                        <Text size="sm" fw={600} truncate>
+                          {process.name || "Untitled"}
+                        </Text>
+                        <Group justify="space-between" wrap="nowrap">
+                          <Badge
+                            size="xs"
+                            color={
+                              getProcessStatus(process) === "complete"
+                                ? "green"
+                                : "red"
+                            }
+                            variant="dot"
+                          >
+                            {getProcessStatus(process) === "complete"
+                              ? "Complete"
+                              : "Incomplete"}
+                          </Badge>
+                          <Group gap={2} wrap="nowrap">
+                            {((process.substrateIds ?? []).length > 0 ||
+                              (process.inlineSubstrates ?? []).length > 0) &&
+                              process.stages.length > 0 && (
+                                <Tooltip label="New experiment" withArrow>
+                                  <ActionIcon
+                                    size="sm"
+                                    variant="subtle"
+                                    color={canSpawnFromList ? "green" : "gray"}
+                                    disabled={!canSpawnFromList}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleSpawnExperiment(process)
+                                    }}
+                                  >
+                                    <IconPlayerPlay size={14} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              )}
+                            <ActionIcon
+                              size="sm"
+                              variant="subtle"
+                              color="teal"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleCopyProcess(process)
+                              }}
                             >
-                              {getProcessStatus(process) === "complete"
-                                ? "Complete"
-                                : "Incomplete"}
-                            </Badge>
+                              <IconCopy size={14} />
+                            </ActionIcon>
+                            <ActionIcon
+                              size="sm"
+                              variant="subtle"
+                              color="red"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteProcess(process.id)
+                              }}
+                            >
+                              <IconTrash size={14} />
+                            </ActionIcon>
                           </Group>
-                          <Text size="xs" c="dimmed">
-                            {process.stages.length} step
-                            {process.stages.length !== 1 ? "s" : ""}
-                          </Text>
-                        </Box>
-                        <Group gap={2} wrap="nowrap">
-                          {((process.substrateIds ?? []).length > 0 ||
-                            (process.inlineSubstrates ?? []).length > 0) &&
-                            process.stages.length > 0 && (
-                              <Tooltip label="New experiment" withArrow>
-                                <ActionIcon
-                                  size="sm"
-                                  variant="subtle"
-                                  color={canSpawnFromList ? "green" : "gray"}
-                                  disabled={!canSpawnFromList}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleSpawnExperiment(process)
-                                  }}
-                                >
-                                  <IconPlayerPlay size={14} />
-                                </ActionIcon>
-                              </Tooltip>
-                            )}
-                          <ActionIcon
-                            size="sm"
-                            variant="subtle"
-                            color="teal"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleCopyProcess(process)
-                            }}
-                          >
-                            <IconCopy size={14} />
-                          </ActionIcon>
-                          <ActionIcon
-                            size="sm"
-                            variant="subtle"
-                            color="red"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDeleteProcess(process.id)
-                            }}
-                          >
-                            <IconTrash size={14} />
-                          </ActionIcon>
                         </Group>
-                      </Group>
+                        <Text size="xs" c="dimmed">
+                          {process.solutionRecipes?.length ?? 0} sol ·{" "}
+                          {
+                            process.stages.filter((s) =>
+                              s.alternatives.some(
+                                (a) =>
+                                  a.stepCategory !== "surface_treatment" &&
+                                  a.stepCategory !== "substrate_preparation",
+                              ),
+                            ).length
+                          }{" "}
+                          dep · {process.generatedStacks?.length ?? 0} stacks
+                        </Text>
+                      </Stack>
                     </Paper>
                   )
                 })

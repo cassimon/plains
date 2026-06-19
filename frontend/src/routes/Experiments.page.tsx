@@ -2284,76 +2284,59 @@ export default function ExperimentsPage() {
                       }}
                       onClick={() => setSelectedExpId(exp.id)}
                     >
-                      <Group justify="space-between" wrap="nowrap">
-                        <Box style={{ flex: 1, minWidth: 0 }}>
-                          <Group gap="xs" mb={4}>
-                            <Text size="sm" fw={600} truncate>
-                              {exp.name || "Untitled"}
-                            </Text>
-                            <Badge
-                              size="xs"
-                              color={status === "complete" ? "green" : "red"}
-                              variant="dot"
+                      <Stack gap={4}>
+                        <Text size="sm" fw={600} truncate>
+                          {exp.name || "Untitled"}
+                        </Text>
+                        <Group justify="space-between" wrap="nowrap">
+                          <Badge
+                            size="xs"
+                            color={status === "complete" ? "green" : "red"}
+                            variant="dot"
+                          >
+                            {status === "complete" ? "Complete" : "Incomplete"}
+                          </Badge>
+                          <Group gap={2} wrap="nowrap">
+                            {status === "complete" && (
+                              <Tooltip label="Add Results" withArrow>
+                                <ActionIcon
+                                  size="sm"
+                                  variant="subtle"
+                                  color="green"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleAddResultsForExperiment(exp)
+                                  }}
+                                >
+                                  <IconDownload size={14} />
+                                </ActionIcon>
+                              </Tooltip>
+                            )}
+                            <ActionIcon
+                              size="sm"
+                              variant="subtle"
+                              color="teal"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleCopyExperiment(exp)
+                              }}
                             >
-                              {status === "complete"
-                                ? "Complete"
-                                : "Incomplete"}
-                            </Badge>
+                              <IconCopy size={14} />
+                            </ActionIcon>
+                            <ActionIcon
+                              size="sm"
+                              variant="subtle"
+                              color="red"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteExperiment(exp.id)
+                              }}
+                            >
+                              <IconTrash size={14} />
+                            </ActionIcon>
                           </Group>
-                          <Group gap="xs">
-                            <Text size="xs" c="dimmed">
-                              {exp.date || "No date"}
-                            </Text>
-                            <Text size="xs" c="dimmed">
-                              •
-                            </Text>
-                            <Text size="xs" c="dimmed">
-                              {exp.substrates.length} substrate
-                              {exp.substrates.length !== 1 ? "s" : ""}
-                            </Text>
-                          </Group>
-                        </Box>
-
-                        <Group gap={2} wrap="nowrap">
-                          {status === "complete" && (
-                            <Tooltip label="Add Results" withArrow>
-                              <ActionIcon
-                                size="sm"
-                                variant="subtle"
-                                color="green"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleAddResultsForExperiment(exp)
-                                }}
-                              >
-                                <IconDownload size={14} />
-                              </ActionIcon>
-                            </Tooltip>
-                          )}
-                          <ActionIcon
-                            size="sm"
-                            variant="subtle"
-                            color="teal"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleCopyExperiment(exp)
-                            }}
-                          >
-                            <IconCopy size={14} />
-                          </ActionIcon>
-                          <ActionIcon
-                            size="sm"
-                            variant="subtle"
-                            color="red"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDeleteExperiment(exp.id)
-                            }}
-                          >
-                            <IconTrash size={14} />
-                          </ActionIcon>
                         </Group>
-                      </Group>
+                      </Stack>
                     </Paper>
                   )
                 })}
