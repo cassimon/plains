@@ -1569,10 +1569,11 @@ function ResultsDetail({
           }
         }
 
+        const autoAssigned = bestMatch && bestMatch.score > 0.6
         return {
           ...group,
-          assignedSubstrateId:
-            bestMatch && bestMatch.score > 0.6 ? bestMatch.id : null,
+          assignedSubstrateId: autoAssigned ? bestMatch!.id : null,
+          suggestedSubstrateId: bestMatch?.id,
           matchScore: bestMatch?.score ?? 0,
         }
       })
@@ -3175,6 +3176,7 @@ function ResultsDetail({
                                     <Table.Thead>
                                       <Table.Tr>
                                         <Table.Th style={{ width: 36 }} />
+                                        <Table.Th style={{ width: 36 }} />
                                         <Table.Th>Group Name</Table.Th>
                                         <Table.Th>Files</Table.Th>
                                         <Table.Th>Match Score</Table.Th>
@@ -3192,6 +3194,25 @@ function ResultsDetail({
                                           group.files.every((f) =>
                                             selectedUnmatchedFileIds.has(f.id),
                                           )
+                                        const someInGroupSelected =
+                                          !allInGroupSelected &&
+                                          group.files.some((f) =>
+                                            selectedUnmatchedFileIds.has(f.id),
+                                          )
+                                        const matchColor =
+                                          (group.matchScore ?? 0) > 0.8
+                                            ? "green"
+                                            : (group.matchScore ?? 0) > 0.5
+                                              ? "yellow"
+                                              : "red"
+                                        const suggestedSubstrate =
+                                          group.suggestedSubstrateId
+                                            ? allAssignTargets.find(
+                                                (s) =>
+                                                  s.id ===
+                                                  group.suggestedSubstrateId,
+                                              )
+                                            : undefined
 
                                         return (
                                           <Fragment key={group.id}>
@@ -3207,6 +3228,33 @@ function ResultsDetail({
                                               }}
                                               style={{ cursor: "grab" }}
                                             >
+                                              <Table.Td
+                                                style={{
+                                                  cursor: "default",
+                                                }}
+                                                onClick={(e) =>
+                                                  e.stopPropagation()
+                                                }
+                                              >
+                                                <Checkbox
+                                                  size="xs"
+                                                  checked={allInGroupSelected}
+                                                  indeterminate={
+                                                    someInGroupSelected
+                                                  }
+                                                  onChange={(e) => {
+                                                    const checked =
+                                                      e.currentTarget.checked
+                                                    for (const file of group.files) {
+                                                      toggleSelectUnmatchedFile(
+                                                        file.id,
+                                                        checked,
+                                                      )
+                                                    }
+                                                  }}
+                                                  aria-label={`Select all files in ${group.deviceName}`}
+                                                />
+                                              </Table.Td>
                                               <Table.Td>
                                                 <ActionIcon
                                                   variant="subtle"
@@ -3251,21 +3299,39 @@ function ResultsDetail({
                                               <Table.Td>
                                                 {group.matchScore !==
                                                 undefined ? (
-                                                  <Badge
-                                                    size="xs"
-                                                    color={
-                                                      group.matchScore > 0.8
-                                                        ? "green"
-                                                        : group.matchScore > 0.5
-                                                          ? "yellow"
-                                                          : "red"
-                                                    }
+                                                  <Group
+                                                    gap="xs"
+                                                    wrap="nowrap"
+                                                    align="center"
                                                   >
-                                                    {(
-                                                      group.matchScore * 100
-                                                    ).toFixed(0)}
-                                                    %
-                                                  </Badge>
+                                                    <Badge
+                                                      size="xs"
+                                                      color={matchColor}
+                                                    >
+                                                      {(
+                                                        group.matchScore * 100
+                                                      ).toFixed(0)}
+                                                      %
+                                                    </Badge>
+                                                    {suggestedSubstrate && (
+                                                      <Button
+                                                        size="compact-xs"
+                                                        variant="light"
+                                                        color={matchColor}
+                                                        onClick={() =>
+                                                          handleAssignGroupToSubstrate(
+                                                            group.id,
+                                                            suggestedSubstrate.id,
+                                                          )
+                                                        }
+                                                      >
+                                                        Assign to{" "}
+                                                        {
+                                                          suggestedSubstrate.name
+                                                        }
+                                                      </Button>
+                                                    )}
+                                                  </Group>
                                                 ) : (
                                                   <Text size="xs" c="dimmed">
                                                     —
@@ -3284,16 +3350,18 @@ function ResultsDetail({
                                                       v,
                                                     )
                                                   }
-                                                  data={substrates.map((s) => ({
-                                                    value: s.id,
-                                                    label: s.name,
-                                                  }))}
+                                                  data={allAssignTargets.map(
+                                                    (s) => ({
+                                                      value: s.id,
+                                                      label: s.name,
+                                                    }),
+                                                  )}
                                                 />
                                               </Table.Td>
                                             </Table.Tr>
                                             {expanded && (
                                               <Table.Tr>
-                                                <Table.Td colSpan={5}>
+                                                <Table.Td colSpan={6}>
                                                   <Table striped>
                                                     <Table.Thead>
                                                       <Table.Tr>

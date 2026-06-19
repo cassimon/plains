@@ -23,6 +23,7 @@ import {
   IconAtom,
   IconCheck,
   IconCopy,
+  IconDownload,
   IconInfoCircle,
   IconLayersIntersect,
   IconPlus,
@@ -1997,6 +1998,25 @@ export default function ExperimentsPage() {
     }
   }
 
+  const handleAddResultsForExperiment = useCallback(
+    (exp: Experiment) => {
+      const status = getExperimentStatus(exp)
+      if (status !== "ready" && status !== "finished") return
+      setPendingCollectionLink({
+        collectionId: "",
+        planeId: "",
+        kind: "result",
+        selectedExperimentId: exp.id,
+        openAddResults: true,
+        requestId: crypto.randomUUID(),
+      })
+      setActiveEntity({ kind: "experiment", id: exp.id })
+      updateLastSelected("experiment", exp.id)
+      void navigate({ to: "/results" })
+    },
+    [navigate, setActiveEntity, setPendingCollectionLink, updateLastSelected],
+  )
+
   const handleAddResultsForSelectedExperiment = useCallback(() => {
     if (
       !selectedExperiment ||
@@ -2005,25 +2025,11 @@ export default function ExperimentsPage() {
     ) {
       return
     }
-
-    setPendingCollectionLink({
-      collectionId: "",
-      planeId: "",
-      kind: "result",
-      selectedExperimentId: selectedExperiment.id,
-      openAddResults: true,
-      requestId: crypto.randomUUID(),
-    })
-    setActiveEntity({ kind: "experiment", id: selectedExperiment.id })
-    updateLastSelected("experiment", selectedExperiment.id)
-    void navigate({ to: "/results" })
+    handleAddResultsForExperiment(selectedExperiment)
   }, [
-    navigate,
+    handleAddResultsForExperiment,
     selectedExperiment,
     selectedExperimentStatus,
-    setActiveEntity,
-    setPendingCollectionLink,
-    updateLastSelected,
   ])
 
   // Update experiment
@@ -2321,6 +2327,21 @@ export default function ExperimentsPage() {
                         </Box>
 
                         <Group gap={2} wrap="nowrap">
+                          {(status === "ready" || status === "finished") && (
+                            <Tooltip label="Add Results" withArrow>
+                              <ActionIcon
+                                size="sm"
+                                variant="subtle"
+                                color="green"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleAddResultsForExperiment(exp)
+                                }}
+                              >
+                                <IconDownload size={14} />
+                              </ActionIcon>
+                            </Tooltip>
+                          )}
                           <ActionIcon
                             size="sm"
                             variant="subtle"
@@ -2455,17 +2476,12 @@ export default function ExperimentsPage() {
                         selectedExperimentStatus === "finished") && (
                         <Button
                           size="lg"
-                          color="lime"
-                          radius="md"
-                          fw={600}
-                          style={{
-                            backgroundColor: "#d3f9d8",
-                            color: "#2b8a3e",
-                            boxShadow: "0 2px 8px rgba(43, 138, 62, 0.15)",
-                          }}
+                          color="green"
+                          variant="subtle"
+                          leftSection={<IconDownload size={20} />}
                           onClick={handleAddResultsForSelectedExperiment}
                         >
-                          + Add Results
+                          Add Results
                         </Button>
                       )}
                     </Group>
@@ -2548,7 +2564,8 @@ export default function ExperimentsPage() {
                         />
                         <Text size="sm" fw={700}>
                           Step 1: Which chemicals did you use in this
-                          experiment?
+                          experiment? Please assign all Inventory Labels and
+                          Solution Quantities!
                         </Text>
                       </Group>
                       <ChemicalsTab

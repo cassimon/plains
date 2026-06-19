@@ -715,6 +715,8 @@ export type DeviceGroup = {
   files: MeasurementFile[]
   /** Substrate ID this group is assigned to (null = unmatched) */
   assignedSubstrateId: string | null
+  /** Best-matching substrate even when score was too low to auto-assign */
+  suggestedSubstrateId?: string
   /** Match quality score (0-1) for fuzzy matching */
   matchScore?: number
 }
