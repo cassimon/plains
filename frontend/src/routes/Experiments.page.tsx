@@ -2001,7 +2001,7 @@ export default function ExperimentsPage() {
   const handleAddResultsForExperiment = useCallback(
     (exp: Experiment) => {
       const status = getExperimentStatus(exp)
-      if (status !== "ready" && status !== "finished") return
+      if (status !== "complete") return
       setPendingCollectionLink({
         collectionId: "",
         planeId: "",
@@ -2018,11 +2018,7 @@ export default function ExperimentsPage() {
   )
 
   const handleAddResultsForSelectedExperiment = useCallback(() => {
-    if (
-      !selectedExperiment ||
-      (selectedExperimentStatus !== "ready" &&
-        selectedExperimentStatus !== "finished")
-    ) {
+    if (!selectedExperiment || selectedExperimentStatus !== "complete") {
       return
     }
     handleAddResultsForExperiment(selectedExperiment)
@@ -2217,8 +2213,8 @@ export default function ExperimentsPage() {
       {/* Left Sidebar - Experiment List */}
       <Box
         style={{
-          width: "16%",
-          minWidth: 220,
+          width: 250,
+          minWidth: 250,
           background: "var(--mantine-color-gray-0)",
           borderRight: "1px solid var(--mantine-color-gray-2)",
           display: "flex",
@@ -2296,20 +2292,12 @@ export default function ExperimentsPage() {
                             </Text>
                             <Badge
                               size="xs"
-                              color={
-                                status === "finished"
-                                  ? "green"
-                                  : status === "ready"
-                                    ? "yellow"
-                                    : "red"
-                              }
+                              color={status === "complete" ? "green" : "red"}
                               variant="dot"
                             >
-                              {status === "finished"
-                                ? "Finished"
-                                : status === "ready"
-                                  ? "Ready"
-                                  : "Incomplete"}
+                              {status === "complete"
+                                ? "Complete"
+                                : "Incomplete"}
                             </Badge>
                           </Group>
                           <Group gap="xs">
@@ -2327,7 +2315,7 @@ export default function ExperimentsPage() {
                         </Box>
 
                         <Group gap={2} wrap="nowrap">
-                          {(status === "ready" || status === "finished") && (
+                          {status === "complete" && (
                             <Tooltip label="Add Results" withArrow>
                               <ActionIcon
                                 size="sm"
@@ -2463,17 +2451,16 @@ export default function ExperimentsPage() {
                       <Badge
                         size="lg"
                         color={
-                          selectedExperimentStatus === "finished"
+                          selectedExperimentStatus === "complete"
                             ? "green"
-                            : selectedExperimentStatus === "ready"
-                              ? "blue"
-                              : "yellow"
+                            : "yellow"
                         }
                       >
-                        {selectedExperimentStatus}
+                        {selectedExperimentStatus === "complete"
+                          ? "Complete"
+                          : "Incomplete"}
                       </Badge>
-                      {(selectedExperimentStatus === "ready" ||
-                        selectedExperimentStatus === "finished") && (
+                      {selectedExperimentStatus === "complete" && (
                         <Button
                           size="lg"
                           color="green"
@@ -2574,8 +2561,7 @@ export default function ExperimentsPage() {
                         allExperiments={experiments}
                         onUpdate={handleUpdateExperiment}
                       />
-                      {(selectedExperimentStatus === "ready" ||
-                        selectedExperimentStatus === "finished") && (
+                      {selectedExperimentStatus === "complete" && (
                         <Group justify="center" mt="xl">
                           <Button
                             size="lg"
@@ -2633,8 +2619,7 @@ export default function ExperimentsPage() {
                           onUpdate={handleUpdateExperiment}
                           onUpdateProcess={handleUpdateProcess}
                         />
-                        {(selectedExperimentStatus === "ready" ||
-                          selectedExperimentStatus === "finished") && (
+                        {selectedExperimentStatus === "complete" && (
                           <Group justify="center" mt="xl">
                             <Button
                               size="lg"
@@ -2667,8 +2652,7 @@ export default function ExperimentsPage() {
                         process={selectedProcess}
                         onUpdate={handleUpdateExperiment}
                       />
-                      {(selectedExperimentStatus === "ready" ||
-                        selectedExperimentStatus === "finished") && (
+                      {selectedExperimentStatus === "complete" && (
                         <Group justify="center" mt="xl">
                           <Button
                             size="lg"

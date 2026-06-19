@@ -14,6 +14,7 @@ import {
   Select,
   SimpleGrid,
   Stack,
+  Switch,
   Text,
   Textarea,
   TextInput,
@@ -56,6 +57,7 @@ import {
 import {
   type CanvasCollectionElement,
   getDependentLocations,
+  getProcessStatus,
   type Material,
   newProcess,
   newProcessStep,
@@ -3948,7 +3950,9 @@ export function ProcessesPage() {
     return STEP_CATEGORIES
   }, [stepsOnboardingState])
 
-  const chemistryDone = (selectedProcess?.solutionRecipes?.length ?? 0) > 0
+  const chemistryDone =
+    !!selectedProcess?.skipChemistry ||
+    (selectedProcess?.solutionRecipes?.length ?? 0) > 0
   const depositionDone = hasBothSubstrateAndStep
   const deviceDone = generatedStacks.length > 0
 
@@ -4607,13 +4611,29 @@ export function ProcessesPage() {
                           >
                             <Group justify="space-between">
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <Text
-                                  size="sm"
-                                  fw={isSelected ? 600 : 400}
-                                  truncate
-                                >
-                                  {process.name || "Untitled"}
-                                </Text>
+                                <Group gap="xs" wrap="nowrap">
+                                  <Text
+                                    size="sm"
+                                    fw={isSelected ? 600 : 400}
+                                    truncate
+                                  >
+                                    {process.name || "Untitled"}
+                                  </Text>
+                                  <Badge
+                                    size="xs"
+                                    color={
+                                      getProcessStatus(process) === "complete"
+                                        ? "green"
+                                        : "red"
+                                    }
+                                    variant="dot"
+                                    style={{ flexShrink: 0 }}
+                                  >
+                                    {getProcessStatus(process) === "complete"
+                                      ? "Complete"
+                                      : "Incomplete"}
+                                  </Badge>
+                                </Group>
                                 <Text size="xs" c="dimmed">
                                   {process.stages.length} step
                                   {process.stages.length !== 1 ? "s" : ""}
@@ -4694,13 +4714,29 @@ export function ProcessesPage() {
                           >
                             <Group justify="space-between">
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <Text
-                                  size="sm"
-                                  fw={isSelected ? 600 : 400}
-                                  truncate
-                                >
-                                  {process.name || "Untitled"}
-                                </Text>
+                                <Group gap="xs" wrap="nowrap">
+                                  <Text
+                                    size="sm"
+                                    fw={isSelected ? 600 : 400}
+                                    truncate
+                                  >
+                                    {process.name || "Untitled"}
+                                  </Text>
+                                  <Badge
+                                    size="xs"
+                                    color={
+                                      getProcessStatus(process) === "complete"
+                                        ? "green"
+                                        : "red"
+                                    }
+                                    variant="dot"
+                                    style={{ flexShrink: 0 }}
+                                  >
+                                    {getProcessStatus(process) === "complete"
+                                      ? "Complete"
+                                      : "Incomplete"}
+                                  </Badge>
+                                </Group>
                                 <Text size="xs" c="dimmed">
                                   {process.stages.length} step
                                   {process.stages.length !== 1 ? "s" : ""}
@@ -4775,9 +4811,25 @@ export function ProcessesPage() {
                     >
                       <Group justify="space-between" wrap="nowrap">
                         <Box style={{ flex: 1, minWidth: 0 }}>
-                          <Text size="sm" fw={600} truncate mb={2}>
-                            {process.name || "Untitled"}
-                          </Text>
+                          <Group gap="xs" mb={4} wrap="nowrap">
+                            <Text size="sm" fw={600} truncate>
+                              {process.name || "Untitled"}
+                            </Text>
+                            <Badge
+                              size="xs"
+                              color={
+                                getProcessStatus(process) === "complete"
+                                  ? "green"
+                                  : "red"
+                              }
+                              variant="dot"
+                              style={{ flexShrink: 0 }}
+                            >
+                              {getProcessStatus(process) === "complete"
+                                ? "Complete"
+                                : "Incomplete"}
+                            </Badge>
+                          </Group>
                           <Text size="xs" c="dimmed">
                             {process.stages.length} step
                             {process.stages.length !== 1 ? "s" : ""}
@@ -4988,16 +5040,33 @@ export function ProcessesPage() {
             <Box style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
               {/* Chemistry Tab */}
               {activeProcessTab === "chemistry" && (
-                <ChemistryTab
-                  process={selectedProcess}
-                  onUpdateProcess={(updated) =>
-                    setProcesses((prev) =>
-                      prev.map((p) => (p.id === updated.id ? updated : p)),
-                    )
-                  }
-                  planes={planes}
-                  allProcesses={processes}
-                />
+                <Stack gap="sm" p="md">
+                  <Switch
+                    label="Skip Step 1 — no solution chemistry needed"
+                    checked={!!selectedProcess.skipChemistry}
+                    onChange={(e) =>
+                      setProcesses((prev) =>
+                        prev.map((p) =>
+                          p.id === selectedProcess.id
+                            ? { ...p, skipChemistry: e.currentTarget.checked }
+                            : p,
+                        ),
+                      )
+                    }
+                  />
+                  {!selectedProcess.skipChemistry && (
+                    <ChemistryTab
+                      process={selectedProcess}
+                      onUpdateProcess={(updated) =>
+                        setProcesses((prev) =>
+                          prev.map((p) => (p.id === updated.id ? updated : p)),
+                        )
+                      }
+                      planes={planes}
+                      allProcesses={processes}
+                    />
+                  )}
+                </Stack>
               )}
 
               {/* Device Tab */}

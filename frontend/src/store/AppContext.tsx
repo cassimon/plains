@@ -256,6 +256,24 @@ export type Process = {
   deletedStackCombinations?: number[]
   /** Solution recipes defined in the Chemistry tab */
   solutionRecipes?: ProcessSolutionRecipe[]
+  /** User explicitly marked Step 1 (Chemistry) as not applicable */
+  skipChemistry?: boolean
+}
+
+/** Compute process completion status */
+export function getProcessStatus(process: Process): "incomplete" | "complete" {
+  if (!process.name.trim()) return "incomplete"
+  const hasSubstrate =
+    (process.substrateIds ?? []).length > 0 ||
+    (process.inlineSubstrates ?? []).length > 0
+  const hasDepositionStep = process.stages.some((stage) =>
+    stage.alternatives.some(
+      (step) =>
+        step.stepCategory !== "surface_treatment" &&
+        step.stepCategory !== "substrate_preparation",
+    ),
+  )
+  return hasSubstrate && hasDepositionStep ? "complete" : "incomplete"
 }
 
 /** Helper to create a new process step */
@@ -431,13 +449,11 @@ export type Experiment = {
   processingTimes?: { [stageId: string]: string }
   // Chemicals preparation data (Step 1)
   chemicalsPrep?: ExperimentChemicalsPrep
-  // Results uploaded (makes experiment "Finished" only if actually uploaded to NOMAD)
   hasResults: boolean
-  // Track if at least one NOMAD upload has been completed (needed for "finished" status)
   hasCompletedUpload?: boolean
 } // NOTE: Layer stack is now managed in the linked Process
 
-/** Fields required for an experiment to be 'ready' */
+/** Fields required for an experiment to be complete */
 export function getExperimentMissingFields(exp: Experiment): string[] {
   const missing: string[] = []
   if (!exp.name.trim()) {
@@ -452,13 +468,9 @@ export function getExperimentMissingFields(exp: Experiment): string[] {
 /** Compute experiment status */
 export function getExperimentStatus(
   exp: Experiment,
-): "incomplete" | "ready" | "finished" {
-  // Only mark as "finished" if there's an actual completed NOMAD upload
-  if (exp.hasCompletedUpload) {
-    return "finished"
-  }
+): "incomplete" | "complete" {
   if (getExperimentMissingFields(exp).length === 0) {
-    return "ready"
+    return "complete"
   }
   return "incomplete"
 }

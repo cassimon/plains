@@ -594,14 +594,8 @@ function ExperimentListItem({
   hasUnfinishedUpload?: boolean
 }) {
   const status = getExperimentStatus(experiment)
-  const statusColor =
-    status === "finished" ? "green" : status === "ready" ? "yellow" : "red"
-  const statusLabel =
-    status === "finished"
-      ? "Finished"
-      : status === "ready"
-        ? "Ready"
-        : "Incomplete"
+  const statusColor = status === "complete" ? "green" : "red"
+  const statusLabel = status === "complete" ? "Complete" : "Incomplete"
 
   return (
     <Paper
@@ -4125,8 +4119,7 @@ export function ResultsPage() {
       return false
     }
     const status = getExperimentStatus(e)
-    // Show experiments that are ready or finished
-    return status === "ready" || status === "finished"
+    return status === "complete"
   })
 
   useEffect(() => {
