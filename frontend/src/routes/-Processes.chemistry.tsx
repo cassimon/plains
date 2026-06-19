@@ -540,6 +540,33 @@ function soluteMoles(s: ProcessSolute): number | null {
   return null
 }
 
+function soluteMassG(s: ProcessSolute): number | null {
+  const amt = Number(s.amount)
+  if (!amt) return null
+  if (s.unit === "mg") return amt / 1000
+  if (s.unit === "mol" && s.molarMass) return amt * s.molarMass
+  if (s.unit === "ml" && s.density) return amt * s.density
+  return null
+}
+
+// Returns total mass (g) of the solution, or null if any component density/molar mass is missing.
+function solutionTotalMassG(recipe: ProcessSolutionRecipe): number | null {
+  const solventVolMl = Number(recipe.totalSolventVolumeMl)
+  const totalRatio = recipe.solvents.reduce((s, v) => s + (v.volumeRatio || 0), 0)
+  let total = 0
+  for (const sv of recipe.solvents) {
+    if (!sv.density) return null
+    const vol = totalRatio > 0 ? (sv.volumeRatio / totalRatio) * solventVolMl : 0
+    total += vol * sv.density
+  }
+  for (const s of recipe.solutes) {
+    const m = soluteMassG(s)
+    if (m === null) return null
+    total += m
+  }
+  return total
+}
+
 // ── Free color picker dot ─────────────────────────────────────────────────────
 
 function ColorDot({
@@ -1118,18 +1145,45 @@ function InlineSearch({
 
 // ── Concentration summary ─────────────────────────────────────────────────────
 
+type ConcentrationEntry = {
+  name: string
+  molPerMlSolvent: number | null
+  molPerMlTotal: number | null
+  wPercent: number | null // %w/w: mass of solute / total solution mass × 100
+}
+
 function concentrationSummary(
   recipe: ProcessSolutionRecipe,
-): { name: string; molPerMl: number }[] {
-  const volMl = Number(recipe.totalSolventVolumeMl)
-  if (!volMl) return []
+  addedVolMl: number,
+): ConcentrationEntry[] {
+  const solventVolMl = Number(recipe.totalSolventVolumeMl)
+  const soluteVolsMl = recipe.solutes.reduce(
+    (sum, s) => sum + (soluteVolumeMl(s) ?? 0),
+    0,
+  )
+  const totalVolMl = solventVolMl + addedVolMl + soluteVolsMl
+  const totalMassG = solutionTotalMassG(recipe) // null if any density/molar mass missing
+
   return recipe.solutes
     .map((s) => {
       const mol = soluteMoles(s)
-      if (mol === null) return null
-      return { name: s.name || "?", molPerMl: mol / volMl }
+      const massG = soluteMassG(s)
+
+      const molPerMlSolvent =
+        mol !== null && solventVolMl > 0 ? mol / solventVolMl : null
+      const molPerMlTotal =
+        mol !== null && totalVolMl > 0 ? mol / totalVolMl : null
+      const wPercent =
+        massG !== null && totalMassG !== null && totalMassG > 0
+          ? (massG / totalMassG) * 100
+          : null
+
+      if (molPerMlSolvent === null && molPerMlTotal === null && wPercent === null)
+        return null
+
+      return { name: s.name || "?", molPerMlSolvent, molPerMlTotal, wPercent }
     })
-    .filter((x): x is { name: string; molPerMl: number } => x !== null)
+    .filter((x): x is ConcentrationEntry => x !== null)
 }
 
 // ── Solution card ─────────────────────────────────────────────────────────────
@@ -1293,7 +1347,7 @@ function SolutionCard({
     0,
   )
 
-  const concentrations = concentrationSummary(recipe)
+  const concentrations = concentrationSummary(recipe, addedSolutionsTotalMl)
 
   const solventSummary = recipe.solvents.map((s) => s.name || "?").join(":")
   const ratioSummary = recipe.solvents.map((s) => s.volumeRatio).join(":")
@@ -2155,10 +2209,15 @@ function SolutionCard({
                   {c.name}
                 </Text>
                 <Text size="xs" c="dimmed">
-                  {c.molPerMl < 0.001
-                    ? c.molPerMl.toExponential(3)
-                    : c.molPerMl.toFixed(4)}{" "}
-                  mol/mL
+                  {[
+                    c.molPerMlSolvent !== null &&
+                      `${(c.molPerMlSolvent * 1000) < 0.001 ? (c.molPerMlSolvent * 1000).toExponential(3) : (c.molPerMlSolvent * 1000).toFixed(4)} mmol/mL solvent`,
+                    c.molPerMlTotal !== null &&
+                      `${(c.molPerMlTotal * 1000) < 0.001 ? (c.molPerMlTotal * 1000).toExponential(3) : (c.molPerMlTotal * 1000).toFixed(4)} mmol/mL total`,
+                    c.wPercent !== null && `${c.wPercent.toFixed(3)} %w/w`,
+                  ]
+                    .filter(Boolean)
+                    .join("\t\t")}
                 </Text>
               </Box>
             ))}
