@@ -4096,6 +4096,7 @@ export function ProcessesPage() {
       ),
     )
     setSubstrateSelectingIdx(-sub.id.charCodeAt(0)) // use negative sentinel to track newly created
+    setExpandedInlineSubId(sub.id)
     return sub.id
   }
 

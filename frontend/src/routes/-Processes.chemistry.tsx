@@ -550,6 +550,19 @@ function ColorDot({
   onChange: (c: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const targetRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (targetRef.current?.contains(target)) return
+      if ((target as Element).closest?.("[data-color-dot-popover]")) return
+      setOpen(false)
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [open])
 
   return (
     <Popover
@@ -562,6 +575,7 @@ function ColorDot({
     >
       <Popover.Target>
         <Box
+          ref={targetRef}
           onClick={(e) => {
             e.stopPropagation()
             setOpen((v) => !v)
@@ -577,7 +591,7 @@ function ColorDot({
           }}
         />
       </Popover.Target>
-      <Popover.Dropdown p={8} onClick={(e) => e.stopPropagation()}>
+      <Popover.Dropdown p={8} onClick={(e) => e.stopPropagation()} data-color-dot-popover>
         <ColorPicker
           format="hex"
           value={color}
@@ -2281,6 +2295,7 @@ export function ChemistryTab({
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
+      if ((e.target as Element)?.closest?.("[data-color-dot-popover]")) return
       if (
         containerRef.current &&
         !containerRef.current.contains(e.target as Node)
