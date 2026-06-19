@@ -37,7 +37,6 @@ import type { CollectionConfirmParams } from "../components/SelectCollectionModa
 import {
   type CanvasCollectionElement,
   type Experiment,
-  getExperimentStatus,
   newExperiment,
   PROCESS_PARAMETER_DEFINITIONS,
   type Process,
@@ -1896,9 +1895,6 @@ export default function ExperimentsPage() {
   ])
 
   const selectedExperiment = experiments.find((e) => e.id === selectedExpId)
-  const selectedExperimentStatus = selectedExperiment
-    ? getExperimentStatus(selectedExperiment)
-    : null
   const selectedProcess =
     selectedExperiment &&
     processes.find((p) => p.id === selectedExperiment.processId)
@@ -2312,7 +2308,7 @@ export default function ExperimentsPage() {
                   {group.processName}
                 </Text>
                 {group.items.map((exp) => {
-                  const status = getExperimentStatus(exp)
+                  const isComplete = expAllStepsDoneMap.get(exp.id) ?? false
                   const isSelected = exp.id === selectedExpId
 
                   const collectionColor = getEntityColor("experiment", exp.id)
@@ -2345,10 +2341,10 @@ export default function ExperimentsPage() {
                         <Group justify="space-between" wrap="nowrap">
                           <Badge
                             size="xs"
-                            color={status === "complete" ? "green" : "red"}
+                            color={isComplete ? "green" : "red"}
                             variant="dot"
                           >
-                            {status === "complete" ? "Complete" : "Incomplete"}
+                            {isComplete ? "Complete" : "Incomplete"}
                           </Badge>
                           <Group gap={2} wrap="nowrap">
                             {expAllStepsDoneMap.get(exp.id) && (
@@ -2487,15 +2483,9 @@ export default function ExperimentsPage() {
                     <Group gap="xs" wrap="nowrap">
                       <Badge
                         size="lg"
-                        color={
-                          selectedExperimentStatus === "complete"
-                            ? "green"
-                            : "yellow"
-                        }
+                        color={allExpStepsDone ? "green" : "yellow"}
                       >
-                        {selectedExperimentStatus === "complete"
-                          ? "Complete"
-                          : "Incomplete"}
+                        {allExpStepsDone ? "Complete" : "Incomplete"}
                       </Badge>
                       {allExpStepsDone && (
                         <Button
