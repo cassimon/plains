@@ -174,7 +174,7 @@ export function AppLayout() {
   return (
     <AppShell
       header={{ height: 60 }}
-      navbar={{ width: 120, breakpoint: "sm" }}
+      navbar={{ width: 64, breakpoint: "sm" }}
       padding="md"
     >
       <AppShell.Header>
