@@ -19,15 +19,10 @@ export type Body_nomad_preview_metadata_from_archive = {
     archive_path: string;
 };
 
-export type Body_nomad_upload_files_for_nomad = {
-    experiment_id: string;
-    experiment_name: string;
-    files: Array<((Blob | File))>;
-    request_json?: (string | null);
-};
-
 export type Body_nomad_upload_to_nomad_endpoint = {
     request_json: string;
+    archive_path?: (string | null);
+    existing_upload_id?: (string | null);
     files?: (Array<((Blob | File))> | null);
 };
 
@@ -272,9 +267,10 @@ export type NomadUploadResponse = {
 export type NomadUploadStatus = {
     upload_id: string;
     status?: (string | null);
-    entries?: Array<{
-        [key: string]: unknown;
-    }>;
+    entries?: (number | Array<{
+    [key: string]: unknown;
+}> | null);
+    last_status_message?: (string | null);
     error?: (string | null);
 };
 
@@ -287,6 +283,7 @@ export type PlanePublic = {
     name: string;
     id: string;
     owner_id: string;
+    owner: UserPublic;
     created_at?: (string | null);
     elements: Array<CanvasElementPublic>;
     shared_with?: Array<UserPublic>;
@@ -303,13 +300,6 @@ export type PlanesPublic = {
 
 export type PlaneUpdate = {
     name?: (string | null);
-};
-
-export type PrivateUserCreate = {
-    email: string;
-    password: string;
-    full_name: string;
-    is_verified?: boolean;
 };
 
 export type SolutionComponentCreate = {
@@ -530,10 +520,6 @@ export type MaterialsDeleteMaterialResponse = (unknown);
 
 export type NomadGetNomadConfigResponse = (NomadConfigResponse);
 
-export type NomadUploadFilesForNomadData = {
-    formData: Body_nomad_upload_files_for_nomad;
-};
-
 export type NomadUploadFilesForNomadResponse = ({
     [key: string]: unknown;
 });
@@ -563,7 +549,6 @@ export type NomadDiscardUploadedArchiveResponse = ({
 });
 
 export type NomadUploadToNomadEndpointData = {
-    archivePath?: (string | null);
     formData: Body_nomad_upload_to_nomad_endpoint;
 };
 
@@ -653,12 +638,6 @@ export type PlanesDeleteElementData = {
 };
 
 export type PlanesDeleteElementResponse = (unknown);
-
-export type PrivateCreateUserData = {
-    requestBody: PrivateUserCreate;
-};
-
-export type PrivateCreateUserResponse = (UserPublic);
 
 export type ResultsReadResultsData = {
     limit?: number;

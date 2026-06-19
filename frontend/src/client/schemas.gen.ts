@@ -60,25 +60,13 @@ export const Body_nomad_preview_metadata_from_archiveSchema = {
     title: 'Body_nomad-preview_metadata_from_archive'
 } as const;
 
-export const Body_nomad_upload_files_for_nomadSchema = {
+export const Body_nomad_upload_to_nomad_endpointSchema = {
     properties: {
-        experiment_id: {
-            type: 'string',
-            title: 'Experiment Id'
-        },
-        experiment_name: {
-            type: 'string',
-            title: 'Experiment Name'
-        },
-        files: {
-            items: {
-                type: 'string',
-                format: 'binary'
-            },
-            type: 'array',
-            title: 'Files'
-        },
         request_json: {
+            type: 'string',
+            title: 'Request Json'
+        },
+        archive_path: {
             anyOf: [
                 {
                     type: 'string'
@@ -87,19 +75,18 @@ export const Body_nomad_upload_files_for_nomadSchema = {
                     type: 'null'
                 }
             ],
-            title: 'Request Json'
-        }
-    },
-    type: 'object',
-    required: ['experiment_id', 'experiment_name', 'files'],
-    title: 'Body_nomad-upload_files_for_nomad'
-} as const;
-
-export const Body_nomad_upload_to_nomad_endpointSchema = {
-    properties: {
-        request_json: {
-            type: 'string',
-            title: 'Request Json'
+            title: 'Archive Path'
+        },
+        existing_upload_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Existing Upload Id'
         },
         files: {
             anyOf: [
@@ -1544,13 +1531,33 @@ export const NomadUploadStatusSchema = {
             title: 'Status'
         },
         entries: {
-            items: {
-                additionalProperties: true,
-                type: 'object'
-            },
-            type: 'array',
-            title: 'Entries',
-            default: []
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    items: {
+                        additionalProperties: true,
+                        type: 'object'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Entries'
+        },
+        last_status_message: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Status Message'
         },
         error: {
             anyOf: [
@@ -1610,6 +1617,9 @@ export const PlanePublicSchema = {
             format: 'uuid',
             title: 'Owner Id'
         },
+        owner: {
+            '$ref': '#/components/schemas/UserPublic'
+        },
         created_at: {
             anyOf: [
                 {
@@ -1639,7 +1649,7 @@ export const PlanePublicSchema = {
         }
     },
     type: 'object',
-    required: ['name', 'id', 'owner_id', 'elements'],
+    required: ['name', 'id', 'owner_id', 'owner', 'elements'],
     title: 'PlanePublic'
 } as const;
 
@@ -1693,31 +1703,6 @@ export const PlanesPublicSchema = {
     type: 'object',
     required: ['data', 'count'],
     title: 'PlanesPublic'
-} as const;
-
-export const PrivateUserCreateSchema = {
-    properties: {
-        email: {
-            type: 'string',
-            title: 'Email'
-        },
-        password: {
-            type: 'string',
-            title: 'Password'
-        },
-        full_name: {
-            type: 'string',
-            title: 'Full Name'
-        },
-        is_verified: {
-            type: 'boolean',
-            title: 'Is Verified',
-            default: false
-        }
-    },
-    type: 'object',
-    required: ['email', 'password', 'full_name'],
-    title: 'PrivateUserCreate'
 } as const;
 
 export const SolutionComponentCreateSchema = {

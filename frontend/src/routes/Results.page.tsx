@@ -4326,7 +4326,13 @@ export function ResultsPage() {
       </Box>
 
       {/* Main: Results Detail */}
-      <Box style={{ flex: 1, minWidth: 0, background: "var(--mantine-color-gray-0)" }}>
+      <Box
+        style={{
+          flex: 1,
+          minWidth: 0,
+          background: "var(--mantine-color-gray-0)",
+        }}
+      >
         {selectedExperiment ? (
           <ResultsDetail
             experiment={selectedExperiment}

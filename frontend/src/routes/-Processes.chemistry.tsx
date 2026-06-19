@@ -1976,13 +1976,10 @@ function SolutionCard({
                     <Group justify="space-between" mb={4} align="flex-start">
                       <Box>
                         <Text size="sm" fw={600}>
-                          Solutions
+                          Add Stock Solutions
                         </Text>
                         <Text size="xs" c="dimmed" maw={420} lh={1.4}>
-                          Add volumes of other solutions or commercial
-                          dispersions defined in this process. Their volumes
-                          count toward the total solvent volume — update the
-                          field above accordingly.
+                          Add volumes of other solutions to this solution.
                           {addedSolutionsTotalMl > 0 && (
                             <Text span size="xs" c="blue.6" fw={600}>
                               {" "}

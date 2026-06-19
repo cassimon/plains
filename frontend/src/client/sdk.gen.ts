@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { ExperimentsReadExperimentsData, ExperimentsReadExperimentsResponse, ExperimentsCreateItemData, ExperimentsCreateItemResponse, ExperimentsReadExperimentData, ExperimentsReadExperimentResponse, ExperimentsUpdateItemData, ExperimentsUpdateItemResponse, ExperimentsDeleteExperimentData, ExperimentsDeleteExperimentResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginAuthConfigResponse, MaterialsReadMaterialsData, MaterialsReadMaterialsResponse, MaterialsCreateMaterialData, MaterialsCreateMaterialResponse, MaterialsReadMaterialData, MaterialsReadMaterialResponse, MaterialsUpdateMaterialData, MaterialsUpdateMaterialResponse, MaterialsDeleteMaterialData, MaterialsDeleteMaterialResponse, NomadGetNomadConfigResponse, NomadUploadFilesForNomadData, NomadUploadFilesForNomadResponse, NomadAddMetadataToArchiveData, NomadAddMetadataToArchiveResponse, NomadPreviewMetadataFromArchiveData, NomadPreviewMetadataFromArchiveResponse, NomadDiscardUploadedArchiveData, NomadDiscardUploadedArchiveResponse, NomadUploadToNomadEndpointData, NomadUploadToNomadEndpointResponse, NomadCheckUploadStatusData, NomadCheckUploadStatusResponse, NomadTestNomadAuthResponse, PlanesReadPlanesData, PlanesReadPlanesResponse, PlanesCreatePlaneData, PlanesCreatePlaneResponse, PlanesReadPlaneData, PlanesReadPlaneResponse, PlanesUpdatePlaneData, PlanesUpdatePlaneResponse, PlanesDeletePlaneData, PlanesDeletePlaneResponse, PlanesSharePlaneData, PlanesSharePlaneResponse, PlanesUnsharePlaneData, PlanesUnsharePlaneResponse, PlanesSearchUsersData, PlanesSearchUsersResponse, PlanesCreateElementData, PlanesCreateElementResponse, PlanesUpdateElementData, PlanesUpdateElementResponse, PlanesDeleteElementData, PlanesDeleteElementResponse, PrivateCreateUserData, PrivateCreateUserResponse, ResultsReadResultsData, ResultsReadResultsResponse, ResultsCreateResultData, ResultsCreateResultResponse, ResultsReadResultData, ResultsReadResultResponse, ResultsUpdateResultData, ResultsUpdateResultResponse, ResultsDeleteResultData, ResultsDeleteResultResponse, SolutionsReadSolutionsData, SolutionsReadSolutionsResponse, SolutionsCreateItemData, SolutionsCreateItemResponse, SolutionsReadSolutionData, SolutionsReadSolutionResponse, SolutionsUpdateItemData, SolutionsUpdateItemResponse, SolutionsDeleteSolutionData, SolutionsDeleteSolutionResponse, StateReadStateResponse, StateUpdateStateData, StateUpdateStateResponse, StateGetBulkStateResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { ExperimentsReadExperimentsData, ExperimentsReadExperimentsResponse, ExperimentsCreateItemData, ExperimentsCreateItemResponse, ExperimentsReadExperimentData, ExperimentsReadExperimentResponse, ExperimentsUpdateItemData, ExperimentsUpdateItemResponse, ExperimentsDeleteExperimentData, ExperimentsDeleteExperimentResponse, ItemsReadItemsData, ItemsReadItemsResponse, ItemsCreateItemData, ItemsCreateItemResponse, ItemsReadItemData, ItemsReadItemResponse, ItemsUpdateItemData, ItemsUpdateItemResponse, ItemsDeleteItemData, ItemsDeleteItemResponse, LoginAuthConfigResponse, MaterialsReadMaterialsData, MaterialsReadMaterialsResponse, MaterialsCreateMaterialData, MaterialsCreateMaterialResponse, MaterialsReadMaterialData, MaterialsReadMaterialResponse, MaterialsUpdateMaterialData, MaterialsUpdateMaterialResponse, MaterialsDeleteMaterialData, MaterialsDeleteMaterialResponse, NomadGetNomadConfigResponse, NomadUploadFilesForNomadResponse, NomadAddMetadataToArchiveData, NomadAddMetadataToArchiveResponse, NomadPreviewMetadataFromArchiveData, NomadPreviewMetadataFromArchiveResponse, NomadDiscardUploadedArchiveData, NomadDiscardUploadedArchiveResponse, NomadUploadToNomadEndpointData, NomadUploadToNomadEndpointResponse, NomadCheckUploadStatusData, NomadCheckUploadStatusResponse, NomadTestNomadAuthResponse, PlanesReadPlanesData, PlanesReadPlanesResponse, PlanesCreatePlaneData, PlanesCreatePlaneResponse, PlanesReadPlaneData, PlanesReadPlaneResponse, PlanesUpdatePlaneData, PlanesUpdatePlaneResponse, PlanesDeletePlaneData, PlanesDeletePlaneResponse, PlanesSharePlaneData, PlanesSharePlaneResponse, PlanesUnsharePlaneData, PlanesUnsharePlaneResponse, PlanesSearchUsersData, PlanesSearchUsersResponse, PlanesCreateElementData, PlanesCreateElementResponse, PlanesUpdateElementData, PlanesUpdateElementResponse, PlanesDeleteElementData, PlanesDeleteElementResponse, ResultsReadResultsData, ResultsReadResultsResponse, ResultsCreateResultData, ResultsCreateResultResponse, ResultsReadResultData, ResultsReadResultResponse, ResultsUpdateResultData, ResultsUpdateResultResponse, ResultsDeleteResultData, ResultsDeleteResultResponse, SolutionsReadSolutionsData, SolutionsReadSolutionsResponse, SolutionsCreateItemData, SolutionsCreateItemResponse, SolutionsReadSolutionData, SolutionsReadSolutionResponse, SolutionsUpdateItemData, SolutionsUpdateItemResponse, SolutionsDeleteSolutionData, SolutionsDeleteSolutionResponse, StateReadStateResponse, StateUpdateStateData, StateUpdateStateResponse, StateGetBulkStateResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class ExperimentsService {
     /**
@@ -392,20 +392,13 @@ export class NomadService {
      *
      * If request_json is provided, YAML metadata files will be generated and included
      * in the archive. This allows the frontend to prepare the upload earlier in the workflow.
-     * @param data The data for the request.
-     * @param data.formData
      * @returns unknown Successful Response
      * @throws ApiError
      */
-    public static uploadFilesForNomad(data: NomadUploadFilesForNomadData): CancelablePromise<NomadUploadFilesForNomadResponse> {
+    public static uploadFilesForNomad(): CancelablePromise<NomadUploadFilesForNomadResponse> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/v1/nomad/upload/files',
-            formData: data.formData,
-            mediaType: 'multipart/form-data',
-            errors: {
-                422: 'Validation Error'
-            }
+            url: '/api/v1/nomad/upload/files'
         });
     }
     
@@ -504,7 +497,6 @@ export class NomadService {
      * - files: Direct file upload
      * @param data The data for the request.
      * @param data.formData
-     * @param data.archivePath
      * @returns NomadUploadResponse Successful Response
      * @throws ApiError
      */
@@ -512,9 +504,6 @@ export class NomadService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/v1/nomad/upload/nomad',
-            query: {
-                archive_path: data.archivePath
-            },
             formData: data.formData,
             mediaType: 'multipart/form-data',
             errors: {
@@ -528,6 +517,7 @@ export class NomadService {
      * Check the status of a NOMAD upload.
      *
      * Use this to monitor processing progress after upload.
+     * Works with both OAuth user tokens and global service credentials.
      * @param data The data for the request.
      * @param data.uploadId
      * @returns NomadUploadStatus Successful Response
@@ -809,28 +799,6 @@ export class PlanesService {
                 plane_id: data.planeId,
                 element_id: data.elementId
             },
-            errors: {
-                422: 'Validation Error'
-            }
-        });
-    }
-}
-
-export class PrivateService {
-    /**
-     * Create User
-     * Create a new user.
-     * @param data The data for the request.
-     * @param data.requestBody
-     * @returns UserPublic Successful Response
-     * @throws ApiError
-     */
-    public static createUser(data: PrivateCreateUserData): CancelablePromise<PrivateCreateUserResponse> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/v1/private/users/',
-            body: data.requestBody,
-            mediaType: 'application/json',
             errors: {
                 422: 'Validation Error'
             }
