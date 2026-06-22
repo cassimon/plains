@@ -87,7 +87,8 @@ export function isAuthenticated(): boolean {
  * This is only active in Vite dev builds (never in production).
  */
 if (import.meta.env.DEV) {
-  ;(window as unknown as Record<string, unknown>).__plains_setKeycloak = setKeycloak
+  ;(window as unknown as Record<string, unknown>).__plains_setKeycloak =
+    setKeycloak
 }
 
 /**

@@ -61,7 +61,9 @@ test.describe("Login page", () => {
   test("renders the NOMAD login button", async ({ page }) => {
     await page.goto("/login", { waitUntil: "domcontentloaded" })
     // App fetches auth config and shows the login button (even before keycloak.init completes)
-    await expect(page.getByRole("button", { name: /login with nomad/i })).toBeVisible({
+    await expect(
+      page.getByRole("button", { name: /login with nomad/i }),
+    ).toBeVisible({
       timeout: 8000,
     })
   })
@@ -74,9 +76,9 @@ test.describe("Login page", () => {
       route.fulfill({ status: 500, body: "Internal Server Error" }),
     )
     await page.goto("/login", { waitUntil: "domcontentloaded" })
-    await expect(
-      page.getByText(/auth configuration unavailable/i),
-    ).toBeVisible({ timeout: 8000 })
+    await expect(page.getByText(/auth configuration unavailable/i)).toBeVisible(
+      { timeout: 8000 },
+    )
   })
 
   test("login page does not redirect authenticated users immediately", async ({
@@ -106,13 +108,28 @@ test.describe("Authenticated access", () => {
     await page.route("**/api/v1/state/bulk", (route) =>
       route.fulfill({
         status: 200,
-        json: { materials: [], solutions: [], experiments: [], results: [], planes: [] },
+        json: {
+          materials: [],
+          solutions: [],
+          experiments: [],
+          results: [],
+          planes: [],
+        },
       }),
     )
     await page.route("**/api/v1/state/", (route) =>
       route.fulfill({
         status: 200,
-        json: { data: { materials: [], solutions: [], experiments: [], results: [], planes: [], processes: [] } },
+        json: {
+          data: {
+            materials: [],
+            solutions: [],
+            experiments: [],
+            results: [],
+            planes: [],
+            processes: [],
+          },
+        },
       }),
     )
     await page.route("**/api/v1/**", (route) =>

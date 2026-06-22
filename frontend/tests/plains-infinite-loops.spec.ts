@@ -167,7 +167,10 @@ test.describe("Infinite React loop detection", () => {
   for (const { name, path } of ROUTES) {
     test(`${name} page does not cause React render loops`, async ({ page }) => {
       const errors = await detectLoopsOnRoute(page, path)
-      expect(errors, `Loop errors on ${name}: ${errors.join("; ")}`).toHaveLength(0)
+      expect(
+        errors,
+        `Loop errors on ${name}: ${errors.join("; ")}`,
+      ).toHaveLength(0)
       await assertPageResponsive(page)
     })
   }

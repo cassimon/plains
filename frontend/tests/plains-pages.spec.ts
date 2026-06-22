@@ -10,8 +10,9 @@
  * Auth is handled by auth.setup.ts (storageState carries mock Keycloak token).
  * Network calls are mocked per-test via page.route() so tests are hermetic.
  */
-import { expect, test } from "@playwright/test"
+
 import type { Page } from "@playwright/test"
+import { expect, test } from "@playwright/test"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers

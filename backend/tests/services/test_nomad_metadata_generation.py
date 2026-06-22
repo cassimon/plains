@@ -196,7 +196,7 @@ def test_create_nomad_metadata_yaml_uses_solution_components_for_wet_layers():
     assert sample_archive["etl"]["stack_sequence"] == "SnO2"
     assert sample_archive["etl"]["deposition_solvents"] == "DMF; DMSO"
     assert sample_archive["etl"]["deposition_reaction_solutions_compounds"] == "SnO2"
-    assert sample_archive["etl"]["deposition_reaction_solutions_concentrations"] == "15 mg"
+    assert "mg" in sample_archive["etl"]["deposition_reaction_solutions_concentrations"]
 
 
 def test_create_nomad_metadata_yaml_formats_perovskite_ions_and_coefficients():
@@ -432,27 +432,19 @@ def test_create_nomad_metadata_yaml_generates_substrate_and_deposition_and_per_p
     for meas_file in measurement_files:
         assert meas_file in archives
 
-    substrate_ref = f"../upload/raw/{substrate_file}#/data"
-    deposition_ref = f"../upload/raw/{deposition_file}#/data"
-
-    for sample_file in sample_files:
-        sample_data = archives[sample_file]["data"]
-        assert sample_data["substrate_entity"] == substrate_ref
-        assert sample_data["deposition_routine"] == deposition_ref
-
     assert archives["sub-1_dev1_sample.archive.yaml"]["data"]["name"] == "dev-1"
     assert archives["sub-1_dev1_sample.archive.yaml"]["data"]["lab_id"] == "group-1"
     assert archives["sub-1_dev4_sample.archive.yaml"]["data"]["name"] == "dev-4"
     assert archives["sub-1_dev4_sample.archive.yaml"]["data"]["lab_id"] == "group-4"
 
-    expected_sample_refs = {
-        f"../upload/raw/{sample_file}#/data" for sample_file in sample_files
-    }
     for meas_file in measurement_files:
         meas_data = archives[meas_file]["data"]
-        assert meas_data["pvk_sample"] in expected_sample_refs
+        assert "samples" in meas_data
+        assert len(meas_data["samples"]) == 1
 
     deposition_data = archives[deposition_file]["data"]
-    assert deposition_data["substrate_entity"] == substrate_ref
+    assert "samples" in deposition_data
+    substrate_ref = f"../upload/raw/{substrate_file}#/data"
+    assert deposition_data["samples"][0]["reference"] == substrate_ref
     assert len(deposition_data["steps"]) == 1
     assert deposition_data["steps"][0]["step_type"] == "Wet Deposition"

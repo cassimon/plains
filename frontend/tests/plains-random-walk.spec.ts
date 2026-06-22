@@ -14,7 +14,7 @@
  *  - Detect React loop patterns in real time.
  *  - Assert page is still interactive (rAF fires within 500ms) after every step.
  */
-import { expect, test, type Page, type ConsoleMessage } from "@playwright/test"
+import { type ConsoleMessage, expect, type Page, test } from "@playwright/test"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -34,12 +34,12 @@ const NOISE_PATTERNS = [
   /Failed to load resource/i,
   /\b404\b/,
   /Cross-Origin/i,
-  /Keycloak init failed/i,    // expected: mock URL can't be contacted
+  /Keycloak init failed/i, // expected: mock URL can't be contacted
   /\[HttpBackend\] save network error/i, // expected: /api/v1/state writes not mocked
-  /\[Auth\] readUserMe/i,     // verbose but not an error
-  /\[Keycloak\]/i,            // keycloak diagnostic logs
-  /\[Login\]/i,               // login page logs
-  /\[Auth\]/i,                // auth diagnostic logs
+  /\[Auth\] readUserMe/i, // verbose but not an error
+  /\[Keycloak\]/i, // keycloak diagnostic logs
+  /\[Login\]/i, // login page logs
+  /\[Auth\]/i, // auth diagnostic logs
 ]
 
 const ROUTES = [
@@ -55,7 +55,8 @@ const ROUTES = [
 ]
 
 // Seeded PRNG — deterministic and reproducible per seed
-function mulberry32(seed: number) {
+function mulberry32(initialSeed: number) {
+  let seed = initialSeed
   return () => {
     seed |= 0
     seed = (seed + 0x6d2b79f5) | 0
@@ -70,7 +71,12 @@ function mulberry32(seed: number) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface ErrorRecord {
-  type: "loop" | "js_error" | "console_error" | "unhandled_rejection" | "timeout"
+  type:
+    | "loop"
+    | "js_error"
+    | "console_error"
+    | "unhandled_rejection"
+    | "timeout"
   message: string
   route: string
   step: number
@@ -94,21 +100,46 @@ function makeCollector(initialRoute: string): WalkCollector {
       const text = msg.text()
       if (NOISE_PATTERNS.some((p) => p.test(text))) return
       if (LOOP_PATTERNS.some((p) => p.test(text))) {
-        c.errors.push({ type: "loop", message: text.slice(0, 400), route: c.route, step: c.step })
+        c.errors.push({
+          type: "loop",
+          message: text.slice(0, 400),
+          route: c.route,
+          step: c.step,
+        })
       } else if (/uncaught|unhandled promise/i.test(text)) {
-        c.errors.push({ type: "unhandled_rejection", message: text.slice(0, 400), route: c.route, step: c.step })
+        c.errors.push({
+          type: "unhandled_rejection",
+          message: text.slice(0, 400),
+          route: c.route,
+          step: c.step,
+        })
       } else if (msg.type() === "error") {
-        c.errors.push({ type: "console_error", message: text.slice(0, 400), route: c.route, step: c.step })
+        c.errors.push({
+          type: "console_error",
+          message: text.slice(0, 400),
+          route: c.route,
+          step: c.step,
+        })
       }
     },
     onPageError(err) {
       const msg = err.message
       if (LOOP_PATTERNS.some((p) => p.test(msg))) {
-        c.errors.push({ type: "loop", message: msg.slice(0, 400), route: c.route, step: c.step })
+        c.errors.push({
+          type: "loop",
+          message: msg.slice(0, 400),
+          route: c.route,
+          step: c.step,
+        })
       } else if (NOISE_PATTERNS.some((p) => p.test(msg))) {
         // skip
       } else {
-        c.errors.push({ type: "js_error", message: msg.slice(0, 400), route: c.route, step: c.step })
+        c.errors.push({
+          type: "js_error",
+          message: msg.slice(0, 400),
+          route: c.route,
+          step: c.step,
+        })
       }
     },
   }
@@ -130,35 +161,80 @@ async function setupMocks(page: Page) {
   const BULK = {
     materials: [
       {
-        id: "mat-1", name: "Ethanol", category: "chemical_compound", type: "",
-        supplier: "Sigma", supplierNumber: "", casNumber: "64-17-5",
-        pubchemCid: "", inventoryLabel: "", purity: "99%", stateAtRt: "liquid",
-        substrateRigidity: "", heightMm: "",
+        id: "mat-1",
+        name: "Ethanol",
+        category: "chemical_compound",
+        type: "",
+        supplier: "Sigma",
+        supplierNumber: "",
+        casNumber: "64-17-5",
+        pubchemCid: "",
+        inventoryLabel: "",
+        purity: "99%",
+        stateAtRt: "liquid",
+        substrateRigidity: "",
+        heightMm: "",
       },
       {
-        id: "mat-2", name: "ITO Glass", category: "substrate_material", type: "",
-        supplier: "Ossila", supplierNumber: "", casNumber: "",
-        pubchemCid: "", inventoryLabel: "", purity: "", stateAtRt: "",
-        substrateRigidity: "rigid", heightMm: "1.1",
+        id: "mat-2",
+        name: "ITO Glass",
+        category: "substrate_material",
+        type: "",
+        supplier: "Ossila",
+        supplierNumber: "",
+        casNumber: "",
+        pubchemCid: "",
+        inventoryLabel: "",
+        purity: "",
+        stateAtRt: "",
+        substrateRigidity: "rigid",
+        heightMm: "1.1",
       },
     ],
     solutions: [
-      { id: "sol-1", name: "Perovskite Ink", components: [{ material_id: "mat-1", amount: 100, unit: "mg" }] },
+      {
+        id: "sol-1",
+        name: "Perovskite Ink",
+        components: [{ material_id: "mat-1", amount: 100, unit: "mg" }],
+      },
     ],
     experiments: [
-      { id: "exp-1", name: "Run A", substrates: [], layers: [], notes: "test run" },
+      {
+        id: "exp-1",
+        name: "Run A",
+        substrates: [],
+        layers: [],
+        notes: "test run",
+      },
       { id: "exp-2", name: "Run B", substrates: [], layers: [], notes: "" },
     ],
     results: [
-      { id: "res-1", experiment_id: "exp-1", measurement_files: [], device_groups: [] },
+      {
+        id: "res-1",
+        experiment_id: "exp-1",
+        measurement_files: [],
+        device_groups: [],
+      },
     ],
     planes: [
       {
         id: "plane-1",
         name: "Overview",
         elements: [
-          { id: "el-1", type: "text", position: { x: 100, y: 100 }, size: { x: 200, y: 60 }, content: "Hello Canvas" },
-          { id: "el-2", type: "experiment", position: { x: 350, y: 100 }, size: { x: 200, y: 120 }, content: "exp-1" },
+          {
+            id: "el-1",
+            type: "text",
+            position: { x: 100, y: 100 },
+            size: { x: 200, y: 60 },
+            content: "Hello Canvas",
+          },
+          {
+            id: "el-2",
+            type: "experiment",
+            position: { x: 350, y: 100 },
+            size: { x: 200, y: 120 },
+            content: "exp-1",
+          },
         ],
       },
     ],
@@ -180,28 +256,51 @@ async function setupMocks(page: Page) {
   await page.route("**/api/v1/auth/config", (r) =>
     r.fulfill({
       status: 200,
-      json: { keycloak_url: "http://mock-keycloak", keycloak_realm: "mock", keycloak_client_id: "plains" },
+      json: {
+        keycloak_url: "http://mock-keycloak",
+        keycloak_realm: "mock",
+        keycloak_client_id: "plains",
+      },
     }),
   )
-  await page.route("**/api/v1/users/me", (r) => r.fulfill({ status: 200, json: MOCK_USER }))
-  await page.route("**/api/v1/state/bulk", (r) => r.fulfill({ status: 200, json: BULK }))
+  await page.route("**/api/v1/users/me", (r) =>
+    r.fulfill({ status: 200, json: MOCK_USER }),
+  )
+  await page.route("**/api/v1/state/bulk", (r) =>
+    r.fulfill({ status: 200, json: BULK }),
+  )
   await page.route("**/api/v1/state/**", (r) =>
     r.fulfill({ status: 200, json: { data: { ...BULK, processes: [] } } }),
   )
   await page.route("**/api/v1/materials*", (r) =>
-    r.fulfill({ status: 200, json: { data: BULK.materials, count: BULK.materials.length } }),
+    r.fulfill({
+      status: 200,
+      json: { data: BULK.materials, count: BULK.materials.length },
+    }),
   )
   await page.route("**/api/v1/solutions*", (r) =>
-    r.fulfill({ status: 200, json: { data: BULK.solutions, count: BULK.solutions.length } }),
+    r.fulfill({
+      status: 200,
+      json: { data: BULK.solutions, count: BULK.solutions.length },
+    }),
   )
   await page.route("**/api/v1/experiments*", (r) =>
-    r.fulfill({ status: 200, json: { data: BULK.experiments, count: BULK.experiments.length } }),
+    r.fulfill({
+      status: 200,
+      json: { data: BULK.experiments, count: BULK.experiments.length },
+    }),
   )
   await page.route("**/api/v1/results*", (r) =>
-    r.fulfill({ status: 200, json: { data: BULK.results, count: BULK.results.length } }),
+    r.fulfill({
+      status: 200,
+      json: { data: BULK.results, count: BULK.results.length },
+    }),
   )
   await page.route("**/api/v1/planes*", (r) =>
-    r.fulfill({ status: 200, json: { data: BULK.planes, count: BULK.planes.length } }),
+    r.fulfill({
+      status: 200,
+      json: { data: BULK.planes, count: BULK.planes.length },
+    }),
   )
   // Catch-all: return empty success for anything else (NOMAD, etc.)
   await page.route("**/api/v1/**", (r) => r.fulfill({ status: 200, json: {} }))
@@ -209,7 +308,9 @@ async function setupMocks(page: Page) {
 
 /** Inject a mock Keycloak instance that appears fully authenticated. */
 async function injectAuth(page: Page) {
-  await page.waitForFunction(() => "__plains_setKeycloak" in window, { timeout: 10_000 })
+  await page.waitForFunction(() => "__plains_setKeycloak" in window, {
+    timeout: 10_000,
+  })
   await page.evaluate(() => {
     ;(window as any).__plains_setKeycloak({
       authenticated: true,
@@ -237,7 +338,10 @@ async function clientNavigate(page: Page, route: string) {
   await page.waitForTimeout(600)
 }
 
-async function assertResponsive(page: Page, collector: WalkCollector): Promise<boolean> {
+async function assertResponsive(
+  page: Page,
+  collector: WalkCollector,
+): Promise<boolean> {
   try {
     await page.evaluate(
       () =>
@@ -254,7 +358,8 @@ async function assertResponsive(page: Page, collector: WalkCollector): Promise<b
   } catch {
     collector.errors.push({
       type: "timeout",
-      message: "requestAnimationFrame did not fire within 500ms — page may be frozen",
+      message:
+        "requestAnimationFrame did not fire within 500ms — page may be frozen",
       route: collector.route,
       step: collector.step,
     })
@@ -276,7 +381,8 @@ async function randomWalk(
   const rng = mulberry32(seed)
 
   // Navigate to start route via pushState (no page reload → _keycloak preserved)
-  const startRoute = startRouteOverride ?? ROUTES[Math.floor(rng() * ROUTES.length)]
+  const startRoute =
+    startRouteOverride ?? ROUTES[Math.floor(rng() * ROUTES.length)]
   collector.route = startRoute
   await clientNavigate(page, startRoute)
   await page.waitForTimeout(500)
@@ -292,7 +398,6 @@ async function randomWalk(
       const route = ROUTES[Math.floor(rng() * ROUTES.length)]
       collector.route = route
       await clientNavigate(page, route)
-
     } else if (action < 0.44) {
       // ── Click a random visible interactive element ──────────────────────────
       try {
@@ -306,13 +411,16 @@ async function randomWalk(
           await el.click({ timeout: 2000, force: false }).catch(() => {})
           await page.waitForTimeout(250)
         }
-      } catch { /* ignore stale handles */ }
-
+      } catch {
+        /* ignore stale handles */
+      }
     } else if (action < 0.58) {
       // ── Type into a random visible text field ───────────────────────────────
       try {
         const inputs = await page
-          .locator("input[type=text]:visible, input:not([type]):visible, textarea:visible")
+          .locator(
+            "input[type=text]:visible, input:not([type]):visible, textarea:visible",
+          )
           .all()
         if (inputs.length > 0) {
           const el = inputs[Math.floor(rng() * inputs.length)]
@@ -321,13 +429,13 @@ async function randomWalk(
           await page.waitForTimeout(150)
           await page.keyboard.press("Escape")
         }
-      } catch { /* ignore */ }
-
-    } else if (action < 0.70) {
+      } catch {
+        /* ignore */
+      }
+    } else if (action < 0.7) {
       // ── Escape key (close modals / dropdowns) ───────────────────────────────
       await page.keyboard.press("Escape")
       await page.waitForTimeout(150)
-
     } else if (action < 0.82) {
       // ── Hover a random element ──────────────────────────────────────────────
       try {
@@ -339,8 +447,9 @@ async function randomWalk(
           await el.hover({ timeout: 1000 }).catch(() => {})
           await page.waitForTimeout(120)
         }
-      } catch { /* ignore */ }
-
+      } catch {
+        /* ignore */
+      }
     } else {
       // ── Mouse drag gesture (canvas / drag-drop) ─────────────────────────────
       try {
@@ -355,7 +464,9 @@ async function randomWalk(
         await page.mouse.move(x1 + dx, y1 + dy, { steps: 6 })
         await page.mouse.up()
         await page.waitForTimeout(200)
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
 
     await page.waitForTimeout(60)
@@ -389,10 +500,15 @@ function summarise(walk: string, collector: WalkCollector) {
 
 function assertNoHardErrors(collector: WalkCollector) {
   const hard = collector.errors.filter(
-    (e) => e.type === "loop" || e.type === "unhandled_rejection" || e.type === "timeout",
+    (e) =>
+      e.type === "loop" ||
+      e.type === "unhandled_rejection" ||
+      e.type === "timeout",
   )
   if (hard.length > 0) {
-    const msg = hard.map((e) => `[${e.type}@step${e.step}@${e.route}] ${e.message}`).join("\n")
+    const msg = hard
+      .map((e) => `[${e.type}@step${e.step}@${e.route}] ${e.message}`)
+      .join("\n")
     expect.soft(hard, `Hard errors:\n${msg}`).toHaveLength(0)
   }
 }
@@ -427,10 +543,30 @@ test.describe("Random-walk: full app", () => {
 
 test.describe("Random-walk: focused pages", () => {
   const FOCUSED = [
-    { seed: 6006, steps: 40, label: "focused-analysis (seed=6006)", route: "/analysis" },
-    { seed: 7007, steps: 40, label: "focused-organization (seed=7007)", route: "/organization" },
-    { seed: 8008, steps: 40, label: "focused-processes (seed=8008)", route: "/processes" },
-    { seed: 9009, steps: 40, label: "focused-experiments (seed=9009)", route: "/experiments" },
+    {
+      seed: 6006,
+      steps: 40,
+      label: "focused-analysis (seed=6006)",
+      route: "/analysis",
+    },
+    {
+      seed: 7007,
+      steps: 40,
+      label: "focused-organization (seed=7007)",
+      route: "/organization",
+    },
+    {
+      seed: 8008,
+      steps: 40,
+      label: "focused-processes (seed=8008)",
+      route: "/processes",
+    },
+    {
+      seed: 9009,
+      steps: 40,
+      label: "focused-experiments (seed=9009)",
+      route: "/experiments",
+    },
   ]
 
   for (const walk of FOCUSED) {
