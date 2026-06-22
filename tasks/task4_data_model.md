@@ -644,16 +644,12 @@ Create `sticky_note`, `text_field`, `data_collection`,
 
 Alembic revision: `phase_b_add_tables`
 
-### Phase C — Backfill (data migration script)
-`backend/scripts/migrate_state_to_tables.py`:
-1. Read every `UserState.data` blob.
-2. Upsert `lab_material`, `lab_solution`, `process`, `experiment`, `experiment_results`,
-   `analysis` into normalised rows.
-3. For canvas elements: create `sticky_note` / `text_field` / `data_collection` rows
-   from `canvas_element`; skip any with type='line'.
-4. Set `plane_id`, `collection_id` on all entities.
-5. Populate `experiment_material` and `experiment_solution` junction rows.
-6. Mark each migrated row with `migrated_at` for auditability.
+### Phase C — Data migration
+
+> **No migration effort.**  All existing data in `UserState.data` and the old
+> `canvas_element` / `experiment_layer` / `item` tables is **thrown away**.
+> The new schema starts empty.  Users re-enter their data through the updated UI.
+> Do not write a backfill script; do not spend time on data compatibility.
 
 ### Phase D — Flip the backend (breaking)
 - Rewrite `models.py` with the full new schema.
@@ -676,6 +672,31 @@ Alembic revision: `phase_d_activate_normalised_schema`
 - Optionally drop `frontend_data` columns.
 
 Alembic revision: `phase_f_drop_legacy`
+
+---
+
+## Testing Requirements
+
+Every new table and every new or modified API endpoint **must** have tests.  If a test
+file does not yet exist for a module, create it.  Coverage for all new route and CRUD
+modules must reach ≥ 80% line coverage before the phase is considered done.
+
+Minimum test surface per entity:
+
+| Scope | What to test |
+|-------|-------------|
+| CRUD helpers (`crud.py`) | create, read, update, delete; FK constraints; cascade behaviour |
+| API read (`GET`) | 200 with correct schema; 401 when unauthenticated; 404 for unknown id |
+| API write (`POST`/`PUT`) | happy path; validation errors (422); ownership check (403 for other user's objects) |
+| API delete (`DELETE`) | 204 on success; cascades children; 404 for unknown id |
+| Canvas grid | integer coords stored and returned correctly; collection size always 1×1 |
+| plane_id semantics | object appears on correct plane; updating plane_id moves it; copy creates new UUID |
+| Collection membership | setting `collection_id` links entity; clearing it removes it; collection lists only its members |
+| Experiment junctions | `experiment_material` and `experiment_solution` populated and queryable |
+| Analysis refs | `analysis_ref` rows created; weak-ref survives entity deletion |
+
+These tests live alongside the existing suite in `backend/tests/api/routes/` and
+`backend/tests/services/`.  New route files get a corresponding `test_<name>.py`.
 
 ---
 
