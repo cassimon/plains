@@ -12,6 +12,7 @@ Two synthetic bearer tokens are recognised:
 The override fetches users fresh from the route's own DB session to avoid
 SQLAlchemy "object already attached to another session" errors.
 """
+
 import uuid
 
 import pytest
@@ -47,7 +48,9 @@ def _setup_test_users(db: Session) -> None:
     if not nu:
         nu = crud.create_user(
             session=db,
-            user_create=UserCreate(email=settings.EMAIL_TEST_USER, password="testpassword123"),
+            user_create=UserCreate(
+                email=settings.EMAIL_TEST_USER, password="testpassword123"
+            ),
         )
     if nu:
         _user_ids["normaluser"] = nu.id

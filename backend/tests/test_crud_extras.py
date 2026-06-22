@@ -1,13 +1,14 @@
 """Extra unit tests for uncovered crud.py branches."""
+
 import uuid
-import pytest
+
 from sqlmodel import Session, select
 
 from app import crud
 from app.core.config import settings
 from app.models import (
-    MaterialCreate,
-    MaterialUpdate,
+    LabMaterialCreate,
+    LabMaterialUpdate,
     PlaneCreate,
     PlaneUpdate,
     User,
@@ -38,7 +39,9 @@ def test_authenticate_user_wrong_password(db: Session):
     email = f"pw-{uuid.uuid4().hex}@test.com"
     user = crud.create_user(
         session=db,
-        user_create=UserCreate(email=email, password="correct_password", is_superuser=False),
+        user_create=UserCreate(
+            email=email, password="correct_password", is_superuser=False
+        ),
     )
 
     result = crud.authenticate(session=db, email=email, password="wrong_password")
@@ -49,11 +52,13 @@ def test_authenticate_user_wrong_password(db: Session):
 
 
 def test_create_and_update_material(db: Session):
-    superuser = db.exec(select(User).where(User.email == settings.FIRST_SUPERUSER)).first()
+    superuser = db.exec(
+        select(User).where(User.email == settings.FIRST_SUPERUSER)
+    ).first()
     owner_id = superuser.id
     mat = crud.create_material(
         session=db,
-        material_in=MaterialCreate(name="TestMat", type="solvent"),
+        material_in=LabMaterialCreate(name="TestMat", type="solvent"),
         owner_id=owner_id,
     )
     assert mat.name == "TestMat"
@@ -62,7 +67,7 @@ def test_create_and_update_material(db: Session):
     updated = crud.update_material(
         session=db,
         db_material=mat,
-        material_in=MaterialUpdate(name="UpdatedMat"),
+        material_in=LabMaterialUpdate(name="UpdatedMat"),
     )
     assert updated.name == "UpdatedMat"
 
@@ -71,11 +76,13 @@ def test_create_and_update_material(db: Session):
 
 
 def test_create_and_update_plane(db: Session):
-    superuser = db.exec(select(User).where(User.email == settings.FIRST_SUPERUSER)).first()
+    superuser = db.exec(
+        select(User).where(User.email == settings.FIRST_SUPERUSER)
+    ).first()
     owner_id = superuser.id
     plane = crud.create_plane(
         session=db,
-        plane_in=PlaneCreate(name="MyPlane", elements=[]),
+        plane_in=PlaneCreate(name="MyPlane"),
         owner_id=owner_id,
     )
     assert plane.name == "MyPlane"

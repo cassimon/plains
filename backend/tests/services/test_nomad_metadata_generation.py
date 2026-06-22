@@ -29,7 +29,7 @@ def test_create_nomad_metadata_yaml_uses_solution_components_for_wet_layers():
         owner_id=owner_id,
         name="Wet stack experiment",
         description="",
-        device_type="n-i-p",
+        architecture="n-i-p",
         frontend_data=None,
     )
 
@@ -74,8 +74,18 @@ def test_create_nomad_metadata_yaml_uses_solution_components_for_wet_layers():
             "name": "SnO2 precursor",
             "components": [
                 {"id": "comp-1", "materialId": "mat-etl", "amount": "15", "unit": "mg"},
-                {"id": "comp-2", "materialId": "mat-solvent-dmf", "amount": "1.0", "unit": "ml"},
-                {"id": "comp-3", "materialId": "mat-solvent-dmso", "amount": "0.1", "unit": "ml"},
+                {
+                    "id": "comp-2",
+                    "materialId": "mat-solvent-dmf",
+                    "amount": "1.0",
+                    "unit": "ml",
+                },
+                {
+                    "id": "comp-3",
+                    "materialId": "mat-solvent-dmso",
+                    "amount": "0.1",
+                    "unit": "ml",
+                },
             ],
         }
     ]
@@ -121,11 +131,14 @@ def test_create_nomad_metadata_yaml_uses_solution_components_for_wet_layers():
                         "stepCategory": "wet_deposition",
                         "materialId": "mat-etl",
                         "solutionId": "solution-etl",
-                        "depositionMethod": {"value": "Spin coating", "mode": "constant"},
+                        "depositionMethod": {
+                            "value": "Spin coating",
+                            "mode": "constant",
+                        },
                         "solutionVolume": {"value": "50", "mode": "constant"},
                     }
                 ],
-            }
+            },
         ],
         "generatedStacks": [
             {
@@ -208,11 +221,13 @@ def test_create_nomad_metadata_yaml_formats_perovskite_ions_and_coefficients():
         owner_id=owner_id,
         name="Perovskite formatting experiment",
         description="",
-        device_type="n-i-p",
+        architecture="n-i-p",
         frontend_data=None,
     )
 
-    user_state = SimpleNamespace(data={"materials": [], "solutions": [], "processes": []})
+    user_state = SimpleNamespace(
+        data={"materials": [], "solutions": [], "processes": []}
+    )
     session = _FakeSession([experiment, user_state])
 
     process_snapshot = {
@@ -225,7 +240,10 @@ def test_create_nomad_metadata_yaml_formats_perovskite_ions_and_coefficients():
                         "id": "step-absorber",
                         "name": "Perovskite deposition",
                         "stepCategory": "wet_deposition",
-                        "depositionMethod": {"value": "Spin coating", "mode": "constant"},
+                        "depositionMethod": {
+                            "value": "Spin coating",
+                            "mode": "constant",
+                        },
                     }
                 ],
             }
@@ -303,7 +321,7 @@ def test_create_nomad_metadata_yaml_generates_substrate_and_deposition_and_per_p
         owner_id=owner_id,
         name="Pixel-mapped experiment",
         description="",
-        device_type="n-i-p",
+        architecture="n-i-p",
         frontend_data=None,
     )
 
@@ -336,7 +354,10 @@ def test_create_nomad_metadata_yaml_generates_substrate_and_deposition_and_per_p
                         "id": "step-etl",
                         "name": "ETL deposition",
                         "stepCategory": "wet_deposition",
-                        "depositionMethod": {"value": "Spin coating", "mode": "constant"},
+                        "depositionMethod": {
+                            "value": "Spin coating",
+                            "mode": "constant",
+                        },
                     }
                 ],
             }

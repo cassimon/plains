@@ -1,7 +1,6 @@
 import uuid
 
 from fastapi.testclient import TestClient
-from sqlmodel import Session
 
 from app.core.config import settings
 from tests.utils.utils import random_lower_string
@@ -29,7 +28,9 @@ class TestExperimentsAuth:
         assert client.post(f"{BASE}/", json={"name": "x"}).status_code == 401
 
     def test_update_requires_auth(self, client: TestClient) -> None:
-        assert client.put(f"{BASE}/{uuid.uuid4()}", json={"name": "x"}).status_code == 401
+        assert (
+            client.put(f"{BASE}/{uuid.uuid4()}", json={"name": "x"}).status_code == 401
+        )
 
     def test_delete_requires_auth(self, client: TestClient) -> None:
         assert client.delete(f"{BASE}/{uuid.uuid4()}").status_code == 401
@@ -40,32 +41,33 @@ class TestExperimentsCRUD:
         self, client: TestClient, normal_user_token_headers: dict[str, str]
     ) -> None:
         name = random_lower_string()
-        r = client.post(f"{BASE}/", json={"name": name}, headers=normal_user_token_headers)
+        r = client.post(
+            f"{BASE}/", json={"name": name}, headers=normal_user_token_headers
+        )
         assert r.status_code == 200
         data = r.json()
         assert data["name"] == name
         assert "id" in data
         assert data["substrates"] == []
-        assert data["layers"] == []
+        assert data["material_refs"] == []
+        assert data["solution_refs"] == []
 
-    def test_create_experiment_with_substrates_and_layers(
+    def test_create_experiment_with_substrates(
         self, client: TestClient, normal_user_token_headers: dict[str, str]
     ) -> None:
         payload = {
             "name": random_lower_string(),
             "description": "Test experiment",
-            "device_type": "solar_cell",
-            "active_area_cm2": 0.09,
-            "substrates": [{"name": "ITO", "thickness_nm": 150.0}],
-            "layers": [{"name": "SnO2", "layer_type": "etl"}],
+            "architecture": "n-i-p",
+            "device_area": 0.09,
+            "substrates": [{"name": "ITO", "outcome_status": "complete"}],
         }
         r = client.post(f"{BASE}/", json=payload, headers=normal_user_token_headers)
         assert r.status_code == 200
         data = r.json()
         assert len(data["substrates"]) == 1
-        assert len(data["layers"]) == 1
         assert data["substrates"][0]["name"] == "ITO"
-        assert data["layers"][0]["name"] == "SnO2"
+        assert data["architecture"] == "n-i-p"
 
     def test_create_experiment_missing_name(
         self, client: TestClient, normal_user_token_headers: dict[str, str]
@@ -114,7 +116,9 @@ class TestExperimentsCRUD:
         self, client: TestClient, normal_user_token_headers: dict[str, str]
     ) -> None:
         r = client.put(
-            f"{BASE}/{uuid.uuid4()}", json={"name": "x"}, headers=normal_user_token_headers
+            f"{BASE}/{uuid.uuid4()}",
+            json={"name": "x"},
+            headers=normal_user_token_headers,
         )
         assert r.status_code == 404
 
@@ -126,7 +130,10 @@ class TestExperimentsCRUD:
         assert r.status_code == 200
         assert r.json()["ok"] is True
         assert (
-            client.get(f"{BASE}/{exp['id']}", headers=normal_user_token_headers).status_code == 404
+            client.get(
+                f"{BASE}/{exp['id']}", headers=normal_user_token_headers
+            ).status_code
+            == 404
         )
 
     def test_delete_experiment_not_found(
@@ -138,21 +145,34 @@ class TestExperimentsCRUD:
 
 class TestExperimentsIDOR:
     def test_get_other_user_experiment_forbidden(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
         exp = create_experiment(client, superuser_token_headers)
         r = client.get(f"{BASE}/{exp['id']}", headers=normal_user_token_headers)
         assert r.status_code == 403
 
     def test_update_other_user_experiment_forbidden(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
         exp = create_experiment(client, superuser_token_headers)
-        r = client.put(f"{BASE}/{exp['id']}", json={"name": "hacked"}, headers=normal_user_token_headers)
+        r = client.put(
+            f"{BASE}/{exp['id']}",
+            json={"name": "hacked"},
+            headers=normal_user_token_headers,
+        )
         assert r.status_code == 403
 
     def test_delete_other_user_experiment_forbidden(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
         exp = create_experiment(client, superuser_token_headers)
         r = client.delete(f"{BASE}/{exp['id']}", headers=normal_user_token_headers)
@@ -170,3 +190,80 @@ class TestExperimentsSuperuser:
         r = client.get(f"{BASE}/", headers=superuser_token_headers)
         assert r.status_code == 200
         assert r.json()["count"] >= 1
+
+
+MATERIALS = f"{settings.API_V1_STR}/materials"
+SOLUTIONS = f"{settings.API_V1_STR}/solutions"
+
+
+class TestExperimentJunctions:
+    def test_set_materials_and_solutions(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        exp = create_experiment(client, normal_user_token_headers)
+        mat = client.post(
+            f"{MATERIALS}/",
+            json={"name": random_lower_string()},
+            headers=normal_user_token_headers,
+        ).json()
+        sol = client.post(
+            f"{SOLUTIONS}/",
+            json={"name": random_lower_string()},
+            headers=normal_user_token_headers,
+        ).json()
+
+        r = client.put(
+            f"{BASE}/{exp['id']}/materials",
+            json={"ids": [mat["id"]]},
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["material_refs"]) == 1
+        assert data["material_refs"][0]["material_id"] == mat["id"]
+
+        r = client.put(
+            f"{BASE}/{exp['id']}/solutions",
+            json={"ids": [sol["id"]]},
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data["solution_refs"]) == 1
+        assert data["solution_refs"][0]["solution_id"] == sol["id"]
+
+        # Clearing removes refs
+        r = client.put(
+            f"{BASE}/{exp['id']}/materials",
+            json={"ids": []},
+            headers=normal_user_token_headers,
+        )
+        assert r.json()["material_refs"] == []
+
+    def test_set_materials_requires_auth(self, client: TestClient) -> None:
+        r = client.put(f"{BASE}/{uuid.uuid4()}/materials", json={"ids": []})
+        assert r.status_code == 401
+
+    def test_set_materials_not_found(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        r = client.put(
+            f"{BASE}/{uuid.uuid4()}/materials",
+            json={"ids": []},
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 404
+
+    def test_set_materials_other_user_forbidden(
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
+    ) -> None:
+        exp = create_experiment(client, superuser_token_headers)
+        r = client.put(
+            f"{BASE}/{exp['id']}/materials",
+            json={"ids": []},
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 403

@@ -1,4 +1,5 @@
 """Security-focused tests: token forgery, injection, header validation."""
+
 import uuid
 
 import jwt
@@ -14,9 +15,17 @@ class TestInvalidBearerTokens:
     """Ensure the app correctly rejects malformed or forged tokens."""
 
     def test_missing_bearer_token_returns_401(self, client: TestClient) -> None:
-        for path in ["/materials/", "/solutions/", "/experiments/", "/results/", "/planes/"]:
+        for path in [
+            "/materials/",
+            "/solutions/",
+            "/experiments/",
+            "/results/",
+            "/planes/",
+        ]:
             r = client.get(f"{API}{path}")
-            assert r.status_code == 401, f"Expected 401 for GET {path}, got {r.status_code}"
+            assert r.status_code == 401, (
+                f"Expected 401 for GET {path}, got {r.status_code}"
+            )
 
     def test_invalid_token_returns_401(self, client: TestClient) -> None:
         headers = {"Authorization": "Bearer not.a.valid.jwt"}
@@ -63,41 +72,104 @@ class TestIDORProtection:
     """Ensure users cannot access or modify resources they don't own."""
 
     def test_material_idor_get(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
-        r = client.post(f"{API}/materials/", json={"name": "private-mat"}, headers=superuser_token_headers)
+        r = client.post(
+            f"{API}/materials/",
+            json={"name": "private-mat"},
+            headers=superuser_token_headers,
+        )
         mat_id = r.json()["id"]
-        assert client.get(f"{API}/materials/{mat_id}", headers=normal_user_token_headers).status_code == 403
+        assert (
+            client.get(
+                f"{API}/materials/{mat_id}", headers=normal_user_token_headers
+            ).status_code
+            == 403
+        )
 
     def test_solution_idor_get(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
-        r = client.post(f"{API}/solutions/", json={"name": "priv-sol"}, headers=superuser_token_headers)
+        r = client.post(
+            f"{API}/solutions/",
+            json={"name": "priv-sol"},
+            headers=superuser_token_headers,
+        )
         sol_id = r.json()["id"]
-        assert client.get(f"{API}/solutions/{sol_id}", headers=normal_user_token_headers).status_code == 403
+        assert (
+            client.get(
+                f"{API}/solutions/{sol_id}", headers=normal_user_token_headers
+            ).status_code
+            == 403
+        )
 
     def test_experiment_idor_get(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
-        r = client.post(f"{API}/experiments/", json={"name": "priv-exp"}, headers=superuser_token_headers)
+        r = client.post(
+            f"{API}/experiments/",
+            json={"name": "priv-exp"},
+            headers=superuser_token_headers,
+        )
         exp_id = r.json()["id"]
-        assert client.get(f"{API}/experiments/{exp_id}", headers=normal_user_token_headers).status_code == 403
+        assert (
+            client.get(
+                f"{API}/experiments/{exp_id}", headers=normal_user_token_headers
+            ).status_code
+            == 403
+        )
 
     def test_result_idor_get(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
-        r = client.post(f"{API}/experiments/", json={"name": "e"}, headers=superuser_token_headers)
+        r = client.post(
+            f"{API}/experiments/", json={"name": "e"}, headers=superuser_token_headers
+        )
         exp_id = r.json()["id"]
-        r2 = client.post(f"{API}/results/", params={"experiment_id": exp_id}, json={}, headers=superuser_token_headers)
+        r2 = client.post(
+            f"{API}/results/",
+            params={"experiment_id": exp_id},
+            json={},
+            headers=superuser_token_headers,
+        )
         res_id = r2.json()["id"]
-        assert client.get(f"{API}/results/{res_id}", headers=normal_user_token_headers).status_code == 403
+        assert (
+            client.get(
+                f"{API}/results/{res_id}", headers=normal_user_token_headers
+            ).status_code
+            == 403
+        )
 
     def test_plane_idor_get(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
-        r = client.post(f"{API}/planes/", json={"name": "priv-plane"}, headers=superuser_token_headers)
+        r = client.post(
+            f"{API}/planes/",
+            json={"name": "priv-plane"},
+            headers=superuser_token_headers,
+        )
         plane_id = r.json()["id"]
-        assert client.get(f"{API}/planes/{plane_id}", headers=normal_user_token_headers).status_code == 403
+        assert (
+            client.get(
+                f"{API}/planes/{plane_id}", headers=normal_user_token_headers
+            ).status_code
+            == 403
+        )
 
     def test_state_isolation(
         self,
@@ -112,8 +184,8 @@ class TestIDORProtection:
             json={"name": "superuser-only-material"},
             headers=superuser_token_headers,
         )
-        r = client.get(f"{API}/state/", headers=normal_user_token_headers)
-        mat_names = [m.get("name") for m in r.json()["data"]["materials"]]
+        r = client.get(f"{API}/state/bulk", headers=normal_user_token_headers)
+        mat_names = [m.get("name") for m in r.json()["materials"]]
         assert "superuser-only-material" not in mat_names
 
 
@@ -139,7 +211,13 @@ class TestInputValidation:
     def test_invalid_uuid_in_path_returns_422(
         self, client: TestClient, normal_user_token_headers: dict[str, str]
     ) -> None:
-        for path in ["/materials/", "/solutions/", "/experiments/", "/results/", "/planes/"]:
+        for path in [
+            "/materials/",
+            "/solutions/",
+            "/experiments/",
+            "/results/",
+            "/planes/",
+        ]:
             r = client.get(f"{API}{path}not-a-uuid", headers=normal_user_token_headers)
             assert r.status_code == 422, f"Expected 422 for GET {API}{path}not-a-uuid"
 

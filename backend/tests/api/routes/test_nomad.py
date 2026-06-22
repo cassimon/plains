@@ -50,7 +50,10 @@ class TestNomadAuthEndpoint:
         self, client: TestClient, normal_user_token_headers: dict[str, str]
     ) -> None:
         """When NOMAD credentials are not set, auth/test returns not-configured response."""
-        with patch.object(settings, "NOMAD_USERNAME", None), patch.object(settings, "NOMAD_PASSWORD", None):
+        with (
+            patch.object(settings, "NOMAD_USERNAME", None),
+            patch.object(settings, "NOMAD_PASSWORD", None),
+        ):
             r = client.post(
                 f"{BASE}/auth/test",
                 headers=normal_user_token_headers,
@@ -72,7 +75,11 @@ class TestNomadEndpointsRequireAuth:
     def test_upload_metadata_requires_auth(self, client: TestClient) -> None:
         r = client.post(
             f"{BASE}/upload/metadata",
-            json={"results_id": str(uuid.uuid4()), "experiment": {}, "deviceGroups": []},
+            json={
+                "results_id": str(uuid.uuid4()),
+                "experiment": {},
+                "deviceGroups": [],
+            },
         )
         assert r.status_code == 401
 
@@ -105,6 +112,7 @@ class TestNomadUploadAuthorization:
     ) -> None:
         """When NOMAD OAuth is enabled and user has no nomad_sub, upload should 403."""
         import io
+
         with patch.object(settings, "NOMAD_OAUTH_ENABLED", True):
             r = client.post(
                 f"{BASE}/upload/files",
@@ -138,6 +146,7 @@ def test_upload_to_nomad_accepts_archive_path_from_form_data(
 
     def fake_upload_to_nomad(zip_path, token, upload_name):
         upload_calls.append((str(zip_path), token, upload_name))
+
     def fake_upload_to_nomad(zip_path, token, upload_name, existing_upload_id=None):
         upload_calls.append((str(zip_path), token, upload_name))
         return {

@@ -1,4 +1,5 @@
 """Tests for FastAPI dependency functions in app.api.deps."""
+
 import pytest
 import uuid
 from unittest.mock import MagicMock, patch

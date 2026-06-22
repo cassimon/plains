@@ -5,7 +5,6 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.core.config import settings
-from app.models import Material
 from tests.utils.utils import random_lower_string
 
 BASE = f"{settings.API_V1_STR}/materials"
@@ -45,7 +44,9 @@ class TestMaterialsCRUD:
         self, client: TestClient, normal_user_token_headers: dict[str, str]
     ) -> None:
         name = random_lower_string()
-        r = client.post(f"{BASE}/", json={"name": name}, headers=normal_user_token_headers)
+        r = client.post(
+            f"{BASE}/", json={"name": name}, headers=normal_user_token_headers
+        )
         assert r.status_code == 200
         data = r.json()
         assert data["name"] == name
@@ -150,7 +151,10 @@ class TestMaterialsIDOR:
         assert mat["owner_id"] is not None
 
     def test_update_other_user_material_forbidden(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
         """Normal user cannot update a material owned by superuser."""
         mat = create_material(client, superuser_token_headers)
@@ -162,14 +166,20 @@ class TestMaterialsIDOR:
         assert r.status_code == 403
 
     def test_delete_other_user_material_forbidden(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
         mat = create_material(client, superuser_token_headers)
         r = client.delete(f"{BASE}/{mat['id']}", headers=normal_user_token_headers)
         assert r.status_code == 403
 
     def test_get_other_user_material_forbidden(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
         mat = create_material(client, superuser_token_headers)
         r = client.get(f"{BASE}/{mat['id']}", headers=normal_user_token_headers)

@@ -11,7 +11,9 @@ EXP_BASE = f"{settings.API_V1_STR}/experiments"
 
 
 def create_experiment(client: TestClient, headers: dict) -> dict:
-    r = client.post(f"{EXP_BASE}/", json={"name": random_lower_string()}, headers=headers)
+    r = client.post(
+        f"{EXP_BASE}/", json={"name": random_lower_string()}, headers=headers
+    )
     assert r.status_code == 200
     return r.json()
 
@@ -35,7 +37,9 @@ class TestResultsAuth:
         assert client.get(f"{BASE}/{uuid.uuid4()}").status_code == 401
 
     def test_create_requires_auth(self, client: TestClient) -> None:
-        r = client.post(f"{BASE}/", params={"experiment_id": str(uuid.uuid4())}, json={})
+        r = client.post(
+            f"{BASE}/", params={"experiment_id": str(uuid.uuid4())}, json={}
+        )
         assert r.status_code == 401
 
     def test_update_requires_auth(self, client: TestClient) -> None:
@@ -140,7 +144,9 @@ class TestResultsCRUD:
         assert r.status_code == 200
         assert r.json()["ok"] is True
         assert (
-            client.get(f"{BASE}/{res['id']}", headers=normal_user_token_headers).status_code
+            client.get(
+                f"{BASE}/{res['id']}", headers=normal_user_token_headers
+            ).status_code
             == 404
         )
 
@@ -153,7 +159,10 @@ class TestResultsCRUD:
 
 class TestResultsIDOR:
     def test_get_other_user_result_forbidden(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
         exp = create_experiment(client, superuser_token_headers)
         res = create_result(client, superuser_token_headers, exp["id"])
@@ -161,15 +170,23 @@ class TestResultsIDOR:
         assert r.status_code == 403
 
     def test_update_other_user_result_forbidden(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
         exp = create_experiment(client, superuser_token_headers)
         res = create_result(client, superuser_token_headers, exp["id"])
-        r = client.put(f"{BASE}/{res['id']}", json={}, headers=normal_user_token_headers)
+        r = client.put(
+            f"{BASE}/{res['id']}", json={}, headers=normal_user_token_headers
+        )
         assert r.status_code == 403
 
     def test_delete_other_user_result_forbidden(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
         exp = create_experiment(client, superuser_token_headers)
         res = create_result(client, superuser_token_headers, exp["id"])

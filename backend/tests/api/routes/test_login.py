@@ -1,4 +1,5 @@
 """Tests for the login/auth endpoints."""
+
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -45,7 +46,9 @@ def test_auth_config_realm_url_without_realms_segment(client: TestClient) -> Non
     """Handles NOMAD_KEYCLOAK_REALM_URL that has no /realms/ segment gracefully."""
     with (
         patch.object(settings, "NOMAD_OAUTH_ENABLED", True),
-        patch.object(settings, "NOMAD_KEYCLOAK_REALM_URL", "https://keycloak.example.com"),
+        patch.object(
+            settings, "NOMAD_KEYCLOAK_REALM_URL", "https://keycloak.example.com"
+        ),
         patch.object(settings, "NOMAD_OAUTH_CLIENT_ID", "plains"),
     ):
         r = client.get(f"{settings.API_V1_STR}/auth/config")

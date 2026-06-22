@@ -54,10 +54,11 @@ TEST_PASSWORD = "test_password_123"
 # TEST GROUP A: API Addresses and Commands (Offline/Mock Tests)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestApiAddresses:
     """
     Test Group A: Verify API addresses and commands are correctly constructed.
-    
+
     These tests run OFFLINE with mocked HTTP responses.
     They verify the correct URLs are constructed and used.
     """
@@ -81,59 +82,59 @@ class TestApiAddresses:
     def test_api_addresses_auth_url_construction(self):
         """
         A.2: Verify authentication URL is correctly constructed from base URL.
-        
+
         The auth URL should be: {base_url}/auth/token
         """
         from app.core.config import settings
-        
+
         print("\n" + "=" * 70)
         print("TEST A.2: Verify Auth URL Construction")
         print("=" * 70)
-        
+
         # Simulate the URL construction as done in nomad.py
         base_url = settings.NOMAD_URL
         constructed_auth_url = base_url.replace("/api/v1", "/api/v1/auth/token")
-        
+
         print(f"Base URL:            {base_url}")
         print(f"Constructed Auth URL: {constructed_auth_url}")
         print(f"Expected Auth URL:   {EXPECTED_TEST_AUTH_URL}")
         print("-" * 70)
-        
+
         assert constructed_auth_url == EXPECTED_TEST_AUTH_URL, (
             f"Auth URL mismatch.\n"
             f"Constructed: {constructed_auth_url}\n"
             f"Expected:    {EXPECTED_TEST_AUTH_URL}"
         )
-        
+
         print("✓ Auth URL correctly constructed for TEST deployment")
         print("=" * 70)
 
     def test_api_addresses_upload_url_construction(self):
         """
         A.3: Verify upload URL is correctly constructed.
-        
+
         The upload URL should be: {base_url}/uploads
         """
         from app.core.config import settings
-        
+
         print("\n" + "=" * 70)
         print("TEST A.3: Verify Upload URL Construction")
         print("=" * 70)
-        
+
         base_url = settings.NOMAD_URL
         constructed_upload_url = f"{base_url}/uploads"
-        
+
         print(f"Base URL:              {base_url}")
         print(f"Constructed Upload URL: {constructed_upload_url}")
         print(f"Expected Upload URL:   {EXPECTED_TEST_UPLOAD_URL}")
         print("-" * 70)
-        
+
         assert constructed_upload_url == EXPECTED_TEST_UPLOAD_URL, (
             f"Upload URL mismatch.\n"
             f"Constructed: {constructed_upload_url}\n"
             f"Expected:    {EXPECTED_TEST_UPLOAD_URL}"
         )
-        
+
         print("✓ Upload URL correctly constructed for TEST deployment")
         print("=" * 70)
 
@@ -141,71 +142,73 @@ class TestApiAddresses:
     def test_api_addresses_mock_auth_request(self, mock_client_class):
         """
         A.4: Mock test verifying the correct auth request is made.
-        
+
         This test mocks HTTP and verifies the request parameters.
         NO actual network calls are made.
         """
         from app.services.nomad import get_nomad_token
-        
+
         print("\n" + "=" * 70)
         print("TEST A.4: Mock Auth Request Verification (OFFLINE)")
         print("=" * 70)
-        
+
         # Configure mock
         mock_client = MagicMock()
         mock_client_class.return_value.__enter__ = MagicMock(return_value=mock_client)
         mock_client_class.return_value.__exit__ = MagicMock(return_value=False)
-        
+
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"access_token": "mock_token_12345"}
         mock_client.post.return_value = mock_response
-        
+
         # Capture what URL and data are sent
         captured_calls = []
+
         def capture_post(url, **kwargs):
             captured_calls.append({"url": url, "kwargs": kwargs})
             return mock_response
+
         mock_client.post.side_effect = capture_post
-        
+
         # Override settings for test
         with patch("app.services.nomad.settings") as mock_settings:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
             mock_settings.NOMAD_USERNAME = TEST_USERNAME
             mock_settings.NOMAD_PASSWORD = TEST_PASSWORD
             mock_settings.NOMAD_MOCK_MODE = False
-            
+
             print("Mock Configuration:")
             print(f"  NOMAD_URL:      {mock_settings.NOMAD_URL}")
             print(f"  NOMAD_USERNAME: {mock_settings.NOMAD_USERNAME}")
             print("-" * 70)
-            
+
             token = get_nomad_token()
-        
+
         # Verify the captured request
         assert len(captured_calls) == 1, "Expected exactly one HTTP call"
         call = captured_calls[0]
-        
+
         print("Captured HTTP Request:")
         print(f"  URL:    {call['url']}")
         print(f"  Method: POST")
         print(f"  Data:   {call['kwargs'].get('data', {})}")
         print(f"  Headers: {call['kwargs'].get('headers', {})}")
         print("-" * 70)
-        
+
         # Verify URL is the TEST auth URL
         assert call["url"] == EXPECTED_TEST_AUTH_URL, (
             f"Auth request went to wrong URL!\n"
             f"Actual:   {call['url']}\n"
             f"Expected: {EXPECTED_TEST_AUTH_URL}"
         )
-        
+
         # Verify OAuth2 password grant format
         request_data = call["kwargs"].get("data", {})
         assert request_data.get("grant_type") == "password"
         assert request_data.get("username") == TEST_USERNAME
         assert request_data.get("password") == TEST_PASSWORD
-        
+
         print("✓ Auth request correctly formatted for TEST deployment")
         print(f"✓ Received mock token: {token}")
         print("=" * 70)
@@ -214,92 +217,94 @@ class TestApiAddresses:
     def test_api_addresses_mock_upload_request(self, mock_client_class):
         """
         A.5: Mock test verifying the correct upload request is made.
-        
+
         This test mocks HTTP and verifies upload parameters.
         NO actual network calls are made.
         """
         from app.services.nomad import upload_to_nomad, create_secure_zip
-        
+
         print("\n" + "=" * 70)
         print("TEST A.5: Mock Upload Request Verification (OFFLINE)")
         print("=" * 70)
-        
+
         # Create a test zip file
         test_files = [("test_file.txt", b"Test content for NOMAD upload")]
         zip_path = create_secure_zip(test_files, archive_name="test_upload.zip")
-        
+
         print(f"Created test archive: {zip_path}")
         print(f"Archive size: {zip_path.stat().st_size} bytes")
-        
+
         # Configure mock
         mock_client = MagicMock()
         mock_client_class.return_value.__enter__ = MagicMock(return_value=mock_client)
         mock_client_class.return_value.__exit__ = MagicMock(return_value=False)
-        
+
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "upload_id": "test_upload_id_12345",
             "upload_create_time": "2026-04-10T12:00:00Z",
             "process_status": "processing",
-            "entries": [{"entry_id": "test_entry_id_1"}]
+            "entries": [{"entry_id": "test_entry_id_1"}],
         }
         mock_client.post.return_value = mock_response
-        
+
         # Capture what URL and data are sent
         captured_calls = []
+
         def capture_post(url, **kwargs):
             captured_calls.append({"url": url, "kwargs": kwargs})
             return mock_response
+
         mock_client.post.side_effect = capture_post
-        
+
         # Override settings for test
         with patch("app.services.nomad.settings") as mock_settings:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
             mock_settings.NOMAD_MOCK_MODE = False
-            
+
             print(f"Using NOMAD_URL: {mock_settings.NOMAD_URL}")
             print("-" * 70)
-            
+
             result = upload_to_nomad(
-                zip_path=zip_path,
-                token="mock_auth_token",
-                upload_name="Test Upload"
+                zip_path=zip_path, token="mock_auth_token", upload_name="Test Upload"
             )
-        
+
         # Clean up
         zip_path.unlink()
-        
+
         # Verify the captured request
         assert len(captured_calls) == 1, "Expected exactly one HTTP call"
         call = captured_calls[0]
-        
+
         print("Captured HTTP Request:")
         print(f"  URL:    {call['url']}")
         print(f"  Method: POST")
         print(f"  Files:  {list(call['kwargs'].get('files', {}).keys())}")
         print(f"  Params: {call['kwargs'].get('params', {})}")
-        print(f"  Auth Header Present: {'Authorization' in call['kwargs'].get('headers', {})}")
+        print(
+            f"  Auth Header Present: {'Authorization' in call['kwargs'].get('headers', {})}"
+        )
         print("-" * 70)
-        
+
         # Verify URL is the TEST upload URL
         assert call["url"] == EXPECTED_TEST_UPLOAD_URL, (
             f"Upload request went to wrong URL!\n"
             f"Actual:   {call['url']}\n"
             f"Expected: {EXPECTED_TEST_UPLOAD_URL}"
         )
-        
+
         # Verify auth header is present
         headers = call["kwargs"].get("headers", {})
         assert "Authorization" in headers
         assert headers["Authorization"] == "Bearer mock_auth_token"
-        
+
         print("Mock Response:")
         print(f"  upload_id: {result.get('upload_id')}")
         print(f"  entry_ids: {result.get('entry_ids')}")
         print(f"  status:    {result.get('processing_status')}")
         print("-" * 70)
-        
+
         print("✓ Upload request correctly formatted for TEST deployment")
         print("=" * 70)
 
@@ -308,28 +313,28 @@ class TestApiAddresses:
         A.6: Verify status check URL is correctly constructed.
         """
         from app.core.config import settings
-        
+
         print("\n" + "=" * 70)
         print("TEST A.6: Verify Status Check URL Construction")
         print("=" * 70)
-        
+
         test_upload_id = "test_upload_id_12345"
         base_url = settings.NOMAD_URL
         constructed_status_url = f"{base_url}/uploads/{test_upload_id}"
         expected_status_url = f"{EXPECTED_TEST_BASE_URL}/uploads/{test_upload_id}"
-        
+
         print(f"Base URL:               {base_url}")
         print(f"Upload ID:              {test_upload_id}")
         print(f"Constructed Status URL: {constructed_status_url}")
         print(f"Expected Status URL:    {expected_status_url}")
         print("-" * 70)
-        
+
         assert constructed_status_url == expected_status_url, (
             f"Status URL mismatch.\n"
             f"Constructed: {constructed_status_url}\n"
             f"Expected:    {expected_status_url}"
         )
-        
+
         print("✓ Status URL correctly constructed for TEST deployment")
         print("=" * 70)
 
@@ -338,10 +343,11 @@ class TestApiAddresses:
 # TEST GROUP B: Auth Token Retrieval from TEST API
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestAuthToken:
     """
     Test Group B: Auth token retrieval tests.
-    
+
     These tests verify authentication works correctly.
     They clearly show the TEST API is being used.
     """
@@ -365,27 +371,27 @@ class TestAuthToken:
         B.2: Verify that missing credentials raise appropriate error.
         """
         from app.services.nomad import get_nomad_token, NomadAuthError
-        
+
         print("\n" + "=" * 70)
         print("TEST B.2: Auth Token Requires Credentials")
         print("=" * 70)
-        
+
         with patch("app.services.nomad.settings") as mock_settings:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
             mock_settings.NOMAD_USERNAME = None
             mock_settings.NOMAD_PASSWORD = None
-            
+
             print("Testing with no credentials...")
             print(f"  NOMAD_USERNAME: {mock_settings.NOMAD_USERNAME}")
             print(f"  NOMAD_PASSWORD: {mock_settings.NOMAD_PASSWORD}")
             print("-" * 70)
-            
+
             with pytest.raises(NomadAuthError) as exc_info:
                 get_nomad_token()
-            
+
             print(f"Raised NomadAuthError: {exc_info.value}")
             assert "credentials not configured" in str(exc_info.value).lower()
-            
+
         print("✓ Missing credentials correctly raises NomadAuthError")
         print("=" * 70)
 
@@ -393,54 +399,56 @@ class TestAuthToken:
     def test_auth_token_mock_success(self, mock_client_class):
         """
         B.3: Mock successful auth token retrieval from TEST API.
-        
+
         Clearly shows the token is from the TEST API.
         """
         from app.services.nomad import get_nomad_token
-        
+
         print("\n" + "=" * 70)
         print("TEST B.3: Mock Successful Auth Token Retrieval")
         print("=" * 70)
-        
+
         # Configure mock
         mock_client = MagicMock()
         mock_client_class.return_value.__enter__ = MagicMock(return_value=mock_client)
         mock_client_class.return_value.__exit__ = MagicMock(return_value=False)
-        
+
         mock_token = "test_api_token_from_nomad_test_deployment"
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"access_token": mock_token}
-        
+
         request_info = {}
+
         def capture_post(url, **kwargs):
             request_info["url"] = url
             request_info["data"] = kwargs.get("data", {})
             return mock_response
+
         mock_client.post.side_effect = capture_post
-        
+
         with patch("app.services.nomad.settings") as mock_settings:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
             mock_settings.NOMAD_USERNAME = TEST_USERNAME
             mock_settings.NOMAD_PASSWORD = TEST_PASSWORD
             mock_settings.NOMAD_MOCK_MODE = False
-            
+
             print("Request Details:")
             print(f"  Target URL: {EXPECTED_TEST_AUTH_URL}")
             print(f"  Username:   {TEST_USERNAME}")
             print("-" * 70)
-            
+
             token = get_nomad_token()
-        
+
         print("Response Details:")
         print(f"  Actual URL Used:  {request_info.get('url')}")
         print(f"  Token Retrieved:  {token}")
         print(f"  Token from TEST:  {'/test/' in request_info.get('url', '')}")
         print("-" * 70)
-        
+
         assert request_info["url"] == EXPECTED_TEST_AUTH_URL
         assert token == mock_token
-        
+
         print("✓ Successfully retrieved mock token from TEST API")
         print("=" * 70)
 
@@ -450,36 +458,36 @@ class TestAuthToken:
         B.4: Mock failed auth token retrieval.
         """
         from app.services.nomad import get_nomad_token, NomadAuthError
-        
+
         print("\n" + "=" * 70)
         print("TEST B.4: Mock Failed Auth Token Retrieval")
         print("=" * 70)
-        
+
         # Configure mock for failure
         mock_client = MagicMock()
         mock_client_class.return_value.__enter__ = MagicMock(return_value=mock_client)
         mock_client_class.return_value.__exit__ = MagicMock(return_value=False)
-        
+
         mock_response = MagicMock()
         mock_response.status_code = 401
         mock_response.text = "Invalid credentials"
         mock_client.post.return_value = mock_response
-        
+
         with patch("app.services.nomad.settings") as mock_settings:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
             mock_settings.NOMAD_USERNAME = "wrong_user"
             mock_settings.NOMAD_PASSWORD = "wrong_password"
             mock_settings.NOMAD_MOCK_MODE = False
-            
+
             print("Testing with invalid credentials...")
             print(f"  URL: {EXPECTED_TEST_AUTH_URL}")
             print("-" * 70)
-            
+
             with pytest.raises(NomadAuthError) as exc_info:
                 get_nomad_token()
-            
+
             print(f"Raised NomadAuthError: {exc_info.value}")
-            
+
         print("✓ Invalid credentials correctly raises NomadAuthError")
         print("=" * 70)
 
@@ -488,10 +496,11 @@ class TestAuthToken:
 # TEST GROUP C: Archive Upload Tests
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestArchiveUpload:
     """
     Test Group C: Archive upload tests.
-    
+
     These tests verify archive creation and upload with clear URL logging.
     """
 
@@ -500,11 +509,11 @@ class TestArchiveUpload:
         C.1: Test secure ZIP archive creation.
         """
         from app.services.nomad import create_secure_zip
-        
+
         print("\n" + "=" * 70)
         print("TEST C.1: Secure ZIP Archive Creation")
         print("=" * 70)
-        
+
         # Test files with potentially dangerous names
         test_files = [
             ("normal_file.txt", b"Normal content"),
@@ -512,32 +521,33 @@ class TestArchiveUpload:
             ("file with spaces.txt", b"Spaces in name"),
             ("UPPERCASE.TXT", b"Uppercase extension"),
         ]
-        
+
         print("Input files:")
         for name, content in test_files:
             print(f"  - {name} ({len(content)} bytes)")
         print("-" * 70)
-        
+
         zip_path = create_secure_zip(test_files, archive_name="security_test.zip")
-        
+
         print(f"Created archive: {zip_path}")
         print(f"Archive size: {zip_path.stat().st_size} bytes")
-        
+
         # Verify archive contents
-        with zipfile.ZipFile(zip_path, 'r') as zf:
+        with zipfile.ZipFile(zip_path, "r") as zf:
             names = zf.namelist()
             print(f"Archive contents ({len(names)} files):")
             for name in names:
                 print(f"  - {name}")
-        
+
         # Clean up
         zip_path.unlink()
         print("-" * 70)
-        
+
         # Verify no path traversal
-        assert all("/" not in name and "\\" not in name for name in names), \
+        assert all("/" not in name and "\\" not in name for name in names), (
             "Archive contains path separators - possible path traversal!"
-        
+        )
+
         print("✓ Secure ZIP archive created without path traversal")
         print("=" * 70)
 
@@ -596,27 +606,27 @@ class TestArchiveUpload:
         C.3: Mock test for archive upload with detailed URL/response logging.
         """
         from app.services.nomad import upload_to_nomad, create_secure_zip
-        
+
         print("\n" + "=" * 70)
         print("TEST C.3: Mock Archive Upload to TEST API")
         print("=" * 70)
-        
+
         # Create test archive
         test_files = [
             ("test_data.txt", b"JV measurement data\nPCE: 15.5%"),
             ("nomad_metadata.yaml", b"metadata:\n  upload_name: Test\n"),
         ]
         zip_path = create_secure_zip(test_files, archive_name="upload_test.zip")
-        
+
         print(f"Test Archive: {zip_path}")
         print(f"Archive Size: {zip_path.stat().st_size} bytes")
         print("-" * 70)
-        
+
         # Configure mock with detailed response
         mock_client = MagicMock()
         mock_client_class.return_value.__enter__ = MagicMock(return_value=mock_client)
         mock_client_class.return_value.__exit__ = MagicMock(return_value=False)
-        
+
         mock_response_data = {
             "upload_id": "cL6wmaGjTIee_ojyAbVjGA",
             "upload_create_time": "2026-04-10T14:39:18.000Z",
@@ -625,51 +635,55 @@ class TestArchiveUpload:
                 {
                     "entry_id": "zzMmd8pIhS3GIQiCwKPkIfpB-Br2",
                     "mainfile": "test_data.txt",
-                    "parser_name": "parsers/text"
+                    "parser_name": "parsers/text",
                 }
-            ]
+            ],
         }
-        
+
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = mock_response_data
-        
+
         captured_request = {}
+
         def capture_post(url, **kwargs):
             captured_request["url"] = url
             captured_request["headers"] = kwargs.get("headers", {})
             captured_request["params"] = kwargs.get("params", {})
             captured_request["files"] = kwargs.get("files", {})
             return mock_response
+
         mock_client.post.side_effect = capture_post
-        
+
         with patch("app.services.nomad.settings") as mock_settings:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
             mock_settings.NOMAD_MOCK_MODE = False
-            
+
             print("Making Upload Request:")
             print(f"  Target URL: {EXPECTED_TEST_UPLOAD_URL}")
             print(f"  Auth Token: Bearer test_token_xxx...")
             print("-" * 70)
-            
+
             result = upload_to_nomad(
-                zip_path=zip_path,
-                token="test_token_xxx",
-                upload_name="Test Upload C.3"
+                zip_path=zip_path, token="test_token_xxx", upload_name="Test Upload C.3"
             )
-        
+
         # Clean up
         zip_path.unlink()
-        
+
         # Display captured request
         print("CAPTURED REQUEST:")
         print(f"  URL:           {captured_request['url']}")
         print(f"  Method:        POST")
-        print(f"  Authorization: {captured_request['headers'].get('Authorization', 'N/A')[:30]}...")
-        print(f"  Upload Name:   {captured_request['params'].get('upload_name', 'N/A')}")
+        print(
+            f"  Authorization: {captured_request['headers'].get('Authorization', 'N/A')[:30]}..."
+        )
+        print(
+            f"  Upload Name:   {captured_request['params'].get('upload_name', 'N/A')}"
+        )
         print(f"  Files:         {list(captured_request['files'].keys())}")
         print("-" * 70)
-        
+
         # Display response
         print("SERVER RESPONSE (Mock):")
         print(f"  Status:        200 OK")
@@ -681,18 +695,18 @@ class TestArchiveUpload:
             print(f"    - entry_id: {entry['entry_id']}")
             print(f"      mainfile: {entry['mainfile']}")
         print("-" * 70)
-        
+
         # Verify URL is TEST deployment
         assert captured_request["url"] == EXPECTED_TEST_UPLOAD_URL, (
             f"Upload URL mismatch!\n"
             f"Actual:   {captured_request['url']}\n"
             f"Expected: {EXPECTED_TEST_UPLOAD_URL}"
         )
-        
+
         # Verify result
         assert result["upload_id"] == mock_response_data["upload_id"]
         assert result["entries"] == 1
-        
+
         print("✓ Archive uploaded to TEST API successfully")
         print("=" * 70)
 
@@ -701,10 +715,11 @@ class TestArchiveUpload:
 # TEST GROUP D: Full Upload Cycle Tests
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestFullCycle:
     """
     Test Group D: Full upload cycle tests.
-    
+
     These tests verify the complete workflow from file creation to upload.
     """
 
@@ -721,28 +736,34 @@ class TestFullCycle:
             get_upload_status,
             cleanup_temp_archive,
         )
-        
+
         print("\n" + "=" * 70)
         print("TEST D.1: Full Upload Cycle (Mock)")
         print("=" * 70)
-        
+
         # Step 1: Create test data
         print("\n[Step 1] Creating test data files...")
         measurement_files = [
             {"fileName": "device_AI44_jv.txt", "fileType": "JV", "deviceName": "AI44"},
-            {"fileName": "device_AI44_ipce.txt", "fileType": "IPCE", "deviceName": "AI44"},
+            {
+                "fileName": "device_AI44_ipce.txt",
+                "fileType": "IPCE",
+                "deviceName": "AI44",
+            },
         ]
         substrates = [{"id": "sub1", "name": "Substrate AI44"}]
-        device_groups = [{
-            "deviceName": "AI44",
-            "assignedSubstrateId": "sub1",
-            "files": measurement_files
-        }]
-        
+        device_groups = [
+            {
+                "deviceName": "AI44",
+                "assignedSubstrateId": "sub1",
+                "files": measurement_files,
+            }
+        ]
+
         print(f"  - {len(measurement_files)} measurement files")
         print(f"  - {len(substrates)} substrates")
         print(f"  - {len(device_groups)} device groups")
-        
+
         # Step 2: Create metadata placeholder (YAML generation now requires DB session)
         print("\n[Step 2] Using placeholder NOMAD metadata...")
         metadata_yaml = "metadata:\n  upload_name: Full Cycle Test Experiment\n"
@@ -751,26 +772,29 @@ class TestFullCycle:
         # Step 3: Create secure zip
         print("\n[Step 3] Creating secure ZIP archive...")
         test_files = [
-            ("device_AI44_jv.txt", b"JV measurement\nVoc: 1.1V\nJsc: 22mA/cm2\nPCE: 18.5%"),
+            (
+                "device_AI44_jv.txt",
+                b"JV measurement\nVoc: 1.1V\nJsc: 22mA/cm2\nPCE: 18.5%",
+            ),
             ("device_AI44_ipce.txt", b"IPCE measurement\nPeak: 85% @ 500nm"),
             ("nomad_metadata.yaml", metadata_yaml.encode()),
         ]
         zip_path = create_secure_zip(test_files, archive_name="full_cycle_test.zip")
         print(f"  - Archive: {zip_path}")
         print(f"  - Size: {zip_path.stat().st_size} bytes")
-        
+
         # Configure mocks
         mock_client = MagicMock()
         mock_client_class.return_value.__enter__ = MagicMock(return_value=mock_client)
         mock_client_class.return_value.__exit__ = MagicMock(return_value=False)
-        
+
         # Mock responses for different endpoints
         call_counter = {"count": 0}
-        
+
         def mock_http_call(url, **kwargs):
             call_counter["count"] += 1
             response = MagicMock()
-            
+
             if "/auth/token" in url:
                 response.status_code = 200
                 response.json.return_value = {"access_token": "test_token_full_cycle"}
@@ -782,7 +806,7 @@ class TestFullCycle:
                     "upload_id": "full_cycle_upload_id",
                     "upload_create_time": datetime.now(timezone.utc).isoformat(),
                     "process_status": "processing",
-                    "entries": [{"entry_id": "full_cycle_entry_1"}]
+                    "entries": [{"entry_id": "full_cycle_entry_1"}],
                 }
                 print(f"\n[HTTP Call {call_counter['count']}] POST {url}")
                 print(f"  Response: 200 OK - Upload created")
@@ -791,52 +815,52 @@ class TestFullCycle:
                 response.json.return_value = {
                     "upload_id": "full_cycle_upload_id",
                     "process_status": "success",
-                    "entries": [{"entry_id": "full_cycle_entry_1", "process_status": "success"}]
+                    "entries": [
+                        {"entry_id": "full_cycle_entry_1", "process_status": "success"}
+                    ],
                 }
                 print(f"\n[HTTP Call {call_counter['count']}] GET {url}")
                 print(f"  Response: 200 OK - Status retrieved")
             return response
-        
+
         mock_client.post.side_effect = mock_http_call
         mock_client.get.side_effect = mock_http_call
-        
+
         with patch("app.services.nomad.settings") as mock_settings:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
             mock_settings.NOMAD_USERNAME = TEST_USERNAME
             mock_settings.NOMAD_PASSWORD = TEST_PASSWORD
             mock_settings.NOMAD_MOCK_MODE = False
-            
+
             print("\n" + "-" * 70)
             print("Configuration:")
             print(f"  NOMAD_URL: {mock_settings.NOMAD_URL}")
             print(f"  Using TEST deployment: {'/test/' in mock_settings.NOMAD_URL}")
             print("-" * 70)
-            
+
             # Step 4: Get auth token
             print("\n[Step 4] Authenticating with NOMAD TEST API...")
             token = get_nomad_token()
             print(f"  - Token: {token}")
-            
+
             # Step 5: Upload to NOMAD
             print("\n[Step 5] Uploading to NOMAD TEST API...")
             upload_result = upload_to_nomad(
-                zip_path=zip_path,
-                token=token,
-                upload_name="Full Cycle Test Experiment"
+                zip_path=zip_path, token=token, upload_name="Full Cycle Test Experiment"
             )
             print(f"  - upload_id: {upload_result['upload_id']}")
             print(f"  - entries:   {upload_result['entries']}")
-            
+
             # Step 6: Check status
             print("\n[Step 6] Checking upload status...")
             status = get_upload_status(upload_result["upload_id"], token=token)
             print(f"  - status: {status.get('process_status')}")
-            
+
             # Step 7: Cleanup
             print("\n[Step 7] Cleaning up temporary files...")
             cleanup_temp_archive(zip_path)
             print(f"  - Archive deleted: {not zip_path.exists()}")
-        
+
         print("\n" + "-" * 70)
         print("FULL CYCLE SUMMARY:")
         print(f"  Auth Token Retrieved:  ✓")
@@ -846,13 +870,13 @@ class TestFullCycle:
         print(f"  Cleanup Complete:      ✓")
         print(f"  TEST API Used:         ✓ ({EXPECTED_TEST_BASE_URL})")
         print("-" * 70)
-        
+
         # Assertions
         assert token == "test_token_full_cycle"
         assert upload_result["upload_id"] == "full_cycle_upload_id"
         assert upload_result["entries"] == 1
         assert not zip_path.exists()
-        
+
         print("✓ Full upload cycle completed successfully on TEST API")
         print("=" * 70)
 
@@ -881,10 +905,11 @@ class TestFullCycle:
 # TEST GROUP E: Mock Mode Tests (NOMAD_MOCK_MODE=true)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class TestMockMode:
     """
     Test Group E: Verify NOMAD_MOCK_MODE prevents all real HTTP calls.
-    
+
     When NOMAD_MOCK_MODE=true every function that would normally
     hit the network returns a safe fake response and logs what it
     *would* have done.  These tests assert that httpx.Client is
@@ -902,7 +927,10 @@ class TestMockMode:
             setattr(s, k, v)
         return s
 
-    @patch("httpx.Client", side_effect=AssertionError("httpx.Client must NOT be called in mock mode"))
+    @patch(
+        "httpx.Client",
+        side_effect=AssertionError("httpx.Client must NOT be called in mock mode"),
+    )
     def test_mock_mode_get_token(self, _forbidden_client):
         """
         E.1: get_nomad_token returns fake token, httpx never called.
@@ -921,7 +949,10 @@ class TestMockMode:
         print("✓ No HTTP call made — mock token returned")
         print("=" * 70)
 
-    @patch("httpx.Client", side_effect=AssertionError("httpx.Client must NOT be called in mock mode"))
+    @patch(
+        "httpx.Client",
+        side_effect=AssertionError("httpx.Client must NOT be called in mock mode"),
+    )
     def test_mock_mode_upload(self, _forbidden_client):
         """
         E.2: upload_to_nomad returns fake result, httpx never called.
@@ -948,7 +979,10 @@ class TestMockMode:
         print("✓ No HTTP call made — mock upload result returned")
         print("=" * 70)
 
-    @patch("httpx.Client", side_effect=AssertionError("httpx.Client must NOT be called in mock mode"))
+    @patch(
+        "httpx.Client",
+        side_effect=AssertionError("httpx.Client must NOT be called in mock mode"),
+    )
     def test_mock_mode_get_status(self, _forbidden_client):
         """
         E.3: get_upload_status returns fake status, httpx never called.
@@ -967,7 +1001,10 @@ class TestMockMode:
         print("✓ No HTTP call made — mock status returned")
         print("=" * 70)
 
-    @patch("httpx.Client", side_effect=AssertionError("httpx.Client must NOT be called in mock mode"))
+    @patch(
+        "httpx.Client",
+        side_effect=AssertionError("httpx.Client must NOT be called in mock mode"),
+    )
     def test_mock_mode_delete(self, _forbidden_client):
         """
         E.4: delete_upload returns True, httpx never called.
@@ -985,7 +1022,10 @@ class TestMockMode:
         print("✓ No HTTP call made — mock delete returned True")
         print("=" * 70)
 
-    @patch("httpx.Client", side_effect=AssertionError("httpx.Client must NOT be called in mock mode"))
+    @patch(
+        "httpx.Client",
+        side_effect=AssertionError("httpx.Client must NOT be called in mock mode"),
+    )
     def test_mock_mode_full_cycle(self, _forbidden_client):
         """
         E.5: Full cycle (token → upload → status → delete) with mock mode.
@@ -1042,7 +1082,7 @@ class TestMockMode:
 
 if __name__ == "__main__":
     import sys
-    
+
     print("\n" + "=" * 70)
     print("NOMAD Integration Test Suite")
     print("=" * 70)
@@ -1055,6 +1095,6 @@ if __name__ == "__main__":
     print("  pytest tests/services/test_nomad.py -v")
     print("  pytest tests/services/test_nomad.py -k 'api_addresses' -v")
     print("=" * 70)
-    
+
     # Run pytest
     sys.exit(pytest.main([__file__, "-v", "--tb=short"]))

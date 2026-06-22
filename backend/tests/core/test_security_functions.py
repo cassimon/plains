@@ -1,4 +1,5 @@
 """Unit tests for app.core.security and app.api.deps."""
+
 import pytest
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
@@ -70,7 +71,9 @@ def test_verify_nomad_token_raises_401_on_invalid_token():
         patch.object(settings, "NOMAD_OAUTH_ENABLED", True),
         patch("app.core.security._get_jwks_client") as mock_jwks,
     ):
-        mock_jwks.return_value.get_signing_key_from_jwt.side_effect = jwt.InvalidTokenError("bad")
+        mock_jwks.return_value.get_signing_key_from_jwt.side_effect = (
+            jwt.InvalidTokenError("bad")
+        )
         with pytest.raises(HTTPException) as exc_info:
             verify_nomad_token("invalid.jwt.token")
     assert exc_info.value.status_code == 401
@@ -84,7 +87,9 @@ def test_verify_nomad_token_raises_401_on_generic_error():
         patch.object(settings, "NOMAD_OAUTH_ENABLED", True),
         patch("app.core.security._get_jwks_client") as mock_jwks,
     ):
-        mock_jwks.return_value.get_signing_key_from_jwt.side_effect = RuntimeError("network error")
+        mock_jwks.return_value.get_signing_key_from_jwt.side_effect = RuntimeError(
+            "network error"
+        )
         with pytest.raises(HTTPException) as exc_info:
             verify_nomad_token("token.for.error")
     assert exc_info.value.status_code == 401

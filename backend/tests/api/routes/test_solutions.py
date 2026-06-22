@@ -11,12 +11,16 @@ MAT_BASE = f"{settings.API_V1_STR}/materials"
 
 
 def create_material(client: TestClient, headers: dict) -> dict:
-    r = client.post(f"{MAT_BASE}/", json={"name": random_lower_string()}, headers=headers)
+    r = client.post(
+        f"{MAT_BASE}/", json={"name": random_lower_string()}, headers=headers
+    )
     assert r.status_code == 200
     return r.json()
 
 
-def create_solution(client: TestClient, headers: dict, components: list | None = None) -> dict:
+def create_solution(
+    client: TestClient, headers: dict, components: list | None = None
+) -> dict:
     payload: dict = {"name": random_lower_string()}
     if components:
         payload["components"] = components
@@ -52,7 +56,9 @@ class TestSolutionsCRUD:
         self, client: TestClient, normal_user_token_headers: dict[str, str]
     ) -> None:
         name = random_lower_string()
-        r = client.post(f"{BASE}/", json={"name": name}, headers=normal_user_token_headers)
+        r = client.post(
+            f"{BASE}/", json={"name": name}, headers=normal_user_token_headers
+        )
         assert r.status_code == 200
         data = r.json()
         assert data["name"] == name
@@ -141,21 +147,34 @@ class TestSolutionsCRUD:
 
 class TestSolutionsIDOR:
     def test_get_other_user_solution_forbidden(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
         sol = create_solution(client, superuser_token_headers)
         r = client.get(f"{BASE}/{sol['id']}", headers=normal_user_token_headers)
         assert r.status_code == 403
 
     def test_update_other_user_solution_forbidden(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
         sol = create_solution(client, superuser_token_headers)
-        r = client.put(f"{BASE}/{sol['id']}", json={"name": "hacked"}, headers=normal_user_token_headers)
+        r = client.put(
+            f"{BASE}/{sol['id']}",
+            json={"name": "hacked"},
+            headers=normal_user_token_headers,
+        )
         assert r.status_code == 403
 
     def test_delete_other_user_solution_forbidden(
-        self, client: TestClient, superuser_token_headers: dict[str, str], normal_user_token_headers: dict[str, str]
+        self,
+        client: TestClient,
+        superuser_token_headers: dict[str, str],
+        normal_user_token_headers: dict[str, str],
     ) -> None:
         sol = create_solution(client, superuser_token_headers)
         r = client.delete(f"{BASE}/{sol['id']}", headers=normal_user_token_headers)
