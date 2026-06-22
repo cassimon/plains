@@ -293,6 +293,127 @@ def read_yaml_files_from_zip(zip_path: Path) -> dict[str, str]:
     return yaml_files
 
 
+def _db_step_to_dict(step: Any) -> dict[str, Any]:
+    """Convert a ProcessStep ORM row into the camelCase dict the YAML builder expects."""
+
+    def _param(value: Any, mode: Any) -> dict[str, Any]:
+        return {"value": value or "", "mode": mode or "constant"}
+
+    return {
+        "id": str(step.id),
+        "name": step.name,
+        "stepCategory": step.step_category,
+        "color": step.color,
+        "materialId": str(step.material_id) if step.material_id else "",
+        "solutionId": str(step.solution_id) if step.solution_id else "",
+        "chemRecipeId": str(step.chem_recipe_id) if step.chem_recipe_id else "",
+        "inlineMaterial": step.inline_material,
+        "notes": step.notes,
+        "depositionMethod": _param(
+            step.deposition_method_value, step.deposition_method_mode
+        ),
+        "depositionStartTime": _param(
+            step.deposition_start_time_value, step.deposition_start_time_mode
+        ),
+        "substrateTemp": _param(step.substrate_temp_value, step.substrate_temp_mode),
+        "depositionAtmosphere": _param(
+            step.deposition_atmosphere_value, step.deposition_atmosphere_mode
+        ),
+        "depositionParameters": _param(
+            step.deposition_parameters_value, step.deposition_parameters_mode
+        ),
+        "solutionVolume": _param(
+            step.solution_volume_value, step.solution_volume_mode
+        ),
+        "dryingMethod": _param(step.drying_method_value, step.drying_method_mode),
+        "annealingStartTime": _param(
+            step.annealing_start_time_value, step.annealing_start_time_mode
+        ),
+        "annealingTime": _param(step.annealing_time_value, step.annealing_time_mode),
+        "annealingTemp": _param(step.annealing_temp_value, step.annealing_temp_mode),
+        "annealingAtmosphere": _param(
+            step.annealing_atmosphere_value, step.annealing_atmosphere_mode
+        ),
+    }
+
+
+def _db_process_to_dict(db_process: Any) -> dict[str, Any]:
+    """Convert a Process ORM row + relationships into the frontend process dict shape."""
+    stages_map: dict[int, list[dict[str, Any]]] = {}
+    for step in db_process.steps:
+        stages_map.setdefault(step.stage_index, []).append(step)
+    stages: list[dict[str, Any]] = []
+    for idx in sorted(stages_map):
+        alts = sorted(stages_map[idx], key=lambda s: s.step_index)
+        stages.append(
+            {"index": idx, "alternatives": [_db_step_to_dict(s) for s in alts]}
+        )
+
+    generated_stacks: list[dict[str, Any]] = []
+    for stack in db_process.stacks:
+        layers = sorted(stack.layers, key=lambda layer: layer.layer_index)
+        generated_stacks.append(
+            {
+                "combination": stack.combination,
+                "architecture": stack.architecture,
+                "buildDevice": stack.build_device,
+                "pixelAreaCm2": stack.pixel_area_cm2,
+                "numberOfPixels": stack.number_of_pixels,
+                "layers": [
+                    {
+                        "id": str(layer.id),
+                        "name": layer.name,
+                        "color": layer.color,
+                        "isSubstrate": layer.is_substrate,
+                        "layerType": layer.layer_type,
+                        "thicknessNm": layer.thickness_nm,
+                        "bandgapEv": layer.bandgap_ev,
+                        "perovskiteA": layer.perovskite_a,
+                        "perovskiteB": layer.perovskite_b,
+                        "perovskiteX": layer.perovskite_x,
+                    }
+                    for layer in layers
+                ],
+            }
+        )
+
+    deleted = [s.combination for s in db_process.stacks if s.is_deleted]
+
+    return {
+        "id": str(db_process.id),
+        "stages": stages,
+        "generatedStacks": generated_stacks,
+        "deletedStackCombinations": deleted,
+        "solutionRecipes": [
+            {"id": str(r.id), "name": r.name} for r in db_process.recipes
+        ],
+    }
+
+
+def _db_material_to_dict(m: Any) -> dict[str, Any]:
+    return {
+        "id": str(m.id),
+        "name": m.name,
+        "type": m.type,
+        "category": m.category,
+        "casNumber": m.cas_number,
+        "supplier": m.supplier,
+        "supplierNumber": m.supplier_number,
+        "inventoryLabel": m.inventory_label,
+        "molecularWeight": m.molecular_weight,
+        "density": m.density,
+        "purity": m.purity,
+    }
+
+
+def _db_solution_to_dict(s: Any) -> dict[str, Any]:
+    return {
+        "id": str(s.id),
+        "name": s.name,
+        "type": s.type,
+    }
+
+
 def create_nomad_metadata_yaml(
     experiment_id: str,
     user_name: str,
@@ -333,7 +454,13 @@ def create_nomad_metadata_yaml(
 
     from sqlmodel import select
 
-    from app.models import Experiment, UserState
+    from app.models import (
+        Experiment,
+        LabMaterial,
+        LabSolution,
+        Process,
+        UserState,
+    )
 
     # ── 1. Load experiment ────────────────────────────────────────────────────
     try:
@@ -393,9 +520,17 @@ def create_nomad_metadata_yaml(
     if process_snapshot and isinstance(process_snapshot, dict):
         process_data = process_snapshot
     else:
-        process_id = exp_data.get("processId")
-        if process_id:
-            if user_state_data:
+        # Prefer the normalised DB tables; fall back to user_state_data only when
+        # the experiment has no linked process row.
+        db_process = None
+        process_fk = getattr(experiment, "process_id", None)
+        if process_fk:
+            db_process = session.get(Process, process_fk)
+        if db_process is not None:
+            process_data = _db_process_to_dict(db_process)
+        else:
+            process_id = exp_data.get("processId")
+            if process_id and user_state_data:
                 processes = user_state_data.get("processes", [])
                 process_data = next(
                     (p for p in processes if p.get("id") == process_id), None
@@ -407,16 +542,28 @@ def create_nomad_metadata_yaml(
             "generated stacks unavailable – layer sections will be empty"
         )
 
+    # Materials/solutions: prefer normalised DB tables, fall back to user_state_data.
     materials_by_id: dict[str, dict[str, Any]] = {
         str(material.get("id")): material
         for material in (user_state_data.get("materials") or [])
         if isinstance(material, dict) and material.get("id")
     }
+    if not materials_by_id and "materials" not in user_state_data:
+        db_materials = session.exec(
+            select(LabMaterial).where(LabMaterial.owner_id == experiment.owner_id)
+        ).all()
+        materials_by_id = {str(m.id): _db_material_to_dict(m) for m in db_materials}
+
     solutions_by_id: dict[str, dict[str, Any]] = {
         str(solution.get("id")): solution
         for solution in (user_state_data.get("solutions") or [])
         if isinstance(solution, dict) and solution.get("id")
     }
+    if not solutions_by_id and "solutions" not in user_state_data:
+        db_solutions = session.exec(
+            select(LabSolution).where(LabSolution.owner_id == experiment.owner_id)
+        ).all()
+        solutions_by_id = {str(s.id): _db_solution_to_dict(s) for s in db_solutions}
 
     # ── 3. Build step map: step_id → ProcessStep dict ─────────────────────────
     step_map: dict[str, dict[str, Any]] = {}
