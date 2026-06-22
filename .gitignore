@@ -13,3 +13,4 @@ node_modules/
 *.p12
 *.pfx
 secrets/.claude/
+.claude/
