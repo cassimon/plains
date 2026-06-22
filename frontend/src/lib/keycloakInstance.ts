@@ -82,6 +82,15 @@ export function isAuthenticated(): boolean {
 }
 
 /**
+ * Test-only escape hatch: expose setKeycloak on window so Playwright tests can
+ * inject a mock Keycloak instance without hitting the real NOMAD auth server.
+ * This is only active in Vite dev builds (never in production).
+ */
+if (import.meta.env.DEV) {
+  ;(window as unknown as Record<string, unknown>).__plains_setKeycloak = setKeycloak
+}
+
+/**
  * Logout: invalidates the Keycloak server-side session and redirects to /login.
  * Because Keycloak issues a full-page redirect, no further navigation is needed.
  */
