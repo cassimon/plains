@@ -19,7 +19,7 @@ import {
 } from "@tabler/icons-react"
 import EChartsReact from "echarts-for-react"
 import type React from "react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { Experiment } from "../store/AppContext"
 import { useAppContext } from "../store/AppContext"
 
@@ -709,9 +709,10 @@ export function AnalysisPage() {
   )
 
   // Snap to grid helper
-  const snapToGrid = (value: number): number => {
-    return Math.round(value / GRID_SIZE) * GRID_SIZE
-  }
+  const snapToGrid = useCallback(
+    (value: number): number => Math.round(value / GRID_SIZE) * GRID_SIZE,
+    [],
+  )
 
   // Handle drag start
   const handleDragStart = (widgetId: string, e: React.MouseEvent) => {

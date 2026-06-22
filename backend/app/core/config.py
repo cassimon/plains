@@ -29,6 +29,7 @@ _DEFAULT_NOMAD_AUTH_FILE = str(
     Path(__file__).parents[3].parent / "sensitive config" / ".nomad_auth"
 )
 
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         # Use top level .env file (one level above ./backend/)
@@ -39,7 +40,8 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = secrets.token_urlsafe(32)
     # 60 minutes * 24 hours * 8 days = 8 days
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8
+    # 60 minutes for production; override to a longer value only for local dev.
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     FRONTEND_HOST: str = "http://localhost:5173"
     ENVIRONMENT: Literal["local", "dev", "staging", "production"] = "local"
 
@@ -105,7 +107,9 @@ class Settings(BaseSettings):
     # NOMAD Configuration
     NOMAD_URL: str = "http://localhost/nomad-oasis/api/v1"
     # NOMAD OAuth / Keycloak Configuration
-    NOMAD_KEYCLOAK_REALM_URL: str = "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_prod"
+    NOMAD_KEYCLOAK_REALM_URL: str = (
+        "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_prod"
+    )
     NOMAD_OAUTH_CLIENT_ID: str = "nomad_public"  # Central NOMAD public Keycloak client
     NOMAD_OAUTH_AUDIENCE: str | None = None  # Defaults to client_id when unset
     # nomad_public access tokens have no aud claim — set to true only if your
@@ -145,9 +149,7 @@ class Settings(BaseSettings):
     def nomad_enabled(self) -> bool:
         """Check if NOMAD is configured with global auth credentials."""
         return bool(
-            self.NOMAD_USE_GLOBAL_AUTH
-            and self.NOMAD_USERNAME
-            and self.NOMAD_PASSWORD
+            self.NOMAD_USE_GLOBAL_AUTH and self.NOMAD_USERNAME and self.NOMAD_PASSWORD
         )
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:

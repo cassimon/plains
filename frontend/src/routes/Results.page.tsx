@@ -347,9 +347,10 @@ function parseNameComponents(name: string): {
 
   // Extract numeric indices like "35" or "44"
   const numPattern = /(\d+)/g
-  let numMatch
-  while ((numMatch = numPattern.exec(baseName)) !== null) {
+  let numMatch: RegExpExecArray | null = numPattern.exec(baseName)
+  while (numMatch !== null) {
     numericIndices.push(parseInt(numMatch[1], 10))
+    numMatch = numPattern.exec(baseName)
   }
   // Remove all numbers from base name
   baseName = baseName.replace(/\d+/g, "")

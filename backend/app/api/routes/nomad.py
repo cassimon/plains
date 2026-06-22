@@ -11,23 +11,46 @@ Provides endpoints for:
 import logging
 import math
 import uuid
-import yaml
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from pydantic import BaseModel
+
+from app.api.deps import CurrentUser, SessionDep, TokenDep
+from app.core.config import settings
+from app.models import ExperimentResults
+from app.services.nomad import (
+    TEMP_UPLOAD_DIR,
+    NomadAuthError,
+    NomadUploadError,
+    cleanup_temp_archive,
+    create_nomad_metadata_yaml,
+    create_secure_zip,
+    get_nomad_token,
+    get_upload_status,
+    upload_to_nomad,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Custom YAML Dumper: quote all strings, keep numbers/bools unquoted,
 # treat nan/inf as quoted strings, render flat lists in flow style.
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class _QuotedDumper(yaml.Dumper):
-    def represent_mapping(self, tag: str, mapping: Any, flow_style: bool | None = None) -> yaml.MappingNode:
+    def represent_mapping(
+        self, tag: str, mapping: Any, flow_style: bool | None = None
+    ) -> yaml.MappingNode:
         node = super().represent_mapping(tag, mapping, flow_style)
         # Strip quotes from mapping keys so only values are quoted
         for key_node, _value_node in node.value:
-            if isinstance(key_node, yaml.ScalarNode) and key_node.tag == "tag:yaml.org,2002:str":
+            if (
+                isinstance(key_node, yaml.ScalarNode)
+                and key_node.tag == "tag:yaml.org,2002:str"
+            ):
                 key_node.style = None
         return node
 
@@ -51,24 +74,6 @@ _QuotedDumper.add_representer(str, _represent_str_quoted)
 _QuotedDumper.add_representer(float, _represent_float_safe)
 _QuotedDumper.add_representer(list, _represent_list_flow_if_flat)
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from pydantic import BaseModel
-
-from app.api.deps import CurrentUser, SessionDep, TokenDep
-from app.core.config import settings
-from app.models import ExperimentResults
-from app.services.nomad import (
-    NomadAuthError,
-    NomadUploadError,
-    TEMP_UPLOAD_DIR,
-    cleanup_temp_archive,
-    create_nomad_metadata_yaml,
-    create_secure_zip,
-    get_nomad_token,
-    get_upload_status,
-    upload_to_nomad,
-)
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/nomad", tags=["nomad"])
@@ -82,7 +87,11 @@ def _require_nomad_upload_authorized(current_user: CurrentUser) -> None:
     a superuser account. This prevents local-only users from creating server-side
     upload archives for NOMAD.
     """
-    if settings.NOMAD_OAUTH_ENABLED and not current_user.nomad_sub and not current_user.is_superuser:
+    if (
+        settings.NOMAD_OAUTH_ENABLED
+        and not current_user.nomad_sub
+        and not current_user.is_superuser
+    ):
         raise HTTPException(
             status_code=403,
             detail="NOMAD upload requires an authenticated NOMAD OAuth user",
@@ -93,8 +102,10 @@ def _require_nomad_upload_authorized(current_user: CurrentUser) -> None:
 # Request/Response Models
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class NomadConfigResponse(BaseModel):
     """NOMAD configuration status."""
+
     enabled: bool
     url: str
     use_global_auth: bool
@@ -103,21 +114,23 @@ class NomadConfigResponse(BaseModel):
 
 class MeasurementFileInfo(BaseModel):
     """Measurement file metadata for NOMAD upload."""
+
     fileName: str
     fileType: str
     deviceName: str | None = None
     cell: str | None = None
     pixel: str | None = None
-    value: float | None = None        # PCE (%)
-    voc: float | None = None          # Open-circuit voltage (V)
-    jsc: float | None = None          # Short-circuit current density (mA/cm²)
-    ff: float | None = None           # Fill factor (%)
-    user: str | None = None           # Operator / user from file header
+    value: float | None = None  # PCE (%)
+    voc: float | None = None  # Open-circuit voltage (V)
+    jsc: float | None = None  # Short-circuit current density (mA/cm²)
+    ff: float | None = None  # Fill factor (%)
+    user: str | None = None  # Operator / user from file header
     measurementDate: str | None = None  # Date from file header
 
 
 class DeviceGroupInfo(BaseModel):
     """Device group info for NOMAD upload."""
+
     id: str
     deviceName: str
     assignedSubstrateId: str | None = None
@@ -126,12 +139,14 @@ class DeviceGroupInfo(BaseModel):
 
 class SubstrateInfo(BaseModel):
     """Substrate info for NOMAD upload."""
+
     id: str
     name: str
 
 
 class NomadUploadRequest(BaseModel):
     """Request body for NOMAD upload."""
+
     experiment_id: str
     experiment_name: str
     substrates: list[SubstrateInfo] = []
@@ -144,7 +159,8 @@ class NomadUploadRequest(BaseModel):
 
 class NomadMetadataPreview(BaseModel):
     """Preview of NOMAD metadata."""
-    metadata_json: dict[str, Any]      # filename → yaml_content_dict
+
+    metadata_json: dict[str, Any]  # filename → yaml_content_dict
     metadata_yaml: str  # YAML serialization of all archive files
     yaml_content: str  # YAML serialization for upload file organization
     file_count: int
@@ -153,6 +169,7 @@ class NomadMetadataPreview(BaseModel):
 
 class NomadUploadResponse(BaseModel):
     """Response from NOMAD upload."""
+
     success: bool
     upload_id: str | None = None
     entry_ids: list[str] = []
@@ -163,6 +180,7 @@ class NomadUploadResponse(BaseModel):
 
 class NomadUploadStatus(BaseModel):
     """Status of a NOMAD upload."""
+
     upload_id: str
     status: str | None = None
     entries: int | list[dict] | None = None
@@ -174,16 +192,18 @@ class NomadUploadStatus(BaseModel):
 # Endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.get("/config", response_model=NomadConfigResponse)
 def get_nomad_config(current_user: CurrentUser) -> NomadConfigResponse:
     """
     Get NOMAD configuration status.
-    
+
     This endpoint returns the current NOMAD configuration,
     allowing the frontend to display appropriate UI elements.
     """
     return NomadConfigResponse(
-        enabled=settings.nomad_enabled or bool(settings.NOMAD_OAUTH_ENABLED and current_user.nomad_sub),
+        enabled=settings.nomad_enabled
+        or bool(settings.NOMAD_OAUTH_ENABLED and current_user.nomad_sub),
         url=settings.NOMAD_URL,
         use_global_auth=settings.NOMAD_USE_GLOBAL_AUTH,
         has_credentials=bool(settings.NOMAD_USERNAME and settings.NOMAD_PASSWORD),
@@ -216,7 +236,7 @@ async def upload_files_for_nomad(
     # default of 1000 files — researchers routinely drop thousands of files at once.
     form = await request.form(max_files=100_000, max_fields=100_000)
     experiment_id = str(form.get("experiment_id") or "")
-    experiment_name = str(form.get("experiment_name") or "")
+    str(form.get("experiment_name") or "")
     request_json: str | None = form.get("request_json")  # type: ignore[assignment]
     files: list[UploadFile] = form.getlist("files")  # type: ignore[assignment]
 
@@ -229,13 +249,13 @@ async def upload_files_for_nomad(
         content = await f.read()
         if f.filename:
             file_data.append((f.filename, content))
-    
+
     if not file_data:
         raise HTTPException(status_code=400, detail="No valid files to upload")
 
     archive_name = f"{experiment_id[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.zip"
     archive_basename = Path(archive_name).stem
-    
+
     # Generate YAML metadata if request metadata is provided
     archive_yaml_files: list[tuple[str, str]] = []
     if request_json:
@@ -244,7 +264,9 @@ async def upload_files_for_nomad(
 
             experiment_snapshot = None
             process_snapshot = None
-            if upload_request.custom_metadata and isinstance(upload_request.custom_metadata, dict):
+            if upload_request.custom_metadata and isinstance(
+                upload_request.custom_metadata, dict
+            ):
                 candidate = upload_request.custom_metadata.get("experiment")
                 if isinstance(candidate, dict):
                     experiment_snapshot = candidate
@@ -252,7 +274,9 @@ async def upload_files_for_nomad(
                 if isinstance(proc_candidate, dict):
                     process_snapshot = proc_candidate
 
-            measurement_files_dicts = [f.model_dump() for f in upload_request.measurement_files]
+            measurement_files_dicts = [
+                f.model_dump() for f in upload_request.measurement_files
+            ]
             device_groups_dicts = [g.model_dump() for g in upload_request.device_groups]
 
             # Generate per-archive YAML files
@@ -281,12 +305,16 @@ async def upload_files_for_nomad(
                 )
                 for filename, content in archives.items()
             ]
-            
-            logger.info(f"Generated {len(archive_yaml_files)} YAML metadata files for archive")
+
+            logger.info(
+                f"Generated {len(archive_yaml_files)} YAML metadata files for archive"
+            )
         except Exception as e:
             logger.error(f"Failed to generate YAML metadata: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Failed to generate metadata: {str(e)}")
-    
+            raise HTTPException(
+                status_code=500, detail=f"Failed to generate metadata: {str(e)}"
+            )
+
     # Create secure zip
     try:
         zip_path = create_secure_zip(
@@ -294,8 +322,10 @@ async def upload_files_for_nomad(
             metadata_files=archive_yaml_files if archive_yaml_files else None,
             archive_name=archive_name,
         )
-        
-        logger.info(f"Created temporary zip archive at {zip_path} with {len(file_data)} files + {len(archive_yaml_files)} YAML files, total size: {zip_path.stat().st_size} bytes")
+
+        logger.info(
+            f"Created temporary zip archive at {zip_path} with {len(file_data)} files + {len(archive_yaml_files)} YAML files, total size: {zip_path.stat().st_size} bytes"
+        )
 
         return {
             "success": True,
@@ -305,7 +335,7 @@ async def upload_files_for_nomad(
             "metadata_file_count": len(archive_yaml_files),
             "total_size": zip_path.stat().st_size,
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to create zip archive: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create archive: {e}")
@@ -320,15 +350,15 @@ async def add_metadata_to_archive(
 ) -> dict[str, Any]:
     """
     Add NOMAD metadata YAML files to an existing archive.
-    
+
     This endpoint generates metadata from the provided request and adds
     the YAML files to an existing zip archive without re-uploading the
     measurement files.
-    
+
     Args:
         archive_path: Path to the existing zip archive
         request_json: JSON string containing NomadUploadRequest data
-    
+
     Returns:
         Dict with success status, archive info, and metadata file count
     """
@@ -344,7 +374,9 @@ async def add_metadata_to_archive(
         request = NomadUploadRequest.model_validate_json(request_json)
     except Exception as e:
         logger.error(
-            "[add_metadata_to_archive] could not parse request_json: %s", e, exc_info=True
+            "[add_metadata_to_archive] could not parse request_json: %s",
+            e,
+            exc_info=True,
         )
         raise HTTPException(status_code=422, detail="Invalid upload request metadata")
 
@@ -364,7 +396,7 @@ async def add_metadata_to_archive(
         raise HTTPException(status_code=400, detail="Invalid archive path") from e
 
     allowed_root = TEMP_UPLOAD_DIR.resolve()
-    if not str(candidate).startswith(str(allowed_root)):
+    if not candidate.is_relative_to(allowed_root):
         logger.error(
             "[add_metadata_to_archive] archive path outside allowed root: %s (allowed: %s)",
             candidate,
@@ -377,7 +409,7 @@ async def add_metadata_to_archive(
             "[add_metadata_to_archive] archive not found on disk: %s", candidate
         )
         raise HTTPException(status_code=404, detail="Archive not found")
-    
+
     try:
         experiment_snapshot = None
         process_snapshot = None
@@ -388,10 +420,10 @@ async def add_metadata_to_archive(
             proc_candidate = request.custom_metadata.get("process")
             if isinstance(proc_candidate, dict):
                 process_snapshot = proc_candidate
-        
+
         measurement_files_dicts = [f.model_dump() for f in request.measurement_files]
         device_groups_dicts = [g.model_dump() for g in request.device_groups]
-        
+
         # Generate per-archive YAML files
         archives = create_nomad_metadata_yaml(
             experiment_id=request.experiment_id,
@@ -403,10 +435,10 @@ async def add_metadata_to_archive(
             measurement_files=measurement_files_dicts,
             device_groups=device_groups_dicts,
         )
-        
+
         # Serialize each archive dict to its own YAML string
         from app.services.nomad import add_metadata_to_zip
-        
+
         archive_yaml_files: list[tuple[str, str]] = [
             (
                 filename,
@@ -420,7 +452,7 @@ async def add_metadata_to_archive(
             )
             for filename, content in archives.items()
         ]
-        
+
         # Add metadata to the existing archive, removing any ignored files
         add_metadata_to_zip(
             candidate,
@@ -443,7 +475,7 @@ async def add_metadata_to_archive(
             "metadata_file_count": len(archive_yaml_files),
             "total_size": candidate.stat().st_size,
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to add metadata to archive: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to add metadata: {str(e)}")
@@ -456,42 +488,43 @@ async def preview_metadata_from_archive(
 ) -> dict[str, Any]:
     """
     Preview NOMAD metadata YAML files from an existing archive.
-    
+
     This endpoint reads all .yaml files from the archive and returns
     their content for review before uploading to NOMAD.
-    
+
     Args:
         archive_path: Path to the zip archive containing YAML files
-    
+
     Returns:
         Dict with yaml_files (dict of filename -> content), file_list, and metadata_count
     """
     _require_nomad_upload_authorized(current_user)
-    
+
     # Validate archive path
     try:
         candidate = Path(archive_path).resolve()
     except Exception as e:
         raise HTTPException(status_code=400, detail="Invalid archive path") from e
-    
+
     allowed_root = TEMP_UPLOAD_DIR.resolve()
-    if not str(candidate).startswith(str(allowed_root)):
+    if not candidate.is_relative_to(allowed_root):
         raise HTTPException(status_code=403, detail="Archive path is not allowed")
-    
+
     if not candidate.exists():
         raise HTTPException(status_code=404, detail="Archive not found")
-    
+
     try:
-        from app.services.nomad import read_yaml_files_from_zip
         import zipfile
-        
+
+        from app.services.nomad import read_yaml_files_from_zip
+
         # Read YAML files from archive
         yaml_files = read_yaml_files_from_zip(candidate)
-        
+
         # Get list of all files in archive
-        with zipfile.ZipFile(candidate, 'r') as zipf:
+        with zipfile.ZipFile(candidate, "r") as zipf:
             all_files = zipf.namelist()
-        
+
         return {
             "success": True,
             "yaml_files": yaml_files,
@@ -499,10 +532,12 @@ async def preview_metadata_from_archive(
             "metadata_count": len(yaml_files),
             "total_file_count": len(all_files),
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to read metadata from archive: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to read metadata: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to read metadata: {str(e)}"
+        )
 
 
 @router.post("/upload/archive/discard")
@@ -519,7 +554,7 @@ async def discard_uploaded_archive(
         raise HTTPException(status_code=400, detail="Invalid archive path") from e
 
     allowed_root = TEMP_UPLOAD_DIR.resolve()
-    if not str(candidate).startswith(str(allowed_root)):
+    if not candidate.is_relative_to(allowed_root):
         raise HTTPException(status_code=403, detail="Archive path is not allowed")
 
     deleted = cleanup_temp_archive(candidate)
@@ -541,13 +576,13 @@ async def upload_to_nomad_endpoint(
 ) -> NomadUploadResponse:
     """
     Upload data to NOMAD.
-    
+
     This endpoint:
     1. Creates a secure zip with files and NOMAD metadata
     2. Uploads to NOMAD using global authentication
     3. Updates the experiment results with NOMAD metadata
     4. Cleans up temporary files
-    
+
     Can accept either:
     - archive_path: Path to a pre-created archive (from /upload/files)
     - files: Direct file upload
@@ -556,7 +591,7 @@ async def upload_to_nomad_endpoint(
 
     try:
         request = NomadUploadRequest.model_validate_json(request_json)
-    except Exception as e:
+    except Exception:
         logger.error("Invalid NOMAD upload metadata", exc_info=True)
         raise HTTPException(status_code=422, detail="Invalid upload request metadata")
 
@@ -583,7 +618,7 @@ async def upload_to_nomad_endpoint(
             raise HTTPException(status_code=400, detail="Invalid archive path") from e
 
         allowed_root = TEMP_UPLOAD_DIR.resolve()
-        if not str(candidate).startswith(str(allowed_root)):
+        if not candidate.is_relative_to(allowed_root):
             raise HTTPException(status_code=403, detail="Archive path is not allowed")
 
         if not candidate.exists():
@@ -591,7 +626,7 @@ async def upload_to_nomad_endpoint(
 
         validated_archive_path = candidate
         upload_archive_basename = candidate.stem
-    
+
     try:
         experiment_snapshot = None
         process_snapshot = None
@@ -656,7 +691,7 @@ async def upload_to_nomad_endpoint(
             logger.info(f"Created new archive at {zip_path}")
         else:
             raise HTTPException(status_code=400, detail="No files or archive provided")
-        
+
         # Get NOMAD token
         # If user is authenticated via NOMAD OAuth, use that token
         # Otherwise, use global credentials
@@ -666,7 +701,7 @@ async def upload_to_nomad_endpoint(
         else:
             nomad_token = get_nomad_token()
             logger.info("Using global NOMAD credentials for upload")
-        
+
         # Upload to NOMAD
         result = upload_to_nomad(
             zip_path=zip_path,
@@ -674,20 +709,21 @@ async def upload_to_nomad_endpoint(
             upload_name=request.experiment_name,
             existing_upload_id=existing_upload_id or None,
         )
-        
+
         # Clean up temporary archive
         cleanup_temp_archive(zip_path)
-        
+
         # Update experiment results with NOMAD info (if result exists)
         try:
             from sqlmodel import select
+
             exp_uuid = uuid.UUID(request.experiment_id)
             statement = select(ExperimentResults).where(
                 ExperimentResults.experiment_id == exp_uuid,
                 ExperimentResults.owner_id == current_user.id,
             )
             db_results = session.exec(statement).first()
-            
+
             if db_results:
                 # Store NOMAD info in frontend_data
                 nomad_info = {
@@ -697,18 +733,18 @@ async def upload_to_nomad_endpoint(
                     "nomad_processing_status": result.get("processing_status"),
                     "nomad_uploaded_at": datetime.now(timezone.utc).isoformat(),
                 }
-                
+
                 if db_results.frontend_data:
                     db_results.frontend_data.update({"nomad": nomad_info})
                 else:
                     db_results.frontend_data = {"nomad": nomad_info}
-                
+
                 session.add(db_results)
                 session.commit()
-                
+
         except Exception as e:
             logger.warning(f"Could not update experiment results with NOMAD info: {e}")
-        
+
         return NomadUploadResponse(
             success=True,
             upload_id=result.get("upload_id"),
@@ -717,7 +753,7 @@ async def upload_to_nomad_endpoint(
             processing_status=result.get("processing_status"),
             message="Successfully uploaded to NOMAD",
         )
-        
+
     except NomadAuthError as e:
         logger.error(f"NOMAD auth error: {e}")
         return NomadUploadResponse(
@@ -746,30 +782,32 @@ def check_upload_status(
 ) -> NomadUploadStatus:
     """
     Check the status of a NOMAD upload.
-    
+
     Use this to monitor processing progress after upload.
     Works with both OAuth user tokens and global service credentials.
     """
     use_user_token = bool(settings.NOMAD_OAUTH_ENABLED and current_user.nomad_sub)
-    if not settings.NOMAD_MOCK_MODE and not settings.nomad_enabled and not use_user_token:
+    if (
+        not settings.NOMAD_MOCK_MODE
+        and not settings.nomad_enabled
+        and not use_user_token
+    ):
         raise HTTPException(status_code=503, detail="NOMAD integration not configured")
-    
+
     nomad_token: str | None = token if use_user_token else None
-    
+
     try:
         status = get_upload_status(upload_id, token=nomad_token)
-        
-        logger.info(
-            f"[NOMAD][status] Raw response for upload {upload_id}: {status}"
-        )
-        
+
+        logger.info(f"[NOMAD][status] Raw response for upload {upload_id}: {status}")
+
         if "error" in status:
             logger.warning(f"[NOMAD][status] Error in status: {status['error']}")
             return NomadUploadStatus(
                 upload_id=upload_id,
                 error=status["error"],
             )
-        
+
         process_status = status.get("process_status")
         last_status_message = status.get("last_status_message")
         entries_raw = status.get("entries")
@@ -798,7 +836,7 @@ def check_upload_status(
             entries=entries_raw,
             last_status_message=last_status_message,
         )
-        
+
     except Exception as e:
         return NomadUploadStatus(
             upload_id=upload_id,
@@ -807,10 +845,10 @@ def check_upload_status(
 
 
 @router.post("/auth/test")
-def test_nomad_auth(current_user: CurrentUser) -> dict[str, Any]:
+def test_nomad_auth(_current_user: CurrentUser) -> dict[str, Any]:
     """
     Test NOMAD authentication with configured credentials.
-    
+
     Returns success/failure and any error messages.
     """
     if not settings.NOMAD_USERNAME or not settings.NOMAD_PASSWORD:
@@ -819,9 +857,9 @@ def test_nomad_auth(current_user: CurrentUser) -> dict[str, Any]:
             "message": "NOMAD credentials not configured",
             "configured": False,
         }
-    
+
     try:
-        token = get_nomad_token()
+        get_nomad_token()
         return {
             "success": True,
             "message": "Authentication successful",

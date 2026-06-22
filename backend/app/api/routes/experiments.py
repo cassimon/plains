@@ -6,7 +6,13 @@ from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.crud import create_experiment, update_experiment
-from app.models import Experiment, ExperimentCreate, ExperimentPublic, ExperimentsPublic, ExperimentUpdate
+from app.models import (
+    Experiment,
+    ExperimentCreate,
+    ExperimentPublic,
+    ExperimentsPublic,
+    ExperimentUpdate,
+)
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
 
@@ -20,9 +26,15 @@ def read_experiments(
         count_statement = select(func.count()).select_from(Experiment)
         count = session.exec(count_statement).one()
         statement = (
-            select(Experiment).order_by(col(Experiment.created_at).desc()).offset(skip).limit(limit)
+            select(Experiment)
+            .order_by(col(Experiment.created_at).desc())
+            .offset(skip)
+            .limit(limit)
         )
-        items = [ExperimentPublic.model_validate(item) for item in session.exec(statement).all()]
+        items = [
+            ExperimentPublic.model_validate(item)
+            for item in session.exec(statement).all()
+        ]
     else:
         count_statement = (
             select(func.count())
@@ -37,12 +49,17 @@ def read_experiments(
             .offset(skip)
             .limit(limit)
         )
-        items = [ExperimentPublic.model_validate(item) for item in session.exec(statement).all()]
+        items = [
+            ExperimentPublic.model_validate(item)
+            for item in session.exec(statement).all()
+        ]
     return ExperimentsPublic(data=items, count=count)
 
 
 @router.get("/{id}", response_model=ExperimentPublic)
-def read_experiment(session: SessionDep, current_user: CurrentUser, id: uuid.UUID) -> Any:
+def read_experiment(
+    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
+) -> Any:
     """Get experiment by ID."""
     experiment = session.get(Experiment, id)
     if not experiment:
@@ -77,7 +94,9 @@ def update_item(
         raise HTTPException(status_code=404, detail="Experiment not found")
     if not current_user.is_superuser and (experiment.owner_id != current_user.id):
         raise HTTPException(status_code=403, detail="Not enough permissions")
-    experiment = update_experiment(session=session, db_experiment=experiment, experiment_in=experiment_in)
+    experiment = update_experiment(
+        session=session, db_experiment=experiment, experiment_in=experiment_in
+    )
     return experiment
 
 

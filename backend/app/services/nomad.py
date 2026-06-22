@@ -13,9 +13,7 @@ Uses the nomad_utility_workflows package for NOMAD API interaction.
 """
 
 import logging
-import os
 import re
-import shutil
 import tempfile
 import uuid
 import zipfile
@@ -24,7 +22,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-import yaml
 
 from app.core.config import settings
 
@@ -67,11 +64,13 @@ def _safe_json_dict(response: httpx.Response, *, context: str) -> dict[str, Any]
 
 class NomadUploadError(Exception):
     """Raised when NOMAD upload fails."""
+
     pass
 
 
 class NomadAuthError(Exception):
     """Raised when NOMAD authentication fails."""
+
     pass
 
 
@@ -84,26 +83,28 @@ def ensure_temp_dir() -> Path:
 def get_nomad_token(username: str | None = None, password: str | None = None) -> str:
     """
     Get NOMAD authentication token.
-    
+
     Args:
         username: NOMAD username (uses global config if not provided)
         password: NOMAD password (uses global config if not provided)
-    
+
     Returns:
         Authentication token string
-    
+
     Raises:
         NomadAuthError: If authentication fails
     """
     use_username = username or settings.NOMAD_USERNAME
     use_password = password or settings.NOMAD_PASSWORD
-    
+
     if not use_username or not use_password:
-        raise NomadAuthError("NOMAD credentials not configured. Add username/password to the NOMAD auth file (../sensitive config/.nomad_auth)")
-    
+        raise NomadAuthError(
+            "NOMAD credentials not configured. Add username/password to the NOMAD auth file (../sensitive config/.nomad_auth)"
+        )
+
     # NOMAD uses OAuth2 password grant
     auth_url = settings.NOMAD_URL.replace("/api/v1", "/api/v1/auth/token")
-    
+
     # ── MOCK MODE ──────────────────────────────────────────────────────
     if settings.NOMAD_MOCK_MODE:
         logger.info(
@@ -114,7 +115,7 @@ def get_nomad_token(username: str | None = None, password: str | None = None) ->
         )
         return "MOCK_TOKEN_no_real_request_was_made"
     # ───────────────────────────────────────────────────────────────────
-    
+
     try:
         with httpx.Client(timeout=30.0) as client:
             response = client.post(
@@ -126,14 +127,18 @@ def get_nomad_token(username: str | None = None, password: str | None = None) ->
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-            
+
             if response.status_code != 200:
-                logger.error(f"NOMAD auth failed: {response.status_code} - {response.text}")
-                raise NomadAuthError(f"NOMAD authentication failed: {response.status_code}")
-            
+                logger.error(
+                    f"NOMAD auth failed: {response.status_code} - {response.text}"
+                )
+                raise NomadAuthError(
+                    f"NOMAD authentication failed: {response.status_code}"
+                )
+
             token_data = response.json()
             return token_data.get("access_token", "")
-            
+
     except httpx.RequestError as e:
         logger.error(f"NOMAD auth request error: {e}")
         raise NomadAuthError(f"Failed to connect to NOMAD: {e}")
@@ -146,37 +151,39 @@ def create_secure_zip(
 ) -> Path:
     """
     Create a secure zip archive from uploaded files.
-    
+
     Security measures:
     - Files are placed in a flat structure (no path traversal)
     - Filenames are sanitized
     - Archive is created in a secure temp directory
-    
+
     Args:
         files: List of (filename, file_content_bytes) tuples
         metadata_files: Optional list of (filename, yaml_content) for NOMAD metadata
         archive_name: Optional custom archive name (auto-generated if not provided)
-    
+
     Returns:
         Path to the created zip file
     """
     ensure_temp_dir()
-    
+
     if not archive_name:
         archive_name = f"upload_{uuid.uuid4().hex[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.zip"
-    
+
     zip_path = TEMP_UPLOAD_DIR / archive_name
-    
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
         # Add data files
         for filename, content in files:
             # Sanitize filename - remove path components
             safe_filename = Path(filename).name
             # Remove any potentially dangerous characters
-            safe_filename = "".join(c for c in safe_filename if c.isalnum() or c in "._- ")
+            safe_filename = "".join(
+                c for c in safe_filename if c.isalnum() or c in "._- "
+            )
             if safe_filename:
                 zipf.writestr(safe_filename, content)
-        
+
         # Add metadata YAML files
         if metadata_files:
             for meta_filename, yaml_content in metadata_files:
@@ -185,8 +192,10 @@ def create_secure_zip(
                 if not safe_meta:
                     continue
                 zipf.writestr(safe_meta, yaml_content)
-    
-    logger.info(f"Created secure zip archive: {zip_path} ({zip_path.stat().st_size} bytes)")
+
+    logger.info(
+        f"Created secure zip archive: {zip_path} ({zip_path.stat().st_size} bytes)"
+    )
     return zip_path
 
 
@@ -221,15 +230,15 @@ def add_metadata_to_zip(
     remove_set: set[str] = {Path(f).name for f in (files_to_remove or [])}
 
     # Create temporary zip file
-    temp_zip = zip_path.with_suffix('.tmp.zip')
+    temp_zip = zip_path.with_suffix(".tmp.zip")
 
     try:
         # Read existing files and add new metadata
-        with zipfile.ZipFile(zip_path, 'r') as old_zip:
-            with zipfile.ZipFile(temp_zip, 'w', zipfile.ZIP_DEFLATED) as new_zip:
+        with zipfile.ZipFile(zip_path, "r") as old_zip:
+            with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED) as new_zip:
                 # Copy existing files, skipping YAML files and ignored files
                 for item in old_zip.namelist():
-                    if item.endswith('.yaml'):
+                    if item.endswith(".yaml"):
                         continue
                     if Path(item).name in remove_set:
                         logger.info(f"Stripping ignored file from archive: {item}")
@@ -260,27 +269,27 @@ def add_metadata_to_zip(
 def read_yaml_files_from_zip(zip_path: Path) -> dict[str, str]:
     """
     Read all YAML files from a zip archive.
-    
+
     Args:
         zip_path: Path to the zip file
-    
+
     Returns:
         Dict mapping filename to YAML content (as string)
-    
+
     Raises:
         FileNotFoundError: If zip_path doesn't exist
     """
     if not zip_path.exists():
         raise FileNotFoundError(f"Zip archive not found: {zip_path}")
-    
+
     yaml_files: dict[str, str] = {}
-    
-    with zipfile.ZipFile(zip_path, 'r') as zipf:
+
+    with zipfile.ZipFile(zip_path, "r") as zipf:
         for filename in zipf.namelist():
-            if filename.endswith('.yaml') or filename.endswith('.yml'):
-                content = zipf.read(filename).decode('utf-8')
+            if filename.endswith(".yaml") or filename.endswith(".yml"):
+                content = zipf.read(filename).decode("utf-8")
                 yaml_files[filename] = content
-    
+
     return yaml_files
 
 
@@ -288,10 +297,10 @@ def create_nomad_metadata_yaml(
     experiment_id: str,
     user_name: str,
     session: Any,
-    upload_archive_basename: str | None = None,
+    upload_archive_basename: str | None = None,  # noqa: ARG001
     experiment_snapshot: dict[str, Any] | None = None,
     process_snapshot: dict[str, Any] | None = None,
-    measurement_files: list[dict[str, Any]] | None = None,
+    measurement_files: list[dict[str, Any]] | None = None,  # noqa: ARG001
     device_groups: list[dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """
@@ -320,17 +329,25 @@ def create_nomad_metadata_yaml(
     Returns:
         dict[filename, yaml_content_dict] — one entry per .archive.yaml file
     """
-    from sqlmodel import select
-    from app.models import Experiment, UserState
     import uuid as uuid_module
+
+    from sqlmodel import select
+
+    from app.models import Experiment, UserState
 
     # ── 1. Load experiment ────────────────────────────────────────────────────
     try:
-        exp_uuid = uuid_module.UUID(experiment_id) if isinstance(experiment_id, str) else experiment_id
+        exp_uuid = (
+            uuid_module.UUID(experiment_id)
+            if isinstance(experiment_id, str)
+            else experiment_id
+        )
     except (ValueError, AttributeError):
         exp_uuid = experiment_id
 
-    experiment = session.exec(select(Experiment).where(Experiment.id == exp_uuid)).first()
+    experiment = session.exec(
+        select(Experiment).where(Experiment.id == exp_uuid)
+    ).first()
     if not experiment:
         raise ValueError(f"Experiment {experiment_id} not found")
 
@@ -350,7 +367,9 @@ def create_nomad_metadata_yaml(
 
         if not exp_data:
             # Also try with the database experiment ID
-            exp_data = frontend_data.get("experiments", {}).get(str(experiment.id)) or {}
+            exp_data = (
+                frontend_data.get("experiments", {}).get(str(experiment.id)) or {}
+            )
 
     if not exp_data:
         exp_data = {
@@ -402,8 +421,8 @@ def create_nomad_metadata_yaml(
     # ── 3. Build step map: step_id → ProcessStep dict ─────────────────────────
     step_map: dict[str, dict[str, Any]] = {}
     if process_data:
-        for stage in (process_data.get("stages") or []):
-            for step in (stage.get("alternatives") or []):
+        for stage in process_data.get("stages") or []:
+            for step in stage.get("alternatives") or []:
                 sid = step.get("id", "")
                 if sid:
                     step_map[sid] = step
@@ -414,7 +433,7 @@ def create_nomad_metadata_yaml(
         deleted_combinations: set[int] = set(
             process_data.get("deletedStackCombinations") or []
         )
-        for stack in (process_data.get("generatedStacks") or []):
+        for stack in process_data.get("generatedStacks") or []:
             if not isinstance(stack, dict):
                 continue
             if stack.get("combination") not in deleted_combinations:
@@ -466,7 +485,9 @@ def create_nomad_metadata_yaml(
         text = str(value or "").strip()
         return text if text else default
 
-    def _material_name(material: dict[str, Any] | None, fallback: str = "Unknown") -> str:
+    def _material_name(
+        material: dict[str, Any] | None, fallback: str = "Unknown"
+    ) -> str:
         if not isinstance(material, dict):
             return fallback
         for key in ("name", "inventoryLabel", "casNumber", "id"):
@@ -501,7 +522,9 @@ def create_nomad_metadata_yaml(
         if not text:
             return "Unknown"
         text = re.sub(r"^substrate\s*:\s*", "", text, flags=re.IGNORECASE)
-        parts = [part.strip() for part in re.split(r"\s*[/\\|,;]+\s*", text) if part.strip()]
+        parts = [
+            part.strip() for part in re.split(r"\s*[/\\|,;]+\s*", text) if part.strip()
+        ]
         if len(parts) <= 1:
             parts = [text] if text else []
         return " | ".join(parts) if parts else "Unknown"
@@ -532,7 +555,7 @@ def create_nomad_metadata_yaml(
             return []
 
         flattened: list[dict[str, str | bool]] = []
-        for component in (solution.get("components") or []):
+        for component in solution.get("components") or []:
             if not isinstance(component, dict):
                 continue
             material_id = str(component.get("materialId") or "").strip()
@@ -554,7 +577,9 @@ def create_nomad_metadata_yaml(
                 continue
 
             if nested_solution_id:
-                flattened.extend(_flatten_solution_components(nested_solution_id, visited))
+                flattened.extend(
+                    _flatten_solution_components(nested_solution_id, visited)
+                )
 
         return flattened
 
@@ -638,6 +663,7 @@ def create_nomad_metadata_yaml(
             return "nan"
         # Try to extract the first numeric value from the string
         import re
+
         match = re.search(r"([0-9]+\.?[0-9]*)", amount_str)
         if match:
             value = match.group(1)
@@ -653,7 +679,7 @@ def create_nomad_metadata_yaml(
 
     def _format_mixing_ratios(solvent_components: list[dict[str, str]]) -> str:
         """Format solvent volumes as mixing ratios.
-        
+
         Returns:
             - '1' for single solvent or no solvents
             - 'V1; V2; V3' for multiple solvents
@@ -661,11 +687,11 @@ def create_nomad_metadata_yaml(
         """
         if not solvent_components:
             return "1"  # Non-solvent process
-        
+
         if len(solvent_components) == 1:
             # Single solvent - return '1'
             return "1"
-        
+
         # Multiple solvents - extract volumes
         volumes: list[str] = []
         for item in solvent_components:
@@ -676,11 +702,11 @@ def create_nomad_metadata_yaml(
                 amount = amount.split(",")[0].strip()
             numeric = _extract_numeric_from_amount(amount)
             volumes.append(numeric)
-        
+
         # If all are nan, return nan
         if all(v == "nan" for v in volumes):
             return "nan"
-        
+
         return "; ".join(volumes)
 
     def _calculate_concentrations_mg_ml(
@@ -688,17 +714,17 @@ def create_nomad_metadata_yaml(
         solvent_components: list[dict[str, str]],
     ) -> str:
         """Calculate concentration in mg/ml for each compound.
-        
+
         Args:
             compound_components: List of compound dicts with 'amount' field
             solvent_components: List of solvent dicts with 'amount' field
-            
+
         Returns:
             Formatted concentration string (e.g., "50.5 mg/ml" or "50.5 mg/ml; 10.2 mg/ml")
             Returns "none" for pure solvents, "nan" for unknown
         """
         import re
-        
+
         # Calculate total solvent volume in ml
         total_volume_ml = 0.0
         for solvent in solvent_components:
@@ -708,9 +734,9 @@ def create_nomad_metadata_yaml(
             # Handle comma-separated values (take first)
             if "," in amount_str:
                 amount_str = amount_str.split(",")[0].strip()
-            
+
             # Parse number and unit
-            match = re.match(r'([0-9.]+)\s*([a-zA-Zµμ]+)', amount_str)
+            match = re.match(r"([0-9.]+)\s*([a-zA-Zµμ]+)", amount_str)
             if not match:
                 continue
             value_str, unit = match.groups()
@@ -718,22 +744,22 @@ def create_nomad_metadata_yaml(
                 value_float = float(value_str)
             except ValueError:
                 continue
-            
+
             # Convert to ml
             unit_lower = unit.lower()
-            if unit_lower in ('ml', 'milliliter', 'millilitre'):
+            if unit_lower in ("ml", "milliliter", "millilitre"):
                 total_volume_ml += value_float
-            elif unit_lower in ('l', 'liter', 'litre'):
+            elif unit_lower in ("l", "liter", "litre"):
                 total_volume_ml += value_float * 1000
-            elif unit_lower in ('µl', 'μl', 'ul', 'microliter', 'microlitre'):
+            elif unit_lower in ("µl", "μl", "ul", "microliter", "microlitre"):
                 total_volume_ml += value_float / 1000
-        
+
         # If no solvent volume, return appropriate value
         if total_volume_ml == 0:
             if not compound_components:
                 return "none"  # Pure solvents or gas phase
             return "nan"  # Cannot calculate
-        
+
         # Calculate concentration for each compound
         concentrations = []
         for compound in compound_components:
@@ -741,50 +767,50 @@ def create_nomad_metadata_yaml(
             if amount_str == "Unknown":
                 concentrations.append("nan")
                 continue
-            
+
             # Handle comma-separated values (take first)
             if "," in amount_str:
                 amount_str = amount_str.split(",")[0].strip()
-            
+
             # Parse number and unit
-            match = re.match(r'([0-9.]+)\s*([a-zA-Zµμ]+)', amount_str)
+            match = re.match(r"([0-9.]+)\s*([a-zA-Zµμ]+)", amount_str)
             if not match:
                 concentrations.append("nan")
                 continue
-            
+
             value_str, unit = match.groups()
             try:
                 value_float = float(value_str)
             except ValueError:
                 concentrations.append("nan")
                 continue
-            
+
             # Convert to mg
             mass_mg = None
             unit_lower = unit.lower()
-            if unit_lower in ('mg', 'milligram'):
+            if unit_lower in ("mg", "milligram"):
                 mass_mg = value_float
-            elif unit_lower in ('g', 'gram'):
+            elif unit_lower in ("g", "gram"):
                 mass_mg = value_float * 1000
-            elif unit_lower in ('µg', 'μg', 'ug', 'microgram'):
+            elif unit_lower in ("µg", "μg", "ug", "microgram"):
                 mass_mg = value_float / 1000
-            elif unit_lower in ('kg', 'kilogram'):
+            elif unit_lower in ("kg", "kilogram"):
                 mass_mg = value_float * 1000000
             # For molar units (M, mM) or other units, we can't convert without molecular weight
             else:
                 concentrations.append("nan")
                 continue
-            
+
             if mass_mg is not None:
                 concentration = mass_mg / total_volume_ml
                 # Format with appropriate precision (4 decimal places)
                 concentrations.append(f"{concentration:.4f} mg/ml")
             else:
                 concentrations.append("nan")
-        
+
         if not concentrations:
             return "none"
-        
+
         return "; ".join(concentrations)
 
     def _layer_solution_metadata(step: dict[str, Any]) -> dict[str, str]:
@@ -805,7 +831,9 @@ def create_nomad_metadata_yaml(
         compound_components = _aggregate_components_by_name(components, solvents=False)
 
         return {
-            "solvents": _format_layer_token_list([item["name"] for item in solvent_components]),
+            "solvents": _format_layer_token_list(
+                [item["name"] for item in solvent_components]
+            ),
             "solvents_supplier": _format_layer_token_list(
                 [item["supplier"] for item in solvent_components],
             ),
@@ -813,14 +841,18 @@ def create_nomad_metadata_yaml(
                 [item["purity"] for item in solvent_components],
             ),
             "solvents_mixing_ratios": _format_mixing_ratios(solvent_components),
-            "compounds": _format_layer_token_list([item["name"] for item in compound_components]),
+            "compounds": _format_layer_token_list(
+                [item["name"] for item in compound_components]
+            ),
             "compounds_supplier": _format_layer_token_list(
                 [item["supplier"] for item in compound_components],
             ),
             "compounds_purity": _format_layer_token_list(
                 [item["purity"] for item in compound_components],
             ),
-            "concentrations": _calculate_concentrations_mg_ml(compound_components, solvent_components),
+            "concentrations": _calculate_concentrations_mg_ml(
+                compound_components, solvent_components
+            ),
         }
 
     def _quenching_solution_metadata(solution_id: str) -> dict[str, str]:
@@ -843,18 +875,23 @@ def create_nomad_metadata_yaml(
         additive_names = [item["name"] for item in compound_components]
 
         return {
-            "media": _format_layer_token_list(media_names) or _clean_value(solution.get("name")),
+            "media": _format_layer_token_list(media_names)
+            or _clean_value(solution.get("name")),
             "volume": _format_layer_token_list(media_amounts),
             "mixing_ratios": _format_layer_token_list(media_amounts),
             "additives_compounds": _format_layer_token_list(additive_names),
-            "additives_concentrations": _calculate_concentrations_mg_ml(compound_components, solvent_components),
+            "additives_concentrations": _calculate_concentrations_mg_ml(
+                compound_components, solvent_components
+            ),
         }
 
     def _join_layer_solution_field(
         entries: list[tuple[dict[str, Any], str]],
         field: str,
     ) -> str:
-        values = [_layer_solution_metadata(step).get(field, "Unknown") for step, _ in entries]
+        values = [
+            _layer_solution_metadata(step).get(field, "Unknown") for step, _ in entries
+        ]
         return " | ".join(values) if values else "Unknown"
 
     def _get_step_param(
@@ -899,7 +936,9 @@ def create_nomad_metadata_yaml(
         except (ValueError, TypeError):
             return None
 
-    def _resolve_substrate_material(substrate: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _resolve_substrate_material(
+        substrate: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
         if not isinstance(substrate, dict):
             return None
 
@@ -907,7 +946,9 @@ def create_nomad_metadata_yaml(
         if material_id:
             return materials_by_id.get(material_id)
 
-        raw_name = str(substrate.get("substrateMaterial") or substrate_material or "").strip()
+        raw_name = str(
+            substrate.get("substrateMaterial") or substrate_material or ""
+        ).strip()
         if not raw_name:
             return None
 
@@ -942,7 +983,9 @@ def create_nomad_metadata_yaml(
         return {
             "lengthCm": str(dims.get("lengthCm") or "").strip(),
             "widthCm": str(dims.get("widthCm") or "").strip(),
-            "surfaceRoughnessRmsNm": str(dims.get("surfaceRoughnessRmsNm") or "").strip(),
+            "surfaceRoughnessRmsNm": str(
+                dims.get("surfaceRoughnessRmsNm") or ""
+            ).strip(),
         }
 
     def _substrate_cleaning_procedure(substrate: dict[str, Any] | None) -> str:
@@ -964,26 +1007,41 @@ def create_nomad_metadata_yaml(
             if not isinstance(stage, dict):
                 continue
             alternatives = [
-                step for step in (stage.get("alternatives") or []) if isinstance(step, dict)
+                step
+                for step in (stage.get("alternatives") or [])
+                if isinstance(step, dict)
             ]
             if not alternatives:
                 continue
 
             selected_step: dict[str, Any] | None = None
-            selected_id = str(parameter_values.get(f"stageSelection:{stage_idx}") or "").strip()
+            selected_id = str(
+                parameter_values.get(f"stageSelection:{stage_idx}") or ""
+            ).strip()
             if selected_id:
                 selected_step = next(
-                    (step for step in alternatives if str(step.get("id") or "") == selected_id),
+                    (
+                        step
+                        for step in alternatives
+                        if str(step.get("id") or "") == selected_id
+                    ),
                     None,
                 )
             if selected_step is None:
                 selected_step = alternatives[0]
 
-            if str(selected_step.get("stepCategory") or "").strip().lower() != "substrate_preparation":
+            if (
+                str(selected_step.get("stepCategory") or "").strip().lower()
+                != "substrate_preparation"
+            ):
                 continue
 
-            method = _get_step_param(selected_step, "depositionMethod", substrate, "Unknown")
-            params = _get_step_param(selected_step, "depositionParameters", substrate, "")
+            method = _get_step_param(
+                selected_step, "depositionMethod", substrate, "Unknown"
+            )
+            params = _get_step_param(
+                selected_step, "depositionParameters", substrate, ""
+            )
             if params and params != "Unknown":
                 cleaning_steps.append(f"{method} ({params})")
             else:
@@ -997,7 +1055,9 @@ def create_nomad_metadata_yaml(
         return "1" if len(ions) <= 1 else "; ".join("x" for _ in ions)
 
     def _short_form(a_ions: str, b_ions: str, x_ions: str) -> str:
-        squish = lambda s: "".join(i.strip() for i in s.split(";") if i.strip())
+        def squish(s):
+            return "".join(i.strip() for i in s.split(";") if i.strip())
+
         return squish(a_ions) + squish(b_ions) + squish(x_ions)
 
     def _format_coeff_value(raw: str) -> str:
@@ -1070,8 +1130,7 @@ def create_nomad_metadata_yaml(
                 coeff_values = ["1"]
             else:
                 coeff_values = [
-                    _format_coeff_value(coeff) if coeff else "x"
-                    for coeff in raw_coeffs
+                    _format_coeff_value(coeff) if coeff else "x" for coeff in raw_coeffs
                 ]
 
             ion_layers.append("; ".join(ion_names))
@@ -1082,19 +1141,23 @@ def create_nomad_metadata_yaml(
     def _is_image_file(filename: str) -> bool:
         """Check if a file is an image based on extension."""
         lower = filename.lower()
-        return bool(lower.endswith(('.png', '.jpg', '.jpeg', '.tiff', '.tif', '.gif', '.webp', '.bmp')))
-    
+        return bool(
+            lower.endswith(
+                (".png", ".jpg", ".jpeg", ".tiff", ".tif", ".gif", ".webp", ".bmp")
+            )
+        )
+
     def _is_document_file(filename: str) -> bool:
         """Check if a file is a document based on extension."""
         lower = filename.lower()
-        return bool(lower.endswith(('.pdf', '.doc', '.docx', '.odt', '.rtf')))
-    
+        return bool(lower.endswith((".pdf", ".doc", ".docx", ".odt", ".rtf")))
+
     def _extract_images_from_files(files: list[dict[str, Any]]) -> list[dict[str, str]]:
         """Extract image files and format them for NOMAD schema.
-        
+
         Args:
             files: List of measurement file dicts with 'fileName' field
-            
+
         Returns:
             List of dicts with 'image' and 'caption' fields
         """
@@ -1103,21 +1166,25 @@ def create_nomad_metadata_yaml(
             filename = f.get("fileName", "")
             if not filename or not _is_image_file(filename):
                 continue
-            
+
             # Use filename without extension as caption
-            caption = Path(filename).stem.replace('_', ' ').replace('-', ' ')
-            images.append({
-                "image": _upload_raw_reference(filename),
-                "caption": caption,
-            })
+            caption = Path(filename).stem.replace("_", " ").replace("-", " ")
+            images.append(
+                {
+                    "image": _upload_raw_reference(filename),
+                    "caption": caption,
+                }
+            )
         return images
-    
-    def _extract_documents_from_files(files: list[dict[str, Any]]) -> list[dict[str, str]]:
+
+    def _extract_documents_from_files(
+        files: list[dict[str, Any]],
+    ) -> list[dict[str, str]]:
         """Extract document files and format them for NOMAD schema.
-        
+
         Args:
             files: List of measurement file dicts with 'fileName' field
-            
+
         Returns:
             List of dicts with 'document' and 'title' fields
         """
@@ -1126,28 +1193,30 @@ def create_nomad_metadata_yaml(
             filename = f.get("fileName", "")
             if not filename or not _is_document_file(filename):
                 continue
-            
+
             # Use filename without extension as title
-            title = Path(filename).stem.replace('_', ' ').replace('-', ' ')
-            documents.append({
-                "document": _upload_raw_reference(filename),
-                "title": title,
-            })
+            title = Path(filename).stem.replace("_", " ").replace("-", " ")
+            documents.append(
+                {
+                    "document": _upload_raw_reference(filename),
+                    "title": title,
+                }
+            )
         return documents
 
     def _resolve_media_reference(media_ref: str) -> str:
         """Resolve a media reference like 'material:id' or 'solution:id' to the actual name."""
         if not media_ref or ":" not in media_ref:
             return media_ref
-        
+
         parts = media_ref.split(":", 1)
         if len(parts) != 2:
             return media_ref
-        
+
         kind, ref_id = parts
         kind = kind.strip().lower()
         ref_id = ref_id.strip()
-        
+
         if kind == "material":
             material = materials_by_id.get(ref_id)
             if material and isinstance(material, dict):
@@ -1156,16 +1225,16 @@ def create_nomad_metadata_yaml(
             solution = solutions_by_id.get(ref_id)
             if solution and isinstance(solution, dict):
                 return _clean_value(solution.get("name"), default=f"Solution {ref_id}")
-        
+
         return media_ref
 
     def _parse_quenching_string(value: str) -> dict[str, Any]:
         """Parse a structured quenching string (type=Gas|gasType=N2|...) into NOMAD schema structure.
-        
+
         Returns a dict with:
           - "type": "Gas", "Antisolvent", "Vacuum", or None
           - "gas": dict with gas quenching parameters
-          - "antisolvent": dict with antisolvent quenching parameters  
+          - "antisolvent": dict with antisolvent quenching parameters
           - "vacuum": dict with vacuum quenching parameters
         """
         result: dict[str, Any] = {
@@ -1176,14 +1245,14 @@ def create_nomad_metadata_yaml(
         }
         if not value or not value.strip():
             return result
-        
+
         pairs: dict[str, str] = {}
         for segment in value.split("|"):
             idx = segment.find("=")
             if idx == -1:
                 continue
-            pairs[segment[:idx].strip()] = segment[idx + 1:].strip()
-        
+            pairs[segment[:idx].strip()] = segment[idx + 1 :].strip()
+
         qtype = pairs.get("type", "")
         if qtype not in ("Gas", "Antisolvent", "Vacuum"):
             # Legacy / freeform value — no structured quenching
@@ -1225,7 +1294,7 @@ def create_nomad_metadata_yaml(
                     pass
             if pairs.get("nozzleForm"):
                 gas_params["nozzle_form"] = pairs["nozzleForm"]
-            
+
             if gas_params:
                 result["gas"] = gas_params
 
@@ -1258,7 +1327,7 @@ def create_nomad_metadata_yaml(
                     antisolvent_params["volume"] = float(vol_val)
                 except (ValueError, TypeError, IndexError):
                     pass
-            
+
             if antisolvent_params:
                 result["antisolvent"] = antisolvent_params
 
@@ -1294,7 +1363,7 @@ def create_nomad_metadata_yaml(
                     vacuum_params["evacuation_time"] = float(time_val)
                 except (ValueError, TypeError, IndexError):
                     pass
-            
+
             if vacuum_params:
                 result["vacuum"] = vacuum_params
 
@@ -1321,19 +1390,35 @@ def create_nomad_metadata_yaml(
             "stack_sequence": " | ".join(name for _, name in entries),
             thickness_key: _layer_thickness(entries),
             "deposition_procedure": procedure,
-            "deposition_synthesis_atmosphere": _join_params(entries, "depositionAtmosphere", substrate),
+            "deposition_synthesis_atmosphere": _join_params(
+                entries, "depositionAtmosphere", substrate
+            ),
             "deposition_solvents": _join_layer_solution_field(entries, "solvents"),
-            "deposition_reaction_solutions_compounds": _join_layer_solution_field(entries, "compounds"),
-            "deposition_reaction_solutions_concentrations": _join_layer_solution_field(entries, "concentrations"),
-            "deposition_reaction_solutions_volumes": _join_params(entries, "solutionVolume", substrate),
+            "deposition_reaction_solutions_compounds": _join_layer_solution_field(
+                entries, "compounds"
+            ),
+            "deposition_reaction_solutions_concentrations": _join_layer_solution_field(
+                entries, "concentrations"
+            ),
+            "deposition_reaction_solutions_volumes": _join_params(
+                entries, "solutionVolume", substrate
+            ),
             "deposition_reaction_solutions_temperature": "Unknown",
-            "deposition_substrate_temperature": _join_params(entries, "substrateTemp", substrate),
-            "deposition_thermal_annealing_temperature": _join_params(entries, "annealingTemp", substrate),
-            "deposition_thermal_annealing_time": _join_params(entries, "annealingTime", substrate),
-            "deposition_thermal_annealing_atmosphere": _join_params(entries, "annealingAtmosphere", substrate),
+            "deposition_substrate_temperature": _join_params(
+                entries, "substrateTemp", substrate
+            ),
+            "deposition_thermal_annealing_temperature": _join_params(
+                entries, "annealingTemp", substrate
+            ),
+            "deposition_thermal_annealing_time": _join_params(
+                entries, "annealingTime", substrate
+            ),
+            "deposition_thermal_annealing_atmosphere": _join_params(
+                entries, "annealingAtmosphere", substrate
+            ),
             "surface_treatment_before_next_deposition_step": "Unknown",
         }
-    
+
     # ── 6. Measurement-data helpers ───────────────────────────────────────────
 
     JV_TYPES: set[str] = {"JV", "Dark JV", "Stability (JV)"}
@@ -1352,7 +1437,9 @@ def create_nomad_metadata_yaml(
 
     def _best_ipce(files: list[dict[str, Any]]) -> dict[str, Any] | None:
         ipce = [f for f in files if f.get("fileType") in IPCE_TYPES]
-        return max(ipce, key=lambda f: float(f.get("jsc") or f.get("value") or 0), default=None)
+        return max(
+            ipce, key=lambda f: float(f.get("jsc") or f.get("value") or 0), default=None
+        )
 
     def _jv_section(
         jv_file: dict[str, Any] | None,
@@ -1440,7 +1527,7 @@ def create_nomad_metadata_yaml(
         group_files: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Assemble the PerovskiteSolarCellSampleArea data dict.
-        
+
         Args:
             cell_area: Device area in cm². If None, area_total is not included.
             group_files: Optional list of measurement files for this device group
@@ -1451,7 +1538,7 @@ def create_nomad_metadata_yaml(
         }
         if cell_area is not None:
             cell_dict["area_total"] = cell_area
-        
+
         d: dict[str, Any] = {
             "m_def": "nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.PerovskiteSolarCellSampleArea",
             "name": sample_name,
@@ -1470,11 +1557,15 @@ def create_nomad_metadata_yaml(
         substrate_material_meta = _resolve_substrate_material(substrate)
         substrate_dimensions = _get_substrate_dimensions(substrate)
         substrate_height_mm = _to_float(
-            (substrate_material_meta or {}).get("heightMm") if isinstance(substrate_material_meta, dict) else "",
+            (substrate_material_meta or {}).get("heightMm")
+            if isinstance(substrate_material_meta, dict)
+            else "",
         )
         substrate_length_cm = _to_float(substrate_dimensions.get("lengthCm"))
         substrate_width_cm = _to_float(substrate_dimensions.get("widthCm"))
-        substrate_roughness_nm = _to_float(substrate_dimensions.get("surfaceRoughnessRmsNm"))
+        substrate_roughness_nm = _to_float(
+            substrate_dimensions.get("surfaceRoughnessRmsNm")
+        )
 
         substrate_area = (
             substrate_length_cm * substrate_width_cm
@@ -1494,7 +1585,9 @@ def create_nomad_metadata_yaml(
                 "deposition_procedure": "Commercial",
                 "cleaning_procedure": _substrate_cleaning_procedure(substrate),
                 "surface_roughness_rms": (
-                    substrate_roughness_nm if substrate_roughness_nm is not None else "nan"
+                    substrate_roughness_nm
+                    if substrate_roughness_nm is not None
+                    else "nan"
                 ),
             }
         )
@@ -1505,26 +1598,44 @@ def create_nomad_metadata_yaml(
             d["etl"] = _build_section(etl_e, substrate, thickness_key="thickness")
 
         if absorber_e:
-            abs_layer = (absorber_e[0][0].get("_layer") or {})
+            abs_layer = absorber_e[0][0].get("_layer") or {}
             a_ions = abs_layer.get("perovskiteA") or "MA"
             b_ions = abs_layer.get("perovskiteB") or "Pb"
             x_ions = abs_layer.get("perovskiteX") or "I"
-            parsed_a_ions, parsed_a_coeffs, a_layers = _parse_perovskite_ion_layers(a_ions)
-            parsed_b_ions, parsed_b_coeffs, b_layers = _parse_perovskite_ion_layers(b_ions)
-            parsed_c_ions, parsed_c_coeffs, c_layers = _parse_perovskite_ion_layers(x_ions)
+            parsed_a_ions, parsed_a_coeffs, a_layers = _parse_perovskite_ion_layers(
+                a_ions
+            )
+            parsed_b_ions, parsed_b_coeffs, b_layers = _parse_perovskite_ion_layers(
+                b_ions
+            )
+            parsed_c_ions, parsed_c_coeffs, c_layers = _parse_perovskite_ion_layers(
+                x_ions
+            )
             max_layers = max(a_layers, b_layers, c_layers, 1)
             dimension_list = " | ".join(["3.0"] * max_layers)
             band_gap = str(abs_layer.get("bandgapEv") or "nan")
             thickness = str(abs_layer.get("thicknessNm") or "nan")
             absorber_solution_meta = {
                 "solvents": _join_layer_solution_field(absorber_e, "solvents"),
-                "solvents_supplier": _join_layer_solution_field(absorber_e, "solvents_supplier"),
-                "solvents_purity": _join_layer_solution_field(absorber_e, "solvents_purity"),
-                "solvents_mixing_ratios": _join_layer_solution_field(absorber_e, "solvents_mixing_ratios"),
+                "solvents_supplier": _join_layer_solution_field(
+                    absorber_e, "solvents_supplier"
+                ),
+                "solvents_purity": _join_layer_solution_field(
+                    absorber_e, "solvents_purity"
+                ),
+                "solvents_mixing_ratios": _join_layer_solution_field(
+                    absorber_e, "solvents_mixing_ratios"
+                ),
                 "compounds": _join_layer_solution_field(absorber_e, "compounds"),
-                "compounds_supplier": _join_layer_solution_field(absorber_e, "compounds_supplier"),
-                "compounds_purity": _join_layer_solution_field(absorber_e, "compounds_purity"),
-                "concentrations": _join_layer_solution_field(absorber_e, "concentrations"),
+                "compounds_supplier": _join_layer_solution_field(
+                    absorber_e, "compounds_supplier"
+                ),
+                "compounds_purity": _join_layer_solution_field(
+                    absorber_e, "compounds_purity"
+                ),
+                "concentrations": _join_layer_solution_field(
+                    absorber_e, "concentrations"
+                ),
             }
 
             d["perovskite"] = {
@@ -1545,23 +1656,27 @@ def create_nomad_metadata_yaml(
             # Build quenching_parameters subsection
             quenching_params_section: dict[str, Any] = {}
             quenching_data_list = [
-                _parse_quenching_string(_get_step_param(e, "dryingMethod", substrate, ""))
+                _parse_quenching_string(
+                    _get_step_param(e, "dryingMethod", substrate, "")
+                )
                 for e, _ in absorber_e
             ]
-            
+
             # Collect all gas/antisolvent/vacuum parameters
             gas_list = [qd["gas"] for qd in quenching_data_list if qd["gas"]]
-            antisolvent_list = [qd["antisolvent"] for qd in quenching_data_list if qd["antisolvent"]]
+            antisolvent_list = [
+                qd["antisolvent"] for qd in quenching_data_list if qd["antisolvent"]
+            ]
             vacuum_list = [qd["vacuum"] for qd in quenching_data_list if qd["vacuum"]]
-            
+
             # If we have gas quenching, use the first one (or merge if multiple)
             if gas_list:
                 quenching_params_section["gas"] = gas_list[0]
-            
+
             # If we have antisolvent quenching, use the first one (or merge if multiple)
             if antisolvent_list:
                 quenching_params_section["antisolvent"] = antisolvent_list[0]
-            
+
             # If we have vacuum quenching, use the first one (or merge if multiple)
             if vacuum_list:
                 quenching_params_section["vacuum"] = vacuum_list[0]
@@ -1570,25 +1685,45 @@ def create_nomad_metadata_yaml(
                 "number_of_deposition_steps": len(absorber_e),
                 "procedure": _join_params(absorber_e, "depositionMethod", substrate),
                 "aggregation_state_of_reactants": "Unknown",
-                "synthesis_atmosphere": _join_params(absorber_e, "depositionAtmosphere", substrate),
+                "synthesis_atmosphere": _join_params(
+                    absorber_e, "depositionAtmosphere", substrate
+                ),
                 "synthesis_atmosphere_pressure_total": "Unknown",
                 "synthesis_atmosphere_pressure_partial": "Unknown",
                 "synthesis_atmosphere_relative_humidity": "Unknown",
                 "solvents": absorber_solution_meta["solvents"],
-                "solvents_mixing_ratios": absorber_solution_meta["solvents_mixing_ratios"],
+                "solvents_mixing_ratios": absorber_solution_meta[
+                    "solvents_mixing_ratios"
+                ],
                 "solvents_supplier": absorber_solution_meta["solvents_supplier"],
                 "solvents_purity": absorber_solution_meta["solvents_purity"],
                 "reaction_solutions_compounds": absorber_solution_meta["compounds"],
-                "reaction_solutions_compounds_supplier": absorber_solution_meta["compounds_supplier"],
-                "reaction_solutions_compounds_purity": absorber_solution_meta["compounds_purity"],
-                "reaction_solutions_concentrations": absorber_solution_meta["concentrations"],
-                "reaction_solutions_volumes": _join_params(absorber_e, "solutionVolume", substrate),
+                "reaction_solutions_compounds_supplier": absorber_solution_meta[
+                    "compounds_supplier"
+                ],
+                "reaction_solutions_compounds_purity": absorber_solution_meta[
+                    "compounds_purity"
+                ],
+                "reaction_solutions_concentrations": absorber_solution_meta[
+                    "concentrations"
+                ],
+                "reaction_solutions_volumes": _join_params(
+                    absorber_e, "solutionVolume", substrate
+                ),
                 "reaction_solutions_age": "Unknown",
                 "reaction_solutions_temperature": "Unknown",
-                "substrate_temperature": _join_params(absorber_e, "substrateTemp", substrate),
-                "thermal_annealing_temperature": _join_params(absorber_e, "annealingTemp", substrate),
-                "thermal_annealing_time": _join_params(absorber_e, "annealingTime", substrate),
-                "thermal_annealing_atmosphere": _join_params(absorber_e, "annealingAtmosphere", substrate),
+                "substrate_temperature": _join_params(
+                    absorber_e, "substrateTemp", substrate
+                ),
+                "thermal_annealing_temperature": _join_params(
+                    absorber_e, "annealingTemp", substrate
+                ),
+                "thermal_annealing_time": _join_params(
+                    absorber_e, "annealingTime", substrate
+                ),
+                "thermal_annealing_atmosphere": _join_params(
+                    absorber_e, "annealingAtmosphere", substrate
+                ),
                 "thermal_annealing_relative_humidity": "Unknown",
                 "thermal_annealing_pressure": "Unknown",
                 "solvent_annealing": False,
@@ -1599,10 +1734,12 @@ def create_nomad_metadata_yaml(
                 "after_treatment_of_formed_perovskite": "false",
                 "after_treatment_of_formed_perovskite_method": "Unknown",
             }
-            
+
             # Add quenching_parameters if any were found
             if quenching_params_section:
-                d["perovskite_deposition"]["quenching_parameters"] = quenching_params_section
+                d["perovskite_deposition"]["quenching_parameters"] = (
+                    quenching_params_section
+                )
         else:
             d["perovskite"] = {
                 "dimension_3D": True,
@@ -1622,22 +1759,24 @@ def create_nomad_metadata_yaml(
         if htl_e:
             d["htl"] = _build_section(htl_e, substrate, thickness_key="thickness_list")
         if backcontact_e:
-            d["backcontact"] = _build_section(backcontact_e, substrate, thickness_key="thickness_list")
+            d["backcontact"] = _build_section(
+                backcontact_e, substrate, thickness_key="thickness_list"
+            )
         if add_e:
             d["add"] = _build_section(add_e, substrate, thickness_key="thickness_list")
 
         d["jv"] = jv_sec
-        
+
         # Add images and documents if files are provided
         if group_files:
             images = _extract_images_from_files(group_files)
             if images:
                 d["images"] = images
-            
+
             documents = _extract_documents_from_files(group_files)
             if documents:
                 d["documents"] = documents
-        
+
         return d
 
     def _stack_for_substrate(sub_idx: int) -> dict[str, Any] | None:
@@ -1721,7 +1860,9 @@ def create_nomad_metadata_yaml(
 
         return None
 
-    def _selected_steps_for_substrate(substrate: dict[str, Any]) -> list[tuple[int, dict[str, Any]]]:
+    def _selected_steps_for_substrate(
+        substrate: dict[str, Any],
+    ) -> list[tuple[int, dict[str, Any]]]:
         if not process_data or not isinstance(process_data, dict):
             return []
 
@@ -1733,19 +1874,27 @@ def create_nomad_metadata_yaml(
             if not isinstance(stage, dict):
                 continue
             alternatives = [
-                step for step in (stage.get("alternatives") or []) if isinstance(step, dict)
+                step
+                for step in (stage.get("alternatives") or [])
+                if isinstance(step, dict)
             ]
             if not alternatives:
                 continue
 
-            selected_id = str(parameter_values.get(f"stageSelection:{stage_idx}") or "").strip()
+            selected_id = str(
+                parameter_values.get(f"stageSelection:{stage_idx}") or ""
+            ).strip()
             if selected_id.upper() == "SKIP":
                 continue
 
             selected_step = None
             if selected_id:
                 selected_step = next(
-                    (step for step in alternatives if str(step.get("id") or "") == selected_id),
+                    (
+                        step
+                        for step in alternatives
+                        if str(step.get("id") or "") == selected_id
+                    ),
                     None,
                 )
             if selected_step is None:
@@ -1767,11 +1916,15 @@ def create_nomad_metadata_yaml(
         substrate_material_meta = _resolve_substrate_material(substrate)
         substrate_dimensions = _get_substrate_dimensions(substrate)
         substrate_height_mm = _to_float(
-            (substrate_material_meta or {}).get("heightMm") if isinstance(substrate_material_meta, dict) else "",
+            (substrate_material_meta or {}).get("heightMm")
+            if isinstance(substrate_material_meta, dict)
+            else "",
         )
         substrate_length_cm = _to_float(substrate_dimensions.get("lengthCm"))
         substrate_width_cm = _to_float(substrate_dimensions.get("widthCm"))
-        substrate_roughness_nm = _to_float(substrate_dimensions.get("surfaceRoughnessRmsNm"))
+        substrate_roughness_nm = _to_float(
+            substrate_dimensions.get("surfaceRoughnessRmsNm")
+        )
 
         substrate_area = (
             substrate_length_cm * substrate_width_cm
@@ -1791,7 +1944,9 @@ def create_nomad_metadata_yaml(
                 "deposition_procedure": "Commercial",
                 "cleaning_procedure": _substrate_cleaning_procedure(substrate),
                 "surface_roughness_rms": (
-                    substrate_roughness_nm if substrate_roughness_nm is not None else "nan"
+                    substrate_roughness_nm
+                    if substrate_roughness_nm is not None
+                    else "nan"
                 ),
             }
         )
@@ -1826,9 +1981,13 @@ def create_nomad_metadata_yaml(
         end_ts: str | None = None
 
         for step_idx, (stage_idx, step) in enumerate(selected_steps, start=1):
-            timestamp = _parse_datetime(str(processing_times.get(f"stage:{stage_idx}") or ""))
+            timestamp = _parse_datetime(
+                str(processing_times.get(f"stage:{stage_idx}") or "")
+            )
             if not timestamp:
-                timestamp = _parse_datetime(_get_step_param(step, "depositionStartTime", substrate, ""))
+                timestamp = _parse_datetime(
+                    _get_step_param(step, "depositionStartTime", substrate, "")
+                )
 
             name = _get_step_param(step, "depositionMethod", substrate, "")
             if not name:
@@ -1852,7 +2011,9 @@ def create_nomad_metadata_yaml(
                 step_payload["atmosphere"] = atmosphere
 
             # Add substrate temperature
-            substrate_temp = _to_float(_get_step_param(step, "substrateTemp", substrate, ""))
+            substrate_temp = _to_float(
+                _get_step_param(step, "substrateTemp", substrate, "")
+            )
             if substrate_temp is not None:
                 step_payload["temperature"] = substrate_temp
 
@@ -1862,7 +2023,9 @@ def create_nomad_metadata_yaml(
                 step_payload["deposition_parameters"] = depo_params
 
             # Add solution volume
-            solution_vol = _to_float(_get_step_param(step, "solutionVolume", substrate, ""))
+            solution_vol = _to_float(
+                _get_step_param(step, "solutionVolume", substrate, "")
+            )
             if solution_vol is not None:
                 step_payload["solution_volume"] = solution_vol
 
@@ -1872,20 +2035,28 @@ def create_nomad_metadata_yaml(
                 step_payload["drying_method"] = drying_method
 
             # Add annealing parameters
-            annealing_start = _parse_datetime(_get_step_param(step, "annealingStartTime", substrate, ""))
+            annealing_start = _parse_datetime(
+                _get_step_param(step, "annealingStartTime", substrate, "")
+            )
             if annealing_start:
                 step_payload["annealing_start_time"] = annealing_start
 
-            annealing_time = _to_float(_get_step_param(step, "annealingTime", substrate, ""))
+            annealing_time = _to_float(
+                _get_step_param(step, "annealingTime", substrate, "")
+            )
             if annealing_time is not None:
                 step_payload["annealing_time"] = annealing_time
                 step_payload["duration"] = annealing_time  # Also set as duration
 
-            annealing_temp = _to_float(_get_step_param(step, "annealingTemp", substrate, ""))
+            annealing_temp = _to_float(
+                _get_step_param(step, "annealingTemp", substrate, "")
+            )
             if annealing_temp is not None:
                 step_payload["annealing_temperature"] = annealing_temp
 
-            annealing_atmos = _get_step_param(step, "annealingAtmosphere", substrate, "")
+            annealing_atmos = _get_step_param(
+                step, "annealingAtmosphere", substrate, ""
+            )
             if annealing_atmos and annealing_atmos != "Unknown":
                 step_payload["annealing_atmosphere"] = annealing_atmos
 
@@ -1942,8 +2113,11 @@ def create_nomad_metadata_yaml(
             """Canonical, timestamp-free representation of the step list."""
             steps = data.get("steps") or []
             normalized = [
-                {k: v for k, v in sorted(step.items())
-                 if k not in ("timestamp", "annealing_start_time", "step_index")}
+                {
+                    k: v
+                    for k, v in sorted(step.items())
+                    if k not in ("timestamp", "annealing_start_time", "step_index")
+                }
                 for step in steps
             ]
             return _json.dumps(normalized, sort_keys=True, default=str)
@@ -1969,7 +2143,7 @@ def create_nomad_metadata_yaml(
 
     def _layers_for_substrate(
         sub_idx: int,
-        substrate: dict[str, Any],
+        substrate: dict[str, Any],  # noqa: ARG001
     ) -> tuple[str, str, list, list, list, list, list]:
         """
         Return (substrate_layer_name, cell_stack_sequence,
@@ -1982,7 +2156,7 @@ def create_nomad_metadata_yaml(
         sub_layer_name: str = substrate_material
         stack_layers: list[dict[str, Any]] = []
         if stack:
-            for layer in (stack.get("layers") or []):
+            for layer in stack.get("layers") or []:
                 if not isinstance(layer, dict):
                     continue
                 if layer.get("isSubstrate"):
@@ -2090,8 +2264,7 @@ def create_nomad_metadata_yaml(
                 or f"{str(substrate.get('name') or substrate_id)} device {dev_idx + 1}"
             )
             sample_lab_id = str(
-                (group or {}).get("id")
-                or f"{substrate_id}_dev{dev_idx + 1}"
+                (group or {}).get("id") or f"{substrate_id}_dev{dev_idx + 1}"
             )
 
             best_jv = _best_jv(group_files)
@@ -2118,12 +2291,15 @@ def create_nomad_metadata_yaml(
         # ── Build SubstrateSample archive (with cell_areas) ───────────────
         substrate_sample_data = _build_substrate_entity_data(substrate, sub_layer)
         substrate_sample_data["cell_areas"] = [
-            {"reference": _upload_raw_reference(fname, "/data")} for fname in sample_filenames
+            {"reference": _upload_raw_reference(fname, "/data")}
+            for fname in sample_filenames
         ]
         archives[substrate_sample_fname] = {"data": substrate_sample_data}
 
         # ── Collect DepositionRoutine data for later deduplication ────────
-        deposition_data = _build_deposition_routine_data(substrate, substrate_sample_ref)
+        deposition_data = _build_deposition_routine_data(
+            substrate, substrate_sample_ref
+        )
         _pending_depositions.append((deposition_fname, deposition_data))
 
         for group_idx, group in enumerate(substrate_groups):
@@ -2133,7 +2309,9 @@ def create_nomad_metadata_yaml(
             target_sample_fname = sample_filenames[group_idx % len(sample_filenames)]
 
             for meas_file in group_files:
-                meas_data = _measurement_archive(meas_file, target_sample_fname, user_name)
+                meas_data = _measurement_archive(
+                    meas_file, target_sample_fname, user_name
+                )
                 if meas_data is None:
                     continue
                 meas_stem = _slug(Path(meas_file.get("fileName", "unknown")).stem)
@@ -2199,10 +2377,10 @@ def upload_to_nomad(
     """
     if not token:
         token = get_nomad_token()
-    
+
     if not zip_path.exists():
         raise NomadUploadError(f"Zip file not found: {zip_path}")
-    
+
     # ── MOCK MODE ──────────────────────────────────────────────────────
     if settings.NOMAD_MOCK_MODE:
         mock_id = existing_upload_id or f"MOCK_{uuid.uuid4().hex[:12]}"
@@ -2230,30 +2408,40 @@ def upload_to_nomad(
             "entry_ids": [],
         }
     # ───────────────────────────────────────────────────────────────────
-    
+
     try:
         with httpx.Client(timeout=120.0) as client:
             with open(zip_path, "rb") as f:
                 if existing_upload_id:
                     # Add data to an existing upload via streaming PUT
                     put_url = f"{settings.NOMAD_URL}/uploads/{existing_upload_id}"
-                    logger.info(f"Re-uploading to existing NOMAD upload {existing_upload_id}")
+                    logger.info(
+                        f"Re-uploading to existing NOMAD upload {existing_upload_id}"
+                    )
                     response = client.put(
                         put_url,
                         content=f.read(),
                         headers={
                             "Authorization": f"Bearer {token}",
                             "Content-Type": "application/zip",
-                            "Accept": "application/json"
+                            "Accept": "application/json",
                         },
                     )
                     if response.status_code not in (200, 201):
-                        logger.error(f"NOMAD re-upload failed: {response.status_code} - {response.text}")
-                        raise NomadUploadError(f"NOMAD re-upload failed: {response.status_code}")
+                        logger.error(
+                            f"NOMAD re-upload failed: {response.status_code} - {response.text}"
+                        )
+                        raise NomadUploadError(
+                            f"NOMAD re-upload failed: {response.status_code}"
+                        )
                     raw = _safe_json_dict(response, context="re-upload")
                     upload_data = raw.get("data", raw)
                     location = response.headers.get("location", "")
-                    location_upload_id = location.rstrip("/").split("/")[-1] if "/uploads/" in location else None
+                    location_upload_id = (
+                        location.rstrip("/").split("/")[-1]
+                        if "/uploads/" in location
+                        else None
+                    )
                     result_upload_id = (
                         upload_data.get("upload_id")
                         or raw.get("upload_id")
@@ -2271,15 +2459,26 @@ def upload_to_nomad(
                         upload_url,
                         files=files,
                         params=params,
-                        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                        headers={
+                            "Authorization": f"Bearer {token}",
+                            "Accept": "application/json",
+                        },
                     )
                     if response.status_code not in (200, 201):
-                        logger.error(f"NOMAD upload failed: {response.status_code} - {response.text}")
-                        raise NomadUploadError(f"NOMAD upload failed: {response.status_code}")
+                        logger.error(
+                            f"NOMAD upload failed: {response.status_code} - {response.text}"
+                        )
+                        raise NomadUploadError(
+                            f"NOMAD upload failed: {response.status_code}"
+                        )
                     raw = _safe_json_dict(response, context="upload")
                     upload_data = raw.get("data", raw)
                     location = response.headers.get("location", "")
-                    location_upload_id = location.rstrip("/").split("/")[-1] if "/uploads/" in location else None
+                    location_upload_id = (
+                        location.rstrip("/").split("/")[-1]
+                        if "/uploads/" in location
+                        else None
+                    )
                     result_upload_id = (
                         upload_data.get("upload_id")
                         or raw.get("upload_id")
@@ -2290,7 +2489,7 @@ def upload_to_nomad(
                         raise NomadUploadError(
                             "NOMAD upload succeeded but response did not include upload_id"
                         )
-            
+
             logger.info(f"NOMAD upload successful: {result_upload_id}")
             logger.info(f"Data: {upload_data}")
             entries_val = upload_data.get("entries", [])
@@ -2308,7 +2507,7 @@ def upload_to_nomad(
                 "processing_status": upload_data.get("process_status", "PENDING"),
                 "entries": entries_count,
             }
-            
+
     except httpx.RequestError as e:
         logger.error(f"NOMAD upload request error: {e}")
         raise NomadUploadError(f"Failed to connect to NOMAD: {e}")
@@ -2317,19 +2516,19 @@ def upload_to_nomad(
 def get_upload_status(upload_id: str, token: str | None = None) -> dict[str, Any]:
     """
     Get the status of a NOMAD upload.
-    
+
     Args:
         upload_id: The NOMAD upload ID
         token: NOMAD auth token (fetches new one if not provided)
-    
+
     Returns:
         Dict with upload status information
     """
     if not token:
         token = get_nomad_token()
-    
+
     status_url = f"{settings.NOMAD_URL}/uploads/{upload_id}"
-    
+
     # ── MOCK MODE ──────────────────────────────────────────────────────
     if settings.NOMAD_MOCK_MODE:
         logger.info(
@@ -2343,22 +2542,22 @@ def get_upload_status(upload_id: str, token: str | None = None) -> dict[str, Any
             "entries": [],
         }
     # ───────────────────────────────────────────────────────────────────
-    
+
     try:
         with httpx.Client(timeout=30.0) as client:
             response = client.get(
                 status_url,
                 headers={"Authorization": f"Bearer {token}"},
             )
-            
+
             if response.status_code != 200:
                 logger.error(f"NOMAD status check failed: {response.status_code}")
                 return {"error": f"Status check failed: {response.status_code}"}
-            
+
             raw = _safe_json_dict(response, context="status")
             # NOMAD wraps GET /uploads/{id} responses in a top-level "data" key
             return raw.get("data", raw)
-            
+
     except httpx.RequestError as e:
         logger.error(f"NOMAD status request error: {e}")
         return {"error": str(e)}
@@ -2367,19 +2566,19 @@ def get_upload_status(upload_id: str, token: str | None = None) -> dict[str, Any
 def delete_upload(upload_id: str, token: str | None = None) -> bool:
     """
     Delete a NOMAD upload.
-    
+
     Args:
         upload_id: The NOMAD upload ID to delete
         token: NOMAD auth token (fetches new one if not provided)
-    
+
     Returns:
         True if deletion was successful
     """
     if not token:
         token = get_nomad_token()
-    
+
     delete_url = f"{settings.NOMAD_URL}/uploads/{upload_id}"
-    
+
     # ── MOCK MODE ──────────────────────────────────────────────────────
     if settings.NOMAD_MOCK_MODE:
         logger.info(
@@ -2389,16 +2588,16 @@ def delete_upload(upload_id: str, token: str | None = None) -> bool:
         )
         return True
     # ───────────────────────────────────────────────────────────────────
-    
+
     try:
         with httpx.Client(timeout=30.0) as client:
             response = client.delete(
                 delete_url,
                 headers={"Authorization": f"Bearer {token}"},
             )
-            
+
             return response.status_code in (200, 204)
-            
+
     except httpx.RequestError as e:
         logger.error(f"NOMAD delete request error: {e}")
         return False
@@ -2407,10 +2606,10 @@ def delete_upload(upload_id: str, token: str | None = None) -> bool:
 def cleanup_temp_archive(zip_path: Path) -> bool:
     """
     Delete a temporary archive file.
-    
+
     Args:
         zip_path: Path to the zip file to delete
-    
+
     Returns:
         True if deletion was successful
     """
@@ -2428,13 +2627,13 @@ def cleanup_temp_archive(zip_path: Path) -> bool:
 def cleanup_all_temp_archives() -> int:
     """
     Clean up all temporary archive files.
-    
+
     Returns:
         Number of files deleted
     """
     if not TEMP_UPLOAD_DIR.exists():
         return 0
-    
+
     count = 0
     for zip_file in TEMP_UPLOAD_DIR.glob("*.zip"):
         try:
@@ -2442,6 +2641,6 @@ def cleanup_all_temp_archives() -> int:
             count += 1
         except OSError:
             pass
-    
+
     logger.info(f"Cleaned up {count} temporary archives")
     return count

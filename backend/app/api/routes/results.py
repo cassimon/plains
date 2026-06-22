@@ -6,7 +6,13 @@ from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.crud import create_experiment_results, update_experiment_results
-from app.models import ExperimentResults, ExperimentResultsCreate, ExperimentResultsPublic, ExperimentResultsListPublic, ExperimentResultsUpdate
+from app.models import (
+    ExperimentResults,
+    ExperimentResultsCreate,
+    ExperimentResultsListPublic,
+    ExperimentResultsPublic,
+    ExperimentResultsUpdate,
+)
 
 router = APIRouter(prefix="/results", tags=["results"])
 
@@ -20,7 +26,10 @@ def read_results(
         count_statement = select(func.count()).select_from(ExperimentResults)
         count = session.exec(count_statement).one()
         statement = (
-            select(ExperimentResults).order_by(col(ExperimentResults.created_at).desc()).offset(skip).limit(limit)
+            select(ExperimentResults)
+            .order_by(col(ExperimentResults.created_at).desc())
+            .offset(skip)
+            .limit(limit)
         )
         items = session.exec(statement).all()
     else:
@@ -91,9 +100,7 @@ def update_result(
 
 
 @router.delete("/{id}")
-def delete_result(
-    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
-) -> Any:
+def delete_result(session: SessionDep, current_user: CurrentUser, id: uuid.UUID) -> Any:
     """Delete experiment results."""
     result = session.get(ExperimentResults, id)
     if not result:

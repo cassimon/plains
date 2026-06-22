@@ -2289,6 +2289,7 @@ function ResultingStacks({
                                   </>
                                 ) : (
                                   <button
+                                    type="button"
                                     style={addParamButtonStyle}
                                     onClick={(e) => {
                                       e.stopPropagation()
@@ -2719,6 +2720,7 @@ function ResultingStacks({
                                 />
                               ) : (
                                 <button
+                                  type="button"
                                   style={addParamButtonStyle}
                                   onClick={(e) => {
                                     e.stopPropagation()
@@ -2766,12 +2768,13 @@ function ResultingStacks({
                 let paramCount = stack.layers
                   .filter((l) => !l.isSubstrate)
                   .reduce((acc, l) => {
-                    if (l.thicknessNm) acc++
-                    if (l.bandgapEv) acc++
-                    if (l.perovskiteA) acc++
-                    if (l.perovskiteB) acc++
-                    if (l.perovskiteX) acc++
-                    return acc
+                    let count = acc
+                    if (l.thicknessNm) count++
+                    if (l.bandgapEv) count++
+                    if (l.perovskiteA) count++
+                    if (l.perovskiteB) count++
+                    if (l.perovskiteX) count++
+                    return count
                   }, 0)
                 if (stack.architecture && stack.architecture !== "Unknown")
                   paramCount++
