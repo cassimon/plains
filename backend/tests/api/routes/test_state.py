@@ -219,3 +219,74 @@ class TestStateBulk:
         # Normal user should not see superuser's material
         mat_names = [m.get("name") for m in r.json()["materials"]]
         assert "super-mat" not in mat_names
+
+
+class TestStateSolutionComponents:
+    def test_put_state_solution_with_components(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        mat_id = str(uuid.uuid4())
+        sol_id = str(uuid.uuid4())
+        comp_id = str(uuid.uuid4())
+        payload = {
+            "data": {
+                "materials": [{"id": mat_id, "name": "Solvent"}],
+                "solutions": [
+                    {
+                        "id": sol_id,
+                        "name": "MySolution",
+                        "components": [
+                            {"id": comp_id, "materialId": mat_id, "amount": "5", "unit": "ml"}
+                        ],
+                    }
+                ],
+                "experiments": [],
+                "results": [],
+                "planes": [],
+                "processes": [],
+            }
+        }
+        r = client.put(f"{BASE}/", json=payload, headers=normal_user_token_headers)
+        assert r.status_code == 200
+
+        # Update same component (cover the update branch)
+        payload["data"]["solutions"][0]["components"][0]["amount"] = "10"
+        r2 = client.put(f"{BASE}/", json=payload, headers=normal_user_token_headers)
+        assert r2.status_code == 200
+
+        # Clean up
+        client.put(
+            f"{BASE}/",
+            json={"data": {"materials": [], "solutions": [], "experiments": [], "results": [], "planes": [], "processes": []}},
+            headers=normal_user_token_headers,
+        )
+
+    def test_put_state_solution_component_without_material_id(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        sol_id = str(uuid.uuid4())
+        payload = {
+            "data": {
+                "materials": [],
+                "solutions": [
+                    {
+                        "id": sol_id,
+                        "name": "EmptySolution",
+                        "components": [
+                            {"id": str(uuid.uuid4()), "amount": "5", "unit": "ml"}
+                        ],
+                    }
+                ],
+                "experiments": [],
+                "results": [],
+                "planes": [],
+                "processes": [],
+            }
+        }
+        r = client.put(f"{BASE}/", json=payload, headers=normal_user_token_headers)
+        assert r.status_code == 200
+        client.put(
+            f"{BASE}/",
+            json={"data": {"materials": [], "solutions": [], "experiments": [], "results": [], "planes": [], "processes": []}},
+            headers=normal_user_token_headers,
+        )
