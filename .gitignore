@@ -12,4 +12,4 @@ node_modules/
 *.key
 *.p12
 *.pfx
-secrets/
+secrets/.claude/
