@@ -547,7 +547,7 @@ class PlaneShare(SQLModel, table=True):
         back_populates="shared_with",
         sa_relationship_kwargs={"foreign_keys": "[PlaneShare.plane_id]"},
     )
-    user: User | None = Relationship()
+    user: User | None = Relationship(sa_relationship_kwargs={"overlaps": "shared_planes"})
 
 
 class PlaneShareCreate(SQLModel):

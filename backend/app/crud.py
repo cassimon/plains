@@ -134,14 +134,17 @@ def update_material(
 def create_solution(
     *, session: Session, solution_in: SolutionCreate, owner_id: uuid.UUID
 ) -> Solution:
-    db_solution = Solution.model_validate(solution_in, update={"owner_id": owner_id})
-    # Create components
+    db_solution = Solution.model_validate(
+        solution_in.model_dump(exclude={"components"}),
+        update={"owner_id": owner_id},
+    )
+    session.add(db_solution)
+    session.flush()
     for component_in in solution_in.components:
         component = SolutionComponent.model_validate(
             component_in, update={"solution_id": db_solution.id}
         )
-        db_solution.components.append(component)
-    session.add(db_solution)
+        session.add(component)
     session.commit()
     session.refresh(db_solution)
     return db_solution
@@ -167,21 +170,21 @@ def create_experiment(
     *, session: Session, experiment_in: ExperimentCreate, owner_id: uuid.UUID
 ) -> Experiment:
     db_experiment = Experiment.model_validate(
-        experiment_in, update={"owner_id": owner_id}
+        experiment_in.model_dump(exclude={"substrates", "layers"}),
+        update={"owner_id": owner_id},
     )
-    # Create substrates
+    session.add(db_experiment)
+    session.flush()
     for substrate_in in experiment_in.substrates:
         substrate = Substrate.model_validate(
             substrate_in, update={"experiment_id": db_experiment.id}
         )
-        db_experiment.substrates.append(substrate)
-    # Create layers
+        session.add(substrate)
     for layer_in in experiment_in.layers:
         layer = ExperimentLayer.model_validate(
             layer_in, update={"experiment_id": db_experiment.id}
         )
-        db_experiment.layers.append(layer)
-    session.add(db_experiment)
+        session.add(layer)
     session.commit()
     session.refresh(db_experiment)
     return db_experiment
@@ -211,21 +214,21 @@ def create_experiment_results(
     experiment_id: uuid.UUID,
 ) -> ExperimentResults:
     db_results = ExperimentResults.model_validate(
-        results_in, update={"owner_id": owner_id, "experiment_id": experiment_id}
+        results_in.model_dump(exclude={"measurement_files", "device_groups"}),
+        update={"owner_id": owner_id, "experiment_id": experiment_id},
     )
-    # Create measurement files
+    session.add(db_results)
+    session.flush()
     for file_in in results_in.measurement_files:
         file_obj = MeasurementFile.model_validate(
             file_in, update={"results_id": db_results.id}
         )
-        db_results.measurement_files.append(file_obj)
-    # Create device groups
+        session.add(file_obj)
     for group_in in results_in.device_groups:
         group = DeviceGroup.model_validate(
             group_in, update={"results_id": db_results.id}
         )
-        db_results.device_groups.append(group)
-    session.add(db_results)
+        session.add(group)
     session.commit()
     session.refresh(db_results)
     return db_results
