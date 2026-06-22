@@ -13,7 +13,6 @@ from app.models import (
     ProcessGeneratedStack,
     ProcessGeneratedStackCreate,
     ProcessGeneratedStackLayer,
-    ProcessGeneratedStackLayerCreate,
     ProcessGeneratedStackPublic,
     ProcessPublic,
     ProcessSolutionRecipe,
@@ -24,11 +23,8 @@ from app.models import (
     ProcessStepPublic,
     ProcessUpdate,
     RecipeAddedSolution,
-    RecipeAddedSolutionCreate,
     RecipeSolute,
-    RecipeSoluteCreate,
     RecipeSolvent,
-    RecipeSolventCreate,
 )
 
 router = APIRouter(prefix="/processes", tags=["processes"])
@@ -118,6 +114,7 @@ def _owned_process(
 
 # --- Recipes ---
 
+
 @router.get("/{id}/recipes/")
 def read_process_recipes(
     session: SessionDep, current_user: CurrentUser, id: uuid.UUID
@@ -137,7 +134,9 @@ def create_process_recipe(
 ) -> Any:
     """Add a solution recipe to a process."""
     _owned_process(session, current_user, id)
-    recipe_data = recipe_in.model_dump(exclude={"solvents", "solutes", "added_solutions"})
+    recipe_data = recipe_in.model_dump(
+        exclude={"solvents", "solutes", "added_solutions"}
+    )
     recipe = ProcessSolutionRecipe(**recipe_data, process_id=id)
     session.add(recipe)
     session.flush()
@@ -206,6 +205,7 @@ def delete_process_recipe(
 
 # --- Steps ---
 
+
 @router.get("/{id}/steps/")
 def read_process_steps(
     session: SessionDep, current_user: CurrentUser, id: uuid.UUID
@@ -268,6 +268,7 @@ def delete_process_step(
 
 
 # --- Stacks ---
+
 
 @router.get("/{id}/stacks/")
 def read_process_stacks(

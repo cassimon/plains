@@ -14,3 +14,5 @@ node_modules/
 *.pfx
 secrets/.claude/
 .claude/
+__pycache__/
+*.py[cod]
