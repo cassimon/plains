@@ -396,7 +396,7 @@ async def add_metadata_to_archive(
         raise HTTPException(status_code=400, detail="Invalid archive path") from e
 
     allowed_root = TEMP_UPLOAD_DIR.resolve()
-    if not str(candidate).startswith(str(allowed_root)):
+    if not candidate.is_relative_to(allowed_root):
         logger.error(
             "[add_metadata_to_archive] archive path outside allowed root: %s (allowed: %s)",
             candidate,
@@ -507,7 +507,7 @@ async def preview_metadata_from_archive(
         raise HTTPException(status_code=400, detail="Invalid archive path") from e
 
     allowed_root = TEMP_UPLOAD_DIR.resolve()
-    if not str(candidate).startswith(str(allowed_root)):
+    if not candidate.is_relative_to(allowed_root):
         raise HTTPException(status_code=403, detail="Archive path is not allowed")
 
     if not candidate.exists():
@@ -554,7 +554,7 @@ async def discard_uploaded_archive(
         raise HTTPException(status_code=400, detail="Invalid archive path") from e
 
     allowed_root = TEMP_UPLOAD_DIR.resolve()
-    if not str(candidate).startswith(str(allowed_root)):
+    if not candidate.is_relative_to(allowed_root):
         raise HTTPException(status_code=403, detail="Archive path is not allowed")
 
     deleted = cleanup_temp_archive(candidate)
@@ -618,7 +618,7 @@ async def upload_to_nomad_endpoint(
             raise HTTPException(status_code=400, detail="Invalid archive path") from e
 
         allowed_root = TEMP_UPLOAD_DIR.resolve()
-        if not str(candidate).startswith(str(allowed_root)):
+        if not candidate.is_relative_to(allowed_root):
             raise HTTPException(status_code=403, detail="Archive path is not allowed")
 
         if not candidate.exists():

@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -10,6 +11,8 @@ from pwdlib.hashers.bcrypt import BcryptHasher
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
 password_hash = PasswordHash(
     (
         Argon2Hasher(),
@@ -19,8 +22,6 @@ password_hash = PasswordHash(
 
 ALGORITHM = "HS256"
 
-# Module-level JWKS client — PyJWKClient handles key caching and rotation internally.
-# Instantiated lazily on first use so it doesn't fire on import (before settings load).
 _jwks_client: PyJWKClient | None = None
 
 
@@ -53,34 +54,20 @@ def get_password_hash(password: str) -> str:
 
 def verify_nomad_token(token: str) -> dict[str, Any]:
     """
-    Verify a Keycloak RS256 JWT against the central NOMAD JWKS endpoint and
-    return the decoded claims.  Raises HTTP 401 on any verification failure.
+    Verify a Keycloak RS256 JWT against the NOMAD JWKS endpoint.
+    Returns decoded claims. Raises HTTP 401 on any failure.
     """
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    logger.info("[Auth] verify_nomad_token called")
-    logger.info(f"[Auth] NOMAD_OAUTH_ENABLED: {settings.NOMAD_OAUTH_ENABLED}")
-
     if not settings.NOMAD_OAUTH_ENABLED:
-        logger.error("[Auth] NOMAD OAuth is not enabled")
         raise HTTPException(
             status_code=400,
             detail="NOMAD OAuth is not enabled",
         )
 
     issuer = settings.NOMAD_KEYCLOAK_REALM_URL
-    logger.info(f"[Auth] Expected issuer: {issuer}")
-    logger.info(f"[Auth] JWKS URL: {issuer}/protocol/openid-connect/certs")
-    logger.info(f"[Auth] Audience verification: {settings.NOMAD_OAUTH_VERIFY_AUDIENCE}")
 
     try:
         jwks_client = _get_jwks_client()
-        logger.info("[Auth] JWKS client initialized")
-
         signing_key = jwks_client.get_signing_key_from_jwt(token)
-        logger.info("[Auth] Signing key retrieved from JWT")
 
         decode_kwargs: dict[str, Any] = {
             "algorithms": ["RS256"],
@@ -89,23 +76,22 @@ def verify_nomad_token(token: str) -> dict[str, Any]:
         if settings.NOMAD_OAUTH_VERIFY_AUDIENCE:
             audience = settings.NOMAD_OAUTH_AUDIENCE or settings.NOMAD_OAUTH_CLIENT_ID
             decode_kwargs["audience"] = audience
-            logger.info(f"[Auth] Will verify audience: {audience}")
         else:
             decode_kwargs["options"] = {"verify_aud": False}
-            logger.info("[Auth] Audience verification disabled")
 
         claims = jwt.decode(token, signing_key.key, **decode_kwargs)
-        logger.info(f"[Auth] Token verified successfully, subject: {claims.get('sub')}")
         return claims
     except jwt.InvalidTokenError as e:
-        logger.error(f"[Auth] Invalid token error: {str(e)}")
+        logger.warning("[Auth] Token rejected: %s", type(e).__name__)
         raise HTTPException(
             status_code=401,
-            detail=f"Invalid NOMAD token: {str(e)}",
-        )
+            detail="Invalid or expired token",
+        ) from e
     except Exception as e:
-        logger.error(f"[Auth] Token verification failed: {str(e)}", exc_info=True)
+        logger.error(
+            "[Auth] Token verification error: %s", type(e).__name__, exc_info=True
+        )
         raise HTTPException(
             status_code=401,
-            detail=f"Token verification failed: {str(e)}",
-        )
+            detail="Token verification failed",
+        ) from e
