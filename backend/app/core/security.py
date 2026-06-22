@@ -2,8 +2,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import jwt
-from jwt import PyJWKClient
 from fastapi import HTTPException
+from jwt import PyJWKClient
 from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
 from pwdlib.hashers.bcrypt import BcryptHasher
@@ -57,11 +57,12 @@ def verify_nomad_token(token: str) -> dict[str, Any]:
     return the decoded claims.  Raises HTTP 401 on any verification failure.
     """
     import logging
+
     logger = logging.getLogger(__name__)
-    
+
     logger.info("[Auth] verify_nomad_token called")
     logger.info(f"[Auth] NOMAD_OAUTH_ENABLED: {settings.NOMAD_OAUTH_ENABLED}")
-    
+
     if not settings.NOMAD_OAUTH_ENABLED:
         logger.error("[Auth] NOMAD OAuth is not enabled")
         raise HTTPException(
@@ -73,14 +74,14 @@ def verify_nomad_token(token: str) -> dict[str, Any]:
     logger.info(f"[Auth] Expected issuer: {issuer}")
     logger.info(f"[Auth] JWKS URL: {issuer}/protocol/openid-connect/certs")
     logger.info(f"[Auth] Audience verification: {settings.NOMAD_OAUTH_VERIFY_AUDIENCE}")
-    
+
     try:
         jwks_client = _get_jwks_client()
         logger.info("[Auth] JWKS client initialized")
-        
+
         signing_key = jwks_client.get_signing_key_from_jwt(token)
         logger.info("[Auth] Signing key retrieved from JWT")
-        
+
         decode_kwargs: dict[str, Any] = {
             "algorithms": ["RS256"],
             "issuer": issuer,

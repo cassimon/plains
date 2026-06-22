@@ -1,6 +1,6 @@
+import logging
 from collections.abc import Generator
 from typing import Annotated
-import logging
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -27,13 +27,11 @@ SessionDep = Annotated[Session, Depends(get_db)]
 
 
 def _require_token(
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None, Depends(_http_bearer)
-    ],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_http_bearer)],
 ) -> str:
     logger.info("[Auth] _require_token called")
     logger.info(f"[Auth] Credentials present: {credentials is not None}")
-    
+
     if not credentials or not credentials.credentials:
         logger.error("[Auth] No credentials in Authorization header")
         raise HTTPException(
@@ -41,7 +39,7 @@ def _require_token(
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     logger.info("[Auth] Token extracted from Authorization header")
     return credentials.credentials
 
@@ -56,11 +54,11 @@ def get_current_user(session: SessionDep, token: TokenDep) -> User:
     The token is verified against the NOMAD JWKS endpoint (RS256, issuer check).
     """
     logger.info("[Auth] get_current_user called, token received")
-    
+
     claims = security.verify_nomad_token(token)
     nomad_sub = claims.get("sub")
     logger.info(f"[Auth] Token verified, nomad_sub: {nomad_sub}")
-    
+
     if not nomad_sub:
         logger.error("[Auth] Token missing subject claim")
         raise HTTPException(
@@ -104,4 +102,3 @@ def get_current_active_superuser(current_user: CurrentUser) -> User:
             status_code=403, detail="The user doesn't have enough privileges"
         )
     return current_user
-

@@ -51,16 +51,26 @@ class UpdatePassword(SQLModel):
 class User(UserBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str | None = Field(default=None)  # Optional for NOMAD OAuth users
-    nomad_sub: str | None = Field(default=None, unique=True, index=True)  # Keycloak user UUID
+    nomad_sub: str | None = Field(
+        default=None, unique=True, index=True
+    )  # Keycloak user UUID
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
     )
     items: list["Item"] = Relationship(back_populates="owner", cascade_delete=True)
-    materials: list["Material"] = Relationship(back_populates="owner", cascade_delete=True)
-    solutions: list["Solution"] = Relationship(back_populates="owner", cascade_delete=True)
-    experiments: list["Experiment"] = Relationship(back_populates="owner", cascade_delete=True)
-    results: list["ExperimentResults"] = Relationship(back_populates="owner", cascade_delete=True)
+    materials: list["Material"] = Relationship(
+        back_populates="owner", cascade_delete=True
+    )
+    solutions: list["Solution"] = Relationship(
+        back_populates="owner", cascade_delete=True
+    )
+    experiments: list["Experiment"] = Relationship(
+        back_populates="owner", cascade_delete=True
+    )
+    results: list["ExperimentResults"] = Relationship(
+        back_populates="owner", cascade_delete=True
+    )
     planes: list["Plane"] = Relationship(back_populates="owner", cascade_delete=True)
     shared_planes: list["PlaneShare"] = Relationship(cascade_delete=True)
 
@@ -121,6 +131,7 @@ class ItemsPublic(SQLModel):
 # Plains GUI Domain Models
 # ============================================================================
 
+
 # Material
 class MaterialBase(SQLModel):
     name: str = Field(min_length=1, max_length=255)
@@ -173,7 +184,9 @@ class MaterialsPublic(SQLModel):
 class SolutionComponentBase(SQLModel):
     amount: float
     unit: str = Field(max_length=50)
-    material_id: uuid.UUID = Field(foreign_key="material.id", nullable=False, ondelete="CASCADE")
+    material_id: uuid.UUID = Field(
+        foreign_key="material.id", nullable=False, ondelete="CASCADE"
+    )
 
 
 class SolutionComponentCreate(SolutionComponentBase):
@@ -186,7 +199,7 @@ class SolutionComponent(SolutionComponentBase, table=True):
         foreign_key="solution.id", nullable=False, ondelete="CASCADE"
     )
     solution: Optional["Solution"] = Relationship(back_populates="components")
-    material: Optional[Material] = Relationship(back_populates="solution_components")
+    material: Material | None = Relationship(back_populates="solution_components")
 
 
 class SolutionComponentPublic(SolutionComponentBase):
@@ -197,7 +210,9 @@ class SolutionBase(SQLModel):
     name: str = Field(min_length=1, max_length=255)
     notes: str | None = None
     handling: str | None = Field(default=None, max_length=255)
-    creation_time: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    creation_time: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True)
+    )
 
 
 class SolutionCreate(SolutionBase):
@@ -262,9 +277,15 @@ class SubstratePublic(SubstrateBase):
 
 class ExperimentLayerBase(SQLModel):
     name: str = Field(min_length=1, max_length=255)
-    layer_type: str | None = Field(default=None, max_length=50)  # etl, htl, perovskite, additional, back_contact
-    material_id: uuid.UUID | None = Field(default=None, foreign_key="material.id", ondelete="SET NULL")
-    solution_id: uuid.UUID | None = Field(default=None, foreign_key="solution.id", ondelete="SET NULL")
+    layer_type: str | None = Field(
+        default=None, max_length=50
+    )  # etl, htl, perovskite, additional, back_contact
+    material_id: uuid.UUID | None = Field(
+        default=None, foreign_key="material.id", ondelete="SET NULL"
+    )
+    solution_id: uuid.UUID | None = Field(
+        default=None, foreign_key="solution.id", ondelete="SET NULL"
+    )
     temperature: float | None = None
     temperature_unit: str = Field(default="°C", max_length=50)
     duration: float | None = None
@@ -356,7 +377,9 @@ class MeasurementFile(MeasurementFileBase, table=True):
     results_id: uuid.UUID = Field(
         foreign_key="experimentresults.id", nullable=False, ondelete="CASCADE"
     )
-    results: Optional["ExperimentResults"] = Relationship(back_populates="measurement_files")
+    results: Optional["ExperimentResults"] = Relationship(
+        back_populates="measurement_files"
+    )
 
 
 class MeasurementFilePublic(MeasurementFileBase):
@@ -377,7 +400,9 @@ class DeviceGroup(DeviceGroupBase, table=True):
     results_id: uuid.UUID = Field(
         foreign_key="experimentresults.id", nullable=False, ondelete="CASCADE"
     )
-    results: Optional["ExperimentResults"] = Relationship(back_populates="device_groups")
+    results: Optional["ExperimentResults"] = Relationship(
+        back_populates="device_groups"
+    )
 
 
 class DeviceGroupPublic(DeviceGroupBase):
@@ -506,6 +531,7 @@ class Plane(PlaneBase, table=True):
 
 class PlaneShare(SQLModel, table=True):
     """Many-to-many relationship for plane sharing."""
+
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     plane_id: uuid.UUID = Field(
         foreign_key="plane.id", nullable=False, ondelete="CASCADE"
@@ -550,12 +576,16 @@ class PlanesPublic(SQLModel):
 # User State (JSON blob for full GUI state per user)
 # ============================================================================
 
+
 class UserState(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     owner_id: uuid.UUID = Field(
         foreign_key="user.id", nullable=False, ondelete="CASCADE", unique=True
     )
-    data: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False, server_default="{}"))
+    data: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB, nullable=False, server_default="{}"),
+    )
     updated_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),
@@ -569,6 +599,7 @@ class UserStatePublic(SQLModel):
 
 class BulkStateResponse(SQLModel):
     """Full application state for bulk loading."""
+
     materials: list[MaterialPublic]
     solutions: list[SolutionPublic]
     experiments: list[ExperimentPublic]

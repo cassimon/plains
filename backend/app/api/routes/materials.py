@@ -5,7 +5,13 @@ from fastapi import APIRouter, HTTPException
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
-from app.models import Material, MaterialCreate, MaterialPublic, MaterialsPublic, MaterialUpdate, Message
+from app.models import (
+    Material,
+    MaterialCreate,
+    MaterialPublic,
+    MaterialsPublic,
+    MaterialUpdate,
+)
 
 router = APIRouter(prefix="/materials", tags=["materials"])
 
@@ -19,7 +25,10 @@ def read_materials(
         count_statement = select(func.count()).select_from(Material)
         count = session.exec(count_statement).one()
         statement = (
-            select(Material).order_by(col(Material.created_at).desc()).offset(skip).limit(limit)
+            select(Material)
+            .order_by(col(Material.created_at).desc())
+            .offset(skip)
+            .limit(limit)
         )
         items = session.exec(statement).all()
     else:
@@ -56,7 +65,9 @@ def create_material(
     *, session: SessionDep, current_user: CurrentUser, material_in: MaterialCreate
 ) -> Any:
     """Create new material."""
-    material = Material.model_validate(material_in, update={"owner_id": current_user.id})
+    material = Material.model_validate(
+        material_in, update={"owner_id": current_user.id}
+    )
     session.add(material)
     session.commit()
     session.refresh(material)
@@ -86,7 +97,9 @@ def update_material(
 
 
 @router.delete("/{id}")
-def delete_material(session: SessionDep, current_user: CurrentUser, id: uuid.UUID) -> Any:
+def delete_material(
+    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
+) -> Any:
     """Delete material."""
     material = session.get(Material, id)
     if not material:

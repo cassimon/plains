@@ -5,39 +5,32 @@ from sqlmodel import Session, select
 
 from app.core.security import get_password_hash, verify_password
 from app.models import (
-    Item,
-    ItemCreate,
-    User,
-    UserCreate,
-    UserUpdate,
-    Material,
-    MaterialCreate,
-    MaterialUpdate,
-    Solution,
-    SolutionCreate,
-    SolutionUpdate,
-    SolutionComponent,
-    SolutionComponentCreate,
+    CanvasElement,
+    DeviceGroup,
     Experiment,
     ExperimentCreate,
-    ExperimentUpdate,
     ExperimentLayer,
-    ExperimentLayerCreate,
-    Substrate,
-    SubstrateCreate,
     ExperimentResults,
     ExperimentResultsCreate,
     ExperimentResultsUpdate,
+    ExperimentUpdate,
+    Item,
+    ItemCreate,
+    Material,
+    MaterialCreate,
+    MaterialUpdate,
     MeasurementFile,
-    MeasurementFileCreate,
-    DeviceGroup,
-    DeviceGroupCreate,
     Plane,
     PlaneCreate,
     PlaneUpdate,
-    CanvasElement,
-    CanvasElementCreate,
-    CanvasElementUpdate,
+    Solution,
+    SolutionComponent,
+    SolutionCreate,
+    SolutionUpdate,
+    Substrate,
+    User,
+    UserCreate,
+    UserUpdate,
 )
 
 
@@ -83,11 +76,11 @@ def authenticate(*, session: Session, email: str, password: str) -> User | None:
         # This ensures the response time is similar whether or not the email exists
         verify_password(password, DUMMY_HASH)
         return None
-    
+
     # NOMAD OAuth users don't have passwords
     if not db_user.hashed_password:
         return None
-    
+
     verified, updated_password_hash = verify_password(password, db_user.hashed_password)
     if not verified:
         return None
@@ -110,6 +103,7 @@ def create_item(*, session: Session, item_in: ItemCreate, owner_id: uuid.UUID) -
 # ============================================================================
 # Material CRUD
 # ============================================================================
+
 
 def create_material(
     *, session: Session, material_in: MaterialCreate, owner_id: uuid.UUID
@@ -135,6 +129,7 @@ def update_material(
 # ============================================================================
 # Solution CRUD
 # ============================================================================
+
 
 def create_solution(
     *, session: Session, solution_in: SolutionCreate, owner_id: uuid.UUID
@@ -166,6 +161,7 @@ def update_solution(
 # ============================================================================
 # Experiment CRUD
 # ============================================================================
+
 
 def create_experiment(
     *, session: Session, experiment_in: ExperimentCreate, owner_id: uuid.UUID
@@ -205,6 +201,7 @@ def update_experiment(
 # ============================================================================
 # ExperimentResults CRUD
 # ============================================================================
+
 
 def create_experiment_results(
     *,
@@ -252,6 +249,7 @@ def update_experiment_results(
 # Plane CRUD
 # ============================================================================
 
+
 def create_plane(
     *, session: Session, plane_in: PlaneCreate, owner_id: uuid.UUID
 ) -> Plane:
@@ -268,9 +266,7 @@ def create_plane(
     return db_plane
 
 
-def update_plane(
-    *, session: Session, db_plane: Plane, plane_in: PlaneUpdate
-) -> Plane:
+def update_plane(*, session: Session, db_plane: Plane, plane_in: PlaneUpdate) -> Plane:
     plane_data = plane_in.model_dump(exclude_unset=True)
     db_plane.sqlmodel_update(plane_data)
     session.add(db_plane)

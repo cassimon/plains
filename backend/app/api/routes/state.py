@@ -11,22 +11,20 @@ from sqlmodel import select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.models import (
-    UserState,
-    UserStatePublic,
     BulkStateResponse,
-    Material,
-    Solution,
-    SolutionComponent,
+    CanvasElement,
     Experiment,
     ExperimentLayer,
-    Substrate,
     ExperimentResults,
-    MeasurementFile,
-    DeviceGroup,
+    Material,
     Plane,
     PlaneShare,
-    CanvasElement,
+    Solution,
+    SolutionComponent,
+    Substrate,
     UserPublic,
+    UserState,
+    UserStatePublic,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,6 +35,7 @@ router = APIRouter(prefix="/state", tags=["state"])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _uuid_or_gen(raw: str | None) -> _uuid.UUID:
     """Parse a UUID string, or generate a new one if invalid/missing."""
@@ -78,6 +77,7 @@ def _safe_datetime(val: Any) -> datetime | None:
 # GET /state/ — read state from normalised tables
 # ---------------------------------------------------------------------------
 
+
 @router.get("/", response_model=UserStatePublic)
 def read_state(session: SessionDep, current_user: CurrentUser) -> Any:
     """Reconstruct the full AppSnapshot from normalised tables."""
@@ -92,12 +92,19 @@ def read_state(session: SessionDep, current_user: CurrentUser) -> Any:
         if m.frontend_data:
             materials_out.append(m.frontend_data)
         else:
-            materials_out.append({
-                "id": str(m.id), "type": "", "name": m.name,
-                "supplier": m.supplier or "", "supplierNumber": "",
-                "casNumber": m.cas_number or "", "pubchemCid": "",
-                "inventoryLabel": "", "purity": "",
-            })
+            materials_out.append(
+                {
+                    "id": str(m.id),
+                    "type": "",
+                    "name": m.name,
+                    "supplier": m.supplier or "",
+                    "supplierNumber": "",
+                    "casNumber": m.cas_number or "",
+                    "pubchemCid": "",
+                    "inventoryLabel": "",
+                    "purity": "",
+                }
+            )
 
     # --- Solutions ---
     solutions_db = session.exec(select(Solution).where(Solution.owner_id == uid)).all()
@@ -113,47 +120,76 @@ def read_state(session: SessionDep, current_user: CurrentUser) -> Any:
                 ).isoformat()
             solutions_out.append(payload)
         else:
-            solutions_out.append({
-                "id": str(s.id), "name": s.name, "components": [],
-                "handling": s.handling or "",
-                "creationTime": (s.creation_time or s.created_at or datetime.now(timezone.utc)).isoformat(),
-            })
+            solutions_out.append(
+                {
+                    "id": str(s.id),
+                    "name": s.name,
+                    "components": [],
+                    "handling": s.handling or "",
+                    "creationTime": (
+                        s.creation_time or s.created_at or datetime.now(timezone.utc)
+                    ).isoformat(),
+                }
+            )
 
     # --- Experiments ---
-    experiments_db = session.exec(select(Experiment).where(Experiment.owner_id == uid)).all()
+    experiments_db = session.exec(
+        select(Experiment).where(Experiment.owner_id == uid)
+    ).all()
     experiments_out = []
     for e in experiments_db:
         if e.frontend_data:
             experiments_out.append(e.frontend_data)
         else:
-            experiments_out.append({
-                "id": str(e.id), "name": e.name, "description": e.description or "",
-                "date": (e.created_at or datetime.now(timezone.utc)).strftime("%Y-%m-%d"),
-                "architecture": "n-i-p", "substrateMaterial": "",
-                "substrateWidth": 2.5, "substrateLength": 2.5,
-                "numSubstrates": 1, "devicesPerSubstrate": 4,
-                "deviceArea": e.active_area_cm2 or 0.09,
-                "deviceType": e.device_type or "film",
-                "layers": [], "substrates": [], "hasResults": False,
-            })
+            experiments_out.append(
+                {
+                    "id": str(e.id),
+                    "name": e.name,
+                    "description": e.description or "",
+                    "date": (e.created_at or datetime.now(timezone.utc)).strftime(
+                        "%Y-%m-%d"
+                    ),
+                    "architecture": "n-i-p",
+                    "substrateMaterial": "",
+                    "substrateWidth": 2.5,
+                    "substrateLength": 2.5,
+                    "numSubstrates": 1,
+                    "devicesPerSubstrate": 4,
+                    "deviceArea": e.active_area_cm2 or 0.09,
+                    "deviceType": e.device_type or "film",
+                    "layers": [],
+                    "substrates": [],
+                    "hasResults": False,
+                }
+            )
 
     # --- Results ---
-    results_db = session.exec(select(ExperimentResults).where(ExperimentResults.owner_id == uid)).all()
+    results_db = session.exec(
+        select(ExperimentResults).where(ExperimentResults.owner_id == uid)
+    ).all()
     results_out = []
     for r in results_db:
         if r.frontend_data:
             results_out.append(r.frontend_data)
         else:
-            results_out.append({
-                "id": str(r.id), "experimentId": str(r.experiment_id),
-                "files": [], "deviceGroups": [],
-                "groupingStrategy": "search", "matchingStrategy": "fuzzy",
-                "updatedAt": (r.created_at or datetime.now(timezone.utc)).isoformat(),
-            })
+            results_out.append(
+                {
+                    "id": str(r.id),
+                    "experimentId": str(r.experiment_id),
+                    "files": [],
+                    "deviceGroups": [],
+                    "groupingStrategy": "search",
+                    "matchingStrategy": "fuzzy",
+                    "updatedAt": (
+                        r.created_at or datetime.now(timezone.utc)
+                    ).isoformat(),
+                }
+            )
 
     # --- Planes + Elements ---
     # Get planes owned by user OR shared with user
     from sqlmodel import or_
+
     planes_db = session.exec(
         select(Plane)
         .outerjoin(PlaneShare, Plane.id == PlaneShare.plane_id)
@@ -174,12 +210,16 @@ def read_state(session: SessionDep, current_user: CurrentUser) -> Any:
                 if el.frontend_data:
                     elems.append(el.frontend_data)
                 else:
-                    elems.append({
-                        "id": str(el.id), "type": el.element_type or "text",
-                        "position": {"x": el.x, "y": el.y},
-                        "size": {"x": el.width, "y": el.height},
-                        "content": el.content or "", "color": el.color,
-                    })
+                    elems.append(
+                        {
+                            "id": str(el.id),
+                            "type": el.element_type or "text",
+                            "position": {"x": el.x, "y": el.y},
+                            "size": {"x": el.width, "y": el.height},
+                            "content": el.content or "",
+                            "color": el.color,
+                        }
+                    )
             planes_out.append(
                 {
                     "id": str(p.id),
@@ -211,8 +251,13 @@ def read_state(session: SessionDep, current_user: CurrentUser) -> Any:
     logger.info(
         "GET /state/ user=%s — materials=%d solutions=%d experiments=%d "
         "processes=%d results=%d planes=%d",
-        uid, len(materials_out), len(solutions_out), len(experiments_out),
-        len(data["processes"]), len(results_out), len(planes_out),
+        uid,
+        len(materials_out),
+        len(solutions_out),
+        len(experiments_out),
+        len(data["processes"]),
+        len(results_out),
+        len(planes_out),
     )
 
     # Also fetch updated_at from the UserState row (if any)
@@ -224,6 +269,7 @@ def read_state(session: SessionDep, current_user: CurrentUser) -> Any:
 # ---------------------------------------------------------------------------
 # PUT /state/ — sync AppSnapshot into normalised tables
 # ---------------------------------------------------------------------------
+
 
 @router.put("/", response_model=UserStatePublic)
 def update_state(
@@ -314,9 +360,7 @@ def _do_sync(session: SessionDep, uid: _uuid.UUID, data: dict) -> UserStatePubli
 
     for s_data in incoming_solutions:
         sid = _uuid_or_gen(s_data.get("id"))
-        has_creation_time = (
-            "creationTime" in s_data or "creation_time" in s_data
-        )
+        has_creation_time = "creationTime" in s_data or "creation_time" in s_data
         creation_time = _safe_datetime(
             s_data.get("creationTime") or s_data.get("creation_time")
         )
@@ -355,7 +399,9 @@ def _do_sync(session: SessionDep, uid: _uuid.UUID, data: dict) -> UserStatePubli
 
     existing_exps = {
         e.id: e
-        for e in session.exec(select(Experiment).where(Experiment.owner_id == uid)).all()
+        for e in session.exec(
+            select(Experiment).where(Experiment.owner_id == uid)
+        ).all()
     }
 
     for e_data in incoming_experiments:
@@ -366,7 +412,9 @@ def _do_sync(session: SessionDep, uid: _uuid.UUID, data: dict) -> UserStatePubli
             exp.name = e_data.get("name") or exp.name
             exp.description = e_data.get("description")
             exp.device_type = e_data.get("deviceType") or e_data.get("device_type")
-            exp.active_area_cm2 = _safe_float(e_data.get("deviceArea") or e_data.get("active_area_cm2"))
+            exp.active_area_cm2 = _safe_float(
+                e_data.get("deviceArea") or e_data.get("active_area_cm2")
+            )
             exp.frontend_data = e_data
             flag_modified(exp, "frontend_data")
             session.add(exp)
@@ -377,7 +425,9 @@ def _do_sync(session: SessionDep, uid: _uuid.UUID, data: dict) -> UserStatePubli
                 name=e_data.get("name", ""),
                 description=e_data.get("description"),
                 device_type=e_data.get("deviceType") or e_data.get("device_type"),
-                active_area_cm2=_safe_float(e_data.get("deviceArea") or e_data.get("active_area_cm2")),
+                active_area_cm2=_safe_float(
+                    e_data.get("deviceArea") or e_data.get("active_area_cm2")
+                ),
                 frontend_data=e_data,
             )
             session.add(exp)
@@ -396,7 +446,9 @@ def _do_sync(session: SessionDep, uid: _uuid.UUID, data: dict) -> UserStatePubli
 
     existing_res = {
         r.id: r
-        for r in session.exec(select(ExperimentResults).where(ExperimentResults.owner_id == uid)).all()
+        for r in session.exec(
+            select(ExperimentResults).where(ExperimentResults.owner_id == uid)
+        ).all()
     }
 
     for r_data in incoming_results:
@@ -410,12 +462,12 @@ def _do_sync(session: SessionDep, uid: _uuid.UUID, data: dict) -> UserStatePubli
         except (ValueError, AttributeError):
             logger.warning(f"Skipping result with invalid experiment_id: {exp_id_str}")
             continue
-        
+
         # Only create result if the experiment exists in the incoming data
         if exp_id not in incoming_exp_ids:
             logger.warning(f"Skipping result for non-existent experiment: {exp_id}")
             continue
-            
+
         incoming_res_ids.add(rid)
         if rid in existing_res:
             res = existing_res[rid]
@@ -442,8 +494,7 @@ def _do_sync(session: SessionDep, uid: _uuid.UUID, data: dict) -> UserStatePubli
     incoming_plane_ids: set[_uuid.UUID] = set()
 
     existing_planes = {
-        p.id: p
-        for p in session.exec(select(Plane).where(Plane.owner_id == uid)).all()
+        p.id: p for p in session.exec(select(Plane).where(Plane.owner_id == uid)).all()
     }
 
     for p_data in incoming_planes:
@@ -494,13 +545,18 @@ def _do_sync(session: SessionDep, uid: _uuid.UUID, data: dict) -> UserStatePubli
 # Sync helpers for child tables
 # ---------------------------------------------------------------------------
 
+
 def _sync_solution_components(
-    session: SessionDep, solution_id: _uuid.UUID, components: list[dict],
+    session: SessionDep,
+    solution_id: _uuid.UUID,
+    components: list[dict],
 ) -> None:
     existing = {
         c.id: c
         for c in session.exec(
-            select(SolutionComponent).where(SolutionComponent.solution_id == solution_id)
+            select(SolutionComponent).where(
+                SolutionComponent.solution_id == solution_id
+            )
         ).all()
     }
     incoming_ids: set[_uuid.UUID] = set()
@@ -535,12 +591,16 @@ def _sync_solution_components(
 
 
 def _sync_experiment_layers(
-    session: SessionDep, experiment_id: _uuid.UUID, layers: list[dict],
+    session: SessionDep,
+    experiment_id: _uuid.UUID,
+    layers: list[dict],
 ) -> None:
     existing = {
-        l.id: l
-        for l in session.exec(
-            select(ExperimentLayer).where(ExperimentLayer.experiment_id == experiment_id)
+        layer.id: layer
+        for layer in session.exec(
+            select(ExperimentLayer).where(
+                ExperimentLayer.experiment_id == experiment_id
+            )
         ).all()
     }
     incoming_ids: set[_uuid.UUID] = set()
@@ -563,7 +623,9 @@ def _sync_experiment_layers(
 
 
 def _sync_experiment_substrates(
-    session: SessionDep, experiment_id: _uuid.UUID, substrates: list[dict],
+    session: SessionDep,
+    experiment_id: _uuid.UUID,
+    substrates: list[dict],
 ) -> None:
     existing = {
         s.id: s
@@ -591,7 +653,9 @@ def _sync_experiment_substrates(
 
 
 def _sync_canvas_elements(
-    session: SessionDep, plane_id: _uuid.UUID, elements: list[dict],
+    session: SessionDep,
+    plane_id: _uuid.UUID,
+    elements: list[dict],
 ) -> None:
     existing = {
         e.id: e
@@ -621,10 +685,12 @@ def _sync_canvas_elements(
 
         # For collections, store refs + name as JSON in content
         if etype == "collection":
-            content = json.dumps({
-                "name": el_data.get("name", ""),
-                "refs": el_data.get("refs", []),
-            })
+            content = json.dumps(
+                {
+                    "name": el_data.get("name", ""),
+                    "refs": el_data.get("refs", []),
+                }
+            )
 
         if eid in existing:
             elem = existing[eid]
@@ -643,7 +709,10 @@ def _sync_canvas_elements(
                 id=eid,
                 plane_id=plane_id,
                 element_type=etype,
-                x=x, y=y, width=w, height=h,
+                x=x,
+                y=y,
+                width=w,
+                height=h,
                 content=content,
                 color=color,
                 frontend_data=el_data,
@@ -658,6 +727,7 @@ def _sync_canvas_elements(
 # GET /state/bulk — (legacy) load from normalised tables
 # ---------------------------------------------------------------------------
 
+
 @router.get("/bulk", response_model=BulkStateResponse)
 def get_bulk_state(session: SessionDep, current_user: CurrentUser) -> Any:
     """Load all user entities in a single request (legacy format)."""
@@ -665,7 +735,11 @@ def get_bulk_state(session: SessionDep, current_user: CurrentUser) -> Any:
     return BulkStateResponse(
         materials=session.exec(select(Material).where(Material.owner_id == uid)).all(),
         solutions=session.exec(select(Solution).where(Solution.owner_id == uid)).all(),
-        experiments=session.exec(select(Experiment).where(Experiment.owner_id == uid)).all(),
-        results=session.exec(select(ExperimentResults).where(ExperimentResults.owner_id == uid)).all(),
+        experiments=session.exec(
+            select(Experiment).where(Experiment.owner_id == uid)
+        ).all(),
+        results=session.exec(
+            select(ExperimentResults).where(ExperimentResults.owner_id == uid)
+        ).all(),
         planes=session.exec(select(Plane).where(Plane.owner_id == uid)).all(),
     )

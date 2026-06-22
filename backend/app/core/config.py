@@ -29,6 +29,7 @@ _DEFAULT_NOMAD_AUTH_FILE = str(
     Path(__file__).parents[3].parent / "sensitive config" / ".nomad_auth"
 )
 
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         # Use top level .env file (one level above ./backend/)
@@ -105,7 +106,9 @@ class Settings(BaseSettings):
     # NOMAD Configuration
     NOMAD_URL: str = "http://localhost/nomad-oasis/api/v1"
     # NOMAD OAuth / Keycloak Configuration
-    NOMAD_KEYCLOAK_REALM_URL: str = "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_prod"
+    NOMAD_KEYCLOAK_REALM_URL: str = (
+        "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_prod"
+    )
     NOMAD_OAUTH_CLIENT_ID: str = "nomad_public"  # Central NOMAD public Keycloak client
     NOMAD_OAUTH_AUDIENCE: str | None = None  # Defaults to client_id when unset
     # nomad_public access tokens have no aud claim — set to true only if your
@@ -145,9 +148,7 @@ class Settings(BaseSettings):
     def nomad_enabled(self) -> bool:
         """Check if NOMAD is configured with global auth credentials."""
         return bool(
-            self.NOMAD_USE_GLOBAL_AUTH
-            and self.NOMAD_USERNAME
-            and self.NOMAD_PASSWORD
+            self.NOMAD_USE_GLOBAL_AUTH and self.NOMAD_USERNAME and self.NOMAD_PASSWORD
         )
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:

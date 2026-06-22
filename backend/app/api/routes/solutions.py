@@ -6,7 +6,13 @@ from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.crud import create_solution, update_solution
-from app.models import Solution, SolutionCreate, SolutionPublic, SolutionsPublic, SolutionUpdate
+from app.models import (
+    Solution,
+    SolutionCreate,
+    SolutionPublic,
+    SolutionsPublic,
+    SolutionUpdate,
+)
 
 router = APIRouter(prefix="/solutions", tags=["solutions"])
 
@@ -20,7 +26,10 @@ def read_solutions(
         count_statement = select(func.count()).select_from(Solution)
         count = session.exec(count_statement).one()
         statement = (
-            select(Solution).order_by(col(Solution.created_at).desc()).offset(skip).limit(limit)
+            select(Solution)
+            .order_by(col(Solution.created_at).desc())
+            .offset(skip)
+            .limit(limit)
         )
         items = session.exec(statement).all()
     else:
@@ -77,7 +86,9 @@ def update_item(
         raise HTTPException(status_code=404, detail="Solution not found")
     if not current_user.is_superuser and (solution.owner_id != current_user.id):
         raise HTTPException(status_code=403, detail="Not enough permissions")
-    solution = update_solution(session=session, db_solution=solution, solution_in=solution_in)
+    solution = update_solution(
+        session=session, db_solution=solution, solution_in=solution_in
+    )
     return solution
 
 

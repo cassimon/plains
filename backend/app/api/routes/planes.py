@@ -9,13 +9,12 @@ from app.models import (
     CanvasElement,
     CanvasElementCreate,
     CanvasElementPublic,
-    Message,
     Plane,
     PlaneCreate,
     PlanePublic,
-    PlanesPublic,
     PlaneShare,
     PlaneShareCreate,
+    PlanesPublic,
     PlaneUpdate,
     User,
     UserPublic,
@@ -37,7 +36,9 @@ def _has_plane_access(plane: Plane, user: User) -> bool:
 
 def _populate_shared_with(plane: Plane) -> PlanePublic:
     """Convert Plane to PlanePublic with shared_with users populated."""
-    shared_users = [UserPublic.model_validate(share.user) for share in plane.shared_with]
+    shared_users = [
+        UserPublic.model_validate(share.user) for share in plane.shared_with
+    ]
     elements = [CanvasElementPublic.model_validate(el) for el in plane.elements]
     return PlanePublic(
         id=plane.id,
@@ -59,7 +60,10 @@ def read_planes(
         count_statement = select(func.count()).select_from(Plane)
         count = session.exec(count_statement).one()
         statement = (
-            select(Plane).order_by(col(Plane.created_at).desc()).offset(skip).limit(limit)
+            select(Plane)
+            .order_by(col(Plane.created_at).desc())
+            .offset(skip)
+            .limit(limit)
         )
         planes = session.exec(statement).all()
     else:
@@ -116,7 +120,7 @@ def create_plane(
     )
     session.add(plane)
     session.flush()  # Get plane.id
-    
+
     for elem_in in plane_in.elements:
         elem = CanvasElement(
             plane_id=plane.id,
@@ -129,7 +133,7 @@ def create_plane(
             color=elem_in.color,
         )
         session.add(elem)
-    
+
     session.commit()
     session.refresh(plane)
     return _populate_shared_with(plane)
@@ -150,7 +154,7 @@ def update_plane(
     # Only owner can update plane name
     if not current_user.is_superuser and plane.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not enough permissions")
-    
+
     update_data = plane_in.model_dump(exclude_unset=True)
     plane.sqlmodel_update(update_data)
     session.add(plane)
@@ -175,6 +179,7 @@ def delete_plane(session: SessionDep, current_user: CurrentUser, id: uuid.UUID) 
 
 # ── Plane Sharing Routes ─────────────────────────────────────────────────────
 
+
 @router.post("/{id}/share", response_model=PlanePublic)
 def share_plane(
     *,
@@ -189,17 +194,19 @@ def share_plane(
         raise HTTPException(status_code=404, detail="Plane not found")
     # Only owner can share
     if not current_user.is_superuser and plane.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the owner can share this plane")
-    
+        raise HTTPException(
+            status_code=403, detail="Only the owner can share this plane"
+        )
+
     # Check if target user exists
     target_user = session.get(User, share_in.user_id)
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     # Cannot share with self
     if target_user.id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot share plane with yourself")
-    
+
     # Check if already shared
     existing_share = session.exec(
         select(PlaneShare).where(
@@ -207,8 +214,10 @@ def share_plane(
         )
     ).first()
     if existing_share:
-        raise HTTPException(status_code=400, detail="Plane already shared with this user")
-    
+        raise HTTPException(
+            status_code=400, detail="Plane already shared with this user"
+        )
+
     # Create share
     share = PlaneShare(plane_id=id, user_id=share_in.user_id)
     session.add(share)
@@ -231,15 +240,19 @@ def unshare_plane(
         raise HTTPException(status_code=404, detail="Plane not found")
     # Only owner can unshare
     if not current_user.is_superuser and plane.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only the owner can unshare this plane")
-    
+        raise HTTPException(
+            status_code=403, detail="Only the owner can unshare this plane"
+        )
+
     # Find and delete share
     share = session.exec(
-        select(PlaneShare).where(PlaneShare.plane_id == id, PlaneShare.user_id == user_id)
+        select(PlaneShare).where(
+            PlaneShare.plane_id == id, PlaneShare.user_id == user_id
+        )
     ).first()
     if not share:
         raise HTTPException(status_code=404, detail="Share not found")
-    
+
     session.delete(share)
     session.commit()
     session.refresh(plane)
@@ -256,7 +269,7 @@ def search_users(
     """Search users by email or full name for sharing."""
     if len(q) < 2:
         return []
-    
+
     # Search in email or full_name
     search_pattern = f"%{q}%"
     statement = (
@@ -276,9 +289,14 @@ def search_users(
 
 # ── Canvas Element Sub-routes ────────────────────────────────────────────────
 
+
 @router.post("/{plane_id}/elements", response_model=CanvasElementPublic)
 def create_element(
-    *, session: SessionDep, current_user: CurrentUser, plane_id: uuid.UUID, element_in: CanvasElementCreate
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    plane_id: uuid.UUID,
+    element_in: CanvasElementCreate,
 ) -> Any:
     """Add element to plane."""
     plane = session.get(Plane, plane_id)
@@ -286,7 +304,7 @@ def create_element(
         raise HTTPException(status_code=404, detail="Plane not found")
     if not current_user.is_superuser and plane.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not enough permissions")
-    
+
     element = CanvasElement(
         plane_id=plane_id,
         element_type=element_in.element_type,
@@ -318,11 +336,11 @@ def update_element(
         raise HTTPException(status_code=404, detail="Plane not found")
     if not current_user.is_superuser and plane.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not enough permissions")
-    
+
     element = session.get(CanvasElement, element_id)
     if not element or element.plane_id != plane_id:
         raise HTTPException(status_code=404, detail="Element not found")
-    
+
     element.element_type = element_in.element_type
     element.x = element_in.x
     element.y = element_in.y
@@ -330,7 +348,7 @@ def update_element(
     element.height = element_in.height
     element.content = element_in.content
     element.color = element_in.color
-    
+
     session.add(element)
     session.commit()
     session.refresh(element)
@@ -339,7 +357,10 @@ def update_element(
 
 @router.delete("/{plane_id}/elements/{element_id}")
 def delete_element(
-    session: SessionDep, current_user: CurrentUser, plane_id: uuid.UUID, element_id: uuid.UUID
+    session: SessionDep,
+    current_user: CurrentUser,
+    plane_id: uuid.UUID,
+    element_id: uuid.UUID,
 ) -> Any:
     """Delete canvas element (owner or shared user)."""
     plane = session.get(Plane, plane_id)
@@ -347,11 +368,11 @@ def delete_element(
         raise HTTPException(status_code=404, detail="Plane not found")
     if not _has_plane_access(plane, current_user):
         raise HTTPException(status_code=403, detail="Not enough permissions")
-    
+
     element = session.get(CanvasElement, element_id)
     if not element or element.plane_id != plane_id:
         raise HTTPException(status_code=404, detail="Element not found")
-    
+
     session.delete(element)
     session.commit()
     return {"ok": True}
