@@ -375,7 +375,7 @@ def create_nomad_metadata_yaml(
         exp_data = {
             "name": experiment.name,
             "description": experiment.description or "",
-            "architecture": experiment.device_type or "n-i-p",
+            "architecture": experiment.architecture or "n-i-p",
             "substrateMaterial": "Unknown",
             "substrates": [],
             "devicesPerSubstrate": 1,

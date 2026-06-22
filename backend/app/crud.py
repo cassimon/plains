@@ -5,29 +5,41 @@ from sqlmodel import Session, select
 
 from app.core.security import get_password_hash, verify_password
 from app.models import (
-    CanvasElement,
+    Analysis,
+    AnalysisCreate,
+    AnalysisRef,
+    AnalysisUpdate,
+    DataCollection,
+    DataCollectionCreate,
+    DataCollectionUpdate,
     DeviceGroup,
     Experiment,
     ExperimentCreate,
-    ExperimentLayer,
     ExperimentResults,
     ExperimentResultsCreate,
     ExperimentResultsUpdate,
     ExperimentUpdate,
-    Item,
-    ItemCreate,
-    Material,
-    MaterialCreate,
-    MaterialUpdate,
+    LabMaterial,
+    LabMaterialCreate,
+    LabMaterialUpdate,
+    LabSolution,
+    LabSolutionCreate,
+    LabSolutionUpdate,
+    LabSubstrate,
     MeasurementFile,
     Plane,
     PlaneCreate,
     PlaneUpdate,
-    Solution,
+    Process,
+    ProcessCreate,
+    ProcessUpdate,
     SolutionComponent,
-    SolutionCreate,
-    SolutionUpdate,
-    Substrate,
+    StickyNote,
+    StickyNoteCreate,
+    StickyNoteUpdate,
+    TextField,
+    TextFieldCreate,
+    TextFieldUpdate,
     User,
     UserCreate,
     UserUpdate,
@@ -65,22 +77,16 @@ def get_user_by_email(*, session: Session, email: str) -> User | None:
 
 
 # Dummy hash to use for timing attack prevention when user is not found
-# This is an Argon2 hash of a random password, used to ensure constant-time comparison
 DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=4$MjQyZWE1MzBjYjJlZTI0Yw$YTU4NGM5ZTZmYjE2NzZlZjY0ZWY3ZGRkY2U2OWFjNjk"
 
 
 def authenticate(*, session: Session, email: str, password: str) -> User | None:
     db_user = get_user_by_email(session=session, email=email)
     if not db_user:
-        # Prevent timing attacks by running password verification even when user doesn't exist
-        # This ensures the response time is similar whether or not the email exists
         verify_password(password, DUMMY_HASH)
         return None
-
-    # NOMAD OAuth users don't have passwords
     if not db_user.hashed_password:
         return None
-
     verified, updated_password_hash = verify_password(password, db_user.hashed_password)
     if not verified:
         return None
@@ -92,23 +98,13 @@ def authenticate(*, session: Session, email: str, password: str) -> User | None:
     return db_user
 
 
-def create_item(*, session: Session, item_in: ItemCreate, owner_id: uuid.UUID) -> Item:
-    db_item = Item.model_validate(item_in, update={"owner_id": owner_id})
-    session.add(db_item)
-    session.commit()
-    session.refresh(db_item)
-    return db_item
-
-
 # ============================================================================
-# Material CRUD
+# LabMaterial CRUD
 # ============================================================================
-
-
 def create_material(
-    *, session: Session, material_in: MaterialCreate, owner_id: uuid.UUID
-) -> Material:
-    db_material = Material.model_validate(material_in, update={"owner_id": owner_id})
+    *, session: Session, material_in: LabMaterialCreate, owner_id: uuid.UUID
+) -> LabMaterial:
+    db_material = LabMaterial.model_validate(material_in, update={"owner_id": owner_id})
     session.add(db_material)
     session.commit()
     session.refresh(db_material)
@@ -116,8 +112,8 @@ def create_material(
 
 
 def update_material(
-    *, session: Session, db_material: Material, material_in: MaterialUpdate
-) -> Material:
+    *, session: Session, db_material: LabMaterial, material_in: LabMaterialUpdate
+) -> LabMaterial:
     material_data = material_in.model_dump(exclude_unset=True)
     db_material.sqlmodel_update(material_data)
     session.add(db_material)
@@ -127,14 +123,12 @@ def update_material(
 
 
 # ============================================================================
-# Solution CRUD
+# LabSolution CRUD
 # ============================================================================
-
-
 def create_solution(
-    *, session: Session, solution_in: SolutionCreate, owner_id: uuid.UUID
-) -> Solution:
-    db_solution = Solution.model_validate(
+    *, session: Session, solution_in: LabSolutionCreate, owner_id: uuid.UUID
+) -> LabSolution:
+    db_solution = LabSolution.model_validate(
         solution_in.model_dump(exclude={"components"}),
         update={"owner_id": owner_id},
     )
@@ -151,8 +145,8 @@ def create_solution(
 
 
 def update_solution(
-    *, session: Session, db_solution: Solution, solution_in: SolutionUpdate
-) -> Solution:
+    *, session: Session, db_solution: LabSolution, solution_in: LabSolutionUpdate
+) -> LabSolution:
     solution_data = solution_in.model_dump(exclude_unset=True)
     db_solution.sqlmodel_update(solution_data)
     session.add(db_solution)
@@ -164,27 +158,20 @@ def update_solution(
 # ============================================================================
 # Experiment CRUD
 # ============================================================================
-
-
 def create_experiment(
     *, session: Session, experiment_in: ExperimentCreate, owner_id: uuid.UUID
 ) -> Experiment:
     db_experiment = Experiment.model_validate(
-        experiment_in.model_dump(exclude={"substrates", "layers"}),
+        experiment_in.model_dump(exclude={"substrates"}),
         update={"owner_id": owner_id},
     )
     session.add(db_experiment)
     session.flush()
     for substrate_in in experiment_in.substrates:
-        substrate = Substrate.model_validate(
+        substrate = LabSubstrate.model_validate(
             substrate_in, update={"experiment_id": db_experiment.id}
         )
         session.add(substrate)
-    for layer_in in experiment_in.layers:
-        layer = ExperimentLayer.model_validate(
-            layer_in, update={"experiment_id": db_experiment.id}
-        )
-        session.add(layer)
     session.commit()
     session.refresh(db_experiment)
     return db_experiment
@@ -204,8 +191,6 @@ def update_experiment(
 # ============================================================================
 # ExperimentResults CRUD
 # ============================================================================
-
-
 def create_experiment_results(
     *,
     session: Session,
@@ -249,20 +234,66 @@ def update_experiment_results(
 
 
 # ============================================================================
+# Process CRUD
+# ============================================================================
+def create_process(
+    *, session: Session, process_in: ProcessCreate, owner_id: uuid.UUID
+) -> Process:
+    db_process = Process.model_validate(process_in, update={"owner_id": owner_id})
+    session.add(db_process)
+    session.commit()
+    session.refresh(db_process)
+    return db_process
+
+
+def update_process(
+    *, session: Session, db_process: Process, process_in: ProcessUpdate
+) -> Process:
+    process_data = process_in.model_dump(exclude_unset=True)
+    db_process.sqlmodel_update(process_data)
+    session.add(db_process)
+    session.commit()
+    session.refresh(db_process)
+    return db_process
+
+
+# ============================================================================
+# Analysis CRUD
+# ============================================================================
+def create_analysis(
+    *, session: Session, analysis_in: AnalysisCreate, owner_id: uuid.UUID
+) -> Analysis:
+    db_analysis = Analysis.model_validate(
+        analysis_in.model_dump(exclude={"refs"}), update={"owner_id": owner_id}
+    )
+    session.add(db_analysis)
+    session.flush()
+    for ref_in in analysis_in.refs:
+        ref = AnalysisRef.model_validate(ref_in, update={"analysis_id": db_analysis.id})
+        session.add(ref)
+    session.commit()
+    session.refresh(db_analysis)
+    return db_analysis
+
+
+def update_analysis(
+    *, session: Session, db_analysis: Analysis, analysis_in: AnalysisUpdate
+) -> Analysis:
+    analysis_data = analysis_in.model_dump(exclude_unset=True)
+    db_analysis.sqlmodel_update(analysis_data)
+    session.add(db_analysis)
+    session.commit()
+    session.refresh(db_analysis)
+    return db_analysis
+
+
+# ============================================================================
 # Plane CRUD
 # ============================================================================
-
-
 def create_plane(
     *, session: Session, plane_in: PlaneCreate, owner_id: uuid.UUID
 ) -> Plane:
     db_plane = Plane.model_validate(plane_in, update={"owner_id": owner_id})
-    # Create elements
-    for element_in in plane_in.elements:
-        element = CanvasElement.model_validate(
-            element_in, update={"plane_id": db_plane.id}
-        )
-        db_plane.elements.append(element)
     session.add(db_plane)
     session.commit()
     session.refresh(db_plane)
@@ -276,3 +307,71 @@ def update_plane(*, session: Session, db_plane: Plane, plane_in: PlaneUpdate) ->
     session.commit()
     session.refresh(db_plane)
     return db_plane
+
+
+# ============================================================================
+# Canvas element CRUD
+# ============================================================================
+def create_sticky_note(
+    *, session: Session, note_in: StickyNoteCreate, plane_id: uuid.UUID
+) -> StickyNote:
+    note = StickyNote.model_validate(note_in, update={"plane_id": plane_id})
+    session.add(note)
+    session.commit()
+    session.refresh(note)
+    return note
+
+
+def update_sticky_note(
+    *, session: Session, db_note: StickyNote, note_in: StickyNoteUpdate
+) -> StickyNote:
+    db_note.sqlmodel_update(note_in.model_dump(exclude_unset=True))
+    session.add(db_note)
+    session.commit()
+    session.refresh(db_note)
+    return db_note
+
+
+def create_text_field(
+    *, session: Session, field_in: TextFieldCreate, plane_id: uuid.UUID
+) -> TextField:
+    field = TextField.model_validate(field_in, update={"plane_id": plane_id})
+    session.add(field)
+    session.commit()
+    session.refresh(field)
+    return field
+
+
+def update_text_field(
+    *, session: Session, db_field: TextField, field_in: TextFieldUpdate
+) -> TextField:
+    db_field.sqlmodel_update(field_in.model_dump(exclude_unset=True))
+    session.add(db_field)
+    session.commit()
+    session.refresh(db_field)
+    return db_field
+
+
+def create_collection(
+    *, session: Session, collection_in: DataCollectionCreate, plane_id: uuid.UUID
+) -> DataCollection:
+    collection = DataCollection.model_validate(
+        collection_in, update={"plane_id": plane_id}
+    )
+    session.add(collection)
+    session.commit()
+    session.refresh(collection)
+    return collection
+
+
+def update_collection(
+    *,
+    session: Session,
+    db_collection: DataCollection,
+    collection_in: DataCollectionUpdate,
+) -> DataCollection:
+    db_collection.sqlmodel_update(collection_in.model_dump(exclude_unset=True))
+    session.add(db_collection)
+    session.commit()
+    session.refresh(db_collection)
+    return db_collection
