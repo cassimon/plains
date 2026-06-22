@@ -641,13 +641,6 @@ class ProcessSolutionRecipeCreate(ProcessSolutionRecipeBase):
     added_solutions: list[RecipeAddedSolutionCreate] = []
 
 
-class ProcessSolutionRecipeUpdate(ProcessSolutionRecipeBase):
-    name: str | None = Field(default=None, max_length=255)
-    solvents: list[RecipeSolventCreate] | None = None
-    solutes: list[RecipeSoluteCreate] | None = None
-    added_solutions: list[RecipeAddedSolutionCreate] | None = None
-
-
 class ProcessSolutionRecipe(ProcessSolutionRecipeBase, table=True):
     __tablename__ = "process_solution_recipe"
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -721,11 +714,6 @@ class ProcessStepCreate(ProcessStepBase):
     pass
 
 
-class ProcessStepUpdate(ProcessStepBase):
-    name: str | None = Field(default=None, max_length=255)
-    step_category: str | None = Field(default=None, max_length=50)
-
-
 class ProcessStep(ProcessStepBase, table=True):
     __tablename__ = "process_step"
     __table_args__ = (UniqueConstraint("process_id", "stage_index", "step_index"),)
@@ -782,10 +770,6 @@ class ProcessGeneratedStackLayerPublic(ProcessGeneratedStackLayerBase):
 
 class ProcessGeneratedStackCreate(ProcessGeneratedStackBase):
     layers: list[ProcessGeneratedStackLayerCreate] = []
-
-
-class ProcessGeneratedStackUpdate(ProcessGeneratedStackBase):
-    pass
 
 
 class ProcessGeneratedStack(ProcessGeneratedStackBase, table=True):

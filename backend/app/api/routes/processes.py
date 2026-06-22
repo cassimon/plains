@@ -13,21 +13,22 @@ from app.models import (
     ProcessGeneratedStack,
     ProcessGeneratedStackCreate,
     ProcessGeneratedStackLayer,
+    ProcessGeneratedStackLayerCreate,
     ProcessGeneratedStackPublic,
-    ProcessGeneratedStackUpdate,
     ProcessPublic,
     ProcessSolutionRecipe,
     ProcessSolutionRecipeCreate,
     ProcessSolutionRecipePublic,
-    ProcessSolutionRecipeUpdate,
     ProcessStep,
     ProcessStepCreate,
     ProcessStepPublic,
-    ProcessStepUpdate,
     ProcessUpdate,
     RecipeAddedSolution,
+    RecipeAddedSolutionCreate,
     RecipeSolute,
+    RecipeSoluteCreate,
     RecipeSolvent,
+    RecipeSolventCreate,
 )
 
 router = APIRouter(prefix="/processes", tags=["processes"])
@@ -115,6 +116,8 @@ def _owned_process(
     return process
 
 
+# --- Recipes ---
+
 @router.get("/{id}/recipes/")
 def read_process_recipes(
     session: SessionDep, current_user: CurrentUser, id: uuid.UUID
@@ -122,59 +125,6 @@ def read_process_recipes(
     """List solution recipes for a process."""
     process = _owned_process(session, current_user, id)
     return process.recipes
-
-
-@router.get("/{id}/steps/")
-def read_process_steps(
-    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
-) -> Any:
-    """List deposition steps for a process."""
-    process = _owned_process(session, current_user, id)
-    return process.steps
-
-
-@router.get("/{id}/stacks/")
-def read_process_stacks(
-    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
-) -> Any:
-    """List generated device stacks for a process."""
-    process = _owned_process(session, current_user, id)
-    return process.stacks
-
-
-# ── Recipes ──────────────────────────────────────────────────────────────────
-
-
-def _set_recipe_children(
-    session: SessionDep,
-    db_recipe: ProcessSolutionRecipe,
-    solvents: list | None,
-    solutes: list | None,
-    added_solutions: list | None,
-) -> None:
-    if solvents is not None:
-        for existing in list(db_recipe.solvents):
-            session.delete(existing)
-        for s in solvents:
-            session.add(
-                RecipeSolvent.model_validate(s, update={"recipe_id": db_recipe.id})
-            )
-    if solutes is not None:
-        for existing in list(db_recipe.solutes):
-            session.delete(existing)
-        for s in solutes:
-            session.add(
-                RecipeSolute.model_validate(s, update={"recipe_id": db_recipe.id})
-            )
-    if added_solutions is not None:
-        for existing in list(db_recipe.added_solutions):
-            session.delete(existing)
-        for a in added_solutions:
-            session.add(
-                RecipeAddedSolution.model_validate(
-                    a, update={"recipe_id": db_recipe.id}
-                )
-            )
 
 
 @router.post("/{id}/recipes/", response_model=ProcessSolutionRecipePublic)
@@ -185,24 +135,21 @@ def create_process_recipe(
     id: uuid.UUID,
     recipe_in: ProcessSolutionRecipeCreate,
 ) -> Any:
-    """Create a solution recipe for a process."""
+    """Add a solution recipe to a process."""
     _owned_process(session, current_user, id)
-    db_recipe = ProcessSolutionRecipe.model_validate(
-        recipe_in.model_dump(exclude={"solvents", "solutes", "added_solutions"}),
-        update={"process_id": id},
-    )
-    session.add(db_recipe)
+    recipe_data = recipe_in.model_dump(exclude={"solvents", "solutes", "added_solutions"})
+    recipe = ProcessSolutionRecipe(**recipe_data, process_id=id)
+    session.add(recipe)
     session.flush()
-    _set_recipe_children(
-        session,
-        db_recipe,
-        recipe_in.solvents,
-        recipe_in.solutes,
-        recipe_in.added_solutions,
-    )
+    for s in recipe_in.solvents:
+        session.add(RecipeSolvent(**s.model_dump(), recipe_id=recipe.id))
+    for s in recipe_in.solutes:
+        session.add(RecipeSolute(**s.model_dump(), recipe_id=recipe.id))
+    for a in recipe_in.added_solutions:
+        session.add(RecipeAddedSolution(**a.model_dump(), recipe_id=recipe.id))
     session.commit()
-    session.refresh(db_recipe)
-    return db_recipe
+    session.refresh(recipe)
+    return recipe
 
 
 @router.put("/{id}/recipes/{rid}", response_model=ProcessSolutionRecipePublic)
@@ -212,26 +159,32 @@ def update_process_recipe(
     current_user: CurrentUser,
     id: uuid.UUID,
     rid: uuid.UUID,
-    recipe_in: ProcessSolutionRecipeUpdate,
+    recipe_in: ProcessSolutionRecipeCreate,
 ) -> Any:
-    """Update a solution recipe."""
+    """Replace a solution recipe (and its sub-items)."""
     _owned_process(session, current_user, id)
     recipe = session.get(ProcessSolutionRecipe, rid)
     if not recipe or recipe.process_id != id:
         raise HTTPException(status_code=404, detail="Recipe not found")
-    data = recipe_in.model_dump(
-        exclude_unset=True, exclude={"solvents", "solutes", "added_solutions"}
-    )
-    recipe.sqlmodel_update(data)
-    session.add(recipe)
+    # Update scalar fields
+    for field, value in recipe_in.model_dump(
+        exclude={"solvents", "solutes", "added_solutions"}
+    ).items():
+        setattr(recipe, field, value)
+    # Replace nested items
+    for child in list(recipe.solvents):
+        session.delete(child)
+    for child in list(recipe.solutes):
+        session.delete(child)
+    for child in list(recipe.added_solutions):
+        session.delete(child)
     session.flush()
-    _set_recipe_children(
-        session,
-        recipe,
-        recipe_in.solvents,
-        recipe_in.solutes,
-        recipe_in.added_solutions,
-    )
+    for s in recipe_in.solvents:
+        session.add(RecipeSolvent(**s.model_dump(), recipe_id=recipe.id))
+    for s in recipe_in.solutes:
+        session.add(RecipeSolute(**s.model_dump(), recipe_id=recipe.id))
+    for a in recipe_in.added_solutions:
+        session.add(RecipeAddedSolution(**a.model_dump(), recipe_id=recipe.id))
     session.commit()
     session.refresh(recipe)
     return recipe
@@ -251,7 +204,15 @@ def delete_process_recipe(
     return {"ok": True}
 
 
-# ── Steps ────────────────────────────────────────────────────────────────────
+# --- Steps ---
+
+@router.get("/{id}/steps/")
+def read_process_steps(
+    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
+) -> Any:
+    """List deposition steps for a process."""
+    process = _owned_process(session, current_user, id)
+    return process.steps
 
 
 @router.post("/{id}/steps/", response_model=ProcessStepPublic)
@@ -262,13 +223,13 @@ def create_process_step(
     id: uuid.UUID,
     step_in: ProcessStepCreate,
 ) -> Any:
-    """Create a deposition step for a process."""
+    """Add a deposition step to a process."""
     _owned_process(session, current_user, id)
-    db_step = ProcessStep.model_validate(step_in, update={"process_id": id})
-    session.add(db_step)
+    step = ProcessStep(**step_in.model_dump(), process_id=id)
+    session.add(step)
     session.commit()
-    session.refresh(db_step)
-    return db_step
+    session.refresh(step)
+    return step
 
 
 @router.put("/{id}/steps/{sid}", response_model=ProcessStepPublic)
@@ -278,15 +239,15 @@ def update_process_step(
     current_user: CurrentUser,
     id: uuid.UUID,
     sid: uuid.UUID,
-    step_in: ProcessStepUpdate,
+    step_in: ProcessStepCreate,
 ) -> Any:
     """Update a deposition step."""
     _owned_process(session, current_user, id)
     step = session.get(ProcessStep, sid)
     if not step or step.process_id != id:
         raise HTTPException(status_code=404, detail="Step not found")
-    step.sqlmodel_update(step_in.model_dump(exclude_unset=True))
-    session.add(step)
+    for field, value in step_in.model_dump().items():
+        setattr(step, field, value)
     session.commit()
     session.refresh(step)
     return step
@@ -306,7 +267,15 @@ def delete_process_step(
     return {"ok": True}
 
 
-# ── Generated stacks ─────────────────────────────────────────────────────────
+# --- Stacks ---
+
+@router.get("/{id}/stacks/")
+def read_process_stacks(
+    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
+) -> Any:
+    """List generated device stacks for a process."""
+    process = _owned_process(session, current_user, id)
+    return process.stacks
 
 
 @router.post("/{id}/stacks/", response_model=ProcessGeneratedStackPublic)
@@ -317,22 +286,18 @@ def create_process_stack(
     id: uuid.UUID,
     stack_in: ProcessGeneratedStackCreate,
 ) -> Any:
-    """Create a generated device stack (with optional inline layers)."""
+    """Add a generated device stack to a process."""
     _owned_process(session, current_user, id)
-    db_stack = ProcessGeneratedStack.model_validate(
-        stack_in.model_dump(exclude={"layers"}), update={"process_id": id}
+    stack = ProcessGeneratedStack(
+        **stack_in.model_dump(exclude={"layers"}), process_id=id
     )
-    session.add(db_stack)
+    session.add(stack)
     session.flush()
     for layer in stack_in.layers:
-        session.add(
-            ProcessGeneratedStackLayer.model_validate(
-                layer, update={"stack_id": db_stack.id}
-            )
-        )
+        session.add(ProcessGeneratedStackLayer(**layer.model_dump(), stack_id=stack.id))
     session.commit()
-    session.refresh(db_stack)
-    return db_stack
+    session.refresh(stack)
+    return stack
 
 
 @router.put("/{id}/stacks/{stack_id}", response_model=ProcessGeneratedStackPublic)
@@ -342,15 +307,20 @@ def update_process_stack(
     current_user: CurrentUser,
     id: uuid.UUID,
     stack_id: uuid.UUID,
-    stack_in: ProcessGeneratedStackUpdate,
+    stack_in: ProcessGeneratedStackCreate,
 ) -> Any:
-    """Update generated stack metadata (layers are not modified here)."""
+    """Replace a generated stack (and its layers)."""
     _owned_process(session, current_user, id)
     stack = session.get(ProcessGeneratedStack, stack_id)
     if not stack or stack.process_id != id:
         raise HTTPException(status_code=404, detail="Stack not found")
-    stack.sqlmodel_update(stack_in.model_dump(exclude_unset=True))
-    session.add(stack)
+    for field, value in stack_in.model_dump(exclude={"layers"}).items():
+        setattr(stack, field, value)
+    for layer in list(stack.layers):
+        session.delete(layer)
+    session.flush()
+    for layer in stack_in.layers:
+        session.add(ProcessGeneratedStackLayer(**layer.model_dump(), stack_id=stack.id))
     session.commit()
     session.refresh(stack)
     return stack
@@ -358,9 +328,12 @@ def update_process_stack(
 
 @router.delete("/{id}/stacks/{stack_id}")
 def delete_process_stack(
-    session: SessionDep, current_user: CurrentUser, id: uuid.UUID, stack_id: uuid.UUID
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    stack_id: uuid.UUID,
 ) -> Any:
-    """Delete a generated stack and cascade its layers."""
+    """Delete a generated stack."""
     _owned_process(session, current_user, id)
     stack = session.get(ProcessGeneratedStack, stack_id)
     if not stack or stack.process_id != id:
