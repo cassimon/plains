@@ -41,6 +41,18 @@ export default defineConfig({
     { name: 'setup', testMatch: /.*\.setup\.ts/ },
 
     {
+      name: 'integration',
+      testDir: './tests/integration',
+      globalSetup: './tests/integration/global-setup.ts',
+      globalTeardown: './tests/integration/global-teardown.ts',
+      use: {
+        baseURL: process.env.FRONTEND_BASE_URL ?? 'http://localhost:5174',
+        actionTimeout: 30_000,
+        navigationTimeout: 30_000,
+      },
+    },
+
+    {
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],

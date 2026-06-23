@@ -4,11 +4,16 @@ from collections.abc import Callable
 import sentry_sdk
 from fastapi import FastAPI, Request, Response
 from fastapi.routing import APIRoute
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 
 from app.api.main import api_router
 from app.core.config import settings
+
+limiter = Limiter(key_func=get_remote_address)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -26,6 +31,8 @@ app = FastAPI(
     generate_unique_id_function=custom_generate_unique_id,
     root_path=settings.ROOT_PATH,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Set all CORS enabled origins
 if settings.all_cors_origins:

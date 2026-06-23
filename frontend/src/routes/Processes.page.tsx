@@ -4342,6 +4342,7 @@ export function ProcessesPage() {
       }
       return lines
     },
+    // biome-ignore lint/correctness/useExhaustiveDependencies: solutions and materials are passed to summariseQuenchingValue
     [selectedProcess?.solutionRecipes, solutions, materials],
   )
 

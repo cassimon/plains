@@ -95,3 +95,20 @@ def user_headers(user_token: str) -> dict:
 def client() -> httpx.Client:
     with httpx.Client(base_url=API_V1, timeout=15) as c:
         yield c
+
+
+@pytest.fixture(scope="session")
+def superuser_client(superuser_headers: dict) -> httpx.Client:
+    with httpx.Client(base_url=API_BASE, headers=superuser_headers, timeout=30) as c:
+        yield c
+
+
+@pytest.fixture(scope="session")
+def test_user_client(user_headers: dict) -> httpx.Client:
+    with httpx.Client(base_url=API_BASE, headers=user_headers, timeout=30) as c:
+        yield c
+
+
+@pytest.fixture(scope="session")
+def test_user_id(test_user: dict) -> str:
+    return test_user["id"]

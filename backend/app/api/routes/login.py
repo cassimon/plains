@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlmodel import select
@@ -9,6 +9,7 @@ from sqlmodel import select
 from app.api.deps import SessionDep
 from app.core import security
 from app.core.config import settings
+from app.main import limiter
 
 router = APIRouter(tags=["login"])
 
@@ -25,7 +26,9 @@ class Token(BaseModel):
 
 
 @router.post("/login/access-token", response_model=Token)
+@limiter.limit("10/minute")
 def login_access_token(
+    request: Request,  # noqa: ARG001 — required by slowapi limiter decorator
     session: SessionDep,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
 ) -> Any:

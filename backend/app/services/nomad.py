@@ -333,7 +333,7 @@ def create_nomad_metadata_yaml(
 
     from sqlmodel import select
 
-    from app.models import Experiment, UserState
+    from app.models import Experiment
 
     # ── 1. Load experiment ────────────────────────────────────────────────────
     try:
@@ -358,48 +358,94 @@ def create_nomad_metadata_yaml(
     if experiment_snapshot and isinstance(experiment_snapshot, dict):
         exp_data = experiment_snapshot
     else:
-        # Extract frontend data which contains full experiment definition
-        frontend_data = experiment.frontend_data or {}
-
-        # Try to get experiment data using both string and UUID representations
-        exp_id_str = str(experiment_id)
-        exp_data = frontend_data.get("experiments", {}).get(exp_id_str) or {}
-
-        if not exp_data:
-            # Also try with the database experiment ID
-            exp_data = (
-                frontend_data.get("experiments", {}).get(str(experiment.id)) or {}
-            )
-
-    if not exp_data:
+        # Read directly from normalised columns — no JSONB fallback.
         exp_data = {
             "name": experiment.name,
             "description": experiment.description or "",
             "architecture": experiment.architecture or "n-i-p",
-            "substrateMaterial": "Unknown",
+            "substrateMaterial": experiment.substrate_material or "Unknown",
             "substrates": [],
-            "devicesPerSubstrate": 1,
-            "deviceArea": 0.09,
+            "devicesPerSubstrate": experiment.devices_per_substrate or 1,
+            "deviceArea": experiment.device_area or 0.09,
         }
 
     # ── 2. Load process ───────────────────────────────────────────────────────
-    us = session.exec(
-        select(UserState).where(UserState.owner_id == experiment.owner_id)
-    ).first()
-    user_state_data = us.data if us and isinstance(us.data, dict) else {}
+    from app.models import (
+        LabMaterial,
+        LabSolution,
+        Process,
+        ProcessGeneratedStack,
+        ProcessStep,
+    )
 
     process_data: dict[str, Any] | None = None
 
     if process_snapshot and isinstance(process_snapshot, dict):
         process_data = process_snapshot
-    else:
-        process_id = exp_data.get("processId")
-        if process_id:
-            if user_state_data:
-                processes = user_state_data.get("processes", [])
-                process_data = next(
-                    (p for p in processes if p.get("id") == process_id), None
+    elif experiment.process_id:
+        process_orm = session.exec(
+            select(Process).where(Process.id == experiment.process_id)
+        ).first()
+        if process_orm:
+            # Build process_data from normalised ORM relationships
+            steps_by_stage: dict[int, list[dict[str, Any]]] = {}
+            for step in session.exec(
+                select(ProcessStep).where(ProcessStep.process_id == process_orm.id)
+            ).all():
+                stage = steps_by_stage.setdefault(step.stage_index, [])
+                stage.append({
+                    "id": str(step.id),
+                    "name": step.name,
+                    "stepCategory": step.step_category,
+                    "color": step.color,
+                    "materialId": str(step.material_id) if step.material_id else None,
+                    "solutionId": str(step.solution_id) if step.solution_id else None,
+                    "depositionMethod": {"value": step.deposition_method_value, "mode": step.deposition_method_mode},
+                    "annealingTemp": {"value": step.annealing_temp_value, "mode": step.annealing_temp_mode},
+                    "annealingTime": {"value": step.annealing_time_value, "mode": step.annealing_time_mode},
+                    "annealingAtmosphere": {"value": step.annealing_atmosphere_value, "mode": step.annealing_atmosphere_mode},
+                    "substrateTemp": {"value": step.substrate_temp_value, "mode": step.substrate_temp_mode},
+                    "depositionAtmosphere": {"value": step.deposition_atmosphere_value, "mode": step.deposition_atmosphere_mode},
+                    "solutionVolume": {"value": step.solution_volume_value, "mode": step.solution_volume_mode},
+                    "notes": step.notes,
+                })
+            stages = [
+                {"alternatives": steps_by_stage[idx]}
+                for idx in sorted(steps_by_stage)
+            ]
+            stacks_orm = session.exec(
+                select(ProcessGeneratedStack).where(
+                    ProcessGeneratedStack.process_id == process_orm.id
                 )
+            ).all()
+            generated_stacks = []
+            for stack in stacks_orm:
+                layers = [
+                    {
+                        "name": layer.name,
+                        "color": layer.color,
+                        "isSubstrate": layer.is_substrate,
+                        "layerType": layer.layer_type,
+                        "thicknessNm": layer.thickness_nm,
+                        "bandgapEv": layer.bandgap_ev,
+                        "perovskiteA": layer.perovskite_a,
+                        "perovskiteB": layer.perovskite_b,
+                        "perovskiteX": layer.perovskite_x,
+                    }
+                    for layer in sorted(stack.layers, key=lambda lyr: lyr.layer_index)
+                ]
+                generated_stacks.append({
+                    "combination": stack.combination,
+                    "architecture": stack.architecture,
+                    "layers": layers,
+                })
+            process_data = {
+                "id": str(process_orm.id),
+                "name": process_orm.name,
+                "stages": stages,
+                "generatedStacks": generated_stacks,
+                "deletedStackCombinations": [],
+            }
 
     if not process_data:
         logger.warning(
@@ -407,15 +453,33 @@ def create_nomad_metadata_yaml(
             "generated stacks unavailable – layer sections will be empty"
         )
 
+    # Load materials and solutions from normalised tables
+    owner_materials = session.exec(
+        select(LabMaterial).where(LabMaterial.owner_id == experiment.owner_id)
+    ).all()
+    owner_solutions = session.exec(
+        select(LabSolution).where(LabSolution.owner_id == experiment.owner_id)
+    ).all()
     materials_by_id: dict[str, dict[str, Any]] = {
-        str(material.get("id")): material
-        for material in (user_state_data.get("materials") or [])
-        if isinstance(material, dict) and material.get("id")
+        str(m.id): {
+            "id": str(m.id),
+            "name": m.name,
+            "type": m.type,
+            "casNumber": m.cas_number,
+            "pubchemCid": m.pubchem_cid,
+            "molecularWeight": m.molecular_weight,
+            "density": m.density,
+            "supplier": m.supplier,
+        }
+        for m in owner_materials
     }
     solutions_by_id: dict[str, dict[str, Any]] = {
-        str(solution.get("id")): solution
-        for solution in (user_state_data.get("solutions") or [])
-        if isinstance(solution, dict) and solution.get("id")
+        str(s.id): {
+            "id": str(s.id),
+            "name": s.name,
+            "type": s.type,
+        }
+        for s in owner_solutions
     }
 
     # ── 3. Build step map: step_id → ProcessStep dict ─────────────────────────
