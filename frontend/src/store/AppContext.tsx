@@ -943,10 +943,10 @@ function newCollectionElement(position: Vec2): CanvasCollectionElement {
 }
 
 export {
-  newTextElement,
-  newPlainTextElement,
-  newLineElement,
   newCollectionElement,
+  newLineElement,
+  newPlainTextElement,
+  newTextElement,
 }
 
 // ── Dependency tracking ───────────────────────────────────────────────────────

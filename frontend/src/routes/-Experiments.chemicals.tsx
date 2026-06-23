@@ -767,7 +767,7 @@ function SolutionBatchRow({
     >()
     for (const c of candidates) {
       const b = c.exp.chemicalsPrep?.solutionBatches?.[item.key]
-      if (!b || b.mode !== "make") continue
+      if (b?.mode !== "make") continue
       const prefix =
         c.priority === 0
           ? "Current collection"
@@ -795,7 +795,7 @@ function SolutionBatchRow({
   const getRelevantInfo = useCallback(
     (exp: Experiment) => {
       const b = exp.chemicalsPrep?.solutionBatches?.[item.key]
-      if (!b || b.mode !== "make") return null
+      if (b?.mode !== "make") return null
       return b.totalVolumeMl ? `${b.totalVolumeMl} mL` : null
     },
     [item.key],

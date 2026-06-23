@@ -3866,7 +3866,7 @@ export function ResultsPage() {
     try {
       for (let i = 0; i < sessionStorage.length; i++) {
         const key = sessionStorage.key(i)
-        if (!key || !key.startsWith("nomad_archive:")) {
+        if (!key?.startsWith("nomad_archive:")) {
           continue
         }
         const experimentId = key.slice("nomad_archive:".length)
@@ -3988,7 +3988,7 @@ export function ResultsPage() {
   // When arriving from a collection's "Add Results" action, preselect the
   // linked experiment to make result linking explicit and predictable.
   useEffect(() => {
-    if (!pendingCollectionLink || pendingCollectionLink.kind !== "result") {
+    if (pendingCollectionLink?.kind !== "result") {
       return
     }
     if (
@@ -4014,7 +4014,7 @@ export function ResultsPage() {
 
     const plane = planes.find((p) => p.id === planeId)
     const collection = plane?.elements.find((e) => e.id === collectionId)
-    if (!collection || collection.type !== "collection") {
+    if (collection?.type !== "collection") {
       return
     }
 

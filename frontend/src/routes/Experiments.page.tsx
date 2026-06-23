@@ -1853,7 +1853,7 @@ export default function ExperimentsPage() {
 
   // Auto-create experiment + link to collection when navigated from action bubble
   React.useEffect(() => {
-    if (!pendingCollectionLink || pendingCollectionLink.kind !== "experiment") {
+    if (pendingCollectionLink?.kind !== "experiment") {
       return
     }
     if (

@@ -1490,7 +1490,7 @@ function shouldIncludeLayer(
   // For solutions, only include solid materials (not solvents)
   if (step.solutionId) {
     const sol = solutions.find((s) => s.id === step.solutionId)
-    if (!sol || !sol.components) return true
+    if (!sol?.components) return true
 
     // Exclude if solution is typed as solvent
     if (sol.type?.toLowerCase().includes("solvent")) return false
@@ -2260,7 +2260,7 @@ function ResultingStacks({
                                 </select>
                               </Box>
                               {isPerovskiteLayer &&
-                                (!!layer.bandgapEv ||
+                                (layer.bandgapEv ||
                                 expandedFields[layerKey]?.bandgap ? (
                                   <>
                                     <Text size="9px" c="dimmed" ta="left">
@@ -2697,7 +2697,7 @@ function ResultingStacks({
 
                             {/* Right: thickness (nm) */}
                             <Box style={{ width: 92, flexShrink: 0 }}>
-                              {!!layer.thicknessNm ||
+                              {layer.thicknessNm ||
                               expandedFields[layerKey]?.thickness ? (
                                 <input
                                   type="number"
@@ -2985,7 +2985,7 @@ export function ProcessesPage() {
 
   // Auto-create process + link to collection when navigated from action bubble
   useEffect(() => {
-    if (!pendingCollectionLink || pendingCollectionLink.kind !== "process") {
+    if (pendingCollectionLink?.kind !== "process") {
       return
     }
     if (
@@ -4196,15 +4196,18 @@ export function ProcessesPage() {
     )
   }
 
-  const getSubstrateLabel = useCallback((substrateId: string | undefined) => {
-    if (!substrateId) return null
-    const substrate = materials.find((m) => m.id === substrateId)
-    if (!substrate) return null
-    return {
-      name: substrate.name || "Unnamed substrate",
-      rigidity: substrate.substrateRigidity || "—",
-    }
-  }, [])
+  const getSubstrateLabel = useCallback(
+    (substrateId: string | undefined) => {
+      if (!substrateId) return null
+      const substrate = materials.find((m) => m.id === substrateId)
+      if (!substrate) return null
+      return {
+        name: substrate.name || "Unnamed substrate",
+        rigidity: substrate.substrateRigidity || "—",
+      }
+    },
+    [materials.find],
+  )
 
   const getSourceSuggestions = useCallback(
     (
@@ -4227,7 +4230,7 @@ export function ProcessesPage() {
             continue
           }
           const stepParam = step[key]
-          if (!stepParam || !stepParam.value) {
+          if (!stepParam?.value) {
             continue
           }
           const signature = `${stepParam.mode}::${stepParam.value}`
@@ -4258,7 +4261,7 @@ export function ProcessesPage() {
 
       return suggestions
     },
-    [selectedProcess, selectedStep],
+    [selectedProcess, selectedStep, materials.find, solutions.find],
   )
 
   const displayedStages = useMemo(() => {
@@ -4302,7 +4305,7 @@ export function ProcessesPage() {
       }
       return "No material"
     },
-    [selectedProcess],
+    [selectedProcess, solutions.find, materials.find],
   )
 
   const getParameterFlowLines = useCallback(
@@ -4339,7 +4342,7 @@ export function ProcessesPage() {
       }
       return lines
     },
-    [selectedProcess?.solutionRecipes],
+    [selectedProcess?.solutionRecipes, solutions, materials],
   )
 
   const selectedStepParameterSections = useMemo(() => {
@@ -4481,8 +4484,7 @@ export function ProcessesPage() {
           </>
         )}
 
-        {noteEditorStepId === selectedStep.id ||
-        Boolean(selectedStep.notes?.trim()) ? (
+        {noteEditorStepId === selectedStep.id || selectedStep.notes?.trim() ? (
           <Textarea
             label="Notes"
             minRows={2}
