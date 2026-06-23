@@ -210,6 +210,22 @@ def run_pip_audit_direct() -> str:
     return result.stdout + result.stderr
 
 
+DEPLOY_TIME_PACKAGES = {
+    # Packages that are bundled and shipped to end users
+    "axios", "react", "react-dom", "keycloak-js",
+    "zod", "@mantine/core", "@tanstack/react-router",
+    "@tanstack/react-query", "echarts", "docx", "jspdf",
+}
+
+BUILD_TIME_ONLY = {
+    # Never end up in the production bundle
+    "@hey-api/openapi-ts", "vite", "rollup", "esbuild",
+    "@tanstack/router-plugin", "@babel/core", "webpack",
+    "postcss", "tailwindcss", "typescript", "biome",
+    "@playwright/test", "concurrently", "express", "socket.io",
+}
+
+
 def check_npm_audit() -> str:
     result = subprocess.run(
         ["bun", "audit"],
@@ -218,11 +234,31 @@ def check_npm_audit() -> str:
     )
     if result.returncode == 127 or "not found" in result.stderr:
         result = subprocess.run(
-            ["npm", "audit", "--json"],
+            ["npm", "audit"],
             cwd=ROOT / "frontend",
             capture_output=True, text=True,
         )
-    return result.stdout + result.stderr
+    raw = result.stdout + result.stderr
+
+    # Annotate each advisory line with deploy vs build classification
+    lines = raw.splitlines()
+    annotated: list[str] = []
+    for line in lines:
+        annotated.append(line)
+        # When we see a "workspace:frontend › <pkg>" line, classify it
+        if "workspace:frontend" in line:
+            pkg = line.split("› ")[-1].strip()
+            root_pkg = pkg.split("/")[0].lstrip("@")
+            root_pkg_full = pkg.split("/")[0]
+            is_build = any(
+                line.endswith(b) or f"› {b}" in line
+                for b in BUILD_TIME_ONLY
+            )
+            if is_build:
+                annotated.append("  ⚙️  BUILD-TIME ONLY — not in production bundle")
+            else:
+                annotated.append("  🚀 DEPLOY-TIME — present in production build")
+    return "\n".join(annotated)
 
 
 # ─────────────────────────────────────────────
