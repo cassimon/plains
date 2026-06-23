@@ -46,6 +46,14 @@ from app.models import (
 )
 
 
+def _apply_update(session: Session, db_obj: Any, update_in: Any) -> Any:
+    db_obj.sqlmodel_update(update_in.model_dump(exclude_unset=True))
+    session.add(db_obj)
+    session.commit()
+    session.refresh(db_obj)
+    return db_obj
+
+
 def create_user(*, session: Session, user_create: UserCreate) -> User:
     db_obj = User.model_validate(
         user_create, update={"hashed_password": get_password_hash(user_create.password)}
@@ -114,12 +122,7 @@ def create_material(
 def update_material(
     *, session: Session, db_material: LabMaterial, material_in: LabMaterialUpdate
 ) -> LabMaterial:
-    material_data = material_in.model_dump(exclude_unset=True)
-    db_material.sqlmodel_update(material_data)
-    session.add(db_material)
-    session.commit()
-    session.refresh(db_material)
-    return db_material
+    return _apply_update(session, db_material, material_in)
 
 
 # ============================================================================
@@ -147,12 +150,7 @@ def create_solution(
 def update_solution(
     *, session: Session, db_solution: LabSolution, solution_in: LabSolutionUpdate
 ) -> LabSolution:
-    solution_data = solution_in.model_dump(exclude_unset=True)
-    db_solution.sqlmodel_update(solution_data)
-    session.add(db_solution)
-    session.commit()
-    session.refresh(db_solution)
-    return db_solution
+    return _apply_update(session, db_solution, solution_in)
 
 
 # ============================================================================
@@ -180,12 +178,7 @@ def create_experiment(
 def update_experiment(
     *, session: Session, db_experiment: Experiment, experiment_in: ExperimentUpdate
 ) -> Experiment:
-    experiment_data = experiment_in.model_dump(exclude_unset=True)
-    db_experiment.sqlmodel_update(experiment_data)
-    session.add(db_experiment)
-    session.commit()
-    session.refresh(db_experiment)
-    return db_experiment
+    return _apply_update(session, db_experiment, experiment_in)
 
 
 # ============================================================================
@@ -225,12 +218,7 @@ def update_experiment_results(
     db_results: ExperimentResults,
     results_in: ExperimentResultsUpdate,
 ) -> ExperimentResults:
-    results_data = results_in.model_dump(exclude_unset=True)
-    db_results.sqlmodel_update(results_data)
-    session.add(db_results)
-    session.commit()
-    session.refresh(db_results)
-    return db_results
+    return _apply_update(session, db_results, results_in)
 
 
 # ============================================================================
@@ -249,12 +237,7 @@ def create_process(
 def update_process(
     *, session: Session, db_process: Process, process_in: ProcessUpdate
 ) -> Process:
-    process_data = process_in.model_dump(exclude_unset=True)
-    db_process.sqlmodel_update(process_data)
-    session.add(db_process)
-    session.commit()
-    session.refresh(db_process)
-    return db_process
+    return _apply_update(session, db_process, process_in)
 
 
 # ============================================================================
@@ -279,12 +262,7 @@ def create_analysis(
 def update_analysis(
     *, session: Session, db_analysis: Analysis, analysis_in: AnalysisUpdate
 ) -> Analysis:
-    analysis_data = analysis_in.model_dump(exclude_unset=True)
-    db_analysis.sqlmodel_update(analysis_data)
-    session.add(db_analysis)
-    session.commit()
-    session.refresh(db_analysis)
-    return db_analysis
+    return _apply_update(session, db_analysis, analysis_in)
 
 
 # ============================================================================
@@ -301,12 +279,7 @@ def create_plane(
 
 
 def update_plane(*, session: Session, db_plane: Plane, plane_in: PlaneUpdate) -> Plane:
-    plane_data = plane_in.model_dump(exclude_unset=True)
-    db_plane.sqlmodel_update(plane_data)
-    session.add(db_plane)
-    session.commit()
-    session.refresh(db_plane)
-    return db_plane
+    return _apply_update(session, db_plane, plane_in)
 
 
 # ============================================================================
@@ -325,11 +298,7 @@ def create_sticky_note(
 def update_sticky_note(
     *, session: Session, db_note: StickyNote, note_in: StickyNoteUpdate
 ) -> StickyNote:
-    db_note.sqlmodel_update(note_in.model_dump(exclude_unset=True))
-    session.add(db_note)
-    session.commit()
-    session.refresh(db_note)
-    return db_note
+    return _apply_update(session, db_note, note_in)
 
 
 def create_text_field(
@@ -345,11 +314,7 @@ def create_text_field(
 def update_text_field(
     *, session: Session, db_field: TextField, field_in: TextFieldUpdate
 ) -> TextField:
-    db_field.sqlmodel_update(field_in.model_dump(exclude_unset=True))
-    session.add(db_field)
-    session.commit()
-    session.refresh(db_field)
-    return db_field
+    return _apply_update(session, db_field, field_in)
 
 
 def create_collection(
@@ -370,8 +335,4 @@ def update_collection(
     db_collection: DataCollection,
     collection_in: DataCollectionUpdate,
 ) -> DataCollection:
-    db_collection.sqlmodel_update(collection_in.model_dump(exclude_unset=True))
-    session.add(db_collection)
-    session.commit()
-    session.refresh(db_collection)
-    return db_collection
+    return _apply_update(session, db_collection, collection_in)

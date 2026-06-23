@@ -22,31 +22,14 @@ def read_results(
     session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 100
 ) -> Any:
     """Retrieve experiment results."""
-    if current_user.is_superuser:
-        count_statement = select(func.count()).select_from(ExperimentResults)
-        count = session.exec(count_statement).one()
-        statement = (
-            select(ExperimentResults)
-            .order_by(col(ExperimentResults.created_at).desc())
-            .offset(skip)
-            .limit(limit)
-        )
-        items = session.exec(statement).all()
-    else:
-        count_statement = (
-            select(func.count())
-            .select_from(ExperimentResults)
-            .where(ExperimentResults.owner_id == current_user.id)
-        )
-        count = session.exec(count_statement).one()
-        statement = (
-            select(ExperimentResults)
-            .where(ExperimentResults.owner_id == current_user.id)
-            .order_by(col(ExperimentResults.created_at).desc())
-            .offset(skip)
-            .limit(limit)
-        )
-        items = session.exec(statement).all()
+    base = select(ExperimentResults)
+    count_base = select(func.count()).select_from(ExperimentResults)
+    if not current_user.is_superuser:
+        base = base.where(ExperimentResults.owner_id == current_user.id)
+        count_base = count_base.where(ExperimentResults.owner_id == current_user.id)
+    count = session.exec(count_base).one()
+    statement = base.order_by(col(ExperimentResults.created_at).desc()).offset(skip).limit(limit)
+    items = session.exec(statement).all()
     return ExperimentResultsListPublic(data=items, count=count)
 
 

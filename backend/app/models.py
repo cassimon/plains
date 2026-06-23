@@ -166,8 +166,8 @@ class PlaneSharePublic(SQLModel):
     user: UserPublic
 
 
-# --- StickyNote ---
-class StickyNoteBase(SQLModel):
+# --- Shared canvas note fields (StickyNote and TextField are identical) ---
+class CanvasNoteBase(SQLModel):
     i: int = 0
     j: int = 0
     di: int = 1
@@ -181,11 +181,16 @@ class StickyNoteBase(SQLModel):
     hyperlink: str | None = None
 
 
-class StickyNoteCreate(StickyNoteBase):
+# --- StickyNote ---
+class StickyNoteBase(CanvasNoteBase):
     pass
 
 
-class StickyNoteUpdate(StickyNoteBase):
+class StickyNoteCreate(CanvasNoteBase):
+    pass
+
+
+class StickyNoteUpdate(CanvasNoteBase):
     pass
 
 
@@ -207,25 +212,15 @@ class StickyNotePublic(StickyNoteBase):
 
 
 # --- TextField ---
-class TextFieldBase(SQLModel):
-    i: int = 0
-    j: int = 0
-    di: int = 1
-    dj: int = 1
-    content: str | None = None
-    color: str | None = Field(default=None, max_length=50)
-    fmt_bold: bool | None = None
-    fmt_italic: bool | None = None
-    fmt_underline: bool | None = None
-    fmt_font_size: int | None = None
-    hyperlink: str | None = None
-
-
-class TextFieldCreate(TextFieldBase):
+class TextFieldBase(CanvasNoteBase):
     pass
 
 
-class TextFieldUpdate(TextFieldBase):
+class TextFieldCreate(CanvasNoteBase):
+    pass
+
+
+class TextFieldUpdate(CanvasNoteBase):
     pass
 
 

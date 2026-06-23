@@ -4,9 +4,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
-from sqlmodel import Session, select
+from sqlmodel import select
 
-from app import crud
 from app.api.deps import SessionDep
 from app.core import security
 from app.core.config import settings

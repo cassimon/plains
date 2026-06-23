@@ -4,6 +4,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from sqlmodel import col, func, select
 
+from app import crud
 from app.api.deps import CurrentUser, SessionDep
 from app.models import (
     LabMaterial,
@@ -21,31 +22,14 @@ def read_materials(
     session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 100
 ) -> Any:
     """Retrieve materials."""
-    if current_user.is_superuser:
-        count_statement = select(func.count()).select_from(LabMaterial)
-        count = session.exec(count_statement).one()
-        statement = (
-            select(LabMaterial)
-            .order_by(col(LabMaterial.created_at).desc())
-            .offset(skip)
-            .limit(limit)
-        )
-        items = session.exec(statement).all()
-    else:
-        count_statement = (
-            select(func.count())
-            .select_from(LabMaterial)
-            .where(LabMaterial.owner_id == current_user.id)
-        )
-        count = session.exec(count_statement).one()
-        statement = (
-            select(LabMaterial)
-            .where(LabMaterial.owner_id == current_user.id)
-            .order_by(col(LabMaterial.created_at).desc())
-            .offset(skip)
-            .limit(limit)
-        )
-        items = session.exec(statement).all()
+    base = select(LabMaterial)
+    count_base = select(func.count()).select_from(LabMaterial)
+    if not current_user.is_superuser:
+        base = base.where(LabMaterial.owner_id == current_user.id)
+        count_base = count_base.where(LabMaterial.owner_id == current_user.id)
+    count = session.exec(count_base).one()
+    statement = base.order_by(col(LabMaterial.created_at).desc()).offset(skip).limit(limit)
+    items = session.exec(statement).all()
     return LabMaterialsPublic(data=items, count=count)
 
 
@@ -65,13 +49,9 @@ def create_material(
     *, session: SessionDep, current_user: CurrentUser, material_in: LabMaterialCreate
 ) -> Any:
     """Create new material."""
-    material = LabMaterial.model_validate(
-        material_in, update={"owner_id": current_user.id}
+    return crud.create_material(
+        session=session, material_in=material_in, owner_id=current_user.id
     )
-    session.add(material)
-    session.commit()
-    session.refresh(material)
-    return material
 
 
 @router.put("/{id}", response_model=LabMaterialPublic)
@@ -88,12 +68,9 @@ def update_material(
         raise HTTPException(status_code=404, detail="LabMaterial not found")
     if not current_user.is_superuser and (material.owner_id != current_user.id):
         raise HTTPException(status_code=403, detail="Not enough permissions")
-    update_data = material_in.model_dump(exclude_unset=True)
-    material.sqlmodel_update(update_data)
-    session.add(material)
-    session.commit()
-    session.refresh(material)
-    return material
+    return crud.update_material(
+        session=session, db_material=material, material_in=material_in
+    )
 
 
 @router.delete("/{id}")

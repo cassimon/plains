@@ -2,12 +2,15 @@ import logging
 from collections.abc import Generator
 from typing import Annotated
 
+import jwt as _jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session, select
 
 from app.core import security
+from app.core.config import settings
 from app.core.db import engine
+from app.core.security import ALGORITHM
 from app.models import User
 
 logger = logging.getLogger(__name__)
@@ -47,12 +50,7 @@ def get_current_user(session: SessionDep, token: TokenDep) -> User:
     When NOMAD_OAUTH_ENABLED=false: verify local HS256 JWT issued by /login/access-token;
     look up user by email stored in the 'sub' claim.
     """
-    from app.core.config import settings
-
     if not settings.NOMAD_OAUTH_ENABLED:
-        import jwt as _jwt
-        from app.core.security import ALGORITHM
-
         try:
             payload = _jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
             email: str | None = payload.get("sub")

@@ -22,31 +22,14 @@ def read_solutions(
     session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 100
 ) -> Any:
     """Retrieve solutions."""
-    if current_user.is_superuser:
-        count_statement = select(func.count()).select_from(LabSolution)
-        count = session.exec(count_statement).one()
-        statement = (
-            select(LabSolution)
-            .order_by(col(LabSolution.created_at).desc())
-            .offset(skip)
-            .limit(limit)
-        )
-        items = session.exec(statement).all()
-    else:
-        count_statement = (
-            select(func.count())
-            .select_from(LabSolution)
-            .where(LabSolution.owner_id == current_user.id)
-        )
-        count = session.exec(count_statement).one()
-        statement = (
-            select(LabSolution)
-            .where(LabSolution.owner_id == current_user.id)
-            .order_by(col(LabSolution.created_at).desc())
-            .offset(skip)
-            .limit(limit)
-        )
-        items = session.exec(statement).all()
+    base = select(LabSolution)
+    count_base = select(func.count()).select_from(LabSolution)
+    if not current_user.is_superuser:
+        base = base.where(LabSolution.owner_id == current_user.id)
+        count_base = count_base.where(LabSolution.owner_id == current_user.id)
+    count = session.exec(count_base).one()
+    statement = base.order_by(col(LabSolution.created_at).desc()).offset(skip).limit(limit)
+    items = session.exec(statement).all()
     return LabSolutionsPublic(data=items, count=count)
 
 
