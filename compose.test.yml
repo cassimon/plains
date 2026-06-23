@@ -1,0 +1,35 @@
+# Integration test overrides — no Traefik, deterministic localhost ports,
+# frontend proxies API so VITE_API_URL can be relative (empty = same origin).
+services:
+  db:
+    ports:
+      - "127.0.0.1:5433:5432"
+
+  backend:
+    ports:
+      - "127.0.0.1:8001:8000"
+    environment:
+      - NOMAD_OAUTH_ENABLED=false
+      - NOMAD_MOCK_MODE=true
+      - EMAILS_ENABLED=false
+      - POSTGRES_SERVER=db
+
+  frontend:
+    ports:
+      - "127.0.0.1:5174:80"
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # Empty VITE_API_URL → OpenAPI.BASE="" → relative URLs → nginx proxy below
+        - VITE_API_URL=
+        - VITE_RASA_SERVER_URL=
+        - VITE_BASE_PATH=/
+    # Mount the proxy config over the default "404 /api" config
+    volumes:
+      - ./frontend/nginx-test-proxy.conf:/etc/nginx/extra-conf.d/backend-not-found.conf:ro
+
+networks:
+  traefik-public:
+    # Override external: true so we create it locally for tests
+    external: false

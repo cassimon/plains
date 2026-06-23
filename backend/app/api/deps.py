@@ -40,11 +40,40 @@ TokenDep = Annotated[str, Depends(_require_token)]
 
 
 def get_current_user(session: SessionDep, token: TokenDep) -> User:
-    """Verify the NOMAD Keycloak Bearer token and return the matching user.
+    """Verify the Bearer token and return the matching user.
 
-    On first login the user record is created automatically from the JWT claims.
-    The token is verified against the NOMAD JWKS endpoint (RS256, issuer check).
+    When NOMAD_OAUTH_ENABLED=true: verify against NOMAD JWKS (RS256); auto-create
+    user on first login from JWT claims.
+    When NOMAD_OAUTH_ENABLED=false: verify local HS256 JWT issued by /login/access-token;
+    look up user by email stored in the 'sub' claim.
     """
+    from app.core.config import settings
+
+    if not settings.NOMAD_OAUTH_ENABLED:
+        import jwt as _jwt
+        from app.core.security import ALGORITHM
+
+        try:
+            payload = _jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+            email: str | None = payload.get("sub")
+        except _jwt.InvalidTokenError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token: missing subject",
+            )
+        user = session.exec(select(User).where(User.email == email)).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not user.is_active:
+            raise HTTPException(status_code=400, detail="Inactive user")
+        return user
+
     claims = security.verify_nomad_token(token)
     nomad_sub = claims.get("sub")
 

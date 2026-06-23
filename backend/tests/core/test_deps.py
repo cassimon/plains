@@ -36,11 +36,13 @@ def test_require_token_returns_token_string():
 
 def test_get_current_user_raises_401_when_token_missing_sub(db):
     from app.api.deps import get_current_user
-    from unittest.mock import patch
+    from app.core.config import settings as _settings
 
-    with patch("app.api.deps.security.verify_nomad_token") as mock_verify:
+    with (
+        patch.object(_settings, "NOMAD_OAUTH_ENABLED", True),
+        patch("app.api.deps.security.verify_nomad_token") as mock_verify,
+    ):
         mock_verify.return_value = {}  # no "sub" claim
-
         with pytest.raises(HTTPException) as exc_info:
             get_current_user(session=db, token="any.token")
 
@@ -53,11 +55,15 @@ def test_get_current_user_creates_user_on_first_login(db):
     from app.api.deps import get_current_user
     from app.models import User
     from sqlmodel import select
+    from app.core.config import settings as _settings
 
     unique_sub = f"keycloak|{uuid.uuid4().hex}"
     unique_email = f"{uuid.uuid4().hex}@nomad.test"
 
-    with patch("app.api.deps.security.verify_nomad_token") as mock_verify:
+    with (
+        patch.object(_settings, "NOMAD_OAUTH_ENABLED", True),
+        patch("app.api.deps.security.verify_nomad_token") as mock_verify,
+    ):
         mock_verify.return_value = {
             "sub": unique_sub,
             "email": unique_email,
@@ -69,7 +75,6 @@ def test_get_current_user_creates_user_on_first_login(db):
     assert user.email == unique_email
     assert user.is_active is True
 
-    # Clean up
     db_user = db.exec(select(User).where(User.nomad_sub == unique_sub)).first()
     if db_user:
         db.delete(db_user)
@@ -81,23 +86,25 @@ def test_get_current_user_returns_existing_user(db):
     from app.api.deps import get_current_user
     from app.models import User
     from sqlmodel import select
+    from app.core.config import settings as _settings
 
     unique_sub = f"keycloak|{uuid.uuid4().hex}"
     unique_email = f"{uuid.uuid4().hex}@nomad.test"
 
-    # Pre-create user
     existing = User(email=unique_email, nomad_sub=unique_sub, is_active=True)
     db.add(existing)
     db.commit()
     db.refresh(existing)
 
-    with patch("app.api.deps.security.verify_nomad_token") as mock_verify:
+    with (
+        patch.object(_settings, "NOMAD_OAUTH_ENABLED", True),
+        patch("app.api.deps.security.verify_nomad_token") as mock_verify,
+    ):
         mock_verify.return_value = {"sub": unique_sub, "email": unique_email}
         user = get_current_user(session=db, token="valid.token")
 
     assert user.id == existing.id
 
-    # Clean up
     db.delete(existing)
     db.commit()
 
@@ -114,7 +121,12 @@ def test_get_current_user_raises_400_for_inactive_user(db):
     db.add(inactive)
     db.commit()
 
-    with patch("app.api.deps.security.verify_nomad_token") as mock_verify:
+    from app.core.config import settings as _settings
+
+    with (
+        patch.object(_settings, "NOMAD_OAUTH_ENABLED", True),
+        patch("app.api.deps.security.verify_nomad_token") as mock_verify,
+    ):
         mock_verify.return_value = {"sub": unique_sub}
         with pytest.raises(HTTPException) as exc_info:
             get_current_user(session=db, token="valid.token")
