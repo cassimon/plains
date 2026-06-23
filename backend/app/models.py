@@ -3,7 +3,7 @@ from datetime import date as date_type
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from pydantic import EmailStr
+from pydantic import ConfigDict, EmailStr
 from sqlalchemy import Column, DateTime, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
@@ -1178,6 +1178,8 @@ class UserState(SQLModel, table=True):
 
 
 class UiPrefsUpdate(SQLModel):
+    model_config = ConfigDict(extra="forbid")
+
     ui_prefs: dict[str, Any]
 
 

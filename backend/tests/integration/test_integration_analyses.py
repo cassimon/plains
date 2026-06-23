@@ -59,7 +59,18 @@ class TestAnalysesCRUD:
     def test_not_found(self, user_headers):
         assert httpx.get(f"{API_V1}/analyses/{uuid.uuid4()}", headers=user_headers).status_code == 404
 
-    def test_idor(self, superuser_headers, user_headers):
+    def test_idor_read(self, superuser_headers, user_headers):
         a = _analysis(superuser_headers)
         assert httpx.get(f"{API_V1}/analyses/{a['id']}", headers=user_headers).status_code == 403
+        httpx.delete(f"{API_V1}/analyses/{a['id']}", headers=superuser_headers)
+
+    def test_idor_update(self, superuser_headers, user_headers):
+        a = _analysis(superuser_headers)
+        r = httpx.put(f"{API_V1}/analyses/{a['id']}", json={"name": "hacked"}, headers=user_headers)
+        assert r.status_code == 403
+        httpx.delete(f"{API_V1}/analyses/{a['id']}", headers=superuser_headers)
+
+    def test_idor_delete(self, superuser_headers, user_headers):
+        a = _analysis(superuser_headers)
+        assert httpx.delete(f"{API_V1}/analyses/{a['id']}", headers=user_headers).status_code == 403
         httpx.delete(f"{API_V1}/analyses/{a['id']}", headers=superuser_headers)

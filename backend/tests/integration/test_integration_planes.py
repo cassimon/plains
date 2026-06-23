@@ -39,9 +39,20 @@ class TestPlaneCRUD:
         assert plane["id"] in ids
         httpx.delete(f"{API_V1}/planes/{plane['id']}", headers=user_headers)
 
-    def test_idor(self, superuser_headers, user_headers):
+    def test_idor_read(self, superuser_headers, user_headers):
         plane = _plane(superuser_headers)
         assert httpx.get(f"{API_V1}/planes/{plane['id']}", headers=user_headers).status_code == 403
+        httpx.delete(f"{API_V1}/planes/{plane['id']}", headers=superuser_headers)
+
+    def test_idor_update(self, superuser_headers, user_headers):
+        plane = _plane(superuser_headers)
+        r = httpx.put(f"{API_V1}/planes/{plane['id']}", json={"name": "hacked"}, headers=user_headers)
+        assert r.status_code == 403
+        httpx.delete(f"{API_V1}/planes/{plane['id']}", headers=superuser_headers)
+
+    def test_idor_delete(self, superuser_headers, user_headers):
+        plane = _plane(superuser_headers)
+        assert httpx.delete(f"{API_V1}/planes/{plane['id']}", headers=user_headers).status_code == 403
         httpx.delete(f"{API_V1}/planes/{plane['id']}", headers=superuser_headers)
 
 
@@ -104,7 +115,7 @@ class TestDataCollections:
 
         r = httpx.post(
             f"{API_V1}/planes/{pid}/collections",
-            json={"name": "My Collection", "i": 0, "j": 0, "di": 3, "dj": 3},
+            json={"name": "My Collection", "i": 0, "j": 0},
             headers=user_headers,
         )
         assert r.status_code == 200
@@ -114,7 +125,7 @@ class TestDataCollections:
 
         r = httpx.put(
             f"{API_V1}/planes/{pid}/collections/{cid}",
-            json={"name": "Updated Collection", "i": 0, "j": 0, "di": 3, "dj": 3},
+            json={"name": "Updated Collection", "i": 0, "j": 0},
             headers=user_headers,
         )
         assert r.json()["name"] == "Updated Collection"

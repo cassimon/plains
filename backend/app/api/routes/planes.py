@@ -75,7 +75,7 @@ def read_planes(
             PlaneShare.user_id == current_user.id,
         )
         count = session.exec(
-            select(func.count())
+            select(func.count(Plane.id.distinct()))
             .select_from(Plane)
             .outerjoin(PlaneShare, Plane.id == PlaneShare.plane_id)
             .where(cond)

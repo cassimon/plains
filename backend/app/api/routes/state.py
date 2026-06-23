@@ -71,6 +71,7 @@ def get_bulk_state(session: SessionDep, current_user: CurrentUser) -> Any:
         select(Plane)
         .outerjoin(PlaneShare, Plane.id == PlaneShare.plane_id)
         .where(or_(Plane.owner_id == uid, PlaneShare.user_id == uid))
+        .distinct()
     ).all()
     return BulkStateResponse(
         materials=session.exec(

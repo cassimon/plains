@@ -19,7 +19,7 @@ def _exp(headers) -> dict:
 def _result(headers, experiment_id: str, **kw) -> dict:
     r = httpx.post(
         f"{API_V1}/results/",
-        json={"experiment_id": experiment_id, **kw},
+        json=kw,
         params={"experiment_id": experiment_id},
         headers=headers,
     )
@@ -71,10 +71,27 @@ class TestResultsCRUD:
         httpx.delete(f"{API_V1}/experiments/{exp['id']}", headers=user_headers)
         assert httpx.get(f"{API_V1}/results/{rid}", headers=user_headers).status_code == 404
 
-    def test_idor(self, superuser_headers, user_headers):
+    def test_idor_read(self, superuser_headers, user_headers):
         exp = _exp(superuser_headers)
         res = _result(superuser_headers, exp["id"])
         assert httpx.get(f"{API_V1}/results/{res['id']}", headers=user_headers).status_code == 403
+        httpx.delete(f"{API_V1}/experiments/{exp['id']}", headers=superuser_headers)
+
+    def test_idor_update(self, superuser_headers, user_headers):
+        exp = _exp(superuser_headers)
+        res = _result(superuser_headers, exp["id"])
+        r = httpx.put(
+            f"{API_V1}/results/{res['id']}",
+            json={"notes": "hacked"},
+            headers=user_headers,
+        )
+        assert r.status_code == 403
+        httpx.delete(f"{API_V1}/experiments/{exp['id']}", headers=superuser_headers)
+
+    def test_idor_delete(self, superuser_headers, user_headers):
+        exp = _exp(superuser_headers)
+        res = _result(superuser_headers, exp["id"])
+        assert httpx.delete(f"{API_V1}/results/{res['id']}", headers=user_headers).status_code == 403
         httpx.delete(f"{API_V1}/experiments/{exp['id']}", headers=superuser_headers)
 
     def test_read_not_found(self, user_headers):

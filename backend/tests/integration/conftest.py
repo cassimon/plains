@@ -20,6 +20,15 @@ API_V1 = f"{API_BASE}/api/v1"
 SUPERUSER_EMAIL = os.getenv("FIRST_SUPERUSER", "admin@plains.dev")
 SUPERUSER_PASSWORD = os.getenv("FIRST_SUPERUSER_PASSWORD", "adminpass123")
 
+# These tests require NOMAD_OAUTH_ENABLED=false (local JWT login) and
+# ENVIRONMENT=local (private /private/users/ endpoint). Skip automatically
+# when those conditions aren't met so the suite doesn't fail against a real
+# production deployment.
+_REQUIRES_LOCAL_AUTH = pytest.mark.skipif(
+    os.getenv("NOMAD_OAUTH_ENABLED", "false").lower() == "true",
+    reason="Integration tests require NOMAD_OAUTH_ENABLED=false (local JWT mode)",
+)
+
 
 def get_token(email: str, password: str) -> str:
     r = httpx.post(
@@ -46,6 +55,7 @@ def superuser_headers(superuser_token: str) -> dict:
 
 
 @pytest.fixture(scope="session")
+@_REQUIRES_LOCAL_AUTH
 def test_user(superuser_headers: dict):
     """Create a test user for the session; delete it at teardown."""
     uid = uuid.uuid4().hex[:8]

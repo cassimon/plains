@@ -74,9 +74,24 @@ class TestExperimentCRUD:
         assert exp["id"] in ids
         httpx.delete(f"{API_V1}/experiments/{exp['id']}", headers=user_headers)
 
-    def test_idor(self, superuser_headers, user_headers):
+    def test_idor_read(self, superuser_headers, user_headers):
         exp = _exp(superuser_headers)
         assert httpx.get(f"{API_V1}/experiments/{exp['id']}", headers=user_headers).status_code == 403
+        httpx.delete(f"{API_V1}/experiments/{exp['id']}", headers=superuser_headers)
+
+    def test_idor_update(self, superuser_headers, user_headers):
+        exp = _exp(superuser_headers)
+        r = httpx.put(
+            f"{API_V1}/experiments/{exp['id']}",
+            json={"name": "hacked"},
+            headers=user_headers,
+        )
+        assert r.status_code == 403
+        httpx.delete(f"{API_V1}/experiments/{exp['id']}", headers=superuser_headers)
+
+    def test_idor_delete(self, superuser_headers, user_headers):
+        exp = _exp(superuser_headers)
+        assert httpx.delete(f"{API_V1}/experiments/{exp['id']}", headers=user_headers).status_code == 403
         httpx.delete(f"{API_V1}/experiments/{exp['id']}", headers=superuser_headers)
 
 
@@ -147,7 +162,7 @@ class TestExperimentWithSubstrates:
     def test_create_with_substrates(self, user_headers):
         exp = _exp(
             user_headers,
-            substrates=[{"name": "Sub1", "position": 0}],
+            substrates=[{"name": "Sub1"}],
         )
         assert len(exp["substrates"]) == 1
         assert exp["substrates"][0]["name"] == "Sub1"

@@ -28,6 +28,18 @@ class TestUserState:
         r = httpx.get(f"{API_V1}/state/", headers=user_headers)
         assert r.json()["data"]["ui_prefs"] == prefs
 
+    def test_put_state_rejects_extra_keys(self, user_headers):
+        r = httpx.put(
+            f"{API_V1}/state/",
+            json={"ui_prefs": {"x": 1}, "domain_key": "should_reject"},
+            headers=user_headers,
+        )
+        assert r.status_code == 422
+
+    def test_put_state_requires_ui_prefs(self, user_headers):
+        r = httpx.put(f"{API_V1}/state/", json={"not_ui_prefs": {}}, headers=user_headers)
+        assert r.status_code == 422
+
     def test_state_requires_auth(self):
         assert httpx.get(f"{API_V1}/state/").status_code == 401
         assert httpx.put(f"{API_V1}/state/", json={"ui_prefs": {}}).status_code == 401
