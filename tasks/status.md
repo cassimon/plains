@@ -26,7 +26,7 @@ improvements. Progress checkpoint so work can resume after interruption.
 |------|---------|---------|
 | Task 2 — Security | ✅ | Solid; minor gaps (non-root containers documented-not-applied; checkboxes unticked; token TTL at 60m boundary) |
 | Task 3 — Tests | ✅ | Fixed broken `test.sh` (collected live-stack integration tests); gaps: no `fail_under=80`, unit suite not in CI |
-| Task 4 — Data model | ⬜ pending | |
+| Task 4 — Data model | ✅ | Headline gap: NOMAD upload writes to `frontend_data` JSONB, leaving normalised nomad_* columns dead (AC1/AC11 write-path) |
 | Task 5 — Integration tests | ⬜ pending | |
 
 ### Task 2 audit findings
@@ -82,6 +82,45 @@ Task 3 AC command (`bash backend/scripts/test.sh`) could not pass. Fixed by addi
 3. **`tests/crud/` cascade tests are thin** (only `test_user.py`). The task asked for
    cascade-delete CRUD tests there; cascades are instead covered by
    `tests/integration/` (e.g. solution_component). Functionally covered — minor.
+
+### Task 4 audit findings
+
+**Confirmed addressed:** legacy `item`/`canvas_element`/`experiment_layer`/LineElement
+removed (AC3); integer grid coords (AC2); `collection_id` FKs + `experiment_material`
+/`experiment_solution` junctions + per-entity sub-routes (AC5/6/7); `PUT /state/`
+guard via `UiPrefsUpdate(extra="forbid")` (AC10); NOMAD export **read** path reads
+normalised columns (AC11 read side, fixed earlier this session). All exercised by the
+green integration suite (processes/experiments/planes/analyses/state).
+
+**Headline gap — NOMAD write path still uses JSONB (AC1 + AC11):**
+`ExperimentResults` defines normalised `nomad_upload_id`, `nomad_upload_time`,
+`nomad_upload_status`, `nomad_entries` (§15), but **nothing writes them**.
+`routes/nomad.py:728-740` stores upload status in `experiment_results.frontend_data
+["nomad"]` instead. So those columns are dead, live domain data sits in JSONB
+(violates AC1), and Task 5's C-7 intent ("verify nomad_upload_id stored on the row")
+can never hold. **Recommended fix:** in the upload route, assign the normalised
+columns (`db_results.nomad_upload_id = ...`, `_status`, `_time`, `nomad_entries`);
+verify whether the results GET schema / frontend read these top-level fields (§API
+changes: "GET /results/{id} returns NOMAD columns as top-level fields") vs
+`frontend_data["nomad"]` before removing the JSONB write, to avoid changing UI
+display. Not applied here — touches the NOMAD flow + possible frontend coupling that
+can't be exercised without the external service.
+
+**Other gaps:**
+1. **`frontend_data` residue (AC1):** 7 `frontend_data` JSONB columns remain. Intended
+   as a Phase-F-droppable safety net, but the NOMAD case above shows it's still an
+   *active* write target, not just dormant residue.
+2. **AC12 random-walk tests unverified:** `plains-random-walk.spec.ts` exists with
+   parameterized `test.describe` loops (≈11 at runtime), but runs only on the
+   `chromium` project against the dev stack (`:5173`) — it is **not** in
+   `integration-tests.yml`, so AC12 is never checked in CI.
+3. **AC4 contradiction (task-internal):** spec says `plane_id … SET NULL nullable`
+   (§7-16) yet AC4 demands non-null. Implementation correctly follows the schema
+   (nullable). The AC is the bug, not the code.
+4. **Task-internal inconsistency:** AC1 ("no domain data in JSONB") conflicts with the
+   task's own schema, which defines `chemicals_prep`, `processing_times`,
+   `inline_material`, `parameter_values` as JSONB by design — so AC1 as written is
+   unachievable. Worth restating AC1 as "no *authoritative* domain data in JSONB".
 
 ---
 
