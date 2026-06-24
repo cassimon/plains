@@ -25,7 +25,7 @@ improvements. Progress checkpoint so work can resume after interruption.
 | Task | Audited | Verdict |
 |------|---------|---------|
 | Task 2 — Security | ✅ | Solid; minor gaps (non-root containers documented-not-applied; checkboxes unticked; token TTL at 60m boundary) |
-| Task 3 — Tests | ⬜ pending | |
+| Task 3 — Tests | ✅ | Fixed broken `test.sh` (collected live-stack integration tests); gaps: no `fail_under=80`, unit suite not in CI |
 | Task 4 — Data model | ⬜ pending | |
 | Task 5 — Integration tests | ⬜ pending | |
 
@@ -57,6 +57,31 @@ exists and is risk-ordered.
 
 No functional regressions found. Recommend applying #1 and ticking #2; #3–#5 are
 deploy-time judgement calls already captured in the checklist.
+
+### Task 3 audit findings
+
+**Confirmed addressed:** Every router in `app/api/routes/` has a matching
+`test_<name>.py` (analyses, experiments, login, materials, nomad, planes, private,
+processes, results, solutions, state, users, utils) plus `test_security.py`
+(incl. JWT `algorithm=none` rejection). NOMAD service well covered (4 files:
+mock-mode, metadata, quenching, zip-flattening). 340 unit tests collect cleanly.
+
+**Gap fixed:** `backend/scripts/test.sh` ran `pytest tests/`, which now also
+collects `tests/integration/` (added by Task 5). Those drive a live stack over
+HTTP (:8001) and error with connection-refused when run without the stack — so the
+Task 3 AC command (`bash backend/scripts/test.sh`) could not pass. Fixed by adding
+`--ignore=tests/integration` (CI still runs integration directly, unaffected).
+
+**Gaps (documented, not applied):**
+1. **No `fail_under = 80`** in `[tool.coverage.report]` — the ≥80% AC is reported
+   but not enforced. Add it once coverage is measured ≥80% (couldn't measure here:
+   needs a live Postgres). Applying blind risks failing the build if actual <80%.
+2. **Unit suite + coverage never runs in CI.** `integration-tests.yml` only runs
+   `tests/integration/`; nothing runs `test.sh`. So the ≥80% AC is unverified
+   automatically. Recommend a CI job: `docker compose exec backend bash scripts/tests-start.sh`.
+3. **`tests/crud/` cascade tests are thin** (only `test_user.py`). The task asked for
+   cascade-delete CRUD tests there; cascades are instead covered by
+   `tests/integration/` (e.g. solution_component). Functionally covered — minor.
 
 ---
 
