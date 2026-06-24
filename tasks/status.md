@@ -13,7 +13,7 @@
 | [Task 2](#task-2-security-hardening-for-web-exposure) | Security Hardening for Web Exposure | ✅ Done | 0 open |
 | [Task 3](#task-3-write--execute-tests) | Write & Execute Tests | 🟡 Mostly done | 1 open |
 | [Task 4](#task-4-backendfrntend-data-model-alignment) | Backend/Frontend Data Model Alignment | 🟡 Mostly done | 2 open |
-| [Task 5](#task-5-dockerized-full-stack-integration-tests) | Dockerized Full-Stack Integration Tests | 🟡 Mostly done | 1 open |
+| [Task 5](#task-5-dockerized-full-stack-integration-tests) | Dockerized Full-Stack Integration Tests | ✅ Done | 0 open — CI green (run #9) |
 
 ---
 
@@ -116,9 +116,9 @@ Same as Task 3 issue 3.1.
 | AC1 | `compose.test.yml` exists and stack starts | ✅ Done |
 | AC2 | `uv run pytest tests/integration/ -v` exits 0 | 🟡 Cannot verify — no DB available |
 | AC3 | All backend integration tests cover happy path + cascade delete + IDOR | ✅ Done — `test_integration_users.py` with 4 tests |
-| AC4 | Playwright integration tests pass (`--project=integration`) | 🟡 In CI — reworked to authenticate via injected JWT (app is Keycloak-only); awaiting green run |
+| AC4 | Playwright integration tests pass (`--project=integration`) | ✅ Done — green in CI run #9 (auth via injected JWT; app is Keycloak-only) |
 | AC5 | Every Playwright integration test makes at least one real API assertion | ✅ Done — auth.spec + wiring.spec assert against the live API / GUI bootstrap |
-| AC6 | `.github/workflows/integration-tests.yml` exists and is green | 🟡 Backend job green (87 tests pass); Playwright job validated end-to-end after Keycloak-auth rework |
+| AC6 | `.github/workflows/integration-tests.yml` exists and is green | ✅ Done — full workflow green (build → 87 backend tests → Playwright) |
 | AC7 | No existing unit tests broken | 🟡 Cannot verify — no DB |
 | AC8 | No application source code changed | ✅ Done |
 
