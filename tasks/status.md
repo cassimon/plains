@@ -27,7 +27,7 @@ improvements. Progress checkpoint so work can resume after interruption.
 | Task 2 — Security | ✅ | Solid; minor gaps (non-root containers documented-not-applied; checkboxes unticked; token TTL at 60m boundary) |
 | Task 3 — Tests | ✅ | Fixed broken `test.sh` (collected live-stack integration tests); gaps: no `fail_under=80`, unit suite not in CI |
 | Task 4 — Data model | ✅ | Headline gap: NOMAD upload writes to `frontend_data` JSONB, leaving normalised nomad_* columns dead (AC1/AC11 write-path) |
-| Task 5 — Integration tests | ⬜ pending | |
+| Task 5 — Integration tests | ✅ | CI green; A-2 hook unachievable (`.claude/` gitignored); Part C browser CRUD specs consolidated (approved rework) |
 
 ### Task 2 audit findings
 
@@ -121,6 +121,50 @@ can't be exercised without the external service.
    task's own schema, which defines `chemicals_prep`, `processing_times`,
    `inline_material`, `parameter_values` as JSONB by design — so AC1 as written is
    unachievable. Worth restating AC1 as "no *authoritative* domain data in JSONB".
+
+### Task 5 audit findings
+
+**Confirmed addressed:** `compose.test.yml` (A-1), `.env.test` (A-3), Playwright
+integration project (A-4), `utils/api.ts` (A-5), global setup/teardown (A-6, reworked
+to `/private/users/`), all 10 Part-B backend integration files
+(auth/materials/solutions/processes/experiments/results/planes/analyses/state/users)
+with cascade + IDOR coverage (8/10 files; auth/state are non-resource), CI workflow
+(D-1) **green end-to-end** (run #9/#10).
+
+**Gap — A-2 is unachievable as specified (root cause found):**
+`.claude/hooks/session-start.sh` was missing, and the reason is structural: the repo's
+`.gitignore` ignores `.claude/`, so a hook at that path **cannot be version-controlled**
+(git refuses to add it without `-f`). The spec's chosen location conflicts with repo
+config — that's why no prior run could land it. I created the file locally (helps the
+current session) but did **not** force it past `.gitignore`. **Recommended fix:** either
+relocate the hook to a tracked path (e.g. `scripts/start-integration-stack.sh`) and
+reference it, or have the project un-ignore `.claude/hooks/` specifically. Decision left
+to the maintainer since it changes repo conventions.
+
+**Intentional deviations (documented):**
+1. **Part C browser specs consolidated.** The spec's per-domain UI-CRUD specs
+   (C-2 materials … C-8 persistence) were replaced with `auth.spec.ts` +
+   `wiring.spec.ts`. Reason: the app is Keycloak-only with no local-login form and no
+   `/materials`//`/solutions` routes (those are tabs in Processes), so the original
+   specs targeted a UI that doesn't exist. The rework (user-approved) injects a real
+   JWT and asserts the GUI→API read path + route auth; **write-path CRUD is covered by
+   the Part B backend integration tests**. Net: browser-driven *create/edit/delete*
+   coverage (C-2..C-6) is intentionally not reproduced in the browser layer.
+2. **"No application source changed" rule was necessarily relaxed.** The tests
+   uncovered a real bug (slowapi circular import → backend unhealthy) fixed in source,
+   and the Keycloak-only design required a build-flagged (`VITE_ENABLE_TEST_AUTH`)
+   test-auth hook in `keycloakInstance.ts`. Both are legitimate under the task's "fix
+   bugs uncovered by the tests" clause, but they are source changes, not test-only.
+
+---
+
+## Audit complete
+
+All four tasks (2–5) re-reviewed. One execution gap fixed directly (`test.sh`
+integration-collection). The most material open finding is
+**Task 4's NOMAD write path** (status persisted to `frontend_data` JSONB instead of the
+normalised `nomad_*` columns) — recommended fix documented above, not applied because it
+touches the NOMAD flow and possible frontend coupling that can't be exercised here.
 
 ---
 
