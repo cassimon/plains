@@ -32,6 +32,7 @@ jobs:
 
       - name: Run Playwright integration tests
         env:
+          PLAYWRIGHT_INTEGRATION: "true"
           FRONTEND_BASE_URL: http://localhost:5174
           API_BASE_URL: http://localhost:8001
           FIRST_SUPERUSER: ${{ secrets.FIRST_SUPERUSER || 'admin@example.com' }}

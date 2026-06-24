@@ -11,6 +11,8 @@ import 'dotenv/config'
  */
 export default defineConfig({
   testDir: './tests',
+  globalSetup: process.env.PLAYWRIGHT_INTEGRATION === 'true' ? './tests/integration/global-setup.ts' : undefined,
+  globalTeardown: process.env.PLAYWRIGHT_INTEGRATION === 'true' ? './tests/integration/global-teardown.ts' : undefined,
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
@@ -43,8 +45,6 @@ export default defineConfig({
     {
       name: 'integration',
       testDir: './tests/integration',
-      globalSetup: './tests/integration/global-setup.ts',
-      globalTeardown: './tests/integration/global-teardown.ts',
       use: {
         baseURL: process.env.FRONTEND_BASE_URL ?? 'http://localhost:5174',
         actionTimeout: 30_000,
