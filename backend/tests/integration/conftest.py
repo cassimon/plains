@@ -9,16 +9,23 @@ Each test session creates a fresh user with a unique email, runs all tests
 as that user, and deletes the user at teardown.
 """
 
-import uuid
 import os
-import pytest
-import httpx
+import uuid
 
-API_BASE = os.getenv("INTEGRATION_API_BASE", "http://127.0.0.1:8001")
+import httpx
+import pytest
+
+# Accept either API_BASE_URL (used by CI / the Playwright suite) or the older
+# INTEGRATION_API_BASE name, falling back to the host-mapped test port.
+API_BASE = (
+    os.getenv("API_BASE_URL")
+    or os.getenv("INTEGRATION_API_BASE")
+    or "http://127.0.0.1:8001"
+)
 API_V1 = f"{API_BASE}/api/v1"
 
-SUPERUSER_EMAIL = os.getenv("FIRST_SUPERUSER", "admin@plains.dev")
-SUPERUSER_PASSWORD = os.getenv("FIRST_SUPERUSER_PASSWORD", "adminpass123")
+SUPERUSER_EMAIL = os.getenv("FIRST_SUPERUSER", "admin@example.com")
+SUPERUSER_PASSWORD = os.getenv("FIRST_SUPERUSER_PASSWORD", "changethis")
 
 # These tests require NOMAD_OAUTH_ENABLED=false (local JWT login) and
 # ENVIRONMENT=local (private /private/users/ endpoint). Skip automatically

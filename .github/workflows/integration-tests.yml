@@ -10,12 +10,23 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Deterministic superuser credentials shared by the stack, the backend
+      # integration tests, and the Playwright integration tests. Overrides the
+      # .env.example placeholder so every consumer agrees on the password.
+      FIRST_SUPERUSER: admin@example.com
+      FIRST_SUPERUSER_PASSWORD: changethis
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Copy env
-        run: cp .env.example .env
+        run: |
+          cp .env.example .env
+          # Pin the superuser credentials so the seeded user matches what the
+          # tests log in with (the .env.example placeholder is CHANGE_THIS).
+          sed -i "s|^FIRST_SUPERUSER=.*|FIRST_SUPERUSER=${FIRST_SUPERUSER}|" .env
+          sed -i "s|^FIRST_SUPERUSER_PASSWORD=.*|FIRST_SUPERUSER_PASSWORD=${FIRST_SUPERUSER_PASSWORD}|" .env
 
       - name: Build and start stack
         run: |
@@ -35,8 +46,7 @@ jobs:
           PLAYWRIGHT_INTEGRATION: "true"
           FRONTEND_BASE_URL: http://localhost:5174
           API_BASE_URL: http://localhost:8001
-          FIRST_SUPERUSER: ${{ secrets.FIRST_SUPERUSER || 'admin@example.com' }}
-          FIRST_SUPERUSER_PASSWORD: ${{ secrets.FIRST_SUPERUSER_PASSWORD || 'changethis' }}
+          # FIRST_SUPERUSER / FIRST_SUPERUSER_PASSWORD inherited from job env
         run: cd frontend && bunx playwright test --project=integration --reporter=list
 
       - name: Upload Playwright report

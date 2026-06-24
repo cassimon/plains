@@ -13,6 +13,10 @@ services:
       - NOMAD_MOCK_MODE=true
       - EMAILS_ENABLED=false
       - POSTGRES_SERVER=db
+    # The production image only copies ./backend/app, not the tests. Mount the
+    # test suite so `pytest tests/integration/` can find it inside the container.
+    volumes:
+      - ./backend/tests:/app/backend/tests:ro
 
   frontend:
     ports:
