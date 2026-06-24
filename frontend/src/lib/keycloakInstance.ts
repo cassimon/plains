@@ -82,13 +82,54 @@ export function isAuthenticated(): boolean {
 }
 
 /**
- * Test-only escape hatch: expose setKeycloak on window so Playwright tests can
- * inject a mock Keycloak instance without hitting the real NOMAD auth server.
- * This is only active in Vite dev builds (never in production).
+ * Test-only auth bypass for integration tests.
+ *
+ * Active when running a Vite dev build, OR when the build was produced with
+ * VITE_ENABLE_TEST_AUTH=true (the integration test image — never the real
+ * production image). It lets Playwright authenticate with a genuine
+ * backend-issued JWT instead of redirecting through the real NOMAD/Keycloak
+ * server, which isn't available in CI.
+ *
+ * Playwright seeds the token into localStorage (key `__plains_test_token`)
+ * before the app boots; we read it here at module load and install a minimal
+ * Keycloak-shaped object so isAuthenticated()/getTokenSync() behave as if a
+ * real session were active.
  */
-if (import.meta.env.DEV) {
+const TEST_AUTH_ENABLED =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_TEST_AUTH === "true"
+const TEST_TOKEN_KEY = "__plains_test_token"
+
+function installTestKeycloak(token: string): void {
+  const fakeKeycloak = {
+    authenticated: true,
+    token,
+    // The app calls updateToken() before each request; the seeded JWT is
+    // already valid for the lifetime of a test run, so this is a no-op.
+    updateToken: () => Promise.resolve(false),
+    login: () => {},
+    logout: () => {
+      try {
+        window.localStorage.removeItem(TEST_TOKEN_KEY)
+      } catch {
+        // ignore
+      }
+      window.location.href = `${import.meta.env.BASE_URL}login`
+    },
+  } as unknown as Keycloak
+  setKeycloak(fakeKeycloak)
+}
+
+if (TEST_AUTH_ENABLED) {
+  // Expose the raw setter (used by some dev tooling) ...
   ;(window as unknown as Record<string, unknown>).__plains_setKeycloak =
     setKeycloak
+  // ... and auto-install a session from the Playwright-seeded token.
+  try {
+    const seeded = window.localStorage.getItem(TEST_TOKEN_KEY)
+    if (seeded) installTestKeycloak(seeded)
+  } catch {
+    // localStorage may be unavailable; ignore in that case.
+  }
 }
 
 /**

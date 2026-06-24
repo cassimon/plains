@@ -29,6 +29,9 @@ services:
         - VITE_API_URL=
         - VITE_RASA_SERVER_URL=
         - VITE_BASE_PATH=/
+        # Enable the JWT test-auth bypass so Playwright can authenticate without
+        # a live Keycloak server (this image is only used for integration tests).
+        - VITE_ENABLE_TEST_AUTH=true
     # Mount the proxy config over the default "404 /api" config
     volumes:
       - ./frontend/nginx-test-proxy.conf:/etc/nginx/extra-conf.d/backend-not-found.conf:ro

@@ -15,7 +15,9 @@ async function waitForStack(): Promise<void> {
     }
     await new Promise((r) => setTimeout(r, RETRY_INTERVAL_MS))
   }
-  throw new Error(`Stack not reachable at ${API_BASE_URL} after ${MAX_WAIT_MS}ms`)
+  throw new Error(
+    `Stack not reachable at ${API_BASE_URL} after ${MAX_WAIT_MS}ms`,
+  )
 }
 
 export default async function globalSetup() {
