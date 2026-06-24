@@ -33,14 +33,13 @@ import { pageIcons } from "./AppLayout.icons"
 // Neutral grayish-blue for default selections
 const DEFAULT_ACCENT = "#94a3b8"
 
-// TODO: Update these paths once all routes are registered
 const pages = [
-  { label: "Organization", value: "/organization" as any },
-  { label: "Processes", value: "/processes" as any },
-  { label: "Experiments", value: "/experiments" as any },
-  { label: "Results", value: "/results" as any },
-  { label: "Analysis", value: "/analysis" as any },
-  { label: "Export", value: "/export" as any },
+  { label: "Organization", value: "/organization" },
+  { label: "Processes", value: "/processes" },
+  { label: "Experiments", value: "/experiments" },
+  { label: "Results", value: "/results" },
+  { label: "Analysis", value: "/analysis" },
+  { label: "Export", value: "/export" },
 ] as const
 
 export function AppLayout() {
@@ -375,7 +374,7 @@ export function AppLayout() {
                 <Menu.Label>{user?.email}</Menu.Label>
                 <Menu.Item
                   leftSection={<IconSettings size={14} />}
-                  onClick={() => navigate({ to: "/settings" as any })}
+                  onClick={() => navigate({ to: "/settings" })}
                 >
                   User settings
                 </Menu.Item>
