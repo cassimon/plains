@@ -17,6 +17,49 @@
 
 ---
 
+## Audit Re-run (gaps & improvements) — 2026-06-24
+
+Critical re-review of each task's prior execution for logical gaps and
+improvements. Progress checkpoint so work can resume after interruption.
+
+| Task | Audited | Verdict |
+|------|---------|---------|
+| Task 2 — Security | ✅ | Solid; minor gaps (non-root containers documented-not-applied; checkboxes unticked; token TTL at 60m boundary) |
+| Task 3 — Tests | ⬜ pending | |
+| Task 4 — Data model | ⬜ pending | |
+| Task 5 — Integration tests | ⬜ pending | |
+
+### Task 2 audit findings
+
+**Confirmed addressed (High/Critical):** CORS has no wildcard and only sets
+`allow_credentials` with explicit origins; `SECRET_KEY`/DB creds load from env and
+`.env` is gitignored; JWT uses HS256 (local) / RS256 (NOMAD), never `none`
+(covered by `test_security.py`); login rate-limited via slowapi; security headers
+present on **both** `frontend/nginx.conf` (incl. a real `Content-Security-Policy`)
+and the backend `SecurityHeadersMiddleware`; test stack binds db/adminer/backend to
+`127.0.0.1`; `form-data` CVE pinned. The 478-line `DEPLOY_SECURITY_CHECKLIST.md`
+exists and is risk-ordered.
+
+**Gaps / improvements:**
+1. **Containers run as root** (checklist item M-1). Neither `backend/Dockerfile` nor
+   `frontend/Dockerfile` has a `USER` directive. The checklist documents the fix but
+   it was never applied. Low-risk hardening worth applying (add a non-root `appuser`),
+   though it touches the uv cache/permissions so needs a build check.
+2. **Checklist checkboxes all unticked** (0/20 `- [x]`) even though many items carry
+   inline `✅ Fixed` notes — the checkbox state doesn't reflect what's done. Doc polish.
+3. **Token TTL = exactly 60 min**, the upper bound the task allowed (`≤60`). For a
+   public deployment consider 15–30 min plus refresh.
+4. **CSP uses `'unsafe-inline'`** for script/style (documented as needing tightening
+   pre-go-live) — acceptable interim, but a known residual.
+5. Rate limiting covers only `POST /login/access-token`; there is no backend
+   password-reset endpoint (NOMAD owns that), and `PATCH /users/me/password` is
+   authenticated — so coverage is adequate, not a gap.
+
+No functional regressions found. Recommend applying #1 and ticking #2; #3–#5 are
+deploy-time judgement calls already captured in the checklist.
+
+---
+
 ## Task 1: Refactor Code & File Structure
 
 ### Acceptance Criteria
