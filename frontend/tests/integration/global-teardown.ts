@@ -1,12 +1,8 @@
-const API_BASE_URL = process.env.API_BASE_URL ?? "http://localhost:8001"
-
+/**
+ * No teardown needed: the CI workflow runs `docker compose down -v` after the
+ * suite, which drops the database volume and removes the per-run test user
+ * along with all of its data. Kept as an explicit hook for local runs.
+ */
 export default async function globalTeardown() {
-  const token = process.env.INTEGRATION_TOKEN
-  const userId = process.env.INTEGRATION_TEST_USER_ID
-  if (!token || !userId) return
-
-  await fetch(`${API_BASE_URL}/api/v1/users/${userId}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  // intentionally empty
 }
