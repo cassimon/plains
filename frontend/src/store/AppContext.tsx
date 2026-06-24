@@ -1740,6 +1740,17 @@ export function useAppContext() {
 }
 
 /**
+ * Non-throwing variant of {@link useAppContext}. Returns null when rendered
+ * outside an AppProvider instead of throwing. Use this in components (e.g.
+ * persistent chrome like the sidebar) that can momentarily render during a
+ * route transition before/after the provider is mounted, so they degrade
+ * gracefully rather than crashing the render.
+ */
+export function useAppContextOptional() {
+  return useContext(AppContext)
+}
+
+/**
  * Returns helpers for filtering entity lists and resolving collection colors
  * based on the currently active plane and collection selection.
  *

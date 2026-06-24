@@ -17,7 +17,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import useAuth from "@/hooks/useAuth"
-import { useAppContext } from "@/store/AppContext"
+import { useAppContextOptional } from "@/store/AppContext"
 import { getInitials } from "@/utils"
 
 interface UserInfoProps {
@@ -43,7 +43,9 @@ function UserInfo({ fullName, email }: UserInfoProps) {
 
 export function User({ user }: { user: any }) {
   const { logout } = useAuth()
-  const { flushSave } = useAppContext()
+  // Optional: the sidebar can briefly render during a route transition before
+  // the AppProvider is mounted. Degrade gracefully instead of throwing.
+  const appContext = useAppContextOptional()
   const { isMobile, setOpenMobile } = useSidebar()
 
   if (!user) return null
@@ -54,7 +56,9 @@ export function User({ user }: { user: any }) {
     }
   }
   const handleLogout = async () => {
-    await flushSave()
+    // Flush pending saves if the app context is available; skip gracefully if
+    // we rendered outside the provider (transient during route transitions).
+    await appContext?.flushSave()
     logout()
   }
 
