@@ -67,6 +67,47 @@ function mulberry32(initialSeed: number) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Scale configuration
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The number of fuzz walks is parameterised so the same spec serves both fast
+// local/CI runs and exhaustive "run it a lot of times" fuzzing sessions:
+//
+//   WALK_COUNT  — how many full-app fuzz walks to generate (default 25)
+//   WALK_STEPS  — steps per generated walk            (default 60)
+//   WALK_BASE_SEED — base seed for reproducible seed generation (default 0)
+//
+// Example exhaustive run:
+//   WALK_COUNT=500 WALK_STEPS=80 bunx playwright test plains-random-walk
+//
+// Every generated walk gets a distinct, reproducible seed, so a failure can be
+// replayed exactly by reading the seed from the test name.
+const intFromEnv = (name: string, fallback: number): number => {
+  const raw = process.env[name]
+  if (!raw) return fallback
+  const n = Number.parseInt(raw, 10)
+  return Number.isFinite(n) && n > 0 ? n : fallback
+}
+
+const WALK_COUNT = intFromEnv("WALK_COUNT", 25)
+const WALK_STEPS = intFromEnv("WALK_STEPS", 60)
+const WALK_BASE_SEED = intFromEnv("WALK_BASE_SEED", 0)
+
+/**
+ * Generate `count` reproducible, well-distributed seeds. Seeds are derived from
+ * a base via a mulberry32 stream so they spread across the 32-bit space rather
+ * than clustering (sequential seeds produce correlated early draws).
+ */
+function generateSeeds(count: number, baseSeed: number): number[] {
+  const stream = mulberry32(baseSeed + 0x9e3779b9)
+  const seeds: number[] = []
+  for (let i = 0; i < count; i++) {
+    seeds.push(Math.floor(stream() * 0xffffffff) >>> 0)
+  }
+  return seeds
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Error collection
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -518,20 +559,19 @@ function assertNoHardErrors(collector: WalkCollector) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test.describe("Random-walk: full app", () => {
-  const WALKS = [
-    { seed: 1001, steps: 50, label: "walk-1 (seed=1001, 50 steps)" },
-    { seed: 2002, steps: 50, label: "walk-2 (seed=2002, 50 steps)" },
-    { seed: 3003, steps: 50, label: "walk-3 (seed=3003, 50 steps)" },
-    { seed: 4004, steps: 50, label: "walk-4 (seed=4004, 50 steps)" },
-    { seed: 5005, steps: 50, label: "walk-5 (seed=5005, 50 steps)" },
-  ]
+  // Generate WALK_COUNT distinct, reproducible fuzz walks. Each seed is encoded
+  // in the test name so any failure can be replayed via WALK_BASE_SEED + index,
+  // or by pinning the printed seed directly.
+  const seeds = generateSeeds(WALK_COUNT, WALK_BASE_SEED)
 
-  for (const walk of WALKS) {
-    test(walk.label, async ({ page }) => {
+  for (let i = 0; i < seeds.length; i++) {
+    const seed = seeds[i]
+    const label = `walk-${i + 1}/${WALK_COUNT} (seed=${seed}, ${WALK_STEPS} steps)`
+    test(label, async ({ page }) => {
       const collector = makeCollector("/")
       await bootWalk(page, collector)
-      await randomWalk(page, walk.seed, walk.steps, collector)
-      summarise(walk.label, collector)
+      await randomWalk(page, seed, WALK_STEPS, collector)
+      summarise(label, collector)
       assertNoHardErrors(collector)
     })
   }
@@ -542,41 +582,32 @@ test.describe("Random-walk: full app", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test.describe("Random-walk: focused pages", () => {
-  const FOCUSED = [
-    {
-      seed: 6006,
-      steps: 40,
-      label: "focused-analysis (seed=6006)",
-      route: "/analysis",
-    },
-    {
-      seed: 7007,
-      steps: 40,
-      label: "focused-organization (seed=7007)",
-      route: "/organization",
-    },
-    {
-      seed: 8008,
-      steps: 40,
-      label: "focused-processes (seed=8008)",
-      route: "/processes",
-    },
-    {
-      seed: 9009,
-      steps: 40,
-      label: "focused-experiments (seed=9009)",
-      route: "/experiments",
-    },
+  // The most loop-prone routes (canvas, analysis, nested tables) get repeated
+  // fuzzing. WALK_FOCUSED_REPEATS walks per route, each with a distinct seed.
+  const FOCUSED_ROUTES = [
+    "/analysis",
+    "/organization",
+    "/processes",
+    "/experiments",
   ]
+  const repeats = intFromEnv("WALK_FOCUSED_REPEATS", 2)
 
-  for (const walk of FOCUSED) {
-    test(walk.label, async ({ page }) => {
-      const collector = makeCollector(walk.route)
-      await bootWalk(page, collector)
-      await randomWalk(page, walk.seed, walk.steps, collector, walk.route)
-      summarise(walk.label, collector)
-      assertNoHardErrors(collector)
-    })
+  for (const route of FOCUSED_ROUTES) {
+    // Seed namespace per route, derived from base seed so runs are reproducible
+    // yet independent from the full-app seed stream.
+    const routeBase = WALK_BASE_SEED + route.length * 0x1000
+    const seeds = generateSeeds(repeats, routeBase)
+    for (let i = 0; i < seeds.length; i++) {
+      const seed = seeds[i]
+      const label = `focused${route} #${i + 1} (seed=${seed})`
+      test(label, async ({ page }) => {
+        const collector = makeCollector(route)
+        await bootWalk(page, collector)
+        await randomWalk(page, seed, 40, collector, route)
+        summarise(label, collector)
+        assertNoHardErrors(collector)
+      })
+    }
   }
 })
 
