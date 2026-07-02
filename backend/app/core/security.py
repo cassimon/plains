@@ -72,6 +72,7 @@ def verify_nomad_token(token: str) -> dict[str, Any]:
         decode_kwargs: dict[str, Any] = {
             "algorithms": ["RS256"],
             "issuer": issuer,
+            "leeway": timedelta(seconds=30),
         }
         if settings.NOMAD_OAUTH_VERIFY_AUDIENCE:
             audience = settings.NOMAD_OAUTH_AUDIENCE or settings.NOMAD_OAUTH_CLIENT_ID
