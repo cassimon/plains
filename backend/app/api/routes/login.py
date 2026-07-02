@@ -40,9 +40,7 @@ def login_access_token(
         )
     from app.models import User
 
-    user = session.exec(
-        select(User).where(User.email == form_data.username)
-    ).first()
+    user = session.exec(select(User).where(User.email == form_data.username)).first()
     if not user or not user.hashed_password:
         raise HTTPException(status_code=400, detail="Incorrect email or password")
     ok, new_hash = security.verify_password(form_data.password, user.hashed_password)
@@ -75,4 +73,3 @@ def auth_config() -> AuthConfig:
         keycloak_realm=keycloak_realm,
         keycloak_client_id=settings.NOMAD_OAUTH_CLIENT_ID,
     )
-

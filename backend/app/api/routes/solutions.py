@@ -28,7 +28,9 @@ def read_solutions(
         base = base.where(LabSolution.owner_id == current_user.id)
         count_base = count_base.where(LabSolution.owner_id == current_user.id)
     count = session.exec(count_base).one()
-    statement = base.order_by(col(LabSolution.created_at).desc()).offset(skip).limit(limit)
+    statement = (
+        base.order_by(col(LabSolution.created_at).desc()).offset(skip).limit(limit)
+    )
     items = session.exec(statement).all()
     return LabSolutionsPublic(data=items, count=count)
 

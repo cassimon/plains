@@ -199,152 +199,202 @@ async function setupMocks(page: Page) {
     is_superuser: true,
     full_name: "Playwright Walker",
   }
+  // Normalised /state/bulk payload matching what the FastAPI backend serves
+  // and what backendMapping.bulkToSnapshot() expects (snake_case rows with
+  // collection_id FKs). The process is fully "spawnable": it has inline
+  // substrates, steps, and a generated stack, so the walk can exercise the
+  // create-Experiment-from-Process flow.
   const BULK = {
-    materials: [
+    processes: [
       {
-        id: "mat-1",
-        name: "Ethanol",
-        category: "chemical_compound",
-        type: "",
-        supplier: "Sigma",
-        supplierNumber: "",
-        casNumber: "64-17-5",
-        pubchemCid: "",
-        inventoryLabel: "",
-        purity: "99%",
-        stateAtRt: "liquid",
-        substrateRigidity: "",
-        heightMm: "",
-      },
-      {
-        id: "mat-2",
-        name: "ITO Glass",
-        category: "substrate_material",
-        type: "",
-        supplier: "Ossila",
-        supplierNumber: "",
-        casNumber: "",
-        pubchemCid: "",
-        inventoryLabel: "",
-        purity: "",
-        stateAtRt: "",
-        substrateRigidity: "rigid",
-        heightMm: "1.1",
-      },
-    ],
-    solutions: [
-      {
-        id: "sol-1",
-        name: "Perovskite Ink",
-        components: [{ material_id: "mat-1", amount: 100, unit: "mg" }],
+        id: "proc-1",
+        name: "Spin Coating Baseline",
+        description: "Baseline perovskite deposition",
+        skip_chemistry: false,
+        collection_id: "col-1",
+        substrate_dimensions: [],
+        inline_substrates: [
+          {
+            id: "insub-1",
+            name: "ITO glass",
+            rigidity: "rigid",
+            length_cm: "2.5",
+            width_cm: "2.5",
+            height_mm: "1.1",
+          },
+        ],
+        steps: [
+          {
+            id: "step-1",
+            stage_index: 0,
+            step_index: 0,
+            name: "Spin coat perovskite",
+            step_category: "solution_deposition",
+            color: "#8888ff",
+          },
+          {
+            id: "step-2",
+            stage_index: 1,
+            step_index: 0,
+            name: "Anneal",
+            step_category: "thermal_treatment",
+            color: "#ff8888",
+          },
+        ],
+        stacks: [
+          {
+            id: "stack-1",
+            combination: 1,
+            is_deleted: false,
+            architecture: "n-i-p",
+            layers: [
+              {
+                id: "lay-1",
+                layer_index: 0,
+                name: "ITO glass",
+                is_substrate: true,
+                layer_type: "substrate",
+              },
+              {
+                id: "lay-2",
+                layer_index: 1,
+                name: "Perovskite",
+                is_substrate: false,
+                layer_type: "absorber",
+                thickness_nm: "500",
+              },
+            ],
+          },
+        ],
+        recipes: [],
       },
     ],
     experiments: [
       {
         id: "exp-1",
         name: "Run A",
-        substrates: [],
-        layers: [],
-        notes: "test run",
+        description: "test run",
+        date: "2026-06-01",
+        architecture: "n-i-p",
+        process_id: "proc-1",
+        collection_id: "col-1",
+        substrates: [
+          { id: "sub-1", name: "substrate 1", outcome_status: "completed" },
+        ],
       },
-      { id: "exp-2", name: "Run B", substrates: [], layers: [], notes: "" },
+      {
+        id: "exp-2",
+        name: "Run B",
+        description: "",
+        process_id: "proc-1",
+        collection_id: null,
+        substrates: [],
+      },
     ],
     results: [
       {
         id: "res-1",
         experiment_id: "exp-1",
+        collection_id: "col-1",
         measurement_files: [],
         device_groups: [],
       },
     ],
+    analyses: [],
     planes: [
       {
         id: "plane-1",
         name: "Overview",
-        elements: [
-          {
-            id: "el-1",
-            type: "text",
-            position: { x: 100, y: 100 },
-            size: { x: 200, y: 60 },
-            content: "Hello Canvas",
-          },
-          {
-            id: "el-2",
-            type: "experiment",
-            position: { x: 350, y: 100 },
-            size: { x: 200, y: 120 },
-            content: "exp-1",
-          },
+        owner_id: "00000000-0000-0000-0000-000000000001",
+        sticky_notes: [
+          { id: "note-1", i: 100, j: 100, di: 60, dj: 200, content: "Hello" },
+        ],
+        text_fields: [],
+        collections: [
+          { id: "col-1", name: "Batch 1", i: 60, j: 400, color: "#ffaa00" },
         ],
       },
     ],
   }
+  // Legacy list-endpoint fixtures (materials/solutions tabs fetch these).
+  const MATERIALS = [
+    {
+      id: "mat-1",
+      name: "Ethanol",
+      category: "chemical_compound",
+      supplier: "Sigma",
+      cas_number: "64-17-5",
+      purity: "99%",
+      state_at_rt: "liquid",
+    },
+    {
+      id: "mat-2",
+      name: "ITO Glass",
+      category: "substrate_material",
+      supplier: "Ossila",
+      substrate_rigidity: "rigid",
+      height_mm: "1.1",
+    },
+  ]
+  const SOLUTIONS = [
+    {
+      id: "sol-1",
+      name: "Perovskite Ink",
+      components: [{ material_id: "mat-1", amount: 100, unit: "mg" }],
+    },
+  ]
+
+  // The app calls the API cross-origin (5173 → 8000), so every mock response
+  // needs CORS headers or the browser rejects it with "Failed to fetch"
+  // (breaking the HttpBackend save path during authenticated walks).
+  const CORS = {
+    "access-control-allow-origin": "*",
+    "access-control-allow-headers": "*",
+    "access-control-allow-methods": "*",
+  }
+  const fulfillJson = (
+    r: Parameters<Parameters<Page["route"]>[1]>[0],
+    body: unknown,
+  ) => r.fulfill({ status: 200, headers: CORS, json: body as any })
+
+  // Catch-all FIRST: Playwright matches routes newest-first, so this must be
+  // registered before the specific mocks or it would shadow all of them.
+  await page.route("**/api/v1/**", (r) => fulfillJson(r, {}))
 
   // Mocked Keycloak OIDC discovery endpoint so login.tsx doesn't get a fetch error
   await page.route("**/.well-known/openid-configuration*", (r) =>
-    r.fulfill({
-      status: 200,
-      json: {
-        authorization_endpoint: "http://mock-keycloak/auth",
-        token_endpoint: "http://mock-keycloak/token",
-        issuer: "http://mock-keycloak/realms/mock",
-        jwks_uri: "http://mock-keycloak/jwks",
-        end_session_endpoint: "http://mock-keycloak/logout",
-      },
+    fulfillJson(r, {
+      authorization_endpoint: "http://mock-keycloak/auth",
+      token_endpoint: "http://mock-keycloak/token",
+      issuer: "http://mock-keycloak/realms/mock",
+      jwks_uri: "http://mock-keycloak/jwks",
+      end_session_endpoint: "http://mock-keycloak/logout",
     }),
   )
   await page.route("**/api/v1/auth/config", (r) =>
-    r.fulfill({
-      status: 200,
-      json: {
-        keycloak_url: "http://mock-keycloak",
-        keycloak_realm: "mock",
-        keycloak_client_id: "plains",
-      },
+    fulfillJson(r, {
+      keycloak_url: "http://mock-keycloak",
+      keycloak_realm: "mock",
+      keycloak_client_id: "plains",
     }),
   )
-  await page.route("**/api/v1/users/me", (r) =>
-    r.fulfill({ status: 200, json: MOCK_USER }),
-  )
-  await page.route("**/api/v1/state/bulk", (r) =>
-    r.fulfill({ status: 200, json: BULK }),
-  )
-  await page.route("**/api/v1/state/**", (r) =>
-    r.fulfill({ status: 200, json: { data: { ...BULK, processes: [] } } }),
-  )
+  await page.route("**/api/v1/users/me", (r) => fulfillJson(r, MOCK_USER))
+  await page.route("**/api/v1/state/bulk", (r) => fulfillJson(r, BULK))
   await page.route("**/api/v1/materials*", (r) =>
-    r.fulfill({
-      status: 200,
-      json: { data: BULK.materials, count: BULK.materials.length },
-    }),
+    fulfillJson(r, { data: MATERIALS, count: MATERIALS.length }),
   )
   await page.route("**/api/v1/solutions*", (r) =>
-    r.fulfill({
-      status: 200,
-      json: { data: BULK.solutions, count: BULK.solutions.length },
-    }),
+    fulfillJson(r, { data: SOLUTIONS, count: SOLUTIONS.length }),
   )
   await page.route("**/api/v1/experiments*", (r) =>
-    r.fulfill({
-      status: 200,
-      json: { data: BULK.experiments, count: BULK.experiments.length },
-    }),
+    fulfillJson(r, { data: BULK.experiments, count: BULK.experiments.length }),
   )
   await page.route("**/api/v1/results*", (r) =>
-    r.fulfill({
-      status: 200,
-      json: { data: BULK.results, count: BULK.results.length },
-    }),
+    fulfillJson(r, { data: BULK.results, count: BULK.results.length }),
   )
   await page.route("**/api/v1/planes*", (r) =>
-    r.fulfill({
-      status: 200,
-      json: { data: BULK.planes, count: BULK.planes.length },
-    }),
+    fulfillJson(r, { data: BULK.planes, count: BULK.planes.length }),
   )
-  // Catch-all: return empty success for anything else (NOMAD, etc.)
-  await page.route("**/api/v1/**", (r) => r.fulfill({ status: 200, json: {} }))
 }
 
 /** Inject a mock Keycloak instance that appears fully authenticated. */
@@ -371,6 +421,13 @@ async function injectAuth(page: Page) {
  * would reset the JS context and clear _keycloak.
  */
 async function clientNavigate(page: Page, route: string) {
+  // A previous random click may have followed a real link (external href,
+  // login redirect, chrome error page) and left the SPA origin entirely —
+  // pushState then throws a SecurityError. Recover by re-entering the app.
+  if (!page.url().startsWith("http://localhost")) {
+    await page.goto("/login", { waitUntil: "domcontentloaded" }).catch(() => {})
+    await injectAuth(page).catch(() => {})
+  }
   await page.evaluate((r: string) => {
     window.history.pushState({}, "", r)
     window.dispatchEvent(new PopStateEvent("popstate", { state: null }))
@@ -387,20 +444,23 @@ async function assertResponsive(
     await page.evaluate(
       () =>
         new Promise<void>((resolve, reject) => {
-          const id = setTimeout(() => reject(new Error("rAF timeout")), 500)
+          // 1.5s budget: a genuine render loop blocks the main thread for far
+          // longer, while heavy-but-legitimate renders (canvas, big tables)
+          // under parallel test workers regularly exceed 500ms.
+          const id = setTimeout(() => reject(new Error("rAF timeout")), 1500)
           requestAnimationFrame(() => {
             clearTimeout(id)
             resolve()
           })
         }),
-      { timeout: 2000 },
+      { timeout: 4000 },
     )
     return true
   } catch {
     collector.errors.push({
       type: "timeout",
       message:
-        "requestAnimationFrame did not fire within 500ms — page may be frozen",
+        "requestAnimationFrame did not fire within 1500ms — page may be frozen",
       route: collector.route,
       step: collector.step,
     })
@@ -444,7 +504,9 @@ async function randomWalk(
       try {
         const clickables = await page
           .locator(
-            "button:visible, a[href]:visible, [role=button]:visible, [role=tab]:visible, [role=option]:visible",
+            // Exclude external links — following one leaves the SPA origin
+            // and kills the walk (auth lives in JS module memory).
+            'button:visible, a[href]:not([href^="http"]):not([target="_blank"]):visible, [role=button]:visible, [role=tab]:visible, [role=option]:visible',
           )
           .all()
         if (clickables.length > 0) {
@@ -522,12 +584,39 @@ async function bootWalk(page: Page, collector: WalkCollector) {
   page.on("console", (msg) => collector.onConsole(msg))
   page.on("pageerror", (err) => collector.onPageError(err))
   await setupMocks(page)
+  // The login page runs keycloak.init() asynchronously and then calls
+  // setKeycloak(realInstance, authenticated:false). If we inject the mock
+  // before that resolves, the real (unauthenticated) instance clobbers it and
+  // the walk silently runs logged-out against InMemoryBackend. Wait for init
+  // to settle before injecting.
+  const initSettled = page
+    .waitForEvent("console", {
+      predicate: (m) =>
+        /\[Login\] (Keycloak instance stored globally|User is NOT authenticated|keycloak\.init\(\) completed)|Keycloak init failed/.test(
+          m.text(),
+        ),
+      timeout: 8000,
+    })
+    .catch(() => null)
   // Load the SPA once via /login (doesn't trigger auth guard)
   await page.goto("/login", { waitUntil: "domcontentloaded" })
-  await injectAuth(page)
-  // Navigate to home via pushState so auth guard runs with _keycloak set
-  await clientNavigate(page, "/")
-  await page.waitForTimeout(800)
+  await initSettled
+  // Inject + navigate, retrying if a late keycloak.init() resolution clobbers
+  // the injected mock (the guard then bounces us back to /login). A logged-out
+  // walk tests nothing, so this must not pass silently.
+  for (let attempt = 0; ; attempt++) {
+    await injectAuth(page)
+    // Navigate to home via pushState so auth guard runs with _keycloak set
+    await clientNavigate(page, "/")
+    await page.waitForTimeout(800)
+    if (!new URL(page.url()).pathname.endsWith("/login")) break
+    if (attempt >= 4) {
+      throw new Error(
+        "bootWalk: auth guard kept rejecting the injected mock Keycloak (walk would run logged-out)",
+      )
+    }
+    await page.waitForTimeout(500)
+  }
 }
 
 function summarise(walk: string, collector: WalkCollector) {
@@ -621,6 +710,64 @@ test.describe("Random-walk: stress test", () => {
     await bootWalk(page, collector)
     await randomWalk(page, 9999, 200, collector)
     summarise("long walk (seed=9999, 200 steps)", collector)
+    assertNoHardErrors(collector)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Structured walk: create Experiment from Process
+//
+// Regression scenario for the production "Minified React error #185"
+// (Maximum update depth exceeded) reported when spawning an experiment from a
+// process. Repeatedly drives the exact flow: Processes page → select process →
+// spawn experiment (play button) → land on /experiments with the new
+// experiment auto-created and linked, then navigates back and does it again.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe("Structured walk: create Experiment from Process", () => {
+  const ROUNDS = intFromEnv("SPAWN_ROUNDS", 6)
+
+  test(`spawn experiment from process ×${ROUNDS}`, async ({ page }) => {
+    const collector = makeCollector("/processes")
+    await bootWalk(page, collector)
+
+    for (let round = 0; round < ROUNDS; round++) {
+      collector.step = round
+      collector.route = "/processes"
+      await clientNavigate(page, "/processes")
+
+      // The seeded process card must be visible (proves /state/bulk fixture
+      // decoded correctly — guards against silent fixture drift).
+      const card = page.getByText("Spin Coating Baseline").first()
+      await expect(card).toBeVisible({ timeout: 5000 })
+      await card.click()
+      await page.waitForTimeout(200)
+
+      // Play button on the process list card ("New experiment")
+      const spawn = page
+        .locator("button:has(.tabler-icon-player-play):visible")
+        .first()
+      await expect(spawn).toBeVisible({ timeout: 5000 })
+      await expect(spawn).toBeEnabled()
+      await spawn.click()
+
+      // handleSpawnExperiment navigates to /experiments where an effect
+      // auto-creates the experiment. This is where #185 fired in production.
+      await page.waitForURL("**/experiments", { timeout: 5000 })
+      collector.route = "/experiments"
+      await page.waitForTimeout(600)
+
+      if (!(await assertResponsive(page, collector))) break
+      const loops = collector.errors.filter((e) => e.type === "loop")
+      expect(
+        loops,
+        `React update-depth loop on round ${round + 1}:\n${loops
+          .map((e) => e.message)
+          .join("\n")}`,
+      ).toHaveLength(0)
+    }
+
+    summarise("spawn experiment from process", collector)
     assertNoHardErrors(collector)
   })
 })

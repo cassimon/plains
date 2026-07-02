@@ -725,7 +725,25 @@ async def upload_to_nomad_endpoint(
             db_results = session.exec(statement).first()
 
             if db_results:
-                # Store NOMAD info in frontend_data
+                # Persist to the normalised nomad_* columns — these are what
+                # GET /state/bulk serves and what the frontend
+                # (backendMapping.resultsFromApi) reads back after a reload.
+                db_results.nomad_upload_id = result.get("upload_id")
+                db_results.nomad_upload_status = result.get("processing_status")
+                upload_time = result.get("upload_create_time")
+                if upload_time:
+                    try:
+                        db_results.nomad_upload_time = datetime.fromisoformat(
+                            str(upload_time).replace("Z", "+00:00")
+                        )
+                    except ValueError:
+                        db_results.nomad_upload_time = datetime.now(timezone.utc)
+                else:
+                    db_results.nomad_upload_time = datetime.now(timezone.utc)
+                db_results.nomad_entries = len(result.get("entry_ids") or [])
+
+                # Keep the legacy frontend_data mirror for older clients that
+                # still read frontend_data["nomad"].
                 nomad_info = {
                     "nomad_upload_id": result.get("upload_id"),
                     "nomad_entry_ids": result.get("entry_ids", []),

@@ -1,7 +1,81 @@
 # Task Status — Plains Project
 
-> Last updated: 2026-06-23
+> Last updated: 2026-07-02
 > Branch: `claude/keen-dijkstra-7n118n`
+
+---
+
+## Re-audit — 2026-07-02 (after maintainer commits `da6843c`, `175c019`, `fe9c4a1`)
+
+The maintainer added the missing DB↔frontend wiring themselves: a full
+normalised persistence layer (`frontend/src/store/backendMapping.ts` + rewritten
+`HttpBackend` that loads from `GET /state/bulk` and syncs via replace-style PUT
+sub-routes), `ClientIdCreate` so client-generated UUIDs round-trip, DB init via
+`SQLModel.metadata.create_all` (Alembic removed from `prestart.sh`), 30 s JWT
+leeway, and PubChem allowed in the CSP. **CI runs #16–#18 are green on all three
+commits.**
+
+### Verified / closed this session
+
+1. **Task 4 headline gap (NOMAD write path) — FIXED.** The upload route now
+   writes the normalised `nomad_upload_id` / `nomad_upload_time` /
+   `nomad_upload_status` / `nomad_entries` columns (plus the legacy
+   `frontend_data["nomad"]` mirror). This became urgent: the maintainer's new
+   `backendMapping.resultsFromApi` *reads* those columns, so upload status was
+   silently lost on reload. Regression test:
+   `tests/api/routes/test_nomad.py::TestNomadUploadPersistsNormalisedColumns`.
+2. **Accidental paste removed.** Commit `da6843c` accidentally pasted a
+   docker-compose "chatbot" YAML block into `backend/app/core/config.py`
+   (comment) and `backend/app/services/nomad.py` (docstring). Both cleaned.
+3. **Random-walk fuzzing was largely vacuous — FIXED.** Three compounding
+   harness bugs meant previous walks exercised an *empty, partially logged-out*
+   app, which is why CI stayed green while the GUI still broke in production:
+   - the `**/api/v1/**` catch-all was registered **last**; Playwright matches
+     routes newest-first, so it shadowed every specific mock (incl.
+     `/state/bulk` → the app always loaded `{}`);
+   - the mock fixture used the old frontend shape (camelCase, no `processes`
+     at all) instead of the normalised rows `bulkToSnapshot()` expects;
+   - the login page's async `keycloak.init()` clobbered the injected mock
+     Keycloak, silently dropping walks to `InMemoryBackend`/logged-out.
+   All fixed (route order, normalised fixture with a spawnable process, boot
+   retry + logged-out guard, external links excluded from clicks).
+4. **New structured regression scenario** "create Experiment from Process"
+   (`plains-random-walk.spec.ts`, `SPAWN_ROUNDS` env) drives the exact
+   production-reported flow.
+5. **AC12 now enforced in CI:** new `gui-random-walk` job in
+   `integration-tests.yml` runs the random walks + structured scenario against
+   the dev server on every push.
+6. **Fuzzer found and fixed a real crash:** `/_layout/admin.tsx`
+   `UsersTableContent` crashed on `undefined.map` when the users list response
+   was empty — now guarded.
+
+### Production `Minified React error #185` (create Experiment from a process)
+
+Could **not** be reproduced despite targeted attempts: 30+ structured rounds in
+dev *and* production builds, including a `VITE_BASE_PATH=/plains/` build
+(matching the `:81/plains` deployment), rapid double-clicks, and collection
+linking. All effect ping-pong pairs (`selectedExpId` ↔ `activeEntity` ↔
+`AppLayout` mismatch-reset) are ref-guarded. Most likely remaining triggers:
+data-dependent state on the production DB (many experiments/planes) or the real
+Keycloak token-refresh cycle — neither observable from this environment. The new
+CI fuzz job + structured scenario will catch a recurrence and record the exact
+seed/step. If it fires again in production, capture the console with a
+non-minified build (`bun run build --mode development`) — the stack will then
+name the looping component directly.
+
+### Still open / new findings
+
+- `mypy app` reports 67 errors across 8 files (66 already present before the
+  new commits — a long-standing gap, mostly `models.py`). `lint.sh` runs mypy,
+  so the lint gate fails regardless of these commits; typing only, behaviour
+  unaffected. `ruff check`/`ruff format` on `app/` were re-fixed this session
+  and are green.
+- Alembic was removed from `prestart.sh` in favour of `create_all`. Fine for
+  fresh databases; existing deployments will no longer receive schema
+  migrations — future column changes will need either Alembic restored or
+  manual DDL.
+- Backend unit suite still can't run in this environment (no Docker/Postgres);
+  353 tests collect cleanly.
 
 ---
 
@@ -245,8 +319,8 @@ docker compose exec backend bash scripts/tests-start.sh
 | AC8 | All existing backend tests pass; coverage ≥80% | ❌ Open — cannot run without DB |
 | AC9 | New tests for Process, Analysis, DataCollection, canvas element CRUD ≥80% | ✅ Done |
 | AC10 | `PUT /api/v1/state/` rejects keys other than `ui_prefs` with 422 | ✅ Done |
-| AC11 | NOMAD export reads from normalised tables only | ✅ Done — `services/nomad.py` rewritten to use ORM columns and relationships |
-| AC12 | All 11 Playwright random-walk tests pass | 🟡 Cannot verify — requires live Docker stack |
+| AC11 | NOMAD export reads from normalised tables only | ✅ Done — read path uses ORM columns; **write path fixed 2026-07-02** (upload now persists `nomad_*` columns) |
+| AC12 | All 11 Playwright random-walk tests pass | ✅ Done — suite repaired (see 2026-07-02 re-audit) and now runs in CI (`gui-random-walk` job) |
 
 ### Open Issues
 

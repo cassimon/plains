@@ -147,9 +147,6 @@ def test_upload_to_nomad_accepts_archive_path_from_form_data(
     )
     monkeypatch.setattr(nomad_routes, "get_nomad_token", lambda: "fake-token")
 
-    def fake_upload_to_nomad(zip_path, token, upload_name):
-        upload_calls.append((str(zip_path), token, upload_name))
-
     def fake_upload_to_nomad(zip_path, token, upload_name, existing_upload_id=None):
         upload_calls.append((str(zip_path), token, upload_name))
         return {
@@ -568,3 +565,99 @@ class TestNomadFullUploadFlow:
             headers=normal_user_token_headers,
         )
         assert r.status_code == 422
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Upload persistence — normalised nomad_* columns (regression)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestNomadUploadPersistsNormalisedColumns:
+    """A successful upload must write the normalised nomad_* columns on
+    ExperimentResults (not only the legacy frontend_data JSONB mirror) —
+    /state/bulk serves those columns and the frontend reads them back after a
+    reload (backendMapping.resultsFromApi)."""
+
+    def test_upload_writes_nomad_columns(
+        self,
+        client: TestClient,
+        normal_user_token_headers: dict[str, str],
+        db,
+        monkeypatch,
+    ) -> None:
+        from sqlmodel import select
+
+        from app.models import ExperimentResults as ERModel
+
+        # Seed an experiment + results row owned by the test user via the API.
+        exp = client.post(
+            f"{settings.API_V1_STR}/experiments/",
+            json={"name": "NOMAD persist test"},
+            headers=normal_user_token_headers,
+        ).json()
+        res = client.post(
+            f"{settings.API_V1_STR}/results/",
+            params={"experiment_id": exp["id"]},
+            json={},
+            headers=normal_user_token_headers,
+        ).json()
+
+        TEMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        archive_path = TEMP_UPLOAD_DIR / "test_persist_upload.zip"
+        archive_path.write_bytes(b"fake zip content")
+
+        monkeypatch.setattr(settings, "NOMAD_USE_GLOBAL_AUTH", True)
+        monkeypatch.setattr(settings, "NOMAD_USERNAME", "test-user")
+        monkeypatch.setattr(settings, "NOMAD_PASSWORD", "test-pass")
+        monkeypatch.setattr(
+            nomad_routes,
+            "create_nomad_metadata_yaml",
+            lambda **_kwargs: {"test.archive.yaml": {"data": "value"}},
+        )
+        monkeypatch.setattr(nomad_routes, "get_nomad_token", lambda: "fake-token")
+        monkeypatch.setattr(
+            nomad_routes,
+            "upload_to_nomad",
+            lambda zip_path, token, upload_name, existing_upload_id=None: {
+                "upload_id": "upload-xyz",
+                "entry_ids": ["entry-1", "entry-2"],
+                "upload_create_time": "2026-06-01T12:00:00Z",
+                "processing_status": "SUCCESS",
+            },
+        )
+
+        try:
+            r = client.post(
+                f"{BASE}/upload/nomad",
+                data={
+                    "request_json": json.dumps(
+                        {
+                            "experiment_id": exp["id"],
+                            "experiment_name": "NOMAD persist test",
+                            "substrates": [],
+                            "measurement_files": [],
+                            "device_groups": [],
+                        }
+                    ),
+                    "archive_path": str(archive_path),
+                },
+                headers=normal_user_token_headers,
+            )
+            assert r.status_code == 200
+            assert r.json()["success"] is True
+
+            db.expire_all()
+            row = db.exec(
+                select(ERModel).where(ERModel.id == uuid.UUID(res["id"]))
+            ).one()
+            assert row.nomad_upload_id == "upload-xyz"
+            assert row.nomad_upload_status == "SUCCESS"
+            assert row.nomad_entries == 2
+            assert row.nomad_upload_time is not None
+            # Legacy JSONB mirror kept for older clients
+            assert (row.frontend_data or {}).get("nomad", {}).get(
+                "nomad_upload_id"
+            ) == "upload-xyz"
+        finally:
+            app.dependency_overrides.clear()
+            archive_path.unlink(missing_ok=True)

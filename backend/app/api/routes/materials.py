@@ -28,7 +28,9 @@ def read_materials(
         base = base.where(LabMaterial.owner_id == current_user.id)
         count_base = count_base.where(LabMaterial.owner_id == current_user.id)
     count = session.exec(count_base).one()
-    statement = base.order_by(col(LabMaterial.created_at).desc()).offset(skip).limit(limit)
+    statement = (
+        base.order_by(col(LabMaterial.created_at).desc()).offset(skip).limit(limit)
+    )
     items = session.exec(statement).all()
     return LabMaterialsPublic(data=items, count=count)
 

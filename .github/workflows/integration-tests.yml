@@ -64,3 +64,51 @@ jobs:
       - name: Tear down stack
         if: always()
         run: docker compose -f compose.yml -f compose.test.yml down -v
+
+  # GUI fuzzing: random walks + the structured create-Experiment-from-Process
+  # scenario, run against the Vite dev server with fully mocked API responses.
+  # Catches React render/update loops (e.g. "Maximum update depth exceeded")
+  # that the API-level integration tests can't see.
+  gui-random-walk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies and Playwright browser
+        run: cd frontend && bun install && bunx playwright install --with-deps chromium
+
+      - name: Start Vite dev server
+        run: |
+          cd frontend
+          nohup bun run dev > /tmp/vite-dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:5173/login > /dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:5173/login > /dev/null
+
+      - name: Run random-walk + structured GUI tests
+        env:
+          # CI-sized fuzz budget; scale up locally with WALK_COUNT=500 etc.
+          WALK_COUNT: "8"
+          WALK_STEPS: "50"
+          WALK_FOCUSED_REPEATS: "1"
+          SPAWN_ROUNDS: "8"
+        run: cd frontend && bunx playwright test plains-random-walk --project=chromium --reporter=list
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: random-walk-report
+          path: frontend/playwright-report/
+
+      - name: Show dev server log on failure
+        if: failure()
+        run: tail -100 /tmp/vite-dev.log

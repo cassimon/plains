@@ -39,10 +39,14 @@ function UsersTableContent() {
   const { user: currentUser } = useAuth()
   const { data: users } = useSuspenseQuery(getUsersQueryOptions())
 
-  const tableData: UserTableData[] = users.data.map((user: UserPublic) => ({
-    ...user,
-    isCurrentUser: currentUser?.id === user.id,
-  }))
+  // The API can return an empty/partial body (e.g. proxy error page) — guard
+  // rather than crashing the whole admin route on `undefined.map`.
+  const tableData: UserTableData[] = (users?.data ?? []).map(
+    (user: UserPublic) => ({
+      ...user,
+      isCurrentUser: currentUser?.id === user.id,
+    }),
+  )
 
   return <DataTable columns={columns} data={tableData} />
 }

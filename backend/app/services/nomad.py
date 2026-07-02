@@ -393,25 +393,51 @@ def create_nomad_metadata_yaml(
                 select(ProcessStep).where(ProcessStep.process_id == process_orm.id)
             ).all():
                 stage = steps_by_stage.setdefault(step.stage_index, [])
-                stage.append({
-                    "id": str(step.id),
-                    "name": step.name,
-                    "stepCategory": step.step_category,
-                    "color": step.color,
-                    "materialId": str(step.material_id) if step.material_id else None,
-                    "solutionId": str(step.solution_id) if step.solution_id else None,
-                    "depositionMethod": {"value": step.deposition_method_value, "mode": step.deposition_method_mode},
-                    "annealingTemp": {"value": step.annealing_temp_value, "mode": step.annealing_temp_mode},
-                    "annealingTime": {"value": step.annealing_time_value, "mode": step.annealing_time_mode},
-                    "annealingAtmosphere": {"value": step.annealing_atmosphere_value, "mode": step.annealing_atmosphere_mode},
-                    "substrateTemp": {"value": step.substrate_temp_value, "mode": step.substrate_temp_mode},
-                    "depositionAtmosphere": {"value": step.deposition_atmosphere_value, "mode": step.deposition_atmosphere_mode},
-                    "solutionVolume": {"value": step.solution_volume_value, "mode": step.solution_volume_mode},
-                    "notes": step.notes,
-                })
+                stage.append(
+                    {
+                        "id": str(step.id),
+                        "name": step.name,
+                        "stepCategory": step.step_category,
+                        "color": step.color,
+                        "materialId": str(step.material_id)
+                        if step.material_id
+                        else None,
+                        "solutionId": str(step.solution_id)
+                        if step.solution_id
+                        else None,
+                        "depositionMethod": {
+                            "value": step.deposition_method_value,
+                            "mode": step.deposition_method_mode,
+                        },
+                        "annealingTemp": {
+                            "value": step.annealing_temp_value,
+                            "mode": step.annealing_temp_mode,
+                        },
+                        "annealingTime": {
+                            "value": step.annealing_time_value,
+                            "mode": step.annealing_time_mode,
+                        },
+                        "annealingAtmosphere": {
+                            "value": step.annealing_atmosphere_value,
+                            "mode": step.annealing_atmosphere_mode,
+                        },
+                        "substrateTemp": {
+                            "value": step.substrate_temp_value,
+                            "mode": step.substrate_temp_mode,
+                        },
+                        "depositionAtmosphere": {
+                            "value": step.deposition_atmosphere_value,
+                            "mode": step.deposition_atmosphere_mode,
+                        },
+                        "solutionVolume": {
+                            "value": step.solution_volume_value,
+                            "mode": step.solution_volume_mode,
+                        },
+                        "notes": step.notes,
+                    }
+                )
             stages = [
-                {"alternatives": steps_by_stage[idx]}
-                for idx in sorted(steps_by_stage)
+                {"alternatives": steps_by_stage[idx]} for idx in sorted(steps_by_stage)
             ]
             stacks_orm = session.exec(
                 select(ProcessGeneratedStack).where(
@@ -434,11 +460,13 @@ def create_nomad_metadata_yaml(
                     }
                     for layer in sorted(stack.layers, key=lambda lyr: lyr.layer_index)
                 ]
-                generated_stacks.append({
-                    "combination": stack.combination,
-                    "architecture": stack.architecture,
-                    "layers": layers,
-                })
+                generated_stacks.append(
+                    {
+                        "combination": stack.combination,
+                        "architecture": stack.architecture,
+                        "layers": layers,
+                    }
+                )
             process_data = {
                 "id": str(process_orm.id),
                 "name": process_orm.name,
@@ -785,32 +813,7 @@ def create_nomad_metadata_yaml(
 
         Returns:
             Formatted concentration string (e.g., "50.5 mg/ml" or "50.5 mg/ml; 10.2 mg/ml")
-            Returns "none" for pure solvents, "nan" for unknown  # chatbot: (disabled — re-enable by uncommenting this block and the depends_on in frontend)
-  #   image: '${DOCKER_IMAGE_CHATBOT:-plains-chatbot}:${TAG-latest}'
-  #   restart: always
-  #   networks:
-  #     - traefik-public
-  #     - default
-  #   build:
-  #     context: .
-  #     dockerfile: frontend/Dockerfile.chatbot
-  #   environment:
-  #     - PORT=5005
-  #   healthcheck:
-  #     test: ["CMD", "wget", "-qO-", "http://localhost:5005/health"]
-  #     interval: 15s
-  #     timeout: 5s
-  #     retries: 3
-  #   labels:
-  #     - traefik.enable=true
-  #     - traefik.docker.network=traefik-public
-  #     - traefik.constraint-label=traefik-public
-  #     - traefik.http.services.${STACK_NAME?Variable not set}-chatbot.loadbalancer.server.port=5005
-  #     - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot.rule=Host(`${DOMAIN?Variable not set}`) && PathPrefix(`/plains/chatbot`)
-  #     - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot.entrypoints=http
-  #     - traefik.http.middlewares.${STACK_NAME?Variable not set}-chatbot-strip.stripprefix.prefixes=/plains/chatbot
-  #     - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot.middlewares=${STACK_NAME?Variable not set}-chatbot-strip
-
+            Returns "none" for pure solvents, "nan" for unknown
         """
         import re
 
