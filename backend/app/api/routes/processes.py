@@ -14,6 +14,9 @@ from app.models import (
     ProcessGeneratedStackCreate,
     ProcessGeneratedStackLayer,
     ProcessGeneratedStackPublic,
+    ProcessInlineSubstrate,
+    ProcessInlineSubstrateCreate,
+    ProcessInlineSubstratePublic,
     ProcessPublic,
     ProcessSolutionRecipe,
     ProcessSolutionRecipeCreate,
@@ -21,6 +24,9 @@ from app.models import (
     ProcessStep,
     ProcessStepCreate,
     ProcessStepPublic,
+    ProcessSubstrateDimension,
+    ProcessSubstrateDimensionCreate,
+    ProcessSubstrateDimensionPublic,
     ProcessUpdate,
     RecipeAddedSolution,
     RecipeSolute,
@@ -165,9 +171,9 @@ def update_process_recipe(
     recipe = session.get(ProcessSolutionRecipe, rid)
     if not recipe or recipe.process_id != id:
         raise HTTPException(status_code=404, detail="Recipe not found")
-    # Update scalar fields
+    # Update scalar fields (never overwrite the primary key).
     for field, value in recipe_in.model_dump(
-        exclude={"solvents", "solutes", "added_solutions"}
+        exclude={"id", "solvents", "solutes", "added_solutions"}
     ).items():
         setattr(recipe, field, value)
     # Replace nested items
@@ -246,7 +252,7 @@ def update_process_step(
     step = session.get(ProcessStep, sid)
     if not step or step.process_id != id:
         raise HTTPException(status_code=404, detail="Step not found")
-    for field, value in step_in.model_dump().items():
+    for field, value in step_in.model_dump(exclude={"id"}).items():
         setattr(step, field, value)
     session.commit()
     session.refresh(step)
@@ -315,7 +321,7 @@ def update_process_stack(
     stack = session.get(ProcessGeneratedStack, stack_id)
     if not stack or stack.process_id != id:
         raise HTTPException(status_code=404, detail="Stack not found")
-    for field, value in stack_in.model_dump(exclude={"layers"}).items():
+    for field, value in stack_in.model_dump(exclude={"id", "layers"}).items():
         setattr(stack, field, value)
     for layer in list(stack.layers):
         session.delete(layer)
@@ -342,3 +348,168 @@ def delete_process_stack(
     session.delete(stack)
     session.commit()
     return {"ok": True}
+
+
+# --- Bulk collection replace (used by the frontend snapshot sync) ---
+#
+# Each endpoint replaces the entire child collection of a process in one
+# transaction, preserving the parent row (and therefore any FK references to
+# it). Client-supplied UUIDs are honoured so cross-references round-trip.
+
+
+def _persist_recipe(
+    session: SessionDep, recipe_in: ProcessSolutionRecipeCreate, process_id: uuid.UUID
+) -> ProcessSolutionRecipe:
+    recipe = ProcessSolutionRecipe(
+        **recipe_in.model_dump(exclude={"solvents", "solutes", "added_solutions"}),
+        process_id=process_id,
+    )
+    session.add(recipe)
+    session.flush()
+    for s in recipe_in.solvents:
+        session.add(RecipeSolvent(**s.model_dump(), recipe_id=recipe.id))
+    for s in recipe_in.solutes:
+        session.add(RecipeSolute(**s.model_dump(), recipe_id=recipe.id))
+    for a in recipe_in.added_solutions:
+        session.add(RecipeAddedSolution(**a.model_dump(), recipe_id=recipe.id))
+    return recipe
+
+
+@router.put("/{id}/recipes/", response_model=list[ProcessSolutionRecipePublic])
+def replace_process_recipes(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    body: list[ProcessSolutionRecipeCreate],
+) -> Any:
+    """Replace all solution recipes of a process."""
+    process = _owned_process(session, current_user, id)
+    for recipe in list(process.recipes):
+        session.delete(recipe)
+    session.flush()
+    created = [_persist_recipe(session, r, id) for r in body]
+    session.commit()
+    for r in created:
+        session.refresh(r)
+    return created
+
+
+@router.put("/{id}/steps/", response_model=list[ProcessStepPublic])
+def replace_process_steps(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    body: list[ProcessStepCreate],
+) -> Any:
+    """Replace all deposition steps of a process."""
+    process = _owned_process(session, current_user, id)
+    for step in list(process.steps):
+        session.delete(step)
+    session.flush()
+    created = [ProcessStep(**s.model_dump(), process_id=id) for s in body]
+    for step in created:
+        session.add(step)
+    session.commit()
+    for step in created:
+        session.refresh(step)
+    return created
+
+
+@router.put("/{id}/stacks/", response_model=list[ProcessGeneratedStackPublic])
+def replace_process_stacks(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    body: list[ProcessGeneratedStackCreate],
+) -> Any:
+    """Replace all generated device stacks (and their layers) of a process."""
+    process = _owned_process(session, current_user, id)
+    for stack in list(process.stacks):
+        session.delete(stack)
+    session.flush()
+    created: list[ProcessGeneratedStack] = []
+    for stack_in in body:
+        stack = ProcessGeneratedStack(
+            **stack_in.model_dump(exclude={"layers"}), process_id=id
+        )
+        session.add(stack)
+        session.flush()
+        for layer in stack_in.layers:
+            session.add(
+                ProcessGeneratedStackLayer(**layer.model_dump(), stack_id=stack.id)
+            )
+        created.append(stack)
+    session.commit()
+    for stack in created:
+        session.refresh(stack)
+    return created
+
+
+@router.get("/{id}/inline-substrates/")
+def read_process_inline_substrates(
+    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
+) -> Any:
+    """List inline substrates defined directly on a process."""
+    process = _owned_process(session, current_user, id)
+    return process.inline_substrates
+
+
+@router.put(
+    "/{id}/inline-substrates/", response_model=list[ProcessInlineSubstratePublic]
+)
+def replace_process_inline_substrates(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    body: list[ProcessInlineSubstrateCreate],
+) -> Any:
+    """Replace all inline substrates of a process."""
+    process = _owned_process(session, current_user, id)
+    for sub in list(process.inline_substrates):
+        session.delete(sub)
+    session.flush()
+    created = [ProcessInlineSubstrate(**s.model_dump(), process_id=id) for s in body]
+    for sub in created:
+        session.add(sub)
+    session.commit()
+    for sub in created:
+        session.refresh(sub)
+    return created
+
+
+@router.get("/{id}/substrate-dimensions/")
+def read_process_substrate_dimensions(
+    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
+) -> Any:
+    """List substrate dimension overrides for a process."""
+    process = _owned_process(session, current_user, id)
+    return process.substrate_dimensions
+
+
+@router.put(
+    "/{id}/substrate-dimensions/",
+    response_model=list[ProcessSubstrateDimensionPublic],
+)
+def replace_process_substrate_dimensions(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    body: list[ProcessSubstrateDimensionCreate],
+) -> Any:
+    """Replace all substrate dimension overrides of a process."""
+    process = _owned_process(session, current_user, id)
+    for dim in list(process.substrate_dimensions):
+        session.delete(dim)
+    session.flush()
+    created = [ProcessSubstrateDimension(**d.model_dump(), process_id=id) for d in body]
+    for dim in created:
+        session.add(dim)
+    session.commit()
+    for dim in created:
+        session.refresh(dim)
+    return created

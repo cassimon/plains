@@ -17,6 +17,15 @@ def _jsonb_field() -> Any:
     return Field(default=None, sa_column=Column(JSONB, nullable=True))
 
 
+class ClientIdCreate(SQLModel):
+    """Mixin for *Create schemas that lets the frontend supply the
+    primary-key UUID, so client-generated IDs and their cross-references
+    round-trip through create endpoints. Falls back to a fresh UUID when the
+    client omits it (preserving the previous server-generated behaviour)."""
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+
+
 # ============================================================================
 # User
 # ============================================================================
@@ -101,7 +110,7 @@ class PlaneBase(SQLModel):
     name: str = Field(min_length=1, max_length=255)
 
 
-class PlaneCreate(PlaneBase):
+class PlaneCreate(ClientIdCreate, PlaneBase):
     pass
 
 
@@ -186,7 +195,7 @@ class StickyNoteBase(CanvasNoteBase):
     pass
 
 
-class StickyNoteCreate(CanvasNoteBase):
+class StickyNoteCreate(ClientIdCreate, CanvasNoteBase):
     pass
 
 
@@ -216,7 +225,7 @@ class TextFieldBase(CanvasNoteBase):
     pass
 
 
-class TextFieldCreate(CanvasNoteBase):
+class TextFieldCreate(ClientIdCreate, CanvasNoteBase):
     pass
 
 
@@ -249,7 +258,7 @@ class DataCollectionBase(SQLModel):
     color: str | None = Field(default=None, max_length=50)
 
 
-class DataCollectionCreate(DataCollectionBase):
+class DataCollectionCreate(ClientIdCreate, DataCollectionBase):
     pass
 
 
@@ -315,7 +324,7 @@ class LabMaterialBase(SQLModel):
     )
 
 
-class LabMaterialCreate(LabMaterialBase):
+class LabMaterialCreate(ClientIdCreate, LabMaterialBase):
     pass
 
 
@@ -362,7 +371,7 @@ class SolutionComponentBase(SQLModel):
     )
 
 
-class SolutionComponentCreate(SolutionComponentBase):
+class SolutionComponentCreate(ClientIdCreate, SolutionComponentBase):
     pass
 
 
@@ -396,7 +405,7 @@ class LabSolutionBase(SQLModel):
     )
 
 
-class LabSolutionCreate(LabSolutionBase):
+class LabSolutionCreate(ClientIdCreate, LabSolutionBase):
     components: list[SolutionComponentCreate] = []
 
 
@@ -450,7 +459,7 @@ class ProcessBase(SQLModel):
     )
 
 
-class ProcessCreate(ProcessBase):
+class ProcessCreate(ClientIdCreate, ProcessBase):
     pass
 
 
@@ -495,7 +504,7 @@ class ProcessInlineSubstrateBase(SQLModel):
     surface_roughness_rms_nm: str | None = Field(default=None, max_length=50)
 
 
-class ProcessInlineSubstrateCreate(ProcessInlineSubstrateBase):
+class ProcessInlineSubstrateCreate(ClientIdCreate, ProcessInlineSubstrateBase):
     pass
 
 
@@ -520,7 +529,7 @@ class ProcessSubstrateDimensionBase(SQLModel):
     surface_roughness_rms_nm: str | None = Field(default=None, max_length=50)
 
 
-class ProcessSubstrateDimensionCreate(ProcessSubstrateDimensionBase):
+class ProcessSubstrateDimensionCreate(ClientIdCreate, ProcessSubstrateDimensionBase):
     pass
 
 
@@ -559,7 +568,7 @@ class RecipeSolventBase(SQLModel):
     color: str = Field(default="", max_length=50)
 
 
-class RecipeSolventCreate(RecipeSolventBase):
+class RecipeSolventCreate(ClientIdCreate, RecipeSolventBase):
     pass
 
 
@@ -586,7 +595,7 @@ class RecipeSoluteBase(SQLModel):
     color: str = Field(default="", max_length=50)
 
 
-class RecipeSoluteCreate(RecipeSoluteBase):
+class RecipeSoluteCreate(ClientIdCreate, RecipeSoluteBase):
     pass
 
 
@@ -610,7 +619,7 @@ class RecipeAddedSolutionBase(SQLModel):
     volume_ml: str = Field(default="", max_length=50)
 
 
-class RecipeAddedSolutionCreate(RecipeAddedSolutionBase):
+class RecipeAddedSolutionCreate(ClientIdCreate, RecipeAddedSolutionBase):
     pass
 
 
@@ -630,7 +639,7 @@ class RecipeAddedSolutionPublic(RecipeAddedSolutionBase):
     id: uuid.UUID
 
 
-class ProcessSolutionRecipeCreate(ProcessSolutionRecipeBase):
+class ProcessSolutionRecipeCreate(ClientIdCreate, ProcessSolutionRecipeBase):
     solvents: list[RecipeSolventCreate] = []
     solutes: list[RecipeSoluteCreate] = []
     added_solutions: list[RecipeAddedSolutionCreate] = []
@@ -705,7 +714,7 @@ class ProcessStepBase(SQLModel):
     notes: str | None = None
 
 
-class ProcessStepCreate(ProcessStepBase):
+class ProcessStepCreate(ClientIdCreate, ProcessStepBase):
     pass
 
 
@@ -746,7 +755,7 @@ class ProcessGeneratedStackLayerBase(SQLModel):
     perovskite_x: str = Field(default="", max_length=255)
 
 
-class ProcessGeneratedStackLayerCreate(ProcessGeneratedStackLayerBase):
+class ProcessGeneratedStackLayerCreate(ClientIdCreate, ProcessGeneratedStackLayerBase):
     pass
 
 
@@ -763,7 +772,7 @@ class ProcessGeneratedStackLayerPublic(ProcessGeneratedStackLayerBase):
     id: uuid.UUID
 
 
-class ProcessGeneratedStackCreate(ProcessGeneratedStackBase):
+class ProcessGeneratedStackCreate(ClientIdCreate, ProcessGeneratedStackBase):
     layers: list[ProcessGeneratedStackLayerCreate] = []
 
 
@@ -815,7 +824,7 @@ class LabSubstrateBase(SQLModel):
     parameter_values: dict[str, Any] | None = _jsonb_field()
 
 
-class LabSubstrateCreate(LabSubstrateBase):
+class LabSubstrateCreate(ClientIdCreate, LabSubstrateBase):
     pass
 
 
@@ -890,6 +899,7 @@ class ExperimentBase(SQLModel):
     num_substrates: int | None = None
     devices_per_substrate: int | None = None
     device_area: float | None = None
+    device_type: str | None = Field(default=None, max_length=50)
     device_layout_image: str | None = None
     date: date_type | None = None
     end_date: date_type | None = None
@@ -899,7 +909,7 @@ class ExperimentBase(SQLModel):
     processing_times: dict[str, Any] | None = _jsonb_field()
 
 
-class ExperimentCreate(ExperimentBase):
+class ExperimentCreate(ClientIdCreate, ExperimentBase):
     substrates: list[LabSubstrateCreate] = []
 
 
@@ -967,7 +977,7 @@ class MeasurementFileBase(SQLModel):
     measurement_user: str | None = Field(default=None, max_length=255)
 
 
-class MeasurementFileCreate(MeasurementFileBase):
+class MeasurementFileCreate(ClientIdCreate, MeasurementFileBase):
     pass
 
 
@@ -994,7 +1004,7 @@ class DeviceGroupBase(SQLModel):
     match_score: float | None = None
 
 
-class DeviceGroupCreate(DeviceGroupBase):
+class DeviceGroupCreate(ClientIdCreate, DeviceGroupBase):
     pass
 
 
@@ -1031,7 +1041,7 @@ class ExperimentResultsBase(SQLModel):
     nomad_entries: int | None = None
 
 
-class ExperimentResultsCreate(ExperimentResultsBase):
+class ExperimentResultsCreate(ClientIdCreate, ExperimentResultsBase):
     measurement_files: list[MeasurementFileCreate] = []
     device_groups: list[DeviceGroupCreate] = []
 
@@ -1085,7 +1095,7 @@ class AnalysisRefBase(SQLModel):
     entity_id: uuid.UUID
 
 
-class AnalysisRefCreate(AnalysisRefBase):
+class AnalysisRefCreate(ClientIdCreate, AnalysisRefBase):
     pass
 
 
@@ -1117,7 +1127,7 @@ class AnalysisBase(SQLModel):
     )
 
 
-class AnalysisCreate(AnalysisBase):
+class AnalysisCreate(ClientIdCreate, AnalysisBase):
     refs: list[AnalysisRefCreate] = []
 
 

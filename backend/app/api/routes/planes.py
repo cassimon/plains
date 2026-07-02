@@ -391,3 +391,77 @@ def delete_collection(
     session.delete(collection)
     session.commit()
     return {"ok": True}
+
+
+# ── Bulk canvas-element replace (used by the frontend snapshot sync) ─────────
+#
+# Each endpoint replaces the entire canvas-element collection of a plane in one
+# transaction. Client-supplied UUIDs are honoured so element identity is stable
+# across saves. Collections are replaced first by the frontend, before it sets
+# the collection_id FK on member entities.
+
+
+@router.put("/{plane_id}/sticky-notes", response_model=list[StickyNotePublic])
+def replace_sticky_notes(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    plane_id: uuid.UUID,
+    body: list[StickyNoteCreate],
+) -> Any:
+    """Replace all sticky notes of a plane."""
+    plane = _owned_plane(session, current_user, plane_id)
+    for note in list(plane.sticky_notes):
+        session.delete(note)
+    session.flush()
+    created = [StickyNote(**n.model_dump(), plane_id=plane_id) for n in body]
+    for note in created:
+        session.add(note)
+    session.commit()
+    for note in created:
+        session.refresh(note)
+    return created
+
+
+@router.put("/{plane_id}/text-fields", response_model=list[TextFieldPublic])
+def replace_text_fields(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    plane_id: uuid.UUID,
+    body: list[TextFieldCreate],
+) -> Any:
+    """Replace all text fields of a plane."""
+    plane = _owned_plane(session, current_user, plane_id)
+    for field in list(plane.text_fields):
+        session.delete(field)
+    session.flush()
+    created = [TextField(**f.model_dump(), plane_id=plane_id) for f in body]
+    for field in created:
+        session.add(field)
+    session.commit()
+    for field in created:
+        session.refresh(field)
+    return created
+
+
+@router.put("/{plane_id}/collections", response_model=list[DataCollectionPublic])
+def replace_collections(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    plane_id: uuid.UUID,
+    body: list[DataCollectionCreate],
+) -> Any:
+    """Replace all data collections of a plane."""
+    plane = _owned_plane(session, current_user, plane_id)
+    for collection in list(plane.collections):
+        session.delete(collection)
+    session.flush()
+    created = [DataCollection(**c.model_dump(), plane_id=plane_id) for c in body]
+    for collection in created:
+        session.add(collection)
+    session.commit()
+    for collection in created:
+        session.refresh(collection)
+    return created

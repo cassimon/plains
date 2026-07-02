@@ -23,6 +23,19 @@ import type {
   Plane,
   Process,
 } from "./AppContext"
+import * as M from "./backendMapping"
+
+/** Error carrying the HTTP status so callers can branch on 404/409/etc. */
+class HttpError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+type TopEntity = "processes" | "experiments" | "results" | "planes"
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -357,6 +370,18 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
 export class HttpBackend implements BackendAdapter {
   private data: AppSnapshot = { ...EMPTY_SNAPSHOT }
 
+  /**
+   * IDs of top-level entities currently believed to exist on the server.
+   * Populated on load() and after every successful save(); used by save() to
+   * decide create-vs-update and to compute deletions.
+   */
+  private serverIds: Record<TopEntity, Set<string>> = {
+    processes: new Set(),
+    experiments: new Set(),
+    results: new Set(),
+    planes: new Set(),
+  }
+
   constructor(
     private baseUrl: string = `${import.meta.env.VITE_API_URL}/api/v1`,
   ) {}
@@ -365,202 +390,72 @@ export class HttpBackend implements BackendAdapter {
     return getTokenSync()
   }
 
+  /** Authenticated JSON request. Throws HttpError on non-2xx. */
+  private async request(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<any> {
+    const token = this.getToken()
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => "")
+      throw new HttpError(
+        res.status,
+        `${method} ${path} → ${res.status} ${text}`,
+      )
+    }
+    if (res.status === 204) return null
+    const txt = await res.text()
+    return txt ? JSON.parse(txt) : null
+  }
+
+  private captureServerIds(): void {
+    this.serverIds = {
+      processes: new Set(this.data.processes.map((p) => p.id)),
+      experiments: new Set(this.data.experiments.map((e) => e.id)),
+      results: new Set(this.data.results.map((r) => r.id)),
+      planes: new Set(this.data.planes.map((p) => p.id)),
+    }
+  }
+
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   async load(): Promise<AppSnapshot> {
     try {
-      console.log("[HttpBackend] load() called, baseUrl:", this.baseUrl)
       const token = this.getToken()
       if (!token) {
         console.warn("[HttpBackend] load() skipped — no token")
         return { ...EMPTY_SNAPSHOT }
       }
-      const stateRes = await fetch(`${this.baseUrl}/state/`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      console.log("[HttpBackend] GET /state/ response:", stateRes.status)
-      if (stateRes.ok) {
-        const stateJson = await stateRes.json()
-        console.log(
-          "[HttpBackend] /state/ response data keys:",
-          Object.keys(stateJson),
-        )
-        const raw = stateJson.data ?? {}
-        console.log(
-          "[HttpBackend] /state/ data keys:",
-          Object.keys(raw),
-          "planes:",
-          Array.isArray(raw.planes) ? raw.planes.length : "none",
-        )
-        const hasSnapshotData =
-          Array.isArray(raw.experiments) ||
-          Array.isArray(raw.processes) ||
-          Array.isArray(raw.results) ||
-          Array.isArray(raw.planes)
-
-        if (hasSnapshotData) {
-          this.data = {
-            experiments: raw.experiments ?? [],
-            processes: raw.processes ?? [],
-            results: raw.results ?? [],
-            planes: raw.planes ?? [],
-          }
-          console.log(
-            "[HttpBackend] loaded from /state/ snapshot:",
-            "planes:",
-            this.data.planes.length,
-            "elements:",
-            this.data.planes.reduce((n, p) => n + p.elements.length, 0),
-          )
-          // Check for an emergency backup written by the beforeunload watchdog.
-          // If it exists and is recent, it represents work that was not pushed to
-          // the server before the tab was closed; restore it and re-sync.
-          const restoredFromBackup = this.restoreUnloadBackup()
-          if (restoredFromBackup) {
-            return { ...this.data }
-          }
-          return { ...this.data }
-        }
-      }
-
-      const bulkRes = await fetch(`${this.baseUrl}/state/bulk`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!bulkRes.ok) {
-        console.warn(
-          `[HttpBackend] bulk load failed (${bulkRes.status}), starting fresh`,
-        )
-        return { ...EMPTY_SNAPSHOT }
-      }
-      const json = await bulkRes.json()
-      // Apply type conversions from API format to AppContext format
-      const experiments = (json.experiments ?? []).map((e: any) => ({
-        id: e.id,
-        name: e.name,
-        description: e.description ?? "",
-        date:
-          e.created_at?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-        architecture: "n-i-p" as const,
-        substrateMaterial: "Glass/ITO",
-        substrateWidth: 2.5,
-        substrateLength: 2.5,
-        numSubstrates: (e.substrates ?? []).length || 1,
-        devicesPerSubstrate: 4,
-        deviceArea: e.active_area_cm2 ?? 0.09,
-        deviceType: (e.device_type as "film" | "half" | "full") ?? "film",
-        layers: (e.layers ?? []).map((l: any, i: number) => ({
-          id: l.id,
-          name: l.name,
-          color: ["#FF6B6B", "#4ECDC4", "#45B7D1"][i % 3],
-          materialId: l.material_id ?? undefined,
-          solutionId: l.solution_id ?? undefined,
-          notes: l.notes ?? undefined,
-        })),
-        substrates: (e.substrates ?? []).map((s: any) => ({
-          id: s.id,
-          name: s.name,
-        })),
-        hasResults: false,
-      }))
-
-      const results = (json.results ?? []).map((r: any) => ({
-        id: r.id,
-        experimentId: r.experiment_id,
-        files: (r.measurement_files ?? []).map((f: any) => ({
-          id: f.id,
-          fileName: f.filename,
-          fileType: f.file_type as any,
-          deviceName: "",
-          cell: "",
-          pixel: "",
-        })),
-        deviceGroups: (r.device_groups ?? []).map((g: any) => ({
-          id: g.id,
-          deviceName: g.name,
-          files: [],
-          assignedSubstrateId: null,
-        })),
-        groupingStrategy: "search" as const,
-        matchingStrategy: "fuzzy" as const,
-        updatedAt: r.created_at ?? new Date().toISOString(),
-      }))
-
-      const planes = (json.planes ?? []).map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        elements: (p.elements ?? []).map((e: any) => {
-          const tryParseJson = (s: string) => {
-            try {
-              return JSON.parse(s)
-            } catch {
-              return null
-            }
-          }
-          const parsed = e.content ? tryParseJson(e.content) : null
-
-          if (e.element_type === "collection") {
-            return {
-              id: e.id,
-              type: "collection" as const,
-              position: { x: e.x, y: e.y },
-              size: { x: e.width, y: e.height },
-              name: parsed?.name ?? "Collection",
-              refs: parsed?.refs ?? [],
-              color: e.color ?? undefined,
-            }
-          }
-          if (e.element_type === "line") {
-            return {
-              id: e.id,
-              type: "line" as const,
-              points: parsed?.points ?? [
-                { x: e.x, y: e.y },
-                { x: e.x + e.width, y: e.y + e.height },
-              ],
-              color: e.color ?? undefined,
-            }
-          }
-          if (e.element_type === "plaintext") {
-            return {
-              id: e.id,
-              type: "plaintext" as const,
-              position: { x: e.x, y: e.y },
-              size: { x: e.width, y: e.height },
-              content: parsed?.content ?? e.content ?? "",
-              color: e.color ?? "#000000",
-              formatting: parsed?.formatting ?? {},
-            }
-          }
-          return {
-            id: e.id,
-            type: "text" as const,
-            position: { x: e.x, y: e.y },
-            size: { x: e.width, y: e.height },
-            content: e.content ?? "",
-            color: e.color ?? undefined,
-          }
-        }),
-      }))
-
-      // Mark experiments with results
-      const experimentIdsWithResults = new Set(
-        results.map((r: ExperimentResults) => r.experimentId),
+      // The normalised backend serves the full snapshot from /state/bulk, with
+      // every domain object in its own table. backendMapping reconstructs the
+      // rich frontend shapes (including DataCollection membership).
+      const bulk = await this.request("GET", "/state/bulk")
+      this.data = M.bulkToSnapshot(bulk ?? {})
+      this.captureServerIds()
+      console.log(
+        "[HttpBackend] loaded from /state/bulk:",
+        "processes:",
+        this.data.processes.length,
+        "experiments:",
+        this.data.experiments.length,
+        "results:",
+        this.data.results.length,
+        "planes:",
+        this.data.planes.length,
       )
-      for (const exp of experiments) {
-        exp.hasResults = experimentIdsWithResults.has(exp.id)
-      }
-
-      this.data = {
-        experiments,
-        processes: [],
-        results,
-        planes,
-      }
-      // Check for emergency backup from beforeunload watchdog.
-      const restoredFromBackup = this.restoreUnloadBackup()
-      if (restoredFromBackup) {
-        return { ...this.data }
-      }
+      // An emergency backup written by the beforeunload watchdog represents work
+      // not yet pushed to the server; restore it over the loaded state and
+      // re-sync on the next save.
+      this.restoreUnloadBackup()
       return { ...this.data }
     } catch (err) {
       console.error("[HttpBackend] load error:", err)
@@ -615,14 +510,6 @@ export class HttpBackend implements BackendAdapter {
 
   async save(snapshot: AppSnapshot): Promise<void> {
     this.data = snapshot
-    const summary = {
-      experiments: snapshot.experiments.length,
-      processes: snapshot.processes.length,
-      results: snapshot.results.length,
-      planes: snapshot.planes.length,
-      elements: snapshot.planes.reduce((n, p) => n + p.elements.length, 0),
-    }
-    console.log("[HttpBackend] save() called:", summary)
     const token = this.getToken()
     if (!token) {
       console.warn(
@@ -631,29 +518,183 @@ export class HttpBackend implements BackendAdapter {
       return
     }
     try {
-      const res = await fetch(`${this.baseUrl}/state/`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ data: snapshot }),
-      })
-      if (!res.ok) {
-        const text = await res.text()
-        console.error("[HttpBackend] save failed:", res.status, text)
-      } else {
-        console.log("[HttpBackend] save succeeded:", res.status)
-        // Clear any emergency backup — the server now has the authoritative state.
-        try {
-          localStorage.removeItem(UNLOAD_BACKUP_KEY)
-        } catch {
-          /* ignore */
-        }
+      await this.syncToBackend(snapshot)
+      console.log("[HttpBackend] save succeeded")
+      // The server now holds the authoritative state — drop the emergency backup.
+      try {
+        localStorage.removeItem(UNLOAD_BACKUP_KEY)
+      } catch {
+        /* ignore */
       }
     } catch (err) {
-      console.error("[HttpBackend] save network error:", err)
+      console.error("[HttpBackend] save failed:", err)
     }
+  }
+
+  /** Create the entity if new, otherwise update it. Recovers from a stale
+   *  create/update guess (404 on update, conflict on create). */
+  private async upsert(
+    type: TopEntity,
+    id: string,
+    body: unknown,
+  ): Promise<void> {
+    const exists = this.serverIds[type].has(id)
+    try {
+      if (exists) {
+        await this.request("PUT", `/${type}/${id}`, body)
+      } else {
+        await this.request("POST", `/${type}/`, body)
+      }
+    } catch (err) {
+      if (err instanceof HttpError && exists && err.status === 404) {
+        await this.request("POST", `/${type}/`, body)
+      } else if (
+        err instanceof HttpError &&
+        !exists &&
+        (err.status === 400 || err.status === 409 || err.status === 500)
+      ) {
+        // The row likely already existed (client-supplied PK) — update instead.
+        await this.request("PUT", `/${type}/${id}`, body)
+      } else {
+        throw err
+      }
+    }
+  }
+
+  private async deleteRemoved(
+    type: TopEntity,
+    currentIds: string[],
+  ): Promise<void> {
+    const current = new Set(currentIds)
+    for (const id of this.serverIds[type]) {
+      if (current.has(id)) continue
+      try {
+        await this.request("DELETE", `/${type}/${id}`)
+      } catch (err) {
+        if (!(err instanceof HttpError && err.status === 404)) throw err
+      }
+    }
+  }
+
+  /**
+   * Reconcile the full snapshot to the normalised backend via per-entity REST.
+   * Ordered by FK dependencies: planes (and their collections) before the
+   * domain objects that carry plane_id/collection_id; processes before the
+   * experiments that reference them; experiments before their results.
+   */
+  private async syncToBackend(s: AppSnapshot): Promise<void> {
+    const place = M.derivePlacement(s.planes)
+    const knownProcessIds = new Set(s.processes.map((p) => p.id))
+    const knownExperimentIds = new Set(s.experiments.map((e) => e.id))
+
+    // 1. Planes + canvas elements. Collections are replaced before entities set
+    //    their collection_id FK below.
+    for (const pl of s.planes) {
+      await this.upsert("planes", pl.id, M.planeToApi(pl))
+      await this.request(
+        "PUT",
+        `/planes/${pl.id}/collections`,
+        M.collectionsToApi(pl),
+      )
+      await this.request(
+        "PUT",
+        `/planes/${pl.id}/sticky-notes`,
+        M.stickyNotesToApi(pl),
+      )
+      await this.request(
+        "PUT",
+        `/planes/${pl.id}/text-fields`,
+        M.textFieldsToApi(pl),
+      )
+    }
+
+    // 2. Processes + nested children.
+    for (const p of s.processes) {
+      await this.upsert("processes", p.id, M.processToApi(p, place))
+      await this.request(
+        "PUT",
+        `/processes/${p.id}/recipes/`,
+        M.recipesToApi(p),
+      )
+      await this.request("PUT", `/processes/${p.id}/steps/`, M.stepsToApi(p))
+      await this.request("PUT", `/processes/${p.id}/stacks/`, M.stacksToApi(p))
+      await this.request(
+        "PUT",
+        `/processes/${p.id}/inline-substrates/`,
+        M.inlineSubstratesToApi(p),
+      )
+      // Substrate dimensions reference lab_material rows that may live outside
+      // this snapshot; tolerate FK failures rather than aborting the save.
+      try {
+        await this.request(
+          "PUT",
+          `/processes/${p.id}/substrate-dimensions/`,
+          M.substrateDimensionsToApi(p),
+        )
+      } catch (err) {
+        console.warn("[HttpBackend] substrate-dimensions skipped:", err)
+      }
+    }
+
+    // 3. Experiments + substrates.
+    for (const e of s.experiments) {
+      await this.upsert(
+        "experiments",
+        e.id,
+        M.experimentToApi(e, place, knownProcessIds),
+      )
+      await this.request(
+        "PUT",
+        `/experiments/${e.id}/substrates`,
+        M.substratesToApi(e),
+      )
+    }
+
+    // 4. Results (create requires ?experiment_id=) + files/groups.
+    for (const r of s.results) {
+      if (this.serverIds.results.has(r.id)) {
+        await this.request("PUT", `/results/${r.id}`, M.resultsToApi(r, place))
+      } else if (knownExperimentIds.has(r.experimentId)) {
+        await this.request(
+          "POST",
+          `/results/?experiment_id=${r.experimentId}`,
+          M.resultsToApi(r, place),
+        )
+      } else {
+        continue // orphan result with no experiment — cannot persist
+      }
+      await this.request(
+        "PUT",
+        `/results/${r.id}/measurement-files`,
+        M.measurementFilesToApi(r),
+      )
+      await this.request(
+        "PUT",
+        `/results/${r.id}/device-groups`,
+        M.deviceGroupsToApi(r),
+      )
+    }
+
+    // 5. Deletions, in reverse dependency order.
+    await this.deleteRemoved(
+      "results",
+      s.results.map((r) => r.id),
+    )
+    await this.deleteRemoved(
+      "experiments",
+      s.experiments.map((e) => e.id),
+    )
+    await this.deleteRemoved(
+      "processes",
+      s.processes.map((p) => p.id),
+    )
+    await this.deleteRemoved(
+      "planes",
+      s.planes.map((p) => p.id),
+    )
+
+    // Server now matches the snapshot.
+    this.captureServerIds()
   }
 
   // ── Per-entity methods (delegate to in-memory copy) ────────────────────────

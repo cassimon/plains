@@ -15,6 +15,9 @@ from app.models import (
     ExperimentSolution,
     ExperimentsPublic,
     ExperimentUpdate,
+    LabSubstrate,
+    LabSubstrateCreate,
+    LabSubstratePublic,
 )
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
@@ -167,3 +170,25 @@ def set_experiment_solutions(
     session.commit()
     session.refresh(experiment)
     return experiment
+
+
+@router.put("/{id}/substrates", response_model=list[LabSubstratePublic])
+def replace_experiment_substrates(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    body: list[LabSubstrateCreate],
+) -> Any:
+    """Replace all substrates of an experiment (used by the snapshot sync)."""
+    experiment = _get_owned_experiment(session, current_user, id)
+    for substrate in list(experiment.substrates):
+        session.delete(substrate)
+    session.flush()
+    created = [LabSubstrate(**s.model_dump(), experiment_id=id) for s in body]
+    for substrate in created:
+        session.add(substrate)
+    session.commit()
+    for substrate in created:
+        session.refresh(substrate)
+    return created

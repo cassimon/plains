@@ -7,11 +7,17 @@ from sqlmodel import col, func, select
 from app.api.deps import CurrentUser, SessionDep
 from app.crud import create_experiment_results, update_experiment_results
 from app.models import (
+    DeviceGroup,
+    DeviceGroupCreate,
+    DeviceGroupPublic,
     ExperimentResults,
     ExperimentResultsCreate,
     ExperimentResultsListPublic,
     ExperimentResultsPublic,
     ExperimentResultsUpdate,
+    MeasurementFile,
+    MeasurementFileCreate,
+    MeasurementFilePublic,
 )
 
 router = APIRouter(prefix="/results", tags=["results"])
@@ -28,7 +34,11 @@ def read_results(
         base = base.where(ExperimentResults.owner_id == current_user.id)
         count_base = count_base.where(ExperimentResults.owner_id == current_user.id)
     count = session.exec(count_base).one()
-    statement = base.order_by(col(ExperimentResults.created_at).desc()).offset(skip).limit(limit)
+    statement = (
+        base.order_by(col(ExperimentResults.created_at).desc())
+        .offset(skip)
+        .limit(limit)
+    )
     items = session.exec(statement).all()
     return ExperimentResultsListPublic(data=items, count=count)
 
@@ -93,3 +103,58 @@ def delete_result(session: SessionDep, current_user: CurrentUser, id: uuid.UUID)
     session.delete(result)
     session.commit()
     return {"ok": True}
+
+
+def _owned_result(
+    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
+) -> ExperimentResults:
+    result = session.get(ExperimentResults, id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Results not found")
+    if not current_user.is_superuser and (result.owner_id != current_user.id):
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+    return result
+
+
+@router.put("/{id}/measurement-files", response_model=list[MeasurementFilePublic])
+def replace_measurement_files(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    body: list[MeasurementFileCreate],
+) -> Any:
+    """Replace all measurement files of a result (used by the snapshot sync)."""
+    result = _owned_result(session, current_user, id)
+    for f in list(result.measurement_files):
+        session.delete(f)
+    session.flush()
+    created = [MeasurementFile(**f.model_dump(), results_id=id) for f in body]
+    for f in created:
+        session.add(f)
+    session.commit()
+    for f in created:
+        session.refresh(f)
+    return created
+
+
+@router.put("/{id}/device-groups", response_model=list[DeviceGroupPublic])
+def replace_device_groups(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    body: list[DeviceGroupCreate],
+) -> Any:
+    """Replace all device groups of a result (used by the snapshot sync)."""
+    result = _owned_result(session, current_user, id)
+    for g in list(result.device_groups):
+        session.delete(g)
+    session.flush()
+    created = [DeviceGroup(**g.model_dump(), results_id=id) for g in body]
+    for g in created:
+        session.add(g)
+    session.commit()
+    for g in created:
+        session.refresh(g)
+    return created
