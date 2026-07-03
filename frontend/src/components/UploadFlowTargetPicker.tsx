@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { useMemo } from "react"
 import { getExperimentAllStepsDone } from "@/lib/uploadFlow"
 import {
+  type CanvasCollectionElement,
   getProcessStatus,
   newExperiment,
   useAppContext,
@@ -33,6 +34,8 @@ export function UploadFlowTargetPicker({
     setExperiments,
     setActiveEntity,
     updateLastSelected,
+    planes,
+    updateElement,
   } = useAppContext()
   const navigate = useNavigate()
 
@@ -79,6 +82,24 @@ export function UploadFlowTargetPicker({
     const exp = newExperiment(processId)
     setExperiments((prev) => [...prev, exp])
     updateUploadFlow({ experimentId: exp.id })
+
+    // Experiments created inside the drop/upload flow are always associated with
+    // the flow's collection. It stays hidden behind the pending marker until the
+    // flow completes, then surfaces as a normal experiment item.
+    if (uploadFlow.targetCollectionId && uploadFlow.targetPlaneId) {
+      const targetPlane = planes.find((p) => p.id === uploadFlow.targetPlaneId)
+      const collection = targetPlane?.elements.find(
+        (e) =>
+          e.id === uploadFlow.targetCollectionId && e.type === "collection",
+      ) as CanvasCollectionElement | undefined
+      if (collection) {
+        updateElement(uploadFlow.targetPlaneId, {
+          ...collection,
+          refs: [...collection.refs, { kind: "experiment", id: exp.id }],
+        })
+      }
+    }
+
     setActiveEntity({ kind: "experiment", id: exp.id })
     updateLastSelected("experiment", exp.id)
     onNavigateAway?.()

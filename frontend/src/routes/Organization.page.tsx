@@ -1643,6 +1643,9 @@ function CollectionEl({
     !isUploadFlowComplete(
       getUploadFlowSteps(uploadFlow, { processes, experiments, results }),
     )
+  // Only a brand-new (empty) collection collapses to just the marker. A
+  // populated collection keeps all its items visible/accessible alongside it.
+  const markerOnly = uploadPending && el.refs.length === 0
   const rawObLevel = useOnboardingLevel()
   const obLevel: OnboardingLevel = isFirstPlane ? rawObLevel : 4
   const obNextKind = ONBOARDING_NEXT_KIND[obLevel]
@@ -2314,56 +2317,59 @@ function CollectionEl({
               </Tooltip>
             )}
 
-            {/* Filled items first */}
-            {SIX_KINDS.filter(({ kind }) =>
-              el.refs.some((r) => r.kind === kind),
-            ).map(({ kind, label: kindLabel, Icon, color }) => {
-              const refs = el.refs.filter((r) => r.kind === kind)
-              return (
-                <Tooltip
-                  key={kind}
-                  label={`${kindLabel} (${refs.length})`}
-                  withArrow
-                  position="bottom"
-                  openDelay={400}
-                >
-                  <Box
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      cursor: "pointer",
-                      borderRadius: 4,
-                      padding: "4px 5px",
-                      background:
-                        hoveredSlot === kind
-                          ? "var(--mantine-color-default-hover)"
-                          : "transparent",
-                      transition: "background 100ms ease",
-                    }}
-                    onMouseEnter={() => setHoveredSlot(kind)}
-                    onMouseLeave={() => setHoveredSlot(null)}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleRefIconClick(kind)
-                    }}
+            {/* Filled items first — kept visible unless this is an empty card
+                collapsed to just the pending marker */}
+            {!markerOnly &&
+              SIX_KINDS.filter(({ kind }) =>
+                el.refs.some((r) => r.kind === kind),
+              ).map(({ kind, label: kindLabel, Icon, color }) => {
+                const refs = el.refs.filter((r) => r.kind === kind)
+                return (
+                  <Tooltip
+                    key={kind}
+                    label={`${kindLabel} (${refs.length})`}
+                    withArrow
+                    position="bottom"
+                    openDelay={400}
                   >
-                    <Icon size={22} color={color} />
-                    <Text
-                      size="xs"
-                      c="dimmed"
-                      style={{ lineHeight: 1, marginTop: 3, fontWeight: 500 }}
+                    <Box
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        cursor: "pointer",
+                        borderRadius: 4,
+                        padding: "4px 5px",
+                        background:
+                          hoveredSlot === kind
+                            ? "var(--mantine-color-default-hover)"
+                            : "transparent",
+                        transition: "background 100ms ease",
+                      }}
+                      onMouseEnter={() => setHoveredSlot(kind)}
+                      onMouseLeave={() => setHoveredSlot(null)}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRefIconClick(kind)
+                      }}
                     >
-                      {refs.length}
-                    </Text>
-                  </Box>
-                </Tooltip>
-              )
-            })}
+                      <Icon size={22} color={color} />
+                      <Text
+                        size="xs"
+                        c="dimmed"
+                        style={{ lineHeight: 1, marginTop: 3, fontWeight: 500 }}
+                      >
+                        {refs.length}
+                      </Text>
+                    </Box>
+                  </Tooltip>
+                )
+              })}
 
             {/* "+" add slots — always to the right of filled items, shown on hover (or always if empty) */}
-            {(isCardHovered || el.refs.length === 0) &&
+            {!markerOnly &&
+              (isCardHovered || el.refs.length === 0) &&
               SIX_KINDS.filter(
                 ({ kind }) =>
                   !el.refs.some((r) => r.kind === kind) &&
@@ -2417,7 +2423,7 @@ function CollectionEl({
               })}
 
             {/* Note + textfield add buttons — same size/style, only when collection is fully empty */}
-            {el.refs.length === 0 && (
+            {!markerOnly && el.refs.length === 0 && (
               <>
                 <Tooltip
                   label="Add sticky note"
@@ -3833,7 +3839,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
   // flow. Opens the Process → Experiment picker so the user maps the files.
   const handleFileDrop = (
     fileList: FileList,
-    targetCollectionId: string | null,
+    dropCell: { col: number; row: number } | null,
   ) => {
     if (uploadFlow) {
       notifications.show({
@@ -3848,6 +3854,38 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
       name: f.name,
       size: f.size,
     }))
+
+    // An unfinished upload is always associated with a collection. Reuse the
+    // collection under the cursor, or create an empty one at that cell so the
+    // pending marker has a home ("empty collection with just this symbol").
+    let targetCollectionId: string | null = null
+    if (dropCell && dropCell.col >= 0 && dropCell.row >= 0) {
+      const { col, row } = dropCell
+      const existing = plane.elements.find((e) => {
+        if (e.type !== "collection") return false
+        const c = e as CanvasCollectionElement
+        return (
+          Math.round(c.position.x / CELL_W) === col &&
+          Math.round(c.position.y / CELL_H) === row
+        )
+      }) as CanvasCollectionElement | undefined
+      if (existing) {
+        targetCollectionId = existing.id
+      } else {
+        const newEl: CanvasCollectionElement = {
+          id: crypto.randomUUID(),
+          type: "collection",
+          position: { x: col * CELL_W, y: row * CELL_H },
+          size: { x: CELL_W, y: CELL_H },
+          name: "Data Collection",
+          color: nextCollectionColor(),
+          refs: [],
+        }
+        updatePlane({ ...plane, elements: [...plane.elements, newEl] })
+        targetCollectionId = newEl.id
+      }
+    }
+
     const started = startUploadFlow({
       origin: "drag-drop",
       pendingFiles,
@@ -4404,30 +4442,24 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
 
               const rect = containerRef.current?.getBoundingClientRect()
 
-              // File drop → start (or refuse) an upload flow, attached to the
-              // collection under the cursor (if any) so it shows the pending marker.
+              // File drop → start (or refuse) an upload flow. handleFileDrop
+              // resolves-or-creates the collection at this cell so the pending
+              // marker always has a home.
               if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                 e.preventDefault()
-                let targetCollectionId: string | null = null
+                let dropCell: { col: number; row: number } | null = null
                 if (rect) {
                   const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
-                  const col = Math.floor(
-                    (e.clientX - rect.left - childPan.x) / CELL_STRIDE_W,
-                  )
-                  const row = Math.floor(
-                    (e.clientY - rect.top - childPan.y) / CELL_STRIDE_H,
-                  )
-                  const target = plane.elements.find((el) => {
-                    if (el.type !== "collection") return false
-                    const c = el as CanvasCollectionElement
-                    return (
-                      Math.round(c.position.x / CELL_W) === col &&
-                      Math.round(c.position.y / CELL_H) === row
-                    )
-                  }) as CanvasCollectionElement | undefined
-                  targetCollectionId = target?.id ?? null
+                  dropCell = {
+                    col: Math.floor(
+                      (e.clientX - rect.left - childPan.x) / CELL_STRIDE_W,
+                    ),
+                    row: Math.floor(
+                      (e.clientY - rect.top - childPan.y) / CELL_STRIDE_H,
+                    ),
+                  }
                 }
-                handleFileDrop(e.dataTransfer.files, targetCollectionId)
+                handleFileDrop(e.dataTransfer.files, dropCell)
                 return
               }
 
