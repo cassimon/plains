@@ -7,6 +7,7 @@ import {
   Group,
   Loader,
   Menu,
+  Modal,
   NativeSelect,
   NumberInput,
   Paper,
@@ -26,6 +27,7 @@ import {
   IconAtom,
   IconBrush,
   IconCheck,
+  IconChevronRight,
   IconCopy,
   IconCpu,
   IconDownload,
@@ -146,6 +148,135 @@ const STEP_CATEGORY_ICON_MAP: Record<ProcessStepCategory, React.ReactNode> = {
   surface_treatment: <IconSparkles size={14} />,
   doping_aging: <IconAtom size={14} />,
   substrate_preparation: <IconBrush size={14} />,
+}
+
+// Standard deposition/treatment methods offered as a hover submenu when adding
+// a step. Selecting one pre-fills the step's Deposition Method; "Custom" (added
+// separately) leaves it blank so the user can type their own.
+const WET_DEPOSITION_METHODS = [
+  "Spin Coating",
+  "Blade Coating",
+  "Slot-die Coating",
+  "Drop Casting",
+  "Dip Coating",
+  "Spray Coating",
+  "Inkjet Printing",
+]
+
+const DRY_DEPOSITION_METHODS = [
+  "Thermal Evaporation",
+  "Sputtering",
+  "Chemical Vapor Deposition",
+  "Atomic Layer Deposition",
+  "Electron Beam Deposition",
+  "Laser Beam Deposition",
+]
+
+const SURFACE_TREATMENT_METHODS = [
+  ...WET_DEPOSITION_METHODS,
+  "Dipping",
+  "Immersion",
+  "Gas Exposure",
+]
+
+const SUBSTRATE_PREPARATION_METHODS = [
+  "UV/Ozone",
+  "Rinsing/Washing",
+  "Blow Cleaning",
+  "Sonication",
+]
+
+const STEP_METHOD_OPTIONS: Record<ProcessStepCategory, string[]> = {
+  wet_deposition: WET_DEPOSITION_METHODS,
+  dry_deposition: DRY_DEPOSITION_METHODS,
+  surface_treatment: SURFACE_TREATMENT_METHODS,
+  doping_aging: SURFACE_TREATMENT_METHODS,
+  substrate_preparation: SUBSTRATE_PREPARATION_METHODS,
+}
+
+type StepCategoryEntry = {
+  value: ProcessStepCategory
+  label: string
+  icon: React.ReactNode
+}
+
+/**
+ * Button + dropdown for adding a process step. Each category opens a hover
+ * submenu of standard methods plus a "Custom" option. Mantine v7 has no
+ * `Menu.Sub`, so submenus are nested `Menu` instances with `trigger="hover"`;
+ * the outer menu is controlled so it closes once a method is chosen.
+ */
+function AddStepMenu({
+  label,
+  categories,
+  onAdd,
+}: {
+  label: string
+  categories: StepCategoryEntry[]
+  onAdd: (category: ProcessStepCategory, method?: string) => void
+}) {
+  const [opened, setOpened] = useState(false)
+
+  return (
+    <Menu
+      shadow="md"
+      width={240}
+      opened={opened}
+      onChange={setOpened}
+      closeOnItemClick={false}
+      position="bottom-start"
+    >
+      <Menu.Target>
+        <Button size="xs" variant="subtle" leftSection={<IconPlus size={14} />}>
+          {label}
+        </Button>
+      </Menu.Target>
+      <Menu.Dropdown>
+        {categories.map((category) => (
+          <Menu
+            key={category.value}
+            trigger="hover"
+            position="right-start"
+            offset={2}
+            shadow="md"
+            width={220}
+            closeOnItemClick={false}
+          >
+            <Menu.Target>
+              <Menu.Item
+                leftSection={category.icon}
+                rightSection={<IconChevronRight size={14} />}
+              >
+                {category.label}
+              </Menu.Item>
+            </Menu.Target>
+            <Menu.Dropdown>
+              {STEP_METHOD_OPTIONS[category.value].map((method) => (
+                <Menu.Item
+                  key={method}
+                  onClick={() => {
+                    setOpened(false)
+                    onAdd(category.value, method)
+                  }}
+                >
+                  {method}
+                </Menu.Item>
+              ))}
+              <Menu.Divider />
+              <Menu.Item
+                onClick={() => {
+                  setOpened(false)
+                  onAdd(category.value)
+                }}
+              >
+                Custom
+              </Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
+        ))}
+      </Menu.Dropdown>
+    </Menu>
+  )
 }
 
 const SUBSTRATE_COLOR = "#6e8c9e"
@@ -3114,6 +3245,10 @@ export function ProcessesPage() {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
   const [changeTypeMenuOpenForStepId, setChangeTypeMenuOpenForStepId] =
     useState<string | null>(null)
+  // Step whose material is being chosen in the post-add modal dialog
+  const [materialModalStepId, setMaterialModalStepId] = useState<string | null>(
+    null,
+  )
 
   const selectedStep: ProcessStep | null = useMemo(() => {
     if (!selectedProcess || !selectedStepId) return null
@@ -3124,6 +3259,17 @@ export function ProcessesPage() {
     }
     return null
   }, [selectedProcess, selectedStepId])
+
+  // Live step object backing the post-add "select material" modal dialog
+  const materialModalStep: ProcessStep | null = useMemo(() => {
+    if (!selectedProcess || !materialModalStepId) return null
+    for (const stage of selectedProcess.stages) {
+      for (const alt of stage.alternatives) {
+        if (alt.id === materialModalStepId) return alt
+      }
+    }
+    return null
+  }, [selectedProcess, materialModalStepId])
 
   useEffect(() => {
     if (!selectedProcess || pendingSelectProcessNameId !== selectedProcess.id)
@@ -3580,12 +3726,18 @@ export function ProcessesPage() {
     ],
   )
 
-  const handleAddProcessStep = (category: ProcessStepCategory) => {
+  const handleAddProcessStep = (
+    category: ProcessStepCategory,
+    method?: string,
+  ) => {
     if (!selectedProcess) return
     const nextIndex = selectedProcess.stages.length
-    const step = {
+    const step: ProcessStep = {
       ...newProcessStep(nextIndex, category),
       color: randomStepColor(),
+      ...(method
+        ? { depositionMethod: { value: method, mode: "constant" as const } }
+        : {}),
     }
     const newStage = { index: nextIndex, alternatives: [step] }
     const updated: Process = {
@@ -3598,16 +3750,21 @@ export function ProcessesPage() {
     setActiveEntity({ kind: "process", id: updated.id })
     setSelectedStepId(step.id)
     setPendingFocusStepId(step.id)
+    setMaterialModalStepId(step.id)
   }
 
   const handleAddAlternativeStep = (
     stageIndex: number,
     category: ProcessStepCategory,
+    method?: string,
   ) => {
     if (!selectedProcess) return
-    const step = {
+    const step: ProcessStep = {
       ...newProcessStep(stageIndex, category),
       color: randomStepColor(),
+      ...(method
+        ? { depositionMethod: { value: method, mode: "constant" as const } }
+        : {}),
     }
     const updated: Process = {
       ...selectedProcess,
@@ -3623,6 +3780,7 @@ export function ProcessesPage() {
     selectProcess(updated.id)
     setSelectedStepId(step.id)
     setPendingFocusStepId(step.id)
+    setMaterialModalStepId(step.id)
   }
 
   const handleChangeStepCategory = useCallback(
@@ -4196,18 +4354,15 @@ export function ProcessesPage() {
     )
   }
 
-  const getSubstrateLabel = useCallback(
-    (substrateId: string | undefined) => {
-      if (!substrateId) return null
-      const substrate = materials.find((m) => m.id === substrateId)
-      if (!substrate) return null
-      return {
-        name: substrate.name || "Unnamed substrate",
-        rigidity: substrate.substrateRigidity || "—",
-      }
-    },
-    [materials.find],
-  )
+  const getSubstrateLabel = useCallback((substrateId: string | undefined) => {
+    if (!substrateId) return null
+    const substrate = materials.find((m) => m.id === substrateId)
+    if (!substrate) return null
+    return {
+      name: substrate.name || "Unnamed substrate",
+      rigidity: substrate.substrateRigidity || "—",
+    }
+  }, [])
 
   const getSourceSuggestions = useCallback(
     (
@@ -4261,7 +4416,7 @@ export function ProcessesPage() {
 
       return suggestions
     },
-    [selectedProcess, selectedStep, materials.find, solutions.find],
+    [selectedProcess, selectedStep],
   )
 
   const displayedStages = useMemo(() => {
@@ -4305,7 +4460,7 @@ export function ProcessesPage() {
       }
       return "No material"
     },
-    [selectedProcess, solutions.find, materials.find],
+    [selectedProcess],
   )
 
   const getParameterFlowLines = useCallback(
@@ -4343,7 +4498,7 @@ export function ProcessesPage() {
       return lines
     },
     // biome-ignore lint/correctness/useExhaustiveDependencies: solutions and materials are passed to summariseQuenchingValue
-    [selectedProcess?.solutionRecipes, solutions, materials],
+    [selectedProcess?.solutionRecipes],
   )
 
   const selectedStepParameterSections = useMemo(() => {
@@ -6201,9 +6356,9 @@ export function ProcessesPage() {
                                                           fw={700}
                                                           truncate
                                                         >
-                                                          {step.depositionMethod?.value?.trim() ||
-                                                            step.name ||
-                                                            "Unnamed"}
+                                                          {getStepSourceLabel(
+                                                            step,
+                                                          )}
                                                         </Text>
                                                       )}
                                                     </Group>
@@ -6255,7 +6410,10 @@ export function ProcessesPage() {
 
                                                   <Box>
                                                     {(() => {
-                                                      // Always show compact label; material is set via detail panel
+                                                      // Header shows the material; this sub-line shows the
+                                                      // deposition method (material is edited in the detail panel).
+                                                      // While selected, the header is the editable method input,
+                                                      // so surface the material here instead.
                                                       return (
                                                         <Stack gap={2}>
                                                           <Group
@@ -6271,9 +6429,14 @@ export function ProcessesPage() {
                                                                 flex: 1,
                                                               }}
                                                             >
-                                                              {getStepSourceLabel(
-                                                                step,
-                                                              )}
+                                                              {selectedStepId ===
+                                                              step.id
+                                                                ? getStepSourceLabel(
+                                                                    step,
+                                                                  )
+                                                                : step.depositionMethod?.value?.trim() ||
+                                                                  step.name ||
+                                                                  "Unnamed"}
                                                             </Text>
                                                             {parameterLines[0] !==
                                                               "No parameters set" && (
@@ -6330,35 +6493,17 @@ export function ProcessesPage() {
                                         justifyContent: "flex-start",
                                       }}
                                     >
-                                      <Menu shadow="md" width={240}>
-                                        <Menu.Target>
-                                          <Button
-                                            size="xs"
-                                            variant="subtle"
-                                            leftSection={<IconPlus size={14} />}
-                                          >
-                                            Add Alternative Step
-                                          </Button>
-                                        </Menu.Target>
-                                        <Menu.Dropdown>
-                                          {orderedStepCategories.map(
-                                            (category) => (
-                                              <Menu.Item
-                                                key={`alt-${stage.index}-${category.value}`}
-                                                leftSection={category.icon}
-                                                onClick={() =>
-                                                  handleAddAlternativeStep(
-                                                    stage.index,
-                                                    category.value,
-                                                  )
-                                                }
-                                              >
-                                                {category.label}
-                                              </Menu.Item>
-                                            ),
-                                          )}
-                                        </Menu.Dropdown>
-                                      </Menu>
+                                      <AddStepMenu
+                                        label="Add Alternative Step"
+                                        categories={orderedStepCategories}
+                                        onAdd={(category, method) =>
+                                          handleAddAlternativeStep(
+                                            stage.index,
+                                            category,
+                                            method,
+                                          )
+                                        }
+                                      />
                                     </Box>
                                   </Box>
 
@@ -6430,41 +6575,54 @@ export function ProcessesPage() {
                         >
                           <Group justify="center" gap="sm">
                             {stepsOnboardingState === "empty" ? (
-                              <Button
-                                size="xs"
-                                variant="subtle"
-                                leftSection={<IconPlus size={14} />}
-                                onClick={() =>
-                                  handleAddProcessStep("substrate_preparation")
-                                }
+                              <Menu
+                                shadow="md"
+                                width={220}
+                                position="bottom-start"
                               >
-                                Add Substrate Preparation
-                              </Button>
-                            ) : (
-                              <Menu shadow="md" width={240}>
                                 <Menu.Target>
                                   <Button
                                     size="xs"
                                     variant="subtle"
                                     leftSection={<IconPlus size={14} />}
                                   >
-                                    Add Next Step
+                                    Add Substrate Preparation
                                   </Button>
                                 </Menu.Target>
                                 <Menu.Dropdown>
-                                  {orderedStepCategories.map((category) => (
-                                    <Menu.Item
-                                      key={`next-${category.value}`}
-                                      leftSection={category.icon}
-                                      onClick={() =>
-                                        handleAddProcessStep(category.value)
-                                      }
-                                    >
-                                      {category.label}
-                                    </Menu.Item>
-                                  ))}
+                                  {STEP_METHOD_OPTIONS.substrate_preparation.map(
+                                    (method) => (
+                                      <Menu.Item
+                                        key={`sub-prep-${method}`}
+                                        onClick={() =>
+                                          handleAddProcessStep(
+                                            "substrate_preparation",
+                                            method,
+                                          )
+                                        }
+                                      >
+                                        {method}
+                                      </Menu.Item>
+                                    ),
+                                  )}
+                                  <Menu.Divider />
+                                  <Menu.Item
+                                    onClick={() =>
+                                      handleAddProcessStep(
+                                        "substrate_preparation",
+                                      )
+                                    }
+                                  >
+                                    Custom
+                                  </Menu.Item>
                                 </Menu.Dropdown>
                               </Menu>
+                            ) : (
+                              <AddStepMenu
+                                label="Add Next Step"
+                                categories={orderedStepCategories}
+                                onAdd={handleAddProcessStep}
+                              />
                             )}
                           </Group>
 
@@ -6507,6 +6665,49 @@ export function ProcessesPage() {
           </Box>
         )}
       </Box>
+
+      {/* Post-add material selection dialog (Task 3) */}
+      <Modal
+        opened={materialModalStep !== null}
+        onClose={() => setMaterialModalStepId(null)}
+        title="Select a material for this step"
+        centered
+        size="lg"
+      >
+        {materialModalStep && (
+          <Stack gap="md">
+            <Text size="sm" c="dimmed">
+              Choose the material used in this step. You can change this later
+              from the step details.
+            </Text>
+            <MaterialParamsPanel
+              key={materialModalStep.id}
+              step={materialModalStep}
+              stepColor={materialModalStep.color}
+              recipes={selectedProcess?.solutionRecipes ?? []}
+              onSetRecipe={(id) =>
+                handleSetStepChemRecipe(materialModalStep.id, id)
+              }
+              onSetInlineMaterial={(mat) =>
+                handleSetStepInlineMaterial(materialModalStep.id, mat)
+              }
+            />
+            <Group justify="space-between">
+              <Button
+                variant="subtle"
+                color="gray"
+                onClick={() => {
+                  handleSetStepChemRecipe(materialModalStep.id, null)
+                  setMaterialModalStepId(null)
+                }}
+              >
+                No Material
+              </Button>
+              <Button onClick={() => setMaterialModalStepId(null)}>Done</Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
     </Box>
   )
 }

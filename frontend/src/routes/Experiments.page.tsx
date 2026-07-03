@@ -19,7 +19,6 @@ import {
 } from "@mantine/core"
 import { modals } from "@mantine/modals"
 import {
-  IconAtom,
   IconCheck,
   IconCopy,
   IconDownload,
@@ -2684,18 +2683,7 @@ export default function ExperimentsPage() {
                   />
 
                   {activeExpTab === "chemicals" && (
-                    <Paper withBorder p="md" radius="md">
-                      <Group gap="xs" mb="md">
-                        <IconAtom
-                          size={18}
-                          color="var(--mantine-color-orange-6)"
-                        />
-                        <Text size="sm" fw={700}>
-                          Step 1: Which chemicals did you use in this
-                          experiment? Please assign all Inventory Labels and
-                          Solution Quantities!
-                        </Text>
-                      </Group>
+                    <Box>
                       <ChemicalsTab
                         experiment={selectedExperiment}
                         process={selectedProcess}
@@ -2715,7 +2703,7 @@ export default function ExperimentsPage() {
                           </Button>
                         </Group>
                       )}
-                    </Paper>
+                    </Box>
                   )}
 
                   {activeExpTab === "processing" && (
