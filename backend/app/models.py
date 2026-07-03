@@ -761,6 +761,11 @@ class ProcessGeneratedStackLayerBase(SQLModel):
     perovskite_a: str = Field(default="", max_length=255)
     perovskite_b: str = Field(default="", max_length=255)
     perovskite_x: str = Field(default="", max_length=255)
+    # Source material/solution type (lowercased); drives molecule/polymer-only fields.
+    material_type: str = Field(default="", max_length=100)
+    # HOMO / LUMO energy levels (eV) — optional, only for molecule/polymer layers.
+    homo_ev: str = Field(default="", max_length=50)
+    lumo_ev: str = Field(default="", max_length=50)
 
 
 class ProcessGeneratedStackLayerCreate(ClientIdCreate, ProcessGeneratedStackLayerBase):

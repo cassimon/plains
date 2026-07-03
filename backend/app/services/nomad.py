@@ -457,6 +457,9 @@ def create_nomad_metadata_yaml(
                         "perovskiteA": layer.perovskite_a,
                         "perovskiteB": layer.perovskite_b,
                         "perovskiteX": layer.perovskite_x,
+                        "materialType": layer.material_type,
+                        "homoEv": layer.homo_ev,
+                        "lumoEv": layer.lumo_ev,
                     }
                     for layer in sorted(stack.layers, key=lambda lyr: lyr.layer_index)
                 ]

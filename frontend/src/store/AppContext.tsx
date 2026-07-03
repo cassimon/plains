@@ -238,6 +238,12 @@ export type ProcessGeneratedStackLayer = {
   perovskiteA: string
   perovskiteB: string
   perovskiteX: string
+  /** Source material/solution type (lowercased) — drives molecule/polymer-only fields. */
+  materialType?: string
+  /** HOMO energy level (eV) — optional, only meaningful for molecule/polymer layers. */
+  homoEv?: string
+  /** LUMO energy level (eV) — optional, only meaningful for molecule/polymer layers. */
+  lumoEv?: string
 }
 
 /** Persisted generated stack for a process */

@@ -247,6 +247,9 @@ function stackFromApi(s: ApiObj): ProcessGeneratedStack {
         perovskiteA: l.perovskite_a ?? "",
         perovskiteB: l.perovskite_b ?? "",
         perovskiteX: l.perovskite_x ?? "",
+        materialType: l.material_type ?? "",
+        homoEv: l.homo_ev ?? "",
+        lumoEv: l.lumo_ev ?? "",
       })),
   }
 }
@@ -536,6 +539,9 @@ export function stacksToApi(p: Process): ApiObj[] {
       perovskite_a: l.perovskiteA ?? "",
       perovskite_b: l.perovskiteB ?? "",
       perovskite_x: l.perovskiteX ?? "",
+      material_type: l.materialType ?? "",
+      homo_ev: l.homoEv ?? "",
+      lumo_ev: l.lumoEv ?? "",
     })),
   }))
   for (const comb of p.deletedStackCombinations ?? []) {

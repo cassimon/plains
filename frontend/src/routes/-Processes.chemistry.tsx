@@ -18,7 +18,6 @@ import {
   Tooltip,
 } from "@mantine/core"
 import {
-  IconChevronRight,
   IconExternalLink,
   IconFlask2,
   IconPlus,
@@ -467,6 +466,8 @@ const SOLUTION_TYPE_OPTIONS = [
   "conductor (contact)",
   "encapsulant",
   "semiconductor (i)",
+  "molecule",
+  "polymer",
   "other",
 ] as const
 
@@ -506,42 +507,18 @@ function AddSolutionMenu({
         </Button>
       </Menu.Target>
       <Menu.Dropdown>
-        <Menu
-          trigger="hover"
-          position="right-start"
-          offset={2}
-          shadow="md"
-          width={210}
-          closeOnItemClick={false}
-        >
-          <Menu.Target>
-            <Menu.Item rightSection={<IconChevronRight size={14} />}>
-              Choose type…
-            </Menu.Item>
-          </Menu.Target>
-          <Menu.Dropdown>
-            {SOLUTION_TYPE_OPTIONS.map((t) => (
-              <Menu.Item
-                key={t}
-                onClick={() => {
-                  setOpened(false)
-                  onAdd(t)
-                }}
-              >
-                {t}
-              </Menu.Item>
-            ))}
-          </Menu.Dropdown>
-        </Menu>
-        <Menu.Divider />
-        <Menu.Item
-          onClick={() => {
-            setOpened(false)
-            onAdd()
-          }}
-        >
-          No type / set later
-        </Menu.Item>
+        <Menu.Label>Choose type</Menu.Label>
+        {SOLUTION_TYPE_OPTIONS.map((t) => (
+          <Menu.Item
+            key={t}
+            onClick={() => {
+              setOpened(false)
+              onAdd(t)
+            }}
+          >
+            {t}
+          </Menu.Item>
+        ))}
       </Menu.Dropdown>
     </Menu>
   )
@@ -1998,29 +1975,15 @@ function SolutionCard({
                     value={recipe.type ?? ""}
                     onChange={(e) => update({ type: e.currentTarget.value })}
                     data={[
-                      { label: "—", value: "" },
-                      { label: "n-type (ETL)", value: "n-type (ETL)" },
-                      { label: "p-type (HTL)", value: "p-type (HTL)" },
                       {
-                        label: "perovskite precursor",
-                        value: "perovskite precursor",
+                        label: "Select type…",
+                        value: "",
+                        disabled: true,
                       },
-                      { label: "solvent", value: "solvent" },
-                      { label: "additive", value: "additive" },
-                      {
-                        label: "passivation agent/layer",
-                        value: "passivation agent/layer",
-                      },
-                      {
-                        label: "conductor (contact)",
-                        value: "conductor (contact)",
-                      },
-                      { label: "encapsulant", value: "encapsulant" },
-                      {
-                        label: "semiconductor (i)",
-                        value: "semiconductor (i)",
-                      },
-                      { label: "other", value: "other" },
+                      ...SOLUTION_TYPE_OPTIONS.map((t) => ({
+                        label: t,
+                        value: t,
+                      })),
                     ]}
                     style={{ flex: 1 }}
                     styles={{
