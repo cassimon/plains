@@ -1269,6 +1269,8 @@ export function AppProvider({
           origin: init.origin,
           processId: init.processId ?? null,
           experimentId: init.experimentId ?? null,
+          targetCollectionId: init.targetCollectionId ?? null,
+          targetPlaneId: init.targetPlaneId ?? null,
           pendingFiles: init.pendingFiles,
           createdAt: new Date(now).toISOString(),
           lastActivityAt: now,

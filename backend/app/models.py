@@ -562,6 +562,10 @@ class ProcessSolutionRecipeBase(SQLModel):
 class RecipeSolventBase(SQLModel):
     name: str = Field(max_length=255)
     pubchem_cid: str | None = Field(default=None, max_length=255)
+    # For mixtures (e.g. PEDOT:PSS): PubChem CIDs of the individual components
+    component_cids: list[str] | None = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
+    )
     molar_mass: float | None = None
     density: float | None = None
     volume_ratio: float = 0
@@ -588,6 +592,10 @@ class RecipeSolventPublic(RecipeSolventBase):
 class RecipeSoluteBase(SQLModel):
     name: str = Field(max_length=255)
     pubchem_cid: str | None = Field(default=None, max_length=255)
+    # For mixtures (e.g. PEDOT:PSS): PubChem CIDs of the individual components
+    component_cids: list[str] | None = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
+    )
     molar_mass: float | None = None
     density: float | None = None
     amount: str = Field(default="", max_length=50)

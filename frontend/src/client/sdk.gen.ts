@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AnalysesReadAnalysesData, AnalysesReadAnalysesResponse, AnalysesCreateAnalysisData, AnalysesCreateAnalysisResponse, AnalysesReadAnalysisData, AnalysesReadAnalysisResponse, AnalysesUpdateAnalysisData, AnalysesUpdateAnalysisResponse, AnalysesDeleteAnalysisData, AnalysesDeleteAnalysisResponse, ExperimentsReadExperimentsData, ExperimentsReadExperimentsResponse, ExperimentsCreateItemData, ExperimentsCreateItemResponse, ExperimentsReadExperimentData, ExperimentsReadExperimentResponse, ExperimentsUpdateItemData, ExperimentsUpdateItemResponse, ExperimentsDeleteExperimentData, ExperimentsDeleteExperimentResponse, ExperimentsSetExperimentMaterialsData, ExperimentsSetExperimentMaterialsResponse, ExperimentsSetExperimentSolutionsData, ExperimentsSetExperimentSolutionsResponse, LoginAuthConfigResponse, MaterialsReadMaterialsData, MaterialsReadMaterialsResponse, MaterialsCreateMaterialData, MaterialsCreateMaterialResponse, MaterialsReadMaterialData, MaterialsReadMaterialResponse, MaterialsUpdateMaterialData, MaterialsUpdateMaterialResponse, MaterialsDeleteMaterialData, MaterialsDeleteMaterialResponse, NomadGetNomadConfigResponse, NomadUploadFilesForNomadResponse, NomadAddMetadataToArchiveData, NomadAddMetadataToArchiveResponse, NomadPreviewMetadataFromArchiveData, NomadPreviewMetadataFromArchiveResponse, NomadDiscardUploadedArchiveData, NomadDiscardUploadedArchiveResponse, NomadUploadToNomadEndpointData, NomadUploadToNomadEndpointResponse, NomadCheckUploadStatusData, NomadCheckUploadStatusResponse, NomadTestNomadAuthResponse, PlanesReadPlanesData, PlanesReadPlanesResponse, PlanesCreatePlaneData, PlanesCreatePlaneResponse, PlanesReadPlaneData, PlanesReadPlaneResponse, PlanesUpdatePlaneData, PlanesUpdatePlaneResponse, PlanesDeletePlaneData, PlanesDeletePlaneResponse, PlanesSharePlaneData, PlanesSharePlaneResponse, PlanesUnsharePlaneData, PlanesUnsharePlaneResponse, PlanesSearchUsersData, PlanesSearchUsersResponse, PlanesCreateStickyNoteData, PlanesCreateStickyNoteResponse, PlanesUpdateStickyNoteData, PlanesUpdateStickyNoteResponse, PlanesDeleteStickyNoteData, PlanesDeleteStickyNoteResponse, PlanesCreateTextFieldData, PlanesCreateTextFieldResponse, PlanesUpdateTextFieldData, PlanesUpdateTextFieldResponse, PlanesDeleteTextFieldData, PlanesDeleteTextFieldResponse, PlanesCreateCollectionData, PlanesCreateCollectionResponse, PlanesUpdateCollectionData, PlanesUpdateCollectionResponse, PlanesDeleteCollectionData, PlanesDeleteCollectionResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProcessesReadProcessesData, ProcessesReadProcessesResponse, ProcessesCreateProcessData, ProcessesCreateProcessResponse, ProcessesReadProcessData, ProcessesReadProcessResponse, ProcessesUpdateProcessData, ProcessesUpdateProcessResponse, ProcessesDeleteProcessData, ProcessesDeleteProcessResponse, ProcessesReadProcessRecipesData, ProcessesReadProcessRecipesResponse, ProcessesReadProcessStepsData, ProcessesReadProcessStepsResponse, ProcessesReadProcessStacksData, ProcessesReadProcessStacksResponse, ResultsReadResultsData, ResultsReadResultsResponse, ResultsCreateResultData, ResultsCreateResultResponse, ResultsReadResultData, ResultsReadResultResponse, ResultsUpdateResultData, ResultsUpdateResultResponse, ResultsDeleteResultData, ResultsDeleteResultResponse, SolutionsReadSolutionsData, SolutionsReadSolutionsResponse, SolutionsCreateItemData, SolutionsCreateItemResponse, SolutionsReadSolutionData, SolutionsReadSolutionResponse, SolutionsUpdateItemData, SolutionsUpdateItemResponse, SolutionsDeleteSolutionData, SolutionsDeleteSolutionResponse, StateReadStateResponse, StateUpdateStateData, StateUpdateStateResponse, StateGetBulkStateResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { AnalysesReadAnalysesData, AnalysesReadAnalysesResponse, AnalysesCreateAnalysisData, AnalysesCreateAnalysisResponse, AnalysesReadAnalysisData, AnalysesReadAnalysisResponse, AnalysesUpdateAnalysisData, AnalysesUpdateAnalysisResponse, AnalysesDeleteAnalysisData, AnalysesDeleteAnalysisResponse, ExperimentsReadExperimentsData, ExperimentsReadExperimentsResponse, ExperimentsCreateItemData, ExperimentsCreateItemResponse, ExperimentsReadExperimentData, ExperimentsReadExperimentResponse, ExperimentsUpdateItemData, ExperimentsUpdateItemResponse, ExperimentsDeleteExperimentData, ExperimentsDeleteExperimentResponse, ExperimentsSetExperimentMaterialsData, ExperimentsSetExperimentMaterialsResponse, ExperimentsSetExperimentSolutionsData, ExperimentsSetExperimentSolutionsResponse, ExperimentsReplaceExperimentSubstratesData, ExperimentsReplaceExperimentSubstratesResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginAuthConfigResponse, MaterialsReadMaterialsData, MaterialsReadMaterialsResponse, MaterialsCreateMaterialData, MaterialsCreateMaterialResponse, MaterialsReadMaterialData, MaterialsReadMaterialResponse, MaterialsUpdateMaterialData, MaterialsUpdateMaterialResponse, MaterialsDeleteMaterialData, MaterialsDeleteMaterialResponse, NomadGetNomadConfigResponse, NomadUploadFilesForNomadResponse, NomadAddMetadataToArchiveData, NomadAddMetadataToArchiveResponse, NomadPreviewMetadataFromArchiveData, NomadPreviewMetadataFromArchiveResponse, NomadDiscardUploadedArchiveData, NomadDiscardUploadedArchiveResponse, NomadUploadToNomadEndpointData, NomadUploadToNomadEndpointResponse, NomadCheckUploadStatusData, NomadCheckUploadStatusResponse, NomadTestNomadAuthResponse, PlanesReadPlanesData, PlanesReadPlanesResponse, PlanesCreatePlaneData, PlanesCreatePlaneResponse, PlanesReadPlaneData, PlanesReadPlaneResponse, PlanesUpdatePlaneData, PlanesUpdatePlaneResponse, PlanesDeletePlaneData, PlanesDeletePlaneResponse, PlanesSharePlaneData, PlanesSharePlaneResponse, PlanesUnsharePlaneData, PlanesUnsharePlaneResponse, PlanesSearchUsersData, PlanesSearchUsersResponse, PlanesCreateStickyNoteData, PlanesCreateStickyNoteResponse, PlanesReplaceStickyNotesData, PlanesReplaceStickyNotesResponse, PlanesUpdateStickyNoteData, PlanesUpdateStickyNoteResponse, PlanesDeleteStickyNoteData, PlanesDeleteStickyNoteResponse, PlanesCreateTextFieldData, PlanesCreateTextFieldResponse, PlanesReplaceTextFieldsData, PlanesReplaceTextFieldsResponse, PlanesUpdateTextFieldData, PlanesUpdateTextFieldResponse, PlanesDeleteTextFieldData, PlanesDeleteTextFieldResponse, PlanesCreateCollectionData, PlanesCreateCollectionResponse, PlanesReplaceCollectionsData, PlanesReplaceCollectionsResponse, PlanesUpdateCollectionData, PlanesUpdateCollectionResponse, PlanesDeleteCollectionData, PlanesDeleteCollectionResponse, ProcessesReadProcessesData, ProcessesReadProcessesResponse, ProcessesCreateProcessData, ProcessesCreateProcessResponse, ProcessesReadProcessData, ProcessesReadProcessResponse, ProcessesUpdateProcessData, ProcessesUpdateProcessResponse, ProcessesDeleteProcessData, ProcessesDeleteProcessResponse, ProcessesReadProcessRecipesData, ProcessesReadProcessRecipesResponse, ProcessesCreateProcessRecipeData, ProcessesCreateProcessRecipeResponse, ProcessesReplaceProcessRecipesData, ProcessesReplaceProcessRecipesResponse, ProcessesUpdateProcessRecipeData, ProcessesUpdateProcessRecipeResponse, ProcessesDeleteProcessRecipeData, ProcessesDeleteProcessRecipeResponse, ProcessesReadProcessStepsData, ProcessesReadProcessStepsResponse, ProcessesCreateProcessStepData, ProcessesCreateProcessStepResponse, ProcessesReplaceProcessStepsData, ProcessesReplaceProcessStepsResponse, ProcessesUpdateProcessStepData, ProcessesUpdateProcessStepResponse, ProcessesDeleteProcessStepData, ProcessesDeleteProcessStepResponse, ProcessesReadProcessStacksData, ProcessesReadProcessStacksResponse, ProcessesCreateProcessStackData, ProcessesCreateProcessStackResponse, ProcessesReplaceProcessStacksData, ProcessesReplaceProcessStacksResponse, ProcessesUpdateProcessStackData, ProcessesUpdateProcessStackResponse, ProcessesDeleteProcessStackData, ProcessesDeleteProcessStackResponse, ProcessesReadProcessInlineSubstratesData, ProcessesReadProcessInlineSubstratesResponse, ProcessesReplaceProcessInlineSubstratesData, ProcessesReplaceProcessInlineSubstratesResponse, ProcessesReadProcessSubstrateDimensionsData, ProcessesReadProcessSubstrateDimensionsResponse, ProcessesReplaceProcessSubstrateDimensionsData, ProcessesReplaceProcessSubstrateDimensionsResponse, ResultsReadResultsData, ResultsReadResultsResponse, ResultsCreateResultData, ResultsCreateResultResponse, ResultsReadResultData, ResultsReadResultResponse, ResultsUpdateResultData, ResultsUpdateResultResponse, ResultsDeleteResultData, ResultsDeleteResultResponse, ResultsReplaceMeasurementFilesData, ResultsReplaceMeasurementFilesResponse, ResultsReplaceDeviceGroupsData, ResultsReplaceDeviceGroupsResponse, SolutionsReadSolutionsData, SolutionsReadSolutionsResponse, SolutionsCreateItemData, SolutionsCreateItemResponse, SolutionsReadSolutionData, SolutionsReadSolutionResponse, SolutionsUpdateItemData, SolutionsUpdateItemResponse, SolutionsDeleteSolutionData, SolutionsDeleteSolutionResponse, StateReadStateResponse, StateUpdateStateData, StateUpdateStateResponse, StateGetBulkStateResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class AnalysesService {
     /**
@@ -273,20 +273,56 @@ export class ExperimentsService {
             }
         });
     }
+    
+    /**
+     * Replace Experiment Substrates
+     * Replace all substrates of an experiment (used by the snapshot sync).
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.requestBody
+     * @returns LabSubstratePublic Successful Response
+     * @throws ApiError
+     */
+    public static replaceExperimentSubstrates(data: ExperimentsReplaceExperimentSubstratesData): CancelablePromise<ExperimentsReplaceExperimentSubstratesResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/experiments/{id}/substrates',
+            path: {
+                id: data.id
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
 }
 
 export class LoginService {
     /**
+     * Login Access Token
+     * Local username/password login — only available when NOMAD_OAUTH_ENABLED=false.
+     * @param data The data for the request.
+     * @param data.formData
+     * @returns Token Successful Response
+     * @throws ApiError
+     */
+    public static loginAccessToken(data: LoginLoginAccessTokenData): CancelablePromise<LoginLoginAccessTokenResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/login/access-token',
+            formData: data.formData,
+            mediaType: 'application/x-www-form-urlencoded',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
      * Auth Config
-     * Return Keycloak configuration so the frontend can initialise keycloak-js.
-     *
-     * The response contains:
-     * - ``keycloak_url``: the Keycloak server base URL (before ``/realms/``)
-     * - ``keycloak_realm``: the realm name
-     * - ``keycloak_client_id``: the OAuth2 client id (public PKCE client)
-     *
-     * This endpoint is intentionally unauthenticated so the login page can
-     * fetch it before any token is available.
+     * Return Keycloak configuration for the frontend keycloak-js client.
      * @returns AuthConfig Successful Response
      * @throws ApiError
      */
@@ -796,6 +832,30 @@ export class PlanesService {
     }
     
     /**
+     * Replace Sticky Notes
+     * Replace all sticky notes of a plane.
+     * @param data The data for the request.
+     * @param data.planeId
+     * @param data.requestBody
+     * @returns StickyNotePublic Successful Response
+     * @throws ApiError
+     */
+    public static replaceStickyNotes(data: PlanesReplaceStickyNotesData): CancelablePromise<PlanesReplaceStickyNotesResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/planes/{plane_id}/sticky-notes',
+            path: {
+                plane_id: data.planeId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
      * Update Sticky Note
      * @param data The data for the request.
      * @param data.planeId
@@ -853,6 +913,30 @@ export class PlanesService {
     public static createTextField(data: PlanesCreateTextFieldData): CancelablePromise<PlanesCreateTextFieldResponse> {
         return __request(OpenAPI, {
             method: 'POST',
+            url: '/api/v1/planes/{plane_id}/text-fields',
+            path: {
+                plane_id: data.planeId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Replace Text Fields
+     * Replace all text fields of a plane.
+     * @param data The data for the request.
+     * @param data.planeId
+     * @param data.requestBody
+     * @returns TextFieldPublic Successful Response
+     * @throws ApiError
+     */
+    public static replaceTextFields(data: PlanesReplaceTextFieldsData): CancelablePromise<PlanesReplaceTextFieldsResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
             url: '/api/v1/planes/{plane_id}/text-fields',
             path: {
                 plane_id: data.planeId
@@ -936,6 +1020,30 @@ export class PlanesService {
     }
     
     /**
+     * Replace Collections
+     * Replace all data collections of a plane.
+     * @param data The data for the request.
+     * @param data.planeId
+     * @param data.requestBody
+     * @returns DataCollectionPublic Successful Response
+     * @throws ApiError
+     */
+    public static replaceCollections(data: PlanesReplaceCollectionsData): CancelablePromise<PlanesReplaceCollectionsResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/planes/{plane_id}/collections',
+            path: {
+                plane_id: data.planeId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
      * Update Collection
      * @param data The data for the request.
      * @param data.planeId
@@ -976,28 +1084,6 @@ export class PlanesService {
                 plane_id: data.planeId,
                 collection_id: data.collectionId
             },
-            errors: {
-                422: 'Validation Error'
-            }
-        });
-    }
-}
-
-export class PrivateService {
-    /**
-     * Create User
-     * Create a new user.
-     * @param data The data for the request.
-     * @param data.requestBody
-     * @returns UserPublic Successful Response
-     * @throws ApiError
-     */
-    public static createUser(data: PrivateCreateUserData): CancelablePromise<PrivateCreateUserResponse> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/v1/private/users/',
-            body: data.requestBody,
-            mediaType: 'application/json',
             errors: {
                 422: 'Validation Error'
             }
@@ -1137,6 +1223,103 @@ export class ProcessesService {
     }
     
     /**
+     * Create Process Recipe
+     * Add a solution recipe to a process.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.requestBody
+     * @returns ProcessSolutionRecipePublic Successful Response
+     * @throws ApiError
+     */
+    public static createProcessRecipe(data: ProcessesCreateProcessRecipeData): CancelablePromise<ProcessesCreateProcessRecipeResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/processes/{id}/recipes/',
+            path: {
+                id: data.id
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Replace Process Recipes
+     * Replace all solution recipes of a process.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.requestBody
+     * @returns ProcessSolutionRecipePublic Successful Response
+     * @throws ApiError
+     */
+    public static replaceProcessRecipes(data: ProcessesReplaceProcessRecipesData): CancelablePromise<ProcessesReplaceProcessRecipesResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/processes/{id}/recipes/',
+            path: {
+                id: data.id
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Update Process Recipe
+     * Replace a solution recipe (and its sub-items).
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.rid
+     * @param data.requestBody
+     * @returns ProcessSolutionRecipePublic Successful Response
+     * @throws ApiError
+     */
+    public static updateProcessRecipe(data: ProcessesUpdateProcessRecipeData): CancelablePromise<ProcessesUpdateProcessRecipeResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/processes/{id}/recipes/{rid}',
+            path: {
+                id: data.id,
+                rid: data.rid
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Delete Process Recipe
+     * Delete a solution recipe.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.rid
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static deleteProcessRecipe(data: ProcessesDeleteProcessRecipeData): CancelablePromise<ProcessesDeleteProcessRecipeResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/processes/{id}/recipes/{rid}',
+            path: {
+                id: data.id,
+                rid: data.rid
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
      * Read Process Steps
      * List deposition steps for a process.
      * @param data The data for the request.
@@ -1150,6 +1333,103 @@ export class ProcessesService {
             url: '/api/v1/processes/{id}/steps/',
             path: {
                 id: data.id
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Create Process Step
+     * Add a deposition step to a process.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.requestBody
+     * @returns ProcessStepPublic Successful Response
+     * @throws ApiError
+     */
+    public static createProcessStep(data: ProcessesCreateProcessStepData): CancelablePromise<ProcessesCreateProcessStepResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/processes/{id}/steps/',
+            path: {
+                id: data.id
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Replace Process Steps
+     * Replace all deposition steps of a process.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.requestBody
+     * @returns ProcessStepPublic Successful Response
+     * @throws ApiError
+     */
+    public static replaceProcessSteps(data: ProcessesReplaceProcessStepsData): CancelablePromise<ProcessesReplaceProcessStepsResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/processes/{id}/steps/',
+            path: {
+                id: data.id
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Update Process Step
+     * Update a deposition step.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.sid
+     * @param data.requestBody
+     * @returns ProcessStepPublic Successful Response
+     * @throws ApiError
+     */
+    public static updateProcessStep(data: ProcessesUpdateProcessStepData): CancelablePromise<ProcessesUpdateProcessStepResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/processes/{id}/steps/{sid}',
+            path: {
+                id: data.id,
+                sid: data.sid
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Delete Process Step
+     * Delete a deposition step.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.sid
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static deleteProcessStep(data: ProcessesDeleteProcessStepData): CancelablePromise<ProcessesDeleteProcessStepResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/processes/{id}/steps/{sid}',
+            path: {
+                id: data.id,
+                sid: data.sid
             },
             errors: {
                 422: 'Validation Error'
@@ -1172,6 +1452,193 @@ export class ProcessesService {
             path: {
                 id: data.id
             },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Create Process Stack
+     * Add a generated device stack to a process.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.requestBody
+     * @returns ProcessGeneratedStackPublic Successful Response
+     * @throws ApiError
+     */
+    public static createProcessStack(data: ProcessesCreateProcessStackData): CancelablePromise<ProcessesCreateProcessStackResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/processes/{id}/stacks/',
+            path: {
+                id: data.id
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Replace Process Stacks
+     * Replace all generated device stacks (and their layers) of a process.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.requestBody
+     * @returns ProcessGeneratedStackPublic Successful Response
+     * @throws ApiError
+     */
+    public static replaceProcessStacks(data: ProcessesReplaceProcessStacksData): CancelablePromise<ProcessesReplaceProcessStacksResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/processes/{id}/stacks/',
+            path: {
+                id: data.id
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Update Process Stack
+     * Replace a generated stack (and its layers).
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.stackId
+     * @param data.requestBody
+     * @returns ProcessGeneratedStackPublic Successful Response
+     * @throws ApiError
+     */
+    public static updateProcessStack(data: ProcessesUpdateProcessStackData): CancelablePromise<ProcessesUpdateProcessStackResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/processes/{id}/stacks/{stack_id}',
+            path: {
+                id: data.id,
+                stack_id: data.stackId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Delete Process Stack
+     * Delete a generated stack.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.stackId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static deleteProcessStack(data: ProcessesDeleteProcessStackData): CancelablePromise<ProcessesDeleteProcessStackResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/processes/{id}/stacks/{stack_id}',
+            path: {
+                id: data.id,
+                stack_id: data.stackId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Read Process Inline Substrates
+     * List inline substrates defined directly on a process.
+     * @param data The data for the request.
+     * @param data.id
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static readProcessInlineSubstrates(data: ProcessesReadProcessInlineSubstratesData): CancelablePromise<ProcessesReadProcessInlineSubstratesResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/processes/{id}/inline-substrates/',
+            path: {
+                id: data.id
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Replace Process Inline Substrates
+     * Replace all inline substrates of a process.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.requestBody
+     * @returns ProcessInlineSubstratePublic Successful Response
+     * @throws ApiError
+     */
+    public static replaceProcessInlineSubstrates(data: ProcessesReplaceProcessInlineSubstratesData): CancelablePromise<ProcessesReplaceProcessInlineSubstratesResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/processes/{id}/inline-substrates/',
+            path: {
+                id: data.id
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Read Process Substrate Dimensions
+     * List substrate dimension overrides for a process.
+     * @param data The data for the request.
+     * @param data.id
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static readProcessSubstrateDimensions(data: ProcessesReadProcessSubstrateDimensionsData): CancelablePromise<ProcessesReadProcessSubstrateDimensionsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/processes/{id}/substrate-dimensions/',
+            path: {
+                id: data.id
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Replace Process Substrate Dimensions
+     * Replace all substrate dimension overrides of a process.
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.requestBody
+     * @returns ProcessSubstrateDimensionPublic Successful Response
+     * @throws ApiError
+     */
+    public static replaceProcessSubstrateDimensions(data: ProcessesReplaceProcessSubstrateDimensionsData): CancelablePromise<ProcessesReplaceProcessSubstrateDimensionsResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/processes/{id}/substrate-dimensions/',
+            path: {
+                id: data.id
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: 'Validation Error'
             }
@@ -1287,6 +1754,54 @@ export class ResultsService {
             path: {
                 id: data.id
             },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Replace Measurement Files
+     * Replace all measurement files of a result (used by the snapshot sync).
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.requestBody
+     * @returns MeasurementFilePublic Successful Response
+     * @throws ApiError
+     */
+    public static replaceMeasurementFiles(data: ResultsReplaceMeasurementFilesData): CancelablePromise<ResultsReplaceMeasurementFilesResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/results/{id}/measurement-files',
+            path: {
+                id: data.id
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Replace Device Groups
+     * Replace all device groups of a result (used by the snapshot sync).
+     * @param data The data for the request.
+     * @param data.id
+     * @param data.requestBody
+     * @returns DeviceGroupPublic Successful Response
+     * @throws ApiError
+     */
+    public static replaceDeviceGroups(data: ResultsReplaceDeviceGroupsData): CancelablePromise<ResultsReplaceDeviceGroupsResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/results/{id}/device-groups',
+            path: {
+                id: data.id
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: 'Validation Error'
             }

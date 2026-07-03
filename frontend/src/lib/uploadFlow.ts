@@ -43,6 +43,14 @@ export type UploadFlow = {
   origin: UploadFlowOrigin
   processId: string | null
   experimentId: string | null
+  /**
+   * When the flow was started by dropping files onto a specific collection,
+   * this identifies it so the Organization canvas can render the "incomplete
+   * upload" marker on that collection until the flow finishes. Null when files
+   * were dropped on empty canvas.
+   */
+  targetCollectionId?: string | null
+  targetPlaneId?: string | null
   /** Files dropped in Organization, staged until an experiment is chosen. */
   pendingFiles?: StagedFile[]
   createdAt: string

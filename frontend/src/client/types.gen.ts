@@ -12,6 +12,7 @@ export type AnalysisCreate = {
     plane_id?: (string | null);
     collection_id?: (string | null);
     primary_result_id?: (string | null);
+    id?: string;
     refs?: Array<AnalysisRefCreate>;
 };
 
@@ -31,6 +32,7 @@ export type AnalysisPublic = {
 export type AnalysisRefCreate = {
     kind: string;
     entity_id: string;
+    id?: string;
 };
 
 export type AnalysisRefPublic = {
@@ -52,6 +54,15 @@ export type AuthConfig = {
     keycloak_url: string;
     keycloak_realm: string;
     keycloak_client_id: string;
+};
+
+export type Body_login_login_access_token = {
+    grant_type?: (string | null);
+    username: string;
+    password: string;
+    scope?: string;
+    client_id?: (string | null);
+    client_secret?: (string | null);
 };
 
 export type Body_nomad_add_metadata_to_archive = {
@@ -92,6 +103,7 @@ export type DataCollectionCreate = {
     j?: number;
     name: string;
     color?: (string | null);
+    id?: string;
 };
 
 export type DataCollectionPublic = {
@@ -116,6 +128,7 @@ export type DeviceGroupCreate = {
     assigned_substrate_id?: (string | null);
     suggested_substrate_id?: (string | null);
     match_score?: (number | null);
+    id?: string;
 };
 
 export type DeviceGroupPublic = {
@@ -145,6 +158,7 @@ export type ExperimentCreate = {
     num_substrates?: (number | null);
     devices_per_substrate?: (number | null);
     device_area?: (number | null);
+    device_type?: (string | null);
     device_layout_image?: (string | null);
     date?: (string | null);
     end_date?: (string | null);
@@ -156,6 +170,7 @@ export type ExperimentCreate = {
     processing_times?: ({
     [key: string]: unknown;
 } | null);
+    id?: string;
     substrates?: Array<LabSubstrateCreate>;
 };
 
@@ -179,6 +194,7 @@ export type ExperimentPublic = {
     num_substrates?: (number | null);
     devices_per_substrate?: (number | null);
     device_area?: (number | null);
+    device_type?: (string | null);
     device_layout_image?: (string | null);
     date?: (string | null);
     end_date?: (string | null);
@@ -208,6 +224,7 @@ export type ExperimentResultsCreate = {
     nomad_upload_time?: (string | null);
     nomad_upload_status?: (string | null);
     nomad_entries?: (number | null);
+    id?: string;
     measurement_files?: Array<MeasurementFileCreate>;
     device_groups?: Array<DeviceGroupCreate>;
 };
@@ -272,6 +289,7 @@ export type ExperimentUpdate = {
     num_substrates?: (number | null);
     devices_per_substrate?: (number | null);
     device_area?: (number | null);
+    device_type?: (string | null);
     device_layout_image?: (string | null);
     date?: (string | null);
     end_date?: (string | null);
@@ -307,6 +325,7 @@ export type LabMaterialCreate = {
     height_mm?: (string | null);
     notes?: (string | null);
     plane_id?: (string | null);
+    id?: string;
 };
 
 export type LabMaterialPublic = {
@@ -365,6 +384,7 @@ export type LabSolutionCreate = {
     creation_time?: (string | null);
     notes?: (string | null);
     plane_id?: (string | null);
+    id?: string;
     components?: Array<SolutionComponentCreate>;
 };
 
@@ -407,6 +427,7 @@ export type LabSubstrateCreate = {
     parameter_values?: ({
     [key: string]: unknown;
 } | null);
+    id?: string;
 };
 
 export type LabSubstratePublic = {
@@ -436,6 +457,7 @@ export type MeasurementFileCreate = {
     ff?: (number | null);
     measurement_date?: (string | null);
     measurement_user?: (string | null);
+    id?: string;
 };
 
 export type MeasurementFilePublic = {
@@ -496,6 +518,7 @@ export type NomadUploadStatus = {
 
 export type PlaneCreate = {
     name: string;
+    id?: string;
 };
 
 export type PlanePublic = {
@@ -523,24 +546,43 @@ export type PlaneUpdate = {
     name?: (string | null);
 };
 
-export type PrivateUserCreate = {
-    email: string;
-    password: string;
-    full_name: string;
-    is_verified?: boolean;
-};
-
 export type ProcessCreate = {
     name: string;
     description?: (string | null);
     skip_chemistry?: boolean;
     plane_id?: (string | null);
     collection_id?: (string | null);
+    id?: string;
 };
 
 export type ProcessesPublic = {
     data: Array<ProcessPublic>;
     count: number;
+};
+
+export type ProcessGeneratedStackCreate = {
+    combination?: number;
+    architecture?: (string | null);
+    build_device?: (string | null);
+    pixel_area_cm2?: (string | null);
+    number_of_pixels?: (string | null);
+    is_deleted?: boolean;
+    id?: string;
+    layers?: Array<ProcessGeneratedStackLayerCreate>;
+};
+
+export type ProcessGeneratedStackLayerCreate = {
+    layer_index?: number;
+    name?: string;
+    color?: string;
+    is_substrate?: boolean;
+    layer_type?: string;
+    thickness_nm?: string;
+    bandgap_ev?: string;
+    perovskite_a?: string;
+    perovskite_b?: string;
+    perovskite_x?: string;
+    id?: string;
 };
 
 export type ProcessGeneratedStackLayerPublic = {
@@ -566,6 +608,16 @@ export type ProcessGeneratedStackPublic = {
     is_deleted?: boolean;
     id: string;
     layers?: Array<ProcessGeneratedStackLayerPublic>;
+};
+
+export type ProcessInlineSubstrateCreate = {
+    name: string;
+    rigidity?: (string | null);
+    length_cm?: (string | null);
+    width_cm?: (string | null);
+    height_mm?: (string | null);
+    surface_roughness_rms_nm?: (string | null);
+    id?: string;
 };
 
 export type ProcessInlineSubstratePublic = {
@@ -594,6 +646,21 @@ export type ProcessPublic = {
     stacks?: Array<ProcessGeneratedStackPublic>;
 };
 
+export type ProcessSolutionRecipeCreate = {
+    name: string;
+    type?: (string | null);
+    is_commercial?: boolean;
+    commercial_name?: (string | null);
+    supplier_number?: (string | null);
+    handling_preparation?: (string | null);
+    handling_before_use?: (string | null);
+    total_solvent_volume_ml?: string;
+    id?: string;
+    solvents?: Array<RecipeSolventCreate>;
+    solutes?: Array<RecipeSoluteCreate>;
+    added_solutions?: Array<RecipeAddedSolutionCreate>;
+};
+
 export type ProcessSolutionRecipePublic = {
     name: string;
     type?: (string | null);
@@ -607,6 +674,44 @@ export type ProcessSolutionRecipePublic = {
     solvents?: Array<RecipeSolventPublic>;
     solutes?: Array<RecipeSolutePublic>;
     added_solutions?: Array<RecipeAddedSolutionPublic>;
+};
+
+export type ProcessStepCreate = {
+    stage_index?: number;
+    step_index?: number;
+    name: string;
+    step_category: string;
+    color?: string;
+    material_id?: (string | null);
+    solution_id?: (string | null);
+    chem_recipe_id?: (string | null);
+    inline_material?: ({
+    [key: string]: unknown;
+} | null);
+    deposition_method_value?: (string | null);
+    deposition_method_mode?: (string | null);
+    deposition_start_time_value?: (string | null);
+    deposition_start_time_mode?: (string | null);
+    substrate_temp_value?: (string | null);
+    substrate_temp_mode?: (string | null);
+    deposition_atmosphere_value?: (string | null);
+    deposition_atmosphere_mode?: (string | null);
+    deposition_parameters_value?: (string | null);
+    deposition_parameters_mode?: (string | null);
+    solution_volume_value?: (string | null);
+    solution_volume_mode?: (string | null);
+    drying_method_value?: (string | null);
+    drying_method_mode?: (string | null);
+    annealing_start_time_value?: (string | null);
+    annealing_start_time_mode?: (string | null);
+    annealing_time_value?: (string | null);
+    annealing_time_mode?: (string | null);
+    annealing_temp_value?: (string | null);
+    annealing_temp_mode?: (string | null);
+    annealing_atmosphere_value?: (string | null);
+    annealing_atmosphere_mode?: (string | null);
+    notes?: (string | null);
+    id?: string;
 };
 
 export type ProcessStepPublic = {
@@ -647,6 +752,15 @@ export type ProcessStepPublic = {
     id: string;
 };
 
+export type ProcessSubstrateDimensionCreate = {
+    material_id: string;
+    length_cm?: (string | null);
+    width_cm?: (string | null);
+    height_mm?: (string | null);
+    surface_roughness_rms_nm?: (string | null);
+    id?: string;
+};
+
 export type ProcessSubstrateDimensionPublic = {
     material_id: string;
     length_cm?: (string | null);
@@ -664,15 +778,34 @@ export type ProcessUpdate = {
     collection_id?: (string | null);
 };
 
+export type RecipeAddedSolutionCreate = {
+    referenced_recipe_id?: (string | null);
+    volume_ml?: string;
+    id?: string;
+};
+
 export type RecipeAddedSolutionPublic = {
     referenced_recipe_id?: (string | null);
     volume_ml?: string;
     id: string;
 };
 
+export type RecipeSoluteCreate = {
+    name: string;
+    pubchem_cid?: (string | null);
+    component_cids?: (Array<(string)> | null);
+    molar_mass?: (number | null);
+    density?: (number | null);
+    amount?: string;
+    unit?: string;
+    color?: string;
+    id?: string;
+};
+
 export type RecipeSolutePublic = {
     name: string;
     pubchem_cid?: (string | null);
+    component_cids?: (Array<(string)> | null);
     molar_mass?: (number | null);
     density?: (number | null);
     amount?: string;
@@ -681,9 +814,21 @@ export type RecipeSolutePublic = {
     id: string;
 };
 
+export type RecipeSolventCreate = {
+    name: string;
+    pubchem_cid?: (string | null);
+    component_cids?: (Array<(string)> | null);
+    molar_mass?: (number | null);
+    density?: (number | null);
+    volume_ratio?: number;
+    color?: string;
+    id?: string;
+};
+
 export type RecipeSolventPublic = {
     name: string;
     pubchem_cid?: (string | null);
+    component_cids?: (Array<(string)> | null);
     molar_mass?: (number | null);
     density?: (number | null);
     volume_ratio?: number;
@@ -696,6 +841,7 @@ export type SolutionComponentCreate = {
     unit: string;
     material_id?: (string | null);
     solution_ref_id?: (string | null);
+    id?: string;
 };
 
 export type SolutionComponentPublic = {
@@ -718,6 +864,7 @@ export type StickyNoteCreate = {
     fmt_underline?: (boolean | null);
     fmt_font_size?: (number | null);
     hyperlink?: (string | null);
+    id?: string;
 };
 
 export type StickyNotePublic = {
@@ -762,6 +909,7 @@ export type TextFieldCreate = {
     fmt_underline?: (boolean | null);
     fmt_font_size?: (number | null);
     hyperlink?: (string | null);
+    id?: string;
 };
 
 export type TextFieldPublic = {
@@ -792,6 +940,11 @@ export type TextFieldUpdate = {
     fmt_underline?: (boolean | null);
     fmt_font_size?: (number | null);
     hyperlink?: (string | null);
+};
+
+export type Token = {
+    access_token: string;
+    token_type: string;
 };
 
 export type UiPrefsUpdate = {
@@ -941,6 +1094,19 @@ export type ExperimentsSetExperimentSolutionsData = {
 
 export type ExperimentsSetExperimentSolutionsResponse = (ExperimentPublic);
 
+export type ExperimentsReplaceExperimentSubstratesData = {
+    id: string;
+    requestBody: Array<LabSubstrateCreate>;
+};
+
+export type ExperimentsReplaceExperimentSubstratesResponse = (Array<LabSubstratePublic>);
+
+export type LoginLoginAccessTokenData = {
+    formData: Body_login_login_access_token;
+};
+
+export type LoginLoginAccessTokenResponse = (Token);
+
 export type LoginAuthConfigResponse = (AuthConfig);
 
 export type MaterialsReadMaterialsData = {
@@ -1081,6 +1247,13 @@ export type PlanesCreateStickyNoteData = {
 
 export type PlanesCreateStickyNoteResponse = (StickyNotePublic);
 
+export type PlanesReplaceStickyNotesData = {
+    planeId: string;
+    requestBody: Array<StickyNoteCreate>;
+};
+
+export type PlanesReplaceStickyNotesResponse = (Array<StickyNotePublic>);
+
 export type PlanesUpdateStickyNoteData = {
     noteId: string;
     planeId: string;
@@ -1102,6 +1275,13 @@ export type PlanesCreateTextFieldData = {
 };
 
 export type PlanesCreateTextFieldResponse = (TextFieldPublic);
+
+export type PlanesReplaceTextFieldsData = {
+    planeId: string;
+    requestBody: Array<TextFieldCreate>;
+};
+
+export type PlanesReplaceTextFieldsResponse = (Array<TextFieldPublic>);
 
 export type PlanesUpdateTextFieldData = {
     fieldId: string;
@@ -1125,6 +1305,13 @@ export type PlanesCreateCollectionData = {
 
 export type PlanesCreateCollectionResponse = (DataCollectionPublic);
 
+export type PlanesReplaceCollectionsData = {
+    planeId: string;
+    requestBody: Array<DataCollectionCreate>;
+};
+
+export type PlanesReplaceCollectionsResponse = (Array<DataCollectionPublic>);
+
 export type PlanesUpdateCollectionData = {
     collectionId: string;
     planeId: string;
@@ -1139,12 +1326,6 @@ export type PlanesDeleteCollectionData = {
 };
 
 export type PlanesDeleteCollectionResponse = (unknown);
-
-export type PrivateCreateUserData = {
-    requestBody: PrivateUserCreate;
-};
-
-export type PrivateCreateUserResponse = (UserPublic);
 
 export type ProcessesReadProcessesData = {
     limit?: number;
@@ -1184,17 +1365,130 @@ export type ProcessesReadProcessRecipesData = {
 
 export type ProcessesReadProcessRecipesResponse = (unknown);
 
+export type ProcessesCreateProcessRecipeData = {
+    id: string;
+    requestBody: ProcessSolutionRecipeCreate;
+};
+
+export type ProcessesCreateProcessRecipeResponse = (ProcessSolutionRecipePublic);
+
+export type ProcessesReplaceProcessRecipesData = {
+    id: string;
+    requestBody: Array<ProcessSolutionRecipeCreate>;
+};
+
+export type ProcessesReplaceProcessRecipesResponse = (Array<ProcessSolutionRecipePublic>);
+
+export type ProcessesUpdateProcessRecipeData = {
+    id: string;
+    requestBody: ProcessSolutionRecipeCreate;
+    rid: string;
+};
+
+export type ProcessesUpdateProcessRecipeResponse = (ProcessSolutionRecipePublic);
+
+export type ProcessesDeleteProcessRecipeData = {
+    id: string;
+    rid: string;
+};
+
+export type ProcessesDeleteProcessRecipeResponse = (unknown);
+
 export type ProcessesReadProcessStepsData = {
     id: string;
 };
 
 export type ProcessesReadProcessStepsResponse = (unknown);
 
+export type ProcessesCreateProcessStepData = {
+    id: string;
+    requestBody: ProcessStepCreate;
+};
+
+export type ProcessesCreateProcessStepResponse = (ProcessStepPublic);
+
+export type ProcessesReplaceProcessStepsData = {
+    id: string;
+    requestBody: Array<ProcessStepCreate>;
+};
+
+export type ProcessesReplaceProcessStepsResponse = (Array<ProcessStepPublic>);
+
+export type ProcessesUpdateProcessStepData = {
+    id: string;
+    requestBody: ProcessStepCreate;
+    sid: string;
+};
+
+export type ProcessesUpdateProcessStepResponse = (ProcessStepPublic);
+
+export type ProcessesDeleteProcessStepData = {
+    id: string;
+    sid: string;
+};
+
+export type ProcessesDeleteProcessStepResponse = (unknown);
+
 export type ProcessesReadProcessStacksData = {
     id: string;
 };
 
 export type ProcessesReadProcessStacksResponse = (unknown);
+
+export type ProcessesCreateProcessStackData = {
+    id: string;
+    requestBody: ProcessGeneratedStackCreate;
+};
+
+export type ProcessesCreateProcessStackResponse = (ProcessGeneratedStackPublic);
+
+export type ProcessesReplaceProcessStacksData = {
+    id: string;
+    requestBody: Array<ProcessGeneratedStackCreate>;
+};
+
+export type ProcessesReplaceProcessStacksResponse = (Array<ProcessGeneratedStackPublic>);
+
+export type ProcessesUpdateProcessStackData = {
+    id: string;
+    requestBody: ProcessGeneratedStackCreate;
+    stackId: string;
+};
+
+export type ProcessesUpdateProcessStackResponse = (ProcessGeneratedStackPublic);
+
+export type ProcessesDeleteProcessStackData = {
+    id: string;
+    stackId: string;
+};
+
+export type ProcessesDeleteProcessStackResponse = (unknown);
+
+export type ProcessesReadProcessInlineSubstratesData = {
+    id: string;
+};
+
+export type ProcessesReadProcessInlineSubstratesResponse = (unknown);
+
+export type ProcessesReplaceProcessInlineSubstratesData = {
+    id: string;
+    requestBody: Array<ProcessInlineSubstrateCreate>;
+};
+
+export type ProcessesReplaceProcessInlineSubstratesResponse = (Array<ProcessInlineSubstratePublic>);
+
+export type ProcessesReadProcessSubstrateDimensionsData = {
+    id: string;
+};
+
+export type ProcessesReadProcessSubstrateDimensionsResponse = (unknown);
+
+export type ProcessesReplaceProcessSubstrateDimensionsData = {
+    id: string;
+    requestBody: Array<ProcessSubstrateDimensionCreate>;
+};
+
+export type ProcessesReplaceProcessSubstrateDimensionsResponse = (Array<ProcessSubstrateDimensionPublic>);
 
 export type ResultsReadResultsData = {
     limit?: number;
@@ -1228,6 +1522,20 @@ export type ResultsDeleteResultData = {
 };
 
 export type ResultsDeleteResultResponse = (unknown);
+
+export type ResultsReplaceMeasurementFilesData = {
+    id: string;
+    requestBody: Array<MeasurementFileCreate>;
+};
+
+export type ResultsReplaceMeasurementFilesResponse = (Array<MeasurementFilePublic>);
+
+export type ResultsReplaceDeviceGroupsData = {
+    id: string;
+    requestBody: Array<DeviceGroupCreate>;
+};
+
+export type ResultsReplaceDeviceGroupsResponse = (Array<DeviceGroupPublic>);
 
 export type SolutionsReadSolutionsData = {
     limit?: number;

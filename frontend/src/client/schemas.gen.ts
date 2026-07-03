@@ -79,6 +79,11 @@ export const AnalysisCreateSchema = {
             ],
             title: 'Primary Result Id'
         },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
         refs: {
             items: {
                 '$ref': '#/components/schemas/AnalysisRefCreate'
@@ -200,6 +205,11 @@ export const AnalysisRefCreateSchema = {
             type: 'string',
             format: 'uuid',
             title: 'Entity Id'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         }
     },
     type: 'object',
@@ -320,6 +330,63 @@ export const AuthConfigSchema = {
     type: 'object',
     required: ['keycloak_url', 'keycloak_realm', 'keycloak_client_id'],
     title: 'AuthConfig'
+} as const;
+
+export const Body_login_login_access_tokenSchema = {
+    properties: {
+        grant_type: {
+            anyOf: [
+                {
+                    type: 'string',
+                    pattern: '^password$'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Grant Type'
+        },
+        username: {
+            type: 'string',
+            title: 'Username'
+        },
+        password: {
+            type: 'string',
+            format: 'password',
+            title: 'Password'
+        },
+        scope: {
+            type: 'string',
+            title: 'Scope',
+            default: ''
+        },
+        client_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Client Id'
+        },
+        client_secret: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            format: 'password',
+            title: 'Client Secret'
+        }
+    },
+    type: 'object',
+    required: ['username', 'password'],
+    title: 'Body_login-login_access_token'
 } as const;
 
 export const Body_nomad_add_metadata_to_archiveSchema = {
@@ -498,6 +565,11 @@ export const DataCollectionCreateSchema = {
                 }
             ],
             title: 'Color'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         }
     },
     type: 'object',
@@ -647,6 +719,11 @@ export const DeviceGroupCreateSchema = {
                 }
             ],
             title: 'Match Score'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         }
     },
     type: 'object',
@@ -881,6 +958,18 @@ export const ExperimentCreateSchema = {
             ],
             title: 'Device Area'
         },
+        device_type: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Device Type'
+        },
         device_layout_image: {
             anyOf: [
                 {
@@ -949,6 +1038,11 @@ export const ExperimentCreateSchema = {
                 }
             ],
             title: 'Processing Times'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         },
         substrates: {
             items: {
@@ -1138,6 +1232,18 @@ export const ExperimentPublicSchema = {
                 }
             ],
             title: 'Device Area'
+        },
+        device_type: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Device Type'
         },
         device_layout_image: {
             anyOf: [
@@ -1367,6 +1473,11 @@ export const ExperimentResultsCreateSchema = {
                 }
             ],
             title: 'Nomad Entries'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         },
         measurement_files: {
             items: {
@@ -1860,6 +1971,18 @@ export const ExperimentUpdateSchema = {
             ],
             title: 'Device Area'
         },
+        device_type: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Device Type'
+        },
         device_layout_image: {
             anyOf: [
                 {
@@ -2157,6 +2280,11 @@ export const LabMaterialCreateSchema = {
                 }
             ],
             title: 'Plane Id'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         }
     },
     type: 'object',
@@ -2684,6 +2812,11 @@ export const LabSolutionCreateSchema = {
             ],
             title: 'Plane Id'
         },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
         components: {
             items: {
                 '$ref': '#/components/schemas/SolutionComponentCreate'
@@ -3000,6 +3133,11 @@ export const LabSubstrateCreateSchema = {
                 }
             ],
             title: 'Parameter Values'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         }
     },
     type: 'object',
@@ -3234,6 +3372,11 @@ export const MeasurementFileCreateSchema = {
                 }
             ],
             title: 'Measurement User'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         }
     },
     type: 'object',
@@ -3564,6 +3707,11 @@ export const PlaneCreateSchema = {
             maxLength: 255,
             minLength: 1,
             title: 'Name'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         }
     },
     type: 'object',
@@ -3694,31 +3842,6 @@ export const PlanesPublicSchema = {
     title: 'PlanesPublic'
 } as const;
 
-export const PrivateUserCreateSchema = {
-    properties: {
-        email: {
-            type: 'string',
-            title: 'Email'
-        },
-        password: {
-            type: 'string',
-            title: 'Password'
-        },
-        full_name: {
-            type: 'string',
-            title: 'Full Name'
-        },
-        is_verified: {
-            type: 'boolean',
-            title: 'Is Verified',
-            default: false
-        }
-    },
-    type: 'object',
-    required: ['email', 'password', 'full_name'],
-    title: 'PrivateUserCreate'
-} as const;
-
 export const ProcessCreateSchema = {
     properties: {
         name: {
@@ -3766,11 +3889,164 @@ export const ProcessCreateSchema = {
                 }
             ],
             title: 'Collection Id'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         }
     },
     type: 'object',
     required: ['name'],
     title: 'ProcessCreate'
+} as const;
+
+export const ProcessGeneratedStackCreateSchema = {
+    properties: {
+        combination: {
+            type: 'integer',
+            title: 'Combination',
+            default: 0
+        },
+        architecture: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 255
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Architecture'
+        },
+        build_device: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 10
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Build Device'
+        },
+        pixel_area_cm2: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Pixel Area Cm2'
+        },
+        number_of_pixels: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Number Of Pixels'
+        },
+        is_deleted: {
+            type: 'boolean',
+            title: 'Is Deleted',
+            default: false
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        layers: {
+            items: {
+                '$ref': '#/components/schemas/ProcessGeneratedStackLayerCreate'
+            },
+            type: 'array',
+            title: 'Layers',
+            default: []
+        }
+    },
+    type: 'object',
+    title: 'ProcessGeneratedStackCreate'
+} as const;
+
+export const ProcessGeneratedStackLayerCreateSchema = {
+    properties: {
+        layer_index: {
+            type: 'integer',
+            title: 'Layer Index',
+            default: 0
+        },
+        name: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Name',
+            default: ''
+        },
+        color: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Color',
+            default: ''
+        },
+        is_substrate: {
+            type: 'boolean',
+            title: 'Is Substrate',
+            default: false
+        },
+        layer_type: {
+            type: 'string',
+            maxLength: 100,
+            title: 'Layer Type',
+            default: ''
+        },
+        thickness_nm: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Thickness Nm',
+            default: ''
+        },
+        bandgap_ev: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Bandgap Ev',
+            default: ''
+        },
+        perovskite_a: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Perovskite A',
+            default: ''
+        },
+        perovskite_b: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Perovskite B',
+            default: ''
+        },
+        perovskite_x: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Perovskite X',
+            default: ''
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        }
+    },
+    type: 'object',
+    title: 'ProcessGeneratedStackLayerCreate'
 } as const;
 
 export const ProcessGeneratedStackLayerPublicSchema = {
@@ -3921,6 +4197,84 @@ export const ProcessGeneratedStackPublicSchema = {
     type: 'object',
     required: ['id'],
     title: 'ProcessGeneratedStackPublic'
+} as const;
+
+export const ProcessInlineSubstrateCreateSchema = {
+    properties: {
+        name: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Name'
+        },
+        rigidity: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Rigidity'
+        },
+        length_cm: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Length Cm'
+        },
+        width_cm: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Width Cm'
+        },
+        height_mm: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Height Mm'
+        },
+        surface_roughness_rms_nm: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Surface Roughness Rms Nm'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        }
+    },
+    type: 'object',
+    required: ['name'],
+    title: 'ProcessInlineSubstrateCreate'
 } as const;
 
 export const ProcessInlineSubstratePublicSchema = {
@@ -4117,6 +4471,117 @@ export const ProcessPublicSchema = {
     title: 'ProcessPublic'
 } as const;
 
+export const ProcessSolutionRecipeCreateSchema = {
+    properties: {
+        name: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Name'
+        },
+        type: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 100
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Type'
+        },
+        is_commercial: {
+            type: 'boolean',
+            title: 'Is Commercial',
+            default: false
+        },
+        commercial_name: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 255
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Commercial Name'
+        },
+        supplier_number: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 255
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Supplier Number'
+        },
+        handling_preparation: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Handling Preparation'
+        },
+        handling_before_use: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Handling Before Use'
+        },
+        total_solvent_volume_ml: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Total Solvent Volume Ml',
+            default: ''
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        solvents: {
+            items: {
+                '$ref': '#/components/schemas/RecipeSolventCreate'
+            },
+            type: 'array',
+            title: 'Solvents',
+            default: []
+        },
+        solutes: {
+            items: {
+                '$ref': '#/components/schemas/RecipeSoluteCreate'
+            },
+            type: 'array',
+            title: 'Solutes',
+            default: []
+        },
+        added_solutions: {
+            items: {
+                '$ref': '#/components/schemas/RecipeAddedSolutionCreate'
+            },
+            type: 'array',
+            title: 'Added Solutions',
+            default: []
+        }
+    },
+    type: 'object',
+    required: ['name'],
+    title: 'ProcessSolutionRecipeCreate'
+} as const;
+
 export const ProcessSolutionRecipePublicSchema = {
     properties: {
         name: {
@@ -4226,6 +4691,346 @@ export const ProcessSolutionRecipePublicSchema = {
     type: 'object',
     required: ['name', 'id'],
     title: 'ProcessSolutionRecipePublic'
+} as const;
+
+export const ProcessStepCreateSchema = {
+    properties: {
+        stage_index: {
+            type: 'integer',
+            title: 'Stage Index',
+            default: 0
+        },
+        step_index: {
+            type: 'integer',
+            title: 'Step Index',
+            default: 0
+        },
+        name: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Name'
+        },
+        step_category: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Step Category'
+        },
+        color: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Color',
+            default: ''
+        },
+        material_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Material Id'
+        },
+        solution_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Solution Id'
+        },
+        chem_recipe_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Chem Recipe Id'
+        },
+        inline_material: {
+            anyOf: [
+                {
+                    additionalProperties: true,
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Inline Material'
+        },
+        deposition_method_value: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Deposition Method Value'
+        },
+        deposition_method_mode: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Deposition Method Mode'
+        },
+        deposition_start_time_value: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Deposition Start Time Value'
+        },
+        deposition_start_time_mode: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Deposition Start Time Mode'
+        },
+        substrate_temp_value: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Substrate Temp Value'
+        },
+        substrate_temp_mode: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Substrate Temp Mode'
+        },
+        deposition_atmosphere_value: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Deposition Atmosphere Value'
+        },
+        deposition_atmosphere_mode: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Deposition Atmosphere Mode'
+        },
+        deposition_parameters_value: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Deposition Parameters Value'
+        },
+        deposition_parameters_mode: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Deposition Parameters Mode'
+        },
+        solution_volume_value: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Solution Volume Value'
+        },
+        solution_volume_mode: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Solution Volume Mode'
+        },
+        drying_method_value: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Drying Method Value'
+        },
+        drying_method_mode: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Drying Method Mode'
+        },
+        annealing_start_time_value: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Annealing Start Time Value'
+        },
+        annealing_start_time_mode: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Annealing Start Time Mode'
+        },
+        annealing_time_value: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Annealing Time Value'
+        },
+        annealing_time_mode: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Annealing Time Mode'
+        },
+        annealing_temp_value: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Annealing Temp Value'
+        },
+        annealing_temp_mode: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Annealing Temp Mode'
+        },
+        annealing_atmosphere_value: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Annealing Atmosphere Value'
+        },
+        annealing_atmosphere_mode: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Annealing Atmosphere Mode'
+        },
+        notes: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Notes'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        }
+    },
+    type: 'object',
+    required: ['name', 'step_category'],
+    title: 'ProcessStepCreate'
 } as const;
 
 export const ProcessStepPublicSchema = {
@@ -4568,6 +5373,72 @@ export const ProcessStepPublicSchema = {
     title: 'ProcessStepPublic'
 } as const;
 
+export const ProcessSubstrateDimensionCreateSchema = {
+    properties: {
+        material_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Material Id'
+        },
+        length_cm: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Length Cm'
+        },
+        width_cm: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Width Cm'
+        },
+        height_mm: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Height Mm'
+        },
+        surface_roughness_rms_nm: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 50
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Surface Roughness Rms Nm'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        }
+    },
+    type: 'object',
+    required: ['material_id'],
+    title: 'ProcessSubstrateDimensionCreate'
+} as const;
+
 export const ProcessSubstrateDimensionPublicSchema = {
     properties: {
         material_id: {
@@ -4713,6 +5584,36 @@ export const ProcessesPublicSchema = {
     title: 'ProcessesPublic'
 } as const;
 
+export const RecipeAddedSolutionCreateSchema = {
+    properties: {
+        referenced_recipe_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Referenced Recipe Id'
+        },
+        volume_ml: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Volume Ml',
+            default: ''
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        }
+    },
+    type: 'object',
+    title: 'RecipeAddedSolutionCreate'
+} as const;
+
 export const RecipeAddedSolutionPublicSchema = {
     properties: {
         referenced_recipe_id: {
@@ -4744,6 +5645,90 @@ export const RecipeAddedSolutionPublicSchema = {
     title: 'RecipeAddedSolutionPublic'
 } as const;
 
+export const RecipeSoluteCreateSchema = {
+    properties: {
+        name: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Name'
+        },
+        pubchem_cid: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 255
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Pubchem Cid'
+        },
+        component_cids: {
+            anyOf: [
+                {
+                    items: {
+                        type: 'string'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Component Cids'
+        },
+        molar_mass: {
+            anyOf: [
+                {
+                    type: 'number'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Molar Mass'
+        },
+        density: {
+            anyOf: [
+                {
+                    type: 'number'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Density'
+        },
+        amount: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Amount',
+            default: ''
+        },
+        unit: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Unit',
+            default: 'mg'
+        },
+        color: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Color',
+            default: ''
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        }
+    },
+    type: 'object',
+    required: ['name'],
+    title: 'RecipeSoluteCreate'
+} as const;
+
 export const RecipeSolutePublicSchema = {
     properties: {
         name: {
@@ -4762,6 +5747,20 @@ export const RecipeSolutePublicSchema = {
                 }
             ],
             title: 'Pubchem Cid'
+        },
+        component_cids: {
+            anyOf: [
+                {
+                    items: {
+                        type: 'string'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Component Cids'
         },
         molar_mass: {
             anyOf: [
@@ -4814,6 +5813,83 @@ export const RecipeSolutePublicSchema = {
     title: 'RecipeSolutePublic'
 } as const;
 
+export const RecipeSolventCreateSchema = {
+    properties: {
+        name: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Name'
+        },
+        pubchem_cid: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 255
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Pubchem Cid'
+        },
+        component_cids: {
+            anyOf: [
+                {
+                    items: {
+                        type: 'string'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Component Cids'
+        },
+        molar_mass: {
+            anyOf: [
+                {
+                    type: 'number'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Molar Mass'
+        },
+        density: {
+            anyOf: [
+                {
+                    type: 'number'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Density'
+        },
+        volume_ratio: {
+            type: 'number',
+            title: 'Volume Ratio',
+            default: 0
+        },
+        color: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Color',
+            default: ''
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        }
+    },
+    type: 'object',
+    required: ['name'],
+    title: 'RecipeSolventCreate'
+} as const;
+
 export const RecipeSolventPublicSchema = {
     properties: {
         name: {
@@ -4832,6 +5908,20 @@ export const RecipeSolventPublicSchema = {
                 }
             ],
             title: 'Pubchem Cid'
+        },
+        component_cids: {
+            anyOf: [
+                {
+                    items: {
+                        type: 'string'
+                    },
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Component Cids'
         },
         molar_mass: {
             anyOf: [
@@ -4911,6 +6001,11 @@ export const SolutionComponentCreateSchema = {
                 }
             ],
             title: 'Solution Ref Id'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         }
     },
     type: 'object',
@@ -5063,6 +6158,11 @@ export const StickyNoteCreateSchema = {
                 }
             ],
             title: 'Hyperlink'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         }
     },
     type: 'object',
@@ -5389,6 +6489,11 @@ export const TextFieldCreateSchema = {
                 }
             ],
             title: 'Hyperlink'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         }
     },
     type: 'object',
@@ -5616,6 +6721,22 @@ export const TextFieldUpdateSchema = {
     title: 'TextFieldUpdate'
 } as const;
 
+export const TokenSchema = {
+    properties: {
+        access_token: {
+            type: 'string',
+            title: 'Access Token'
+        },
+        token_type: {
+            type: 'string',
+            title: 'Token Type'
+        }
+    },
+    type: 'object',
+    required: ['access_token', 'token_type'],
+    title: 'Token'
+} as const;
+
 export const UiPrefsUpdateSchema = {
     properties: {
         ui_prefs: {
@@ -5624,6 +6745,7 @@ export const UiPrefsUpdateSchema = {
             title: 'Ui Prefs'
         }
     },
+    additionalProperties: false,
     type: 'object',
     required: ['ui_prefs'],
     title: 'UiPrefsUpdate'

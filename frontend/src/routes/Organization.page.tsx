@@ -30,6 +30,7 @@ import {
   IconBold,
   IconChartBar,
   IconCheck,
+  IconCloudUpload,
   IconCopy,
   IconDownload,
   IconFolderPlus,
@@ -60,7 +61,11 @@ import {
 import { PlanesService } from "../client"
 import { UploadFlowTargetPicker } from "../components/UploadFlowTargetPicker"
 import useAuth from "../hooks/useAuth"
-import type { StagedFile } from "../lib/uploadFlow"
+import {
+  getUploadFlowSteps,
+  isUploadFlowComplete,
+  type StagedFile,
+} from "../lib/uploadFlow"
 import {
   type CanvasCollectionElement,
   type CanvasElement,
@@ -171,6 +176,11 @@ if (
       from { transform: scale(0); opacity: 0; }
       to { transform: scale(1); opacity: 1; }
     }
+    @keyframes upload-pending-blink {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.25; }
+    }
+    .upload-pending-blink { animation: upload-pending-blink 1s ease-in-out infinite; }
   `
   document.head.appendChild(style)
 }
@@ -1623,7 +1633,16 @@ function CollectionEl({
     setActivePlaneId,
     setActiveEntity,
     setPendingCollectionLink,
+    uploadFlow,
   } = useAppContext()
+  // A file drop targeting this collection stages an incomplete upload. It shows
+  // a blinking red marker until the flow finishes and becomes a real result.
+  const uploadPending =
+    uploadFlow != null &&
+    uploadFlow.targetCollectionId === el.id &&
+    !isUploadFlowComplete(
+      getUploadFlowSteps(uploadFlow, { processes, experiments, results }),
+    )
   const rawObLevel = useOnboardingLevel()
   const obLevel: OnboardingLevel = isFirstPlane ? rawObLevel : 4
   const obNextKind = ONBOARDING_NEXT_KIND[obLevel]
@@ -2229,6 +2248,72 @@ function CollectionEl({
               alignContent: "flex-start",
             }}
           >
+            {/* Incomplete upload marker — blinking red until the flow finishes */}
+            {uploadPending && (
+              <Tooltip
+                label="Upload not finished — click to choose a process & experiment before it becomes a result"
+                withArrow
+                position="bottom"
+                openDelay={200}
+                multiline
+                w={220}
+              >
+                <Box
+                  className="upload-pending-blink"
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    cursor: "pointer",
+                    borderRadius: 4,
+                    padding: "4px 5px",
+                    background: "var(--mantine-color-red-1)",
+                    outline: "2px solid var(--mantine-color-red-5)",
+                    outlineOffset: 1,
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    modals.open({
+                      title: "Finish file upload",
+                      children: (
+                        <Stack gap="sm">
+                          <Text size="sm" c="dimmed">
+                            Choose which process and experiment these files
+                            belong to.
+                          </Text>
+                          <UploadFlowTargetPicker
+                            onNavigateAway={() => modals.closeAll()}
+                          />
+                          <Group justify="flex-end">
+                            <Button
+                              variant="default"
+                              size="xs"
+                              onClick={() => modals.closeAll()}
+                            >
+                              Done
+                            </Button>
+                          </Group>
+                        </Stack>
+                      ),
+                    })
+                  }}
+                >
+                  <IconCloudUpload
+                    size={22}
+                    color="var(--mantine-color-red-6)"
+                  />
+                  <Text
+                    size="xs"
+                    c="red.7"
+                    style={{ lineHeight: 1, marginTop: 3, fontWeight: 700 }}
+                  >
+                    !
+                  </Text>
+                </Box>
+              </Tooltip>
+            )}
+
             {/* Filled items first */}
             {SIX_KINDS.filter(({ kind }) =>
               el.refs.some((r) => r.kind === kind),
@@ -3746,7 +3831,10 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
   // ── Canvas-level drop handler: routes drops to the correct cell ──────────────
   // Files dropped directly onto the canvas start (or are refused by) an upload
   // flow. Opens the Process → Experiment picker so the user maps the files.
-  const handleFileDrop = (fileList: FileList) => {
+  const handleFileDrop = (
+    fileList: FileList,
+    targetCollectionId: string | null,
+  ) => {
     if (uploadFlow) {
       notifications.show({
         title: "Upload already in progress",
@@ -3760,7 +3848,12 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
       name: f.name,
       size: f.size,
     }))
-    const started = startUploadFlow({ origin: "drag-drop", pendingFiles })
+    const started = startUploadFlow({
+      origin: "drag-drop",
+      pendingFiles,
+      targetCollectionId,
+      targetPlaneId: targetCollectionId ? plane.id : null,
+    })
     if (!started) {
       return
     }
@@ -4288,9 +4381,9 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                 COLLECTION_ELEMENT_DRAG_MIME,
               )
               if (!hasRef && !hasEl && !hasFiles) return
-              // Allow the drop (files or collection refs).
+              // Allow the drop (files or collection refs) and highlight the
+              // cell / collection under the cursor so the user sees the target.
               e.preventDefault()
-              if (hasFiles) return
               const rect = containerRef.current?.getBoundingClientRect()
               if (!rect) return
               const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
@@ -4309,14 +4402,35 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               setDragOverCellKey(null)
               setDraggingCollectionId(null)
 
-              // File drop → start (or refuse) an upload flow.
+              const rect = containerRef.current?.getBoundingClientRect()
+
+              // File drop → start (or refuse) an upload flow, attached to the
+              // collection under the cursor (if any) so it shows the pending marker.
               if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                 e.preventDefault()
-                handleFileDrop(e.dataTransfer.files)
+                let targetCollectionId: string | null = null
+                if (rect) {
+                  const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
+                  const col = Math.floor(
+                    (e.clientX - rect.left - childPan.x) / CELL_STRIDE_W,
+                  )
+                  const row = Math.floor(
+                    (e.clientY - rect.top - childPan.y) / CELL_STRIDE_H,
+                  )
+                  const target = plane.elements.find((el) => {
+                    if (el.type !== "collection") return false
+                    const c = el as CanvasCollectionElement
+                    return (
+                      Math.round(c.position.x / CELL_W) === col &&
+                      Math.round(c.position.y / CELL_H) === row
+                    )
+                  }) as CanvasCollectionElement | undefined
+                  targetCollectionId = target?.id ?? null
+                }
+                handleFileDrop(e.dataTransfer.files, targetCollectionId)
                 return
               }
 
-              const rect = containerRef.current?.getBoundingClientRect()
               if (!rect) return
               const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
               const cx = e.clientX - rect.left - childPan.x
