@@ -9,6 +9,7 @@ import {
   useState,
 } from "react"
 import { getTokenSync } from "../lib/keycloakInstance"
+import type { UploadFlow } from "../lib/uploadFlow"
 import {
   type AppSnapshot,
   type BackendAdapter,
@@ -16,6 +17,10 @@ import {
   InMemoryBackend,
   UNLOAD_BACKUP_KEY,
 } from "./backend"
+
+// Kept in sync with the exported constant in ../lib/uploadFlow. Defined locally
+// so AppContext's dependency on uploadFlow stays type-only (no runtime cycle).
+const UPLOAD_FLOW_INACTIVITY_MS = 30 * 60 * 1000
 
 // ── Material ────────────────────────────────────────────────────────────────
 
@@ -1154,6 +1159,23 @@ type AppContextValue = {
 
   /** Immediately persist the current state (call before logout). */
   flushSave: () => Promise<void>
+
+  // ── Upload flow ("File Upload" critical status) ───────────────────────────
+  /** The single active upload flow, or null. Only one may exist at a time. */
+  uploadFlow: UploadFlow | null
+  /**
+   * Start a new upload flow. Returns false (and no-ops) if one already exists —
+   * this enforces the single-active-flow rule at one chokepoint.
+   */
+  startUploadFlow: (
+    init: Partial<Omit<UploadFlow, "id" | "createdAt" | "lastActivityAt">> & {
+      origin: UploadFlow["origin"]
+    },
+  ) => boolean
+  /** Patch the active flow (also refreshes its inactivity timer). */
+  updateUploadFlow: (patch: Partial<UploadFlow>) => void
+  /** Drop the active flow (user abort / logout / inactivity). */
+  cancelUploadFlow: () => void
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -1223,6 +1245,69 @@ export function AppProvider({
     kind: "experiment" | "process"
     id: string
   } | null>(null)
+  // ── Upload flow state ──────────────────────────────────────────────────────
+  // Ephemeral (mirrors activeEntity / pendingCollectionLink): an in-progress
+  // flow must not survive logout or an inactivity window — incomplete flow data
+  // is dropped rather than persisted.
+  const [uploadFlow, setUploadFlow] = useState<UploadFlow | null>(null)
+  const startUploadFlow = useCallback(
+    (
+      init: Partial<Omit<UploadFlow, "id" | "createdAt" | "lastActivityAt">> & {
+        origin: UploadFlow["origin"]
+      },
+    ): boolean => {
+      let started = false
+      setUploadFlow((prev) => {
+        // Single-flow rule: refuse to start a second flow.
+        if (prev) {
+          return prev
+        }
+        started = true
+        const now = Date.now()
+        return {
+          id: crypto.randomUUID(),
+          origin: init.origin,
+          processId: init.processId ?? null,
+          experimentId: init.experimentId ?? null,
+          pendingFiles: init.pendingFiles,
+          createdAt: new Date(now).toISOString(),
+          lastActivityAt: now,
+        }
+      })
+      return started
+    },
+    [],
+  )
+  const updateUploadFlow = useCallback((patch: Partial<UploadFlow>) => {
+    setUploadFlow((prev) =>
+      prev ? { ...prev, ...patch, lastActivityAt: Date.now() } : prev,
+    )
+  }, [])
+  const cancelUploadFlow = useCallback(() => setUploadFlow(null), [])
+
+  // Drop an inactive flow after the inactivity window. The timer re-arms
+  // whenever lastActivityAt changes (every update bumps it).
+  const uploadFlowActivity = uploadFlow?.lastActivityAt
+  useEffect(() => {
+    if (uploadFlowActivity === undefined) {
+      return
+    }
+    const elapsed = Date.now() - uploadFlowActivity
+    const remaining = Math.max(0, UPLOAD_FLOW_INACTIVITY_MS - elapsed)
+    const timer = window.setTimeout(() => {
+      setUploadFlow((prev) => {
+        if (!prev) {
+          return prev
+        }
+        if (Date.now() - prev.lastActivityAt >= UPLOAD_FLOW_INACTIVITY_MS) {
+          return null
+        }
+        return prev
+      })
+    }, remaining)
+    return () => window.clearTimeout(timer)
+  }, [uploadFlowActivity])
+
   const [lastSelectedByKind, setLastSelectedByKind] = useState<
     Partial<Record<"experiment" | "process", string>>
   >({})
@@ -1729,6 +1814,10 @@ export function AppProvider({
           await persistDirtyState()
           console.log("[AppContext] flushSave complete")
         },
+        uploadFlow,
+        startUploadFlow,
+        updateUploadFlow,
+        cancelUploadFlow,
       }}
     >
       {children}

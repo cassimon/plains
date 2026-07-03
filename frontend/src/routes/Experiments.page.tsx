@@ -19,6 +19,7 @@ import {
   Tooltip,
 } from "@mantine/core"
 import { modals } from "@mantine/modals"
+import { notifications } from "@mantine/notifications"
 import {
   IconCheck,
   IconCopy,
@@ -32,6 +33,7 @@ import { useNavigate as useRouterNavigate } from "@tanstack/react-router"
 import * as React from "react"
 import { useCallback, useRef, useState } from "react"
 import { autoResolveCollection } from "@/lib/autoResolveCollection"
+import { getExperimentAllStepsDone } from "@/lib/uploadFlow"
 import type { CollectionConfirmParams } from "../components/SelectCollectionModal"
 import {
   type CanvasCollectionElement,
@@ -2071,6 +2073,7 @@ export default function ExperimentsPage() {
     addCollectionElement,
     pendingCollectionLink,
     setPendingCollectionLink,
+    startUploadFlow,
   } = useAppContext()
   const { getEntityColor, isEntityVisible } = useEntityCollection()
 
@@ -2179,19 +2182,7 @@ export default function ExperimentsPage() {
     const map = new Map<string, boolean>()
     for (const exp of experiments) {
       const process = processes.find((p) => p.id === exp.processId)
-      if (!process) {
-        map.set(exp.id, false)
-        continue
-      }
-      const { materialItems, solutionItems } = collectChemicals(process)
-      const chemDone = computeChemsDone(
-        exp.chemicalsPrep,
-        materialItems,
-        solutionItems,
-      )
-      const procDone = exp.substrates.length > 0
-      const summaryDone = Boolean(exp.description?.trim()) && Boolean(exp.date)
-      map.set(exp.id, chemDone && procDone && summaryDone)
+      map.set(exp.id, getExperimentAllStepsDone(exp, process))
     }
     return map
   }, [experiments, processes])
@@ -2305,6 +2296,23 @@ export default function ExperimentsPage() {
 
   const handleAddResultsForExperiment = useCallback(
     (exp: Experiment) => {
+      // Start the "File Upload" flow with Process + Experiment already
+      // satisfied — only the Upload step remains. The single-flow rule means
+      // this no-ops (returns false) if another upload is already in progress.
+      const started = startUploadFlow({
+        origin: "add-results",
+        processId: exp.processId,
+        experimentId: exp.id,
+      })
+      if (!started) {
+        notifications.show({
+          title: "Upload already in progress",
+          message:
+            "Finish or cancel the current upload before starting another.",
+          color: "red",
+        })
+        return
+      }
       setPendingCollectionLink({
         collectionId: "",
         planeId: "",
@@ -2317,7 +2325,13 @@ export default function ExperimentsPage() {
       updateLastSelected("experiment", exp.id)
       void navigate({ to: "/results" })
     },
-    [navigate, setActiveEntity, setPendingCollectionLink, updateLastSelected],
+    [
+      navigate,
+      setActiveEntity,
+      setPendingCollectionLink,
+      startUploadFlow,
+      updateLastSelected,
+    ],
   )
 
   const handleAddResultsForSelectedExperiment = useCallback(() => {

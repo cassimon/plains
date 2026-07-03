@@ -307,7 +307,8 @@ function buildReuseSelectData(candidates: CandidateExp[], itemKey: string) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Export builder — used by the Summary step to compile chosen chemicals and
-// solution quantities into a copy-/download-able report.
+// solution quantities into a copy-/download-able report. Consumed by
+// SummaryTab in Experiments.page.tsx via `buildChemicalsExport`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type ChemicalExportRow = {

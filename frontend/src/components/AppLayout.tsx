@@ -13,6 +13,7 @@ import {
   UnstyledButton,
   useMantineColorScheme,
 } from "@mantine/core"
+import { modals } from "@mantine/modals"
 import {
   IconChevronDown,
   IconLogout,
@@ -29,6 +30,7 @@ import {
   useAppContext,
 } from "../store/AppContext"
 import { pageIcons } from "./AppLayout.icons"
+import { UploadFlowStatus } from "./UploadFlowStatus"
 
 // Neutral grayish-blue for default selections
 const DEFAULT_ACCENT = "#94a3b8"
@@ -57,6 +59,8 @@ export function AppLayout() {
     activeEntity,
     setActiveEntity,
     flushSave,
+    uploadFlow,
+    cancelUploadFlow,
   } = useAppContext()
 
   const currentPage =
@@ -177,7 +181,25 @@ export function AppLayout() {
       padding="md"
     >
       <AppShell.Header>
-        <Group h="100%" px="md" justify="space-between">
+        <Group
+          h="100%"
+          px="md"
+          justify="space-between"
+          style={{ position: "relative" }}
+        >
+          {/* Critical "File Upload" status — centered between path and login.
+              Renders nothing (and takes no layout space) when no flow is active. */}
+          <div
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              transform: "translate(-50%, -50%)",
+              zIndex: 10,
+            }}
+          >
+            <UploadFlowStatus />
+          </div>
           <Group gap={4} align="center">
             {/* Plane name — click navigates to org and deselects collection */}
             <UnstyledButton
@@ -382,9 +404,35 @@ export function AppLayout() {
                 <Menu.Item
                   color="red"
                   leftSection={<IconLogout size={14} />}
-                  onClick={async () => {
-                    await flushSave()
-                    logout()
+                  onClick={() => {
+                    const doLogout = async () => {
+                      // Incomplete flows are discarded on logout.
+                      cancelUploadFlow()
+                      await flushSave()
+                      logout()
+                    }
+                    if (uploadFlow) {
+                      modals.openConfirmModal({
+                        title: "Upload in progress",
+                        children: (
+                          <Text size="sm">
+                            You have an unfinished file upload. If you log out
+                            now it will be discarded. Stay to finish it, or log
+                            out and discard it.
+                          </Text>
+                        ),
+                        labels: {
+                          confirm: "Log out & discard",
+                          cancel: "Stay and finish",
+                        },
+                        confirmProps: { color: "red" },
+                        onConfirm: () => {
+                          void doLogout()
+                        },
+                      })
+                      return
+                    }
+                    void doLogout()
                   }}
                 >
                   Log out

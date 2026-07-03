@@ -15,12 +15,12 @@ export const Route = createFileRoute("/_gui")({
 function GuiLayout() {
   return (
     <MantineProvider theme={theme}>
-      <ModalsProvider>
-        <AppProvider>
+      <AppProvider>
+        <ModalsProvider>
           <AppLayout />
           <ChatWidgetComponent />
-        </AppProvider>
-      </ModalsProvider>
+        </ModalsProvider>
+      </AppProvider>
     </MantineProvider>
   )
 }

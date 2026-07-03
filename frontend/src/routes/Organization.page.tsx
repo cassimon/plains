@@ -24,6 +24,7 @@ import {
 } from "@mantine/core"
 import { useDebouncedValue } from "@mantine/hooks"
 import { modals } from "@mantine/modals"
+import { notifications } from "@mantine/notifications"
 import {
   IconArrowRight,
   IconBold,
@@ -57,7 +58,9 @@ import {
   useState,
 } from "react"
 import { PlanesService } from "../client"
+import { UploadFlowTargetPicker } from "../components/UploadFlowTargetPicker"
 import useAuth from "../hooks/useAuth"
+import type { StagedFile } from "../lib/uploadFlow"
 import {
   type CanvasCollectionElement,
   type CanvasElement,
@@ -3368,6 +3371,8 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     planes,
     copyElementToPlane,
     moveElementToPlane,
+    uploadFlow,
+    startUploadFlow,
   } = useAppContext()
 
   const obLevel = useOnboardingLevel()
@@ -3739,6 +3744,49 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
   )
 
   // ── Canvas-level drop handler: routes drops to the correct cell ──────────────
+  // Files dropped directly onto the canvas start (or are refused by) an upload
+  // flow. Opens the Process → Experiment picker so the user maps the files.
+  const handleFileDrop = (fileList: FileList) => {
+    if (uploadFlow) {
+      notifications.show({
+        title: "Upload already in progress",
+        message:
+          "Finish or cancel the current upload before dropping more files.",
+        color: "red",
+      })
+      return
+    }
+    const pendingFiles: StagedFile[] = Array.from(fileList).map((f) => ({
+      name: f.name,
+      size: f.size,
+    }))
+    const started = startUploadFlow({ origin: "drag-drop", pendingFiles })
+    if (!started) {
+      return
+    }
+    modals.open({
+      title: "Upload files",
+      children: (
+        <Stack gap="sm">
+          <Text size="sm" c="dimmed">
+            {pendingFiles.length} file{pendingFiles.length === 1 ? "" : "s"}{" "}
+            staged. Choose which process and experiment they belong to.
+          </Text>
+          <UploadFlowTargetPicker onNavigateAway={() => modals.closeAll()} />
+          <Group justify="flex-end">
+            <Button
+              variant="default"
+              size="xs"
+              onClick={() => modals.closeAll()}
+            >
+              Done
+            </Button>
+          </Group>
+        </Stack>
+      ),
+    })
+  }
+
   const handleDropToCell = (
     col: number,
     row: number,
@@ -4232,14 +4280,17 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
             onDragOver={(e: ReactDragEvent<HTMLDivElement>) => {
+              const hasFiles = e.dataTransfer.types.includes("Files")
               const hasRef = e.dataTransfer.types.includes(
                 COLLECTION_REF_DRAG_MIME,
               )
               const hasEl = e.dataTransfer.types.includes(
                 COLLECTION_ELEMENT_DRAG_MIME,
               )
-              if (!hasRef && !hasEl) return
+              if (!hasRef && !hasEl && !hasFiles) return
+              // Allow the drop (files or collection refs).
               e.preventDefault()
+              if (hasFiles) return
               const rect = containerRef.current?.getBoundingClientRect()
               if (!rect) return
               const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
@@ -4257,6 +4308,14 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
             onDrop={(e: ReactDragEvent<HTMLDivElement>) => {
               setDragOverCellKey(null)
               setDraggingCollectionId(null)
+
+              // File drop → start (or refuse) an upload flow.
+              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                e.preventDefault()
+                handleFileDrop(e.dataTransfer.files)
+                return
+              }
+
               const rect = containerRef.current?.getBoundingClientRect()
               if (!rect) return
               const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
