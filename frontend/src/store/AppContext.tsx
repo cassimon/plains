@@ -132,6 +132,8 @@ export type ProcessStepInlineMaterial = {
   name: string
   type?: string // same options as Material.type: "n-type (ETL)", "p-type (HTL)", etc.
   pubchemCid?: string
+  /** For mixtures (e.g. PEDOT:PSS): PubChem CIDs of the individual components */
+  componentCids?: string[]
   molarMass?: number // g/mol
   density?: number // g/mL
 }
@@ -182,6 +184,8 @@ export type ProcessChemIngredient = {
   id: string
   name: string
   pubchemCid: string
+  /** For mixtures (e.g. PEDOT:PSS): PubChem CIDs of the individual components */
+  componentCids?: string[]
   molarMass?: number // g/mol
   density?: number // g/mL
 }
@@ -417,6 +421,7 @@ export type ExperimentSolutionBatch = {
   mode: "make" | "take"
   totalVolumeMl?: string // for "make" with recipe: target volume in mL
   multiplier?: string // for "make" with entity solution: scale factor (×)
+  preparedAt?: string // for "make": datetime-local when this batch was prepared
   takenFromExpId?: string // for "take": source experiment id
   takenFromBatchId?: string // for "take": source batch key
 }

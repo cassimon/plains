@@ -749,7 +749,13 @@ function MaterialParamsPanel({
     )
     try {
       const props = await fetchPubChemPropsStep(s.pubchemCid)
-      onSetInlineMaterial({ name: s.name, pubchemCid: s.pubchemCid, ...props })
+      onSetInlineMaterial({
+        name: s.name,
+        type: s.type,
+        pubchemCid: s.pubchemCid,
+        componentCids: s.componentCids,
+        ...props,
+      })
       setMode({ kind: "idle" })
     } catch {
       setMode((prev) =>

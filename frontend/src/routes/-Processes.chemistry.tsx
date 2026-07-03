@@ -7,6 +7,7 @@ import {
   Divider,
   Group,
   Loader,
+  Menu,
   NativeSelect,
   NumberInput,
   Popover,
@@ -17,6 +18,7 @@ import {
   Tooltip,
 } from "@mantine/core"
 import {
+  IconChevronRight,
   IconExternalLink,
   IconFlask2,
   IconPlus,
@@ -41,276 +43,355 @@ export const PEROVSKITE_MATERIAL_SUGGESTIONS: ReadonlyArray<{
   abbr: string
   name: string
   searchQuery: string
+  /** Material type, applied automatically when the suggestion is chosen */
+  type: string
+  /** Verified PubChem CID — selection uses this directly, no name lookup */
   pubchemCid?: string
+  /** For mixtures (e.g. PEDOT:PSS): PubChem CIDs of the components */
+  componentCids?: string[]
 }> = [
-  // Solvents — CIDs verified against PubChem compound records
   {
     abbr: "DMF",
     name: "N,N-Dimethylformamide",
     searchQuery: "N,N-Dimethylformamide",
+    type: "solvent",
     pubchemCid: "6228",
   },
   {
     abbr: "DMSO",
     name: "Dimethyl sulfoxide",
     searchQuery: "Dimethyl sulfoxide",
+    type: "solvent",
     pubchemCid: "679",
   },
   {
     abbr: "GBL",
     name: "γ-Butyrolactone",
     searchQuery: "gamma-butyrolactone",
+    type: "solvent",
     pubchemCid: "7302",
   },
   {
     abbr: "NMP",
     name: "N-Methyl-2-pyrrolidone",
     searchQuery: "N-Methyl-2-pyrrolidone",
+    type: "solvent",
     pubchemCid: "13387",
   },
   {
     abbr: "CB",
     name: "Chlorobenzene",
     searchQuery: "Chlorobenzene",
+    type: "solvent",
     pubchemCid: "7964",
   },
   {
     abbr: "DCB",
     name: "1,2-Dichlorobenzene",
     searchQuery: "1,2-Dichlorobenzene",
+    type: "solvent",
     pubchemCid: "7239",
   },
   {
     abbr: "oDCB",
     name: "o-Dichlorobenzene",
     searchQuery: "1,2-Dichlorobenzene",
+    type: "solvent",
     pubchemCid: "7239",
   },
   {
     abbr: "IPA",
     name: "Isopropanol",
     searchQuery: "Isopropyl alcohol",
+    type: "solvent",
     pubchemCid: "3776",
   },
   {
     abbr: "EtOH",
     name: "Ethanol",
     searchQuery: "Ethanol",
+    type: "solvent",
     pubchemCid: "702",
   },
   {
     abbr: "MeOH",
     name: "Methanol",
     searchQuery: "Methanol",
+    type: "solvent",
     pubchemCid: "887",
   },
   {
     abbr: "ACN",
     name: "Acetonitrile",
     searchQuery: "Acetonitrile",
+    type: "solvent",
     pubchemCid: "6342",
   },
   {
     abbr: "THF",
     name: "Tetrahydrofuran",
     searchQuery: "Tetrahydrofuran",
+    type: "solvent",
     pubchemCid: "8028",
   },
   {
     abbr: "CHCl3",
     name: "Chloroform",
     searchQuery: "Chloroform",
+    type: "solvent",
     pubchemCid: "6212",
   },
   {
     abbr: "Toluene",
     name: "Toluene",
     searchQuery: "Toluene",
+    type: "solvent",
     pubchemCid: "1140",
   },
   {
     abbr: "Anisole",
     name: "Anisole",
     searchQuery: "Anisole",
+    type: "solvent",
     pubchemCid: "7519",
   },
   {
     abbr: "Acetone",
     name: "Acetone",
     searchQuery: "Acetone",
+    type: "solvent",
     pubchemCid: "180",
   },
   {
     abbr: "Et2O",
     name: "Diethyl ether",
     searchQuery: "Diethyl ether",
+    type: "solvent",
     pubchemCid: "3283",
   },
-  // Perovskite halide salts
   {
     abbr: "MAI",
     name: "Methylammonium iodide",
     searchQuery: "Methylammonium iodide",
+    type: "perovskite precursor",
     pubchemCid: "519034",
   },
   {
     abbr: "MABr",
     name: "Methylammonium bromide",
     searchQuery: "Methylammonium bromide",
+    type: "perovskite precursor",
     pubchemCid: "3014526",
   },
   {
     abbr: "MACl",
     name: "Methylammonium chloride",
     searchQuery: "Methylammonium chloride",
+    type: "perovskite precursor",
     pubchemCid: "6364545",
   },
   {
     abbr: "FAI",
     name: "Formamidinium iodide",
     searchQuery: "Formamidinium iodide",
+    type: "perovskite precursor",
+    pubchemCid: "89906651",
   },
   {
     abbr: "FABr",
     name: "Formamidinium bromide",
     searchQuery: "Formamidinium bromide",
+    type: "perovskite precursor",
+    pubchemCid: "91972093",
   },
   {
     abbr: "FACl",
     name: "Formamidinium chloride",
     searchQuery: "Formamidinium chloride",
+    type: "perovskite precursor",
+    pubchemCid: "10313058",
   },
   {
     abbr: "PbI2",
     name: "Lead(II) iodide",
     searchQuery: "Lead iodide",
+    type: "perovskite precursor",
     pubchemCid: "24931",
   },
   {
     abbr: "PbBr2",
     name: "Lead(II) bromide",
     searchQuery: "Lead bromide",
+    type: "perovskite precursor",
     pubchemCid: "139549",
   },
   {
     abbr: "PbCl2",
     name: "Lead(II) chloride",
     searchQuery: "Lead chloride",
+    type: "perovskite precursor",
     pubchemCid: "24459",
   },
-  { abbr: "SnI2", name: "Tin(II) iodide", searchQuery: "Stannous iodide" },
+  {
+    abbr: "SnI2",
+    name: "Tin(II) iodide",
+    searchQuery: "Stannous iodide",
+    type: "perovskite precursor",
+    pubchemCid: "25138",
+  },
   {
     abbr: "SnF2",
     name: "Tin(II) fluoride",
     searchQuery: "Stannous fluoride",
+    type: "additive",
     pubchemCid: "24550",
   },
   {
     abbr: "CsI",
     name: "Cesium iodide",
     searchQuery: "Cesium iodide",
+    type: "perovskite precursor",
     pubchemCid: "24601",
   },
   {
     abbr: "CsBr",
     name: "Cesium bromide",
     searchQuery: "Cesium bromide",
+    type: "perovskite precursor",
     pubchemCid: "24592",
   },
   {
     abbr: "RbI",
     name: "Rubidium iodide",
     searchQuery: "Rubidium iodide",
+    type: "perovskite precursor",
     pubchemCid: "3423208",
   },
   {
     abbr: "KI",
     name: "Potassium iodide",
     searchQuery: "Potassium iodide",
+    type: "perovskite precursor",
     pubchemCid: "4875",
   },
-  // ETL / electron acceptors
   {
     abbr: "PCBM",
     name: "PC61BM",
     searchQuery: "Phenyl-C61-butyric acid methyl ester",
+    type: "n-type (ETL)",
   },
   {
     abbr: "PC61BM",
     name: "[6,6]-Phenyl-C61-butyric acid methyl ester",
     searchQuery: "Phenyl-C61-butyric acid methyl ester",
+    type: "n-type (ETL)",
   },
   {
     abbr: "PC71BM",
     name: "[6,6]-Phenyl-C71-butyric acid methyl ester",
     searchQuery: "Phenyl-C71-butyric acid methyl ester",
+    type: "n-type (ETL)",
   },
   {
     abbr: "C60",
     name: "Buckminsterfullerene",
     searchQuery: "Buckminsterfullerene",
+    type: "n-type (ETL)",
     pubchemCid: "123591",
   },
-  { abbr: "C70", name: "C70 fullerene", searchQuery: "C70 fullerene" },
-  { abbr: "BCP", name: "Bathocuproine", searchQuery: "Bathocuproine" },
+  {
+    abbr: "C70",
+    name: "C70 fullerene",
+    searchQuery: "C70 fullerene",
+    type: "n-type (ETL)",
+    pubchemCid: "16131935",
+  },
+  {
+    abbr: "BCP",
+    name: "Bathocuproine",
+    searchQuery: "Bathocuproine",
+    type: "n-type (ETL)",
+    pubchemCid: "65149",
+  },
   {
     abbr: "Bphen",
     name: "Bathophenanthroline",
     searchQuery: "Bathophenanthroline",
+    type: "n-type (ETL)",
     pubchemCid: "72812",
   },
-  { abbr: "ITIC", name: "ITIC non-fullerene acceptor", searchQuery: "ITIC" },
-  { abbr: "Y6", name: "Y6 (BTP-eC9)", searchQuery: "BTP-eC9" },
-  // HTL / hole transport
+  {
+    abbr: "ITIC",
+    name: "ITIC non-fullerene acceptor",
+    searchQuery: "ITIC",
+    type: "n-type (ETL)",
+    pubchemCid: "126843541",
+  },
+  {
+    abbr: "Y6",
+    name: "Y6 (BTP-eC9)",
+    searchQuery: "BTP-eC9",
+    type: "n-type (ETL)",
+    pubchemCid: "163203732",
+  },
   {
     abbr: "Spiro-OMeTAD",
     name: "Spiro-OMeTAD",
     searchQuery:
       "2,2',7,7'-tetrakis(N,N-di-p-methoxyphenylamine)-9,9'-spirobifluorene",
+    type: "p-type (HTL)",
   },
   {
     abbr: "Spiro",
     name: "Spiro-OMeTAD",
     searchQuery:
       "2,2',7,7'-tetrakis(N,N-di-p-methoxyphenylamine)-9,9'-spirobifluorene",
+    type: "p-type (HTL)",
   },
   {
     abbr: "PTAA",
     name: "Poly[bis(4-phenyl)(2,4,6-trimethylphenyl)amine]",
     searchQuery: "PTAA polymer",
+    type: "p-type (HTL)",
   },
   {
     abbr: "P3HT",
     name: "Poly(3-hexylthiophene)",
     searchQuery: "Poly(3-hexylthiophene)",
+    type: "p-type (HTL)",
   },
   {
     abbr: "PEDOT:PSS",
     name: "PEDOT:PSS",
     searchQuery: "poly(3,4-ethylenedioxythiophene) polystyrene sulfonate",
+    type: "p-type (HTL)",
   },
   {
     abbr: "CuSCN",
     name: "Copper(I) thiocyanate",
     searchQuery: "Copper thiocyanate",
+    type: "p-type (HTL)",
     pubchemCid: "61264",
   },
   {
     abbr: "NiO",
     name: "Nickel(II) oxide",
     searchQuery: "Nickel oxide",
+    type: "p-type (HTL)",
     pubchemCid: "179931",
   },
-  // Dopants and additives
   {
     abbr: "LiTFSI",
     name: "Lithium bis(trifluoromethanesulfonyl)imide",
     searchQuery: "Lithium bis(trifluoromethanesulfonyl)imide",
+    type: "additive",
+    pubchemCid: "87103854",
   },
   {
     abbr: "TBP",
     name: "4-tert-Butylpyridine",
     searchQuery: "4-tert-Butylpyridine",
+    type: "additive",
     pubchemCid: "19878",
   },
   {
@@ -318,48 +399,153 @@ export const PEROVSKITE_MATERIAL_SUGGESTIONS: ReadonlyArray<{
     name: "FK102 cobalt(III) TFSI",
     searchQuery:
       "tris(2-(1H-pyrazol-1-yl)-4-tert-butylpyridine)cobalt(III) bis(trifluoromethylsulfonyl)imide",
+    type: "additive",
   },
   {
     abbr: "FK209",
     name: "FK209 cobalt(III) TFSI",
     searchQuery: "cobalt tris(bis(trifluoromethanesulfonyl)imide)",
+    type: "additive",
   },
   {
     abbr: "PEAI",
     name: "Phenylethylammonium iodide",
     searchQuery: "phenethylammonium iodide",
+    type: "passivation agent/layer",
+    pubchemCid: "91972166",
   },
   {
     abbr: "PEABr",
     name: "Phenylethylammonium bromide",
     searchQuery: "phenethylammonium bromide",
+    type: "passivation agent/layer",
+    pubchemCid: "70441016",
   },
   {
     abbr: "PEACl",
     name: "Phenylethylammonium chloride",
     searchQuery: "phenethylammonium chloride",
+    type: "passivation agent/layer",
+    pubchemCid: "9075",
   },
   {
     abbr: "BAI",
     name: "n-Butylammonium iodide",
     searchQuery: "butylammonium iodide",
+    type: "passivation agent/layer",
+    pubchemCid: "88075134",
   },
   {
     abbr: "OAI",
     name: "Octylammonium iodide",
     searchQuery: "octylammonium iodide",
+    type: "passivation agent/layer",
+    pubchemCid: "22461615",
   },
   {
     abbr: "PMMA",
     name: "Poly(methyl methacrylate)",
     searchQuery: "Poly(methyl methacrylate)",
+    type: "passivation agent/layer",
   },
   {
     abbr: "PCBA",
     name: "Phenyl-C61-butyric acid",
     searchQuery: "phenyl C61 butyric acid",
+    type: "n-type (ETL)",
   },
 ]
+
+// Solution / material types (shared by the type <select> and the add menus)
+const SOLUTION_TYPE_OPTIONS = [
+  "n-type (ETL)",
+  "p-type (HTL)",
+  "perovskite precursor",
+  "solvent",
+  "additive",
+  "passivation agent/layer",
+  "conductor (contact)",
+  "encapsulant",
+  "semiconductor (i)",
+  "other",
+] as const
+
+/**
+ * "Add solution" button whose dropdown lists all types on hover, so a solution
+ * can be created with its type already set. Mantine v7 lacks `Menu.Sub`, so the
+ * type list is a nested `trigger="hover"` menu; the outer menu is controlled to
+ * close on selection.
+ */
+function AddSolutionMenu({
+  label,
+  color,
+  onAdd,
+}: {
+  label: string
+  color?: string
+  onAdd: (type?: string) => void
+}) {
+  const [opened, setOpened] = useState(false)
+  return (
+    <Menu
+      shadow="md"
+      width={200}
+      opened={opened}
+      onChange={setOpened}
+      closeOnItemClick={false}
+      position="bottom-start"
+    >
+      <Menu.Target>
+        <Button
+          size="xs"
+          variant="subtle"
+          color={color}
+          leftSection={<IconPlus size={14} />}
+        >
+          {label}
+        </Button>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu
+          trigger="hover"
+          position="right-start"
+          offset={2}
+          shadow="md"
+          width={210}
+          closeOnItemClick={false}
+        >
+          <Menu.Target>
+            <Menu.Item rightSection={<IconChevronRight size={14} />}>
+              Choose type…
+            </Menu.Item>
+          </Menu.Target>
+          <Menu.Dropdown>
+            {SOLUTION_TYPE_OPTIONS.map((t) => (
+              <Menu.Item
+                key={t}
+                onClick={() => {
+                  setOpened(false)
+                  onAdd(t)
+                }}
+              >
+                {t}
+              </Menu.Item>
+            ))}
+          </Menu.Dropdown>
+        </Menu>
+        <Menu.Divider />
+        <Menu.Item
+          onClick={() => {
+            setOpened(false)
+            onAdd()
+          }}
+        >
+          No type / set later
+        </Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  )
+}
 
 // ── Color palette (used for auto-assignment only) ─────────────────────────────
 
@@ -458,6 +644,25 @@ async function fetchPubChemProps(
   }
 
   return { molarMass, density }
+}
+
+/** Fetch a compound's display title for a known CID (mixture-component names). */
+async function fetchPubChemTitle(cid: string): Promise<string> {
+  try {
+    const res = await fetch(
+      `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/property/Title/JSON`,
+    )
+    if (res.ok) {
+      const data = (await res.json()) as {
+        PropertyTable?: { Properties?: Array<{ Title?: string }> }
+      }
+      const title = data.PropertyTable?.Properties?.[0]?.Title
+      if (title) return title
+    }
+  } catch {
+    // best-effort
+  }
+  return `CID ${cid}`
 }
 
 // PubChem pug_view JSON shape (density-relevant parts only)
@@ -767,6 +972,19 @@ function VialWidget({
 
 // ── Inline PubChem search ─────────────────────────────────────────────────────
 
+type SelectedProps = {
+  name?: string
+  molarMass?: number
+  density?: number
+  /** Material type carried from a standard suggestion */
+  type?: string
+  /** Component CIDs for a mixture suggestion (e.g. PEDOT:PSS) */
+  componentCids?: string[]
+  /** Solute amount / unit (collected in the confirm step for solutes) */
+  amount?: string
+  unit?: "mg" | "ml" | "mol"
+}
+
 type SearchMode =
   | {
       kind: "searching"
@@ -783,18 +1001,36 @@ type SearchMode =
       molarMass: string
       density: string
     }
+  | {
+      // Solute-only step: amount is required, and molar mass is required when
+      // PubChem could not provide it. Density stays optional.
+      kind: "confirm"
+      cid: string | null
+      name: string
+      type?: string
+      componentCids?: string[]
+      componentNames?: string[]
+      molarMass: string
+      density: string
+      molarMassFromPubChem: boolean
+      amount: string
+      unit: "mg" | "ml" | "mol"
+    }
 
 type InlineSearchProps = {
   ingredientRole: "solvent" | "solute"
+  /** When true (non-commercial solute), collect a required amount + molar mass */
+  collectSoluteDetails?: boolean
   onSelect: (
     hit: { cid: string; title: string } | null,
-    props: { name?: string; molarMass?: number; density?: number },
+    props: SelectedProps,
   ) => void
   onCancel: () => void
 }
 
 function InlineSearch({
   ingredientRole: role,
+  collectSoluteDetails = false,
   onSelect,
   onCancel,
 }: InlineSearchProps) {
@@ -871,6 +1107,50 @@ function InlineSearch({
     doSearchWithQuery(mode.query)
   }
 
+  // For a solute, route into the confirm step (amount + molar mass) instead of
+  // committing immediately. Prefill molar mass/density from PubChem when known.
+  const goConfirm = (init: {
+    cid: string | null
+    name: string
+    type?: string
+    componentCids?: string[]
+    componentNames?: string[]
+    molarMass?: number
+    density?: number
+  }) => {
+    setMode({
+      kind: "confirm",
+      cid: init.cid,
+      name: init.name,
+      type: init.type,
+      componentCids: init.componentCids,
+      componentNames: init.componentNames,
+      molarMass: init.molarMass != null ? String(init.molarMass) : "",
+      density: init.density != null ? String(init.density) : "",
+      molarMassFromPubChem: init.molarMass != null,
+      amount: "",
+      unit: "mg",
+    })
+  }
+
+  const commitSelection = (
+    hit: { cid: string; title: string } | null,
+    props: SelectedProps,
+  ) => {
+    if (collectSoluteDetails) {
+      goConfirm({
+        cid: hit?.cid ?? null,
+        name: props.name ?? hit?.title ?? "",
+        type: props.type,
+        componentCids: props.componentCids,
+        molarMass: props.molarMass,
+        density: props.density,
+      })
+    } else {
+      onSelect(hit, props)
+    }
+  }
+
   const handleSuggestionClick = async (
     s: (typeof PEROVSKITE_MATERIAL_SUGGESTIONS)[number],
   ) => {
@@ -882,7 +1162,10 @@ function InlineSearch({
     )
     try {
       const props = await fetchPubChemProps(s.pubchemCid)
-      onSelect({ cid: s.pubchemCid, title: s.name }, props)
+      commitSelection(
+        { cid: s.pubchemCid, title: s.name },
+        { ...props, type: s.type, componentCids: s.componentCids },
+      )
     } catch {
       doSearchWithQuery(s.searchQuery)
     }
@@ -893,20 +1176,35 @@ function InlineSearch({
     setMode({ ...mode, fetchingCid: hit.cid })
     try {
       const props = await fetchPubChemProps(hit.cid)
-      onSelect({ cid: hit.cid, title: hit.title }, props)
+      commitSelection({ cid: hit.cid, title: hit.title }, props)
     } catch {
+      if (collectSoluteDetails) {
+        goConfirm({ cid: hit.cid, name: hit.title })
+      } else {
+        setMode({
+          kind: "manual",
+          hit,
+          name: hit.title,
+          molarMass: "",
+          density: "",
+        })
+      }
+    }
+  }
+
+  const goManual = () => {
+    if (collectSoluteDetails) {
+      goConfirm({ cid: null, name: "" })
+    } else {
       setMode({
         kind: "manual",
-        hit,
-        name: hit.title,
+        hit: null,
+        name: "",
         molarMass: "",
         density: "",
       })
     }
   }
-
-  const goManual = () =>
-    setMode({ kind: "manual", hit: null, name: "", molarMass: "", density: "" })
 
   if (mode.kind === "manual") {
     return (
@@ -976,6 +1274,167 @@ function InlineSearch({
                       ? Number(mode.molarMass)
                       : undefined,
                     density: mode.density ? Number(mode.density) : undefined,
+                  },
+                )
+              }
+            >
+              Add
+            </Button>
+          </Group>
+        </Stack>
+      </Box>
+    )
+  }
+
+  if (mode.kind === "confirm") {
+    const molarMassRequired = !mode.molarMassFromPubChem
+    const molarMassMissing = molarMassRequired && !mode.molarMass.trim()
+    const amountMissing = !mode.amount.trim()
+    const canAdd =
+      mode.name.trim() !== "" && !amountMissing && !molarMassMissing
+    return (
+      <Box
+        style={{
+          background: "var(--mantine-color-gray-0)",
+          border: "1px solid var(--mantine-color-gray-3)",
+          borderRadius: 8,
+          padding: "10px 12px",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Text size="xs" c="dimmed" mb="xs">
+          {mode.cid ? (
+            <>
+              Add <b>{mode.name}</b>
+              {mode.type ? ` (${mode.type})` : ""} — set the amount to use.
+            </>
+          ) : (
+            <>Add custom solute — provide amount and molar mass.</>
+          )}
+        </Text>
+        <Stack gap="xs">
+          <TextInput
+            size="xs"
+            label="Name"
+            withAsterisk
+            value={mode.name}
+            onChange={(e) => setMode({ ...mode, name: e.currentTarget.value })}
+          />
+          <TextInput
+            size="xs"
+            label="Mixture component CIDs (optional)"
+            description="Comma-separated PubChem CIDs for a mixture, e.g. PEDOT:PSS"
+            placeholder="e.g. 61109, 74722"
+            value={(mode.componentCids ?? []).join(", ")}
+            onChange={(e) =>
+              setMode({
+                ...mode,
+                componentCids: e.currentTarget.value
+                  .split(",")
+                  .map((c) => c.trim())
+                  .filter((c) => c !== ""),
+              })
+            }
+          />
+          <Group justify="flex-end">
+            <Button
+              size="xs"
+              variant="subtle"
+              disabled={(mode.componentCids ?? []).length === 0}
+              onClick={async () => {
+                const cids = mode.componentCids ?? []
+                const names = await Promise.all(
+                  cids.map((c) => fetchPubChemTitle(c)),
+                )
+                setMode((prev) =>
+                  prev.kind === "confirm"
+                    ? { ...prev, componentNames: names }
+                    : prev,
+                )
+              }}
+            >
+              Pull component names
+            </Button>
+          </Group>
+          {mode.componentNames && mode.componentNames.length > 0 && (
+            <Text size="xs" c="dimmed">
+              Components: {mode.componentNames.join(", ")}
+            </Text>
+          )}
+          <Group gap="xs" wrap="nowrap" align="flex-end">
+            <NumberInput
+              size="xs"
+              label="Amount"
+              withAsterisk
+              placeholder="0"
+              value={mode.amount !== "" ? Number(mode.amount) : ""}
+              onChange={(v) =>
+                setMode({ ...mode, amount: v !== "" ? String(v) : "" })
+              }
+              min={0}
+              error={amountMissing ? "Required" : undefined}
+              style={{ flex: 1 }}
+            />
+            <NativeSelect
+              size="xs"
+              label="Unit"
+              value={mode.unit}
+              onChange={(e) =>
+                setMode({
+                  ...mode,
+                  unit: e.currentTarget.value as "mg" | "ml" | "mol",
+                })
+              }
+              data={SOLUTE_UNITS as unknown as string[]}
+              style={{ width: 72 }}
+            />
+          </Group>
+          <Group gap="xs" wrap="nowrap">
+            <NumberInput
+              size="xs"
+              label="Molar mass (g/mol)"
+              withAsterisk={molarMassRequired}
+              placeholder={mode.molarMassFromPubChem ? "" : "e.g. 461.0"}
+              value={mode.molarMass !== "" ? Number(mode.molarMass) : ""}
+              onChange={(v) =>
+                setMode({ ...mode, molarMass: v !== "" ? String(v) : "" })
+              }
+              min={0}
+              error={molarMassMissing ? "Required (not on PubChem)" : undefined}
+              style={{ flex: 1 }}
+            />
+            <NumberInput
+              size="xs"
+              label="Density (g/mL)"
+              placeholder="optional"
+              value={mode.density !== "" ? Number(mode.density) : ""}
+              onChange={(v) =>
+                setMode({ ...mode, density: v !== "" ? String(v) : "" })
+              }
+              min={0}
+              style={{ flex: 1 }}
+            />
+          </Group>
+          <Group gap="xs" justify="flex-end">
+            <Button size="xs" variant="outline" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button
+              size="xs"
+              disabled={!canAdd}
+              onClick={() =>
+                onSelect(
+                  mode.cid ? { cid: mode.cid, title: mode.name } : null,
+                  {
+                    name: mode.name.trim() || undefined,
+                    molarMass: mode.molarMass
+                      ? Number(mode.molarMass)
+                      : undefined,
+                    density: mode.density ? Number(mode.density) : undefined,
+                    type: mode.type,
+                    componentCids: mode.componentCids,
+                    amount: mode.amount,
+                    unit: mode.unit,
                   },
                 )
               }
@@ -1237,7 +1696,7 @@ function SolutionCard({
 
   const handleSearchSelect = (
     hit: { cid: string; title: string } | null,
-    props: { name?: string; molarMass?: number; density?: number },
+    props: SelectedProps,
   ) => {
     if (!search) return
     const { role, ingredientId } = search
@@ -1255,6 +1714,7 @@ function SolutionCard({
                   ...s,
                   name: resolvedName || s.name,
                   pubchemCid: resolvedCid || s.pubchemCid,
+                  componentCids: props.componentCids ?? s.componentCids,
                   molarMass: props.molarMass ?? s.molarMass,
                   density: props.density ?? s.density,
                 }
@@ -1267,6 +1727,7 @@ function SolutionCard({
           id: crypto.randomUUID(),
           name: resolvedName,
           pubchemCid: resolvedCid,
+          componentCids: props.componentCids,
           volumeRatio: 1,
           color,
           molarMass: props.molarMass,
@@ -1283,6 +1744,7 @@ function SolutionCard({
                   ...s,
                   name: resolvedName || s.name,
                   pubchemCid: resolvedCid || s.pubchemCid,
+                  componentCids: props.componentCids ?? s.componentCids,
                   molarMass: props.molarMass ?? s.molarMass,
                   density: props.density ?? s.density,
                 }
@@ -1295,13 +1757,22 @@ function SolutionCard({
           id: crypto.randomUUID(),
           name: resolvedName,
           pubchemCid: resolvedCid,
-          amount: "",
-          unit: "mg",
+          componentCids: props.componentCids,
+          amount: props.amount ?? "",
+          unit: props.unit ?? "mg",
           color,
           molarMass: props.molarMass,
           density: props.density,
         }
-        update({ solutes: [...recipe.solutes, newSolute] })
+        // Adopt the suggestion's type as the solution's type when unset
+        // (skip pure solvents — they don't define the solution's type).
+        const patch: Partial<ProcessSolutionRecipe> = {
+          solutes: [...recipe.solutes, newSolute],
+        }
+        if (props.type && !recipe.type && props.type !== "solvent") {
+          patch.type = props.type
+        }
+        update(patch)
         setNewSoluteId(newSolute.id)
       }
     }
@@ -2031,6 +2502,9 @@ function SolutionCard({
                     <Box mt={6}>
                       <InlineSearch
                         ingredientRole="solute"
+                        collectSoluteDetails={
+                          !recipe.isCommercial && !search.ingredientId
+                        }
                         onSelect={handleSearchSelect}
                         onCancel={() => setSearch(null)}
                       />
@@ -2267,10 +2741,11 @@ export function ChemistryTab({
   const updateRecipes = (updated: ProcessSolutionRecipe[]) =>
     onUpdateProcess({ ...process, solutionRecipes: updated })
 
-  const addRecipe = () => {
+  const addRecipe = (type?: string) => {
     const r: ProcessSolutionRecipe = {
       id: crypto.randomUUID(),
       name: "",
+      type: type || undefined,
       totalSolventVolumeMl: "1",
       solvents: [],
       solutes: [],
@@ -2279,10 +2754,11 @@ export function ChemistryTab({
     setExpandedId(r.id)
   }
 
-  const addCommercialRecipe = () => {
+  const addCommercialRecipe = (type?: string) => {
     const r: ProcessSolutionRecipe = {
       id: crypto.randomUUID(),
       name: "",
+      type: type || undefined,
       isCommercial: true,
       totalSolventVolumeMl: "1",
       solvents: [],
@@ -2494,17 +2970,12 @@ export function ChemistryTab({
             solutes, and volumes.
           </Text>
           <Group gap="sm" justify="center" wrap="wrap">
-            <Button leftSection={<IconPlus size={16} />} onClick={addRecipe}>
-              Custom Solution
-            </Button>
-            <Button
-              leftSection={<IconPlus size={16} />}
-              variant="light"
+            <AddSolutionMenu label="Custom Solution" onAdd={addRecipe} />
+            <AddSolutionMenu
+              label="Commercial Solution"
               color="violet"
-              onClick={addCommercialRecipe}
-            >
-              Commercial Solution
-            </Button>
+              onAdd={addCommercialRecipe}
+            />
             {collectionOptions.length > 0 && (
               <Button
                 leftSection={<IconPlus size={16} />}
@@ -2539,23 +3010,12 @@ export function ChemistryTab({
       ))}
       <Divider />
       <Group wrap="wrap">
-        <Button
-          size="xs"
-          variant="subtle"
-          leftSection={<IconPlus size={14} />}
-          onClick={addRecipe}
-        >
-          Custom Solution
-        </Button>
-        <Button
-          size="xs"
-          variant="subtle"
+        <AddSolutionMenu label="Custom Solution" onAdd={addRecipe} />
+        <AddSolutionMenu
+          label="Commercial Solution / Dispersion"
           color="violet"
-          leftSection={<IconPlus size={14} />}
-          onClick={addCommercialRecipe}
-        >
-          Commercial Solution / Dispersion
-        </Button>
+          onAdd={addCommercialRecipe}
+        />
         <Button
           size="xs"
           variant="subtle"

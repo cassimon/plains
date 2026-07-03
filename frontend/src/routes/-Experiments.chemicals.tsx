@@ -1,12 +1,10 @@
 import {
   ActionIcon,
-  Badge,
   Box,
   Button,
   Collapse,
   Divider,
   Group,
-  Modal,
   NumberInput,
   Paper,
   Progress,
@@ -15,16 +13,10 @@ import {
   Text,
   TextInput,
   ThemeIcon,
-  Title,
 } from "@mantine/core"
-import {
-  IconCheck,
-  IconChevronDown,
-  IconChevronUp,
-  IconPackageImport,
-} from "@tabler/icons-react"
+import { IconCheck, IconChevronDown, IconChevronUp } from "@tabler/icons-react"
 import * as React from "react"
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import type {
   CanvasCollectionElement,
   Experiment,
@@ -63,13 +55,6 @@ type CandidateExp = {
   collectionId: string
   collectionName: string
   priority: 0 | 1 | 2
-}
-
-type ChemicalEntry = {
-  inventoryLabel: string
-  purity?: string
-  supplier?: string
-  productId?: string
 }
 
 // A single question in the guided flow — either assign an inventory label to a
@@ -168,7 +153,9 @@ export function computeChemsDone(
     const batch = prep?.solutionBatches?.[item.key]
     if (!batch) return false
     if (batch.mode === "take") return Boolean(batch.takenFromExpId)
-    return parseFloat(batch.totalVolumeMl ?? "0") > 0
+    return (
+      parseFloat(batch.totalVolumeMl ?? "0") > 0 && Boolean(batch.preparedAt)
+    )
   })
   return allMatsDone && allSolsDone
 }
@@ -319,26 +306,86 @@ function buildReuseSelectData(candidates: CandidateExp[], itemKey: string) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Inline quantity table with copy-to-clipboard
+// Export builder — used by the Summary step to compile chosen chemicals and
+// solution quantities into a copy-/download-able report.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ChemicalExportRow = {
+  name: string
+  inventoryLabel: string
+  purity?: string
+  supplier?: string
+  productId?: string
+  sourceRecipeName?: string
+}
+
+export type SolutionExportRow = {
+  name: string
+  mode: "make" | "take"
+  volumeMl?: string
+  preparedAt?: string
+  reusedFromName?: string
+  quantities: Array<{ name: string; amount: string; unit: string }>
+}
+
+export function buildChemicalsExport(
+  experiment: Experiment,
+  process: Process,
+  allExperiments: Experiment[] = [],
+): { materials: ChemicalExportRow[]; solutions: SolutionExportRow[] } {
+  const { materialItems, solutionItems } = collectChemicals(process)
+  const prep = experiment.chemicalsPrep ?? {}
+  const expNameById = new Map(allExperiments.map((e) => [e.id, e.name]))
+
+  const materials: ChemicalExportRow[] = materialItems.map((m) => {
+    const ovr = prep.materialOverrides?.[m.stepId] ?? {}
+    return {
+      name: m.material.name || "Unnamed",
+      inventoryLabel: ovr.inventoryLabel ?? "",
+      purity: ovr.purity,
+      supplier: ovr.supplier,
+      productId: ovr.productId,
+      sourceRecipeName: m.sourceRecipeName,
+    }
+  })
+
+  const solutions: SolutionExportRow[] = solutionItems.map((s) => {
+    const b = prep.solutionBatches?.[s.key]
+    const mode = b?.mode ?? "make"
+    const vol =
+      parseFloat(b?.totalVolumeMl ?? "") ||
+      (s.recipe ? parseFloat(s.recipe.totalSolventVolumeMl) : 0) ||
+      0
+    const quantities =
+      s.recipe && mode === "make" && vol > 0
+        ? scaleRecipeQuantities(s.recipe, vol)
+        : []
+    return {
+      name: s.label,
+      mode,
+      volumeMl: b?.totalVolumeMl,
+      preparedAt: b?.preparedAt,
+      reusedFromName:
+        mode === "take" && b?.takenFromExpId
+          ? (expNameById.get(b.takenFromExpId) ?? "another experiment")
+          : undefined,
+      quantities,
+    }
+  })
+
+  return { materials, solutions }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inline quantity table (info only — copy lives in the Summary step)
 // ─────────────────────────────────────────────────────────────────────────────
 
 function QuantityTable({
-  label,
   rows,
 }: {
-  label: string
   rows: Array<{ name: string; amount: string; unit: string }>
 }) {
-  const [copied, setCopied] = useState(false)
-
   if (rows.length === 0) return null
-
-  const copyText = () => {
-    const lines = rows.map((r) => `${r.name}: ${r.amount} ${r.unit}`)
-    navigator.clipboard.writeText([label, ...lines].join("\n"))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
 
   return (
     <Box
@@ -349,25 +396,9 @@ function QuantityTable({
         border: "1px solid var(--mantine-color-gray-2)",
       }}
     >
-      <Group gap="xs" mb={4} justify="space-between">
-        <Text size="10px" c="dimmed" tt="uppercase" fw={600}>
-          You will need
-        </Text>
-        <Button
-          size="compact-xs"
-          variant="subtle"
-          color={copied ? "teal" : "gray"}
-          leftSection={
-            <IconCheck
-              size={10}
-              style={{ display: copied ? undefined : "none" }}
-            />
-          }
-          onClick={copyText}
-        >
-          {copied ? "Copied!" : "Copy"}
-        </Button>
-      </Group>
+      <Text size="10px" c="dimmed" tt="uppercase" fw={600} mb={4}>
+        You will need
+      </Text>
       <Stack gap={2}>
         {rows.map((r, i) => (
           <Group key={i} gap="md" justify="space-between">
@@ -385,175 +416,27 @@ function QuantityTable({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Browse other planes modal
-// ─────────────────────────────────────────────────────────────────────────────
-
-function BrowsePlaneModal({
-  opened,
-  onClose,
-  planes,
-  activePlaneId,
-  allExperiments,
-  currentProcessId,
-  importedCollectionIds,
-  onImport,
-  getRelevantInfo,
-}: {
-  opened: boolean
-  onClose: () => void
-  planes: Plane[]
-  activePlaneId: string | null
-  allExperiments: Experiment[]
-  currentProcessId: string
-  importedCollectionIds: string[]
-  onImport: (collectionId: string) => void
-  getRelevantInfo: (exp: Experiment) => string | null
-}) {
-  const importedSet = new Set(importedCollectionIds)
-  const expMap = useMemo(
-    () => new Map(allExperiments.map((e) => [e.id, e])),
-    [allExperiments],
-  )
-
-  const relevantPlanes = useMemo(() => {
-    return planes
-      .filter((p) => p.id !== activePlaneId)
-      .map((plane) => {
-        const collections = plane.elements
-          .filter((el) => el.type === "collection")
-          .map((el) => {
-            const col = el as CanvasCollectionElement
-            const matchingExps = col.refs
-              .filter((r) => r.kind === "experiment")
-              .map((r) => expMap.get(r.id))
-              .filter(
-                (e): e is Experiment =>
-                  e !== undefined && e.processId === currentProcessId,
-              )
-            return { col, matchingExps }
-          })
-          .filter(({ matchingExps }) => matchingExps.length > 0)
-        return { plane, collections }
-      })
-      .filter(({ collections }) => collections.length > 0)
-  }, [planes, activePlaneId, expMap, currentProcessId])
-
-  return (
-    <Modal
-      opened={opened}
-      onClose={onClose}
-      title="Browse other planes"
-      size="lg"
-    >
-      {relevantPlanes.length === 0 ? (
-        <Text c="dimmed" size="sm" ta="center" py="xl">
-          No experiments using the same process were found on other planes.
-        </Text>
-      ) : (
-        <Stack gap="lg">
-          {relevantPlanes.map(({ plane, collections }) => (
-            <Box key={plane.id}>
-              <Title order={5} mb="xs">
-                {plane.name}
-              </Title>
-              <Stack gap="xs">
-                {collections.map(({ col, matchingExps }) => {
-                  const isImported = importedSet.has(col.id)
-                  return (
-                    <Box
-                      key={col.id}
-                      style={{
-                        border: `1px solid ${isImported ? "var(--mantine-color-teal-3)" : "var(--mantine-color-gray-3)"}`,
-                        borderRadius: 8,
-                        padding: "8px 12px",
-                        background: isImported
-                          ? "var(--mantine-color-teal-0)"
-                          : undefined,
-                      }}
-                    >
-                      <Group justify="space-between" mb={4}>
-                        <Group gap="xs">
-                          <Text size="sm" fw={600}>
-                            {col.name}
-                          </Text>
-                          {isImported && (
-                            <Badge size="xs" color="teal" variant="light">
-                              Imported
-                            </Badge>
-                          )}
-                        </Group>
-                        {!isImported && (
-                          <Button
-                            size="compact-xs"
-                            variant="light"
-                            color="teal"
-                            leftSection={<IconPackageImport size={12} />}
-                            onClick={() => onImport(col.id)}
-                          >
-                            Import
-                          </Button>
-                        )}
-                      </Group>
-                      <Stack gap={2}>
-                        {matchingExps.map((exp) => {
-                          const info = getRelevantInfo(exp)
-                          return (
-                            <Group key={exp.id} gap="xs">
-                              <Text size="xs" c="dimmed">
-                                {exp.name || "Untitled"}
-                              </Text>
-                              {exp.date && (
-                                <Text size="xs" c="dimmed">
-                                  ({exp.date})
-                                </Text>
-                              )}
-                              {info && (
-                                <Text size="xs" fw={500}>
-                                  {info}
-                                </Text>
-                              )}
-                            </Group>
-                          )
-                        })}
-                      </Stack>
-                    </Box>
-                  )
-                })}
-              </Stack>
-              <Divider mt="md" />
-            </Box>
-          ))}
-        </Stack>
-      )}
-    </Modal>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Guided query — assign an inventory label to a single chemical
 // ─────────────────────────────────────────────────────────────────────────────
 
 function MaterialQueryCard({
-  stepId,
   material,
+  sourceRecipeName,
   override,
-  knownEntries,
   positionLabel,
   canGoBack,
   onCommit,
   onDone,
   onBack,
-  onBrowse,
 }: {
-  stepId: string
   material: ProcessStepInlineMaterial
+  sourceRecipeName?: string
   override?: {
     inventoryLabel?: string
     purity?: string
     supplier?: string
     productId?: string
   }
-  knownEntries: ChemicalEntry[]
   positionLabel: string
   canGoBack: boolean
   onCommit: (patch: {
@@ -564,7 +447,6 @@ function MaterialQueryCard({
   }) => void
   onDone: () => void
   onBack: () => void
-  onBrowse: (getRelevantInfo: (exp: Experiment) => string | null) => void
 }) {
   const [label, setLabel] = useState(override?.inventoryLabel ?? "")
   const [purity, setPurity] = useState(override?.purity ?? "")
@@ -583,147 +465,134 @@ function MaterialQueryCard({
     return () => cancelAnimationFrame(t)
   }, [])
 
-  const getRelevantInfo = useCallback(
-    (exp: Experiment) =>
-      exp.chemicalsPrep?.materialOverrides?.[stepId]?.inventoryLabel ?? null,
-    [stepId],
-  )
+  const answered = label.trim().length > 0
 
-  const canContinue = label.trim().length > 0
-
-  const commitAndContinue = () => {
-    if (!canContinue) return
+  const commit = () => {
     onCommit({
       inventoryLabel: label.trim(),
       purity: purity.trim() || undefined,
       supplier: supplier.trim() || undefined,
       productId: productId.trim() || undefined,
     })
+  }
+
+  const commitAndContinue = () => {
+    if (!answered) return
+    commit()
     onDone()
   }
 
   return (
-    <Stack gap="md">
-      <Box>
-        <Text size="11px" tt="uppercase" fw={700} c="blue.6" mb={2}>
-          {positionLabel}
-        </Text>
-        <Text size="xl" fw={700}>
-          {material.name || "Unnamed chemical"}
-        </Text>
-        {material.pubchemCid && (
-          <Text size="xs" c="dimmed">
-            PubChem {material.pubchemCid}
+    <Paper
+      withBorder
+      radius="md"
+      p="lg"
+      style={{
+        borderWidth: 2,
+        borderColor: answered
+          ? "var(--mantine-color-teal-4)"
+          : "var(--mantine-color-blue-4)",
+        background: answered ? "var(--mantine-color-teal-0)" : undefined,
+        transition: "background 150ms, border-color 150ms",
+      }}
+    >
+      <Stack gap="md">
+        <Group justify="space-between" wrap="nowrap">
+          <Text
+            size="11px"
+            tt="uppercase"
+            fw={700}
+            c={answered ? "teal.7" : "blue.6"}
+          >
+            {positionLabel}
           </Text>
-        )}
-      </Box>
-
-      {knownEntries.length > 0 && (
-        <Box>
-          <Text size="xs" c="dimmed" mb={4}>
-            Previously used — click to reuse:
-          </Text>
-          <Group gap={6} wrap="wrap">
-            {knownEntries.map((entry) => (
-              <Button
-                key={entry.inventoryLabel}
-                size="compact-xs"
-                variant="light"
-                color="teal"
-                onClick={() => {
-                  setLabel(entry.inventoryLabel)
-                  setPurity(entry.purity ?? "")
-                  setSupplier(entry.supplier ?? "")
-                  setProductId(entry.productId ?? "")
-                }}
-              >
-                {entry.inventoryLabel}
-                {(entry.purity || entry.supplier) && (
-                  <Text span size="10px" c="dimmed" ml={4}>
-                    {[entry.purity, entry.supplier].filter(Boolean).join(" · ")}
-                  </Text>
-                )}
-              </Button>
-            ))}
-          </Group>
-        </Box>
-      )}
-
-      <TextInput
-        ref={inputRef}
-        label="Inventory label"
-        withAsterisk
-        size="md"
-        placeholder="e.g. PbI2-Sigma-001"
-        value={label}
-        onChange={(e) => setLabel(e.currentTarget.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commitAndContinue()
-        }}
-      />
-
-      {showDetails ? (
-        <Group gap="sm" grow>
-          <TextInput
-            size="xs"
-            label="Purity"
-            placeholder="—"
-            value={purity}
-            onChange={(e) => setPurity(e.currentTarget.value)}
-          />
-          <TextInput
-            size="xs"
-            label="Supplier"
-            placeholder="—"
-            value={supplier}
-            onChange={(e) => setSupplier(e.currentTarget.value)}
-          />
-          <TextInput
-            size="xs"
-            label="Product ID"
-            placeholder="—"
-            value={productId}
-            onChange={(e) => setProductId(e.currentTarget.value)}
-          />
+          {answered && (
+            <IconCheck size={18} color="var(--mantine-color-teal-6)" />
+          )}
         </Group>
-      ) : (
-        <Group gap="md">
+
+        <Text size="lg" fw={600}>
+          Which inventory chemical did you use for{" "}
+          <Text span fw={800}>
+            {material.name || "this chemical"}
+          </Text>
+          ?
+          {sourceRecipeName && (
+            <Text span size="sm" c="dimmed">
+              {"  "}(from {sourceRecipeName})
+            </Text>
+          )}
+        </Text>
+
+        <TextInput
+          ref={inputRef}
+          size="md"
+          placeholder="e.g. PbI2-Sigma-001"
+          value={label}
+          onChange={(e) => setLabel(e.currentTarget.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitAndContinue()
+          }}
+        />
+
+        {showDetails ? (
+          <Group gap="sm" grow>
+            <TextInput
+              size="xs"
+              label="Purity"
+              placeholder="—"
+              value={purity}
+              onChange={(e) => setPurity(e.currentTarget.value)}
+              onBlur={commit}
+            />
+            <TextInput
+              size="xs"
+              label="Supplier"
+              placeholder="—"
+              value={supplier}
+              onChange={(e) => setSupplier(e.currentTarget.value)}
+              onBlur={commit}
+            />
+            <TextInput
+              size="xs"
+              label="Product ID"
+              placeholder="—"
+              value={productId}
+              onChange={(e) => setProductId(e.currentTarget.value)}
+              onBlur={commit}
+            />
+          </Group>
+        ) : (
           <Button
             size="compact-xs"
             variant="subtle"
             color="gray"
+            style={{ alignSelf: "flex-start" }}
             onClick={() => setShowDetails(true)}
           >
             + Add purity, supplier, product ID
           </Button>
+        )}
+
+        <Group justify="space-between" mt="xs">
+          {canGoBack ? (
+            <Button variant="subtle" color="gray" onClick={onBack}>
+              ← Back
+            </Button>
+          ) : (
+            <span />
+          )}
           <Button
-            size="compact-xs"
-            variant="subtle"
-            color="blue"
-            onClick={() => onBrowse(getRelevantInfo)}
+            color={answered ? "teal" : "blue"}
+            disabled={!answered}
+            onClick={commitAndContinue}
           >
-            Browse other experiments
+            Confirm &amp; continue
           </Button>
         </Group>
-      )}
-
-      <Group justify="space-between" mt="xs">
-        {canGoBack ? (
-          <Button variant="subtle" color="gray" onClick={onBack}>
-            ← Back
-          </Button>
-        ) : (
-          <span />
-        )}
-        <Button
-          color="blue"
-          disabled={!canContinue}
-          onClick={commitAndContinue}
-        >
-          Confirm &amp; continue
-        </Button>
-      </Group>
-    </Stack>
+      </Stack>
+    </Paper>
   )
 }
 
@@ -736,21 +605,21 @@ function SolutionQueryCard({
   batch,
   candidates,
   positionLabel,
+  defaultPreparedAt,
   canGoBack,
   onCommit,
   onDone,
   onBack,
-  onBrowse,
 }: {
   item: SolutionItem
   batch?: ExperimentSolutionBatch
   candidates: CandidateExp[]
   positionLabel: string
+  defaultPreparedAt: string
   canGoBack: boolean
   onCommit: (patch: Partial<ExperimentSolutionBatch>) => void
   onDone: () => void
   onBack: () => void
-  onBrowse: (getRelevantInfo: (exp: Experiment) => string | null) => void
 }) {
   const asSpecifiedVol = item.recipe
     ? item.recipe.totalSolventVolumeMl
@@ -758,20 +627,34 @@ function SolutionQueryCard({
   const defaultVolMl =
     asSpecifiedVol && parseFloat(asSpecifiedVol) > 0 ? asSpecifiedVol : "1"
 
-  const [mode, setMode] = useState<"make" | "take">(batch?.mode ?? "make")
+  // The user first chooses a method (Make fresh / Reuse). An existing batch
+  // means the method was already picked, so jump straight to its detail view.
+  const [choice, setChoice] = useState<"make" | "take" | null>(
+    batch ? batch.mode : null,
+  )
   const [volume, setVolume] = useState<string>(
     batch?.totalVolumeMl && parseFloat(batch.totalVolumeMl) > 0
       ? batch.totalVolumeMl
       : defaultVolMl,
   )
+  const [preparedAt, setPreparedAt] = useState<string>(
+    batch?.preparedAt ?? defaultPreparedAt ?? "",
+  )
   const [sourceExpId, setSourceExpId] = useState<string | null>(
     batch?.takenFromExpId ?? null,
   )
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  React.useEffect(() => {
+    if (choice !== "make") return
+    const t = requestAnimationFrame(() => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    })
+    return () => cancelAnimationFrame(t)
+  }, [choice])
 
   const volumeNum = parseFloat(volume) || 0
-  const isAtSpecified =
-    asSpecifiedVol !== undefined &&
-    Math.abs(volumeNum - (parseFloat(asSpecifiedVol) || 0)) < 0.001
 
   const quantityRows = useMemo(() => {
     if (item.recipe) {
@@ -790,26 +673,56 @@ function SolutionQueryCard({
   )
   const hasPriorBatches = selectData.some((g) => g.items.length > 0)
 
-  const getRelevantInfo = useCallback(
-    (exp: Experiment) => {
-      const b = exp.chemicalsPrep?.solutionBatches?.[item.key]
-      if (b?.mode !== "make") return null
-      return b.totalVolumeMl ? `${b.totalVolumeMl} mL` : null
-    },
-    [item.key],
-  )
+  const answered =
+    choice === "make"
+      ? volumeNum > 0 && preparedAt !== ""
+      : choice === "take"
+        ? Boolean(sourceExpId)
+        : false
 
-  const canContinue = mode === "make" ? volumeNum > 0 : Boolean(sourceExpId)
+  const commitMake = (v: number, at: string) => {
+    onCommit({
+      mode: "make",
+      totalVolumeMl: String(v),
+      preparedAt: at || undefined,
+      takenFromExpId: undefined,
+      takenFromBatchId: undefined,
+    })
+  }
+
+  const pickMake = () => {
+    setChoice("make")
+    commitMake(volumeNum, preparedAt)
+  }
+
+  const pickTake = () => {
+    setChoice("take")
+    if (sourceExpId)
+      onCommit({
+        mode: "take",
+        takenFromExpId: sourceExpId,
+        takenFromBatchId: item.key,
+      })
+  }
+
+  // Changing the amount or time just records it and keeps the field green —
+  // it does not advance to the next question.
+  const handleVolume = (raw: number | string) => {
+    const s = raw !== "" ? String(raw) : "0"
+    setVolume(s)
+    const n = parseFloat(s) || 0
+    if (n > 0) commitMake(n, preparedAt)
+  }
+
+  const handlePreparedAt = (value: string) => {
+    setPreparedAt(value)
+    if (volumeNum > 0) commitMake(volumeNum, value)
+  }
 
   const commitAndContinue = () => {
-    if (!canContinue) return
-    if (mode === "make") {
-      onCommit({
-        mode: "make",
-        totalVolumeMl: String(volumeNum),
-        takenFromExpId: undefined,
-        takenFromBatchId: undefined,
-      })
+    if (!answered) return
+    if (choice === "make") {
+      commitMake(volumeNum, preparedAt)
     } else {
       onCommit({
         mode: "take",
@@ -821,122 +734,157 @@ function SolutionQueryCard({
   }
 
   return (
-    <Stack gap="md">
-      <Box>
-        <Text size="11px" tt="uppercase" fw={700} c="blue.6" mb={2}>
-          {positionLabel}
-        </Text>
-        <Text size="xl" fw={700}>
-          {item.label}
-        </Text>
-        <Text size="xs" c="dimmed">
-          Chemistry recipe
-        </Text>
-      </Box>
-
-      {mode === "make" ? (
-        <>
-          <Text size="sm" fw={600}>
-            How much are you making?
-          </Text>
-          <Group gap="sm" align="flex-end">
-            <NumberInput
-              size="md"
-              label="Quantity (mL)"
-              min={0}
-              step={0.5}
-              value={volumeNum || ""}
-              onChange={(v) => setVolume(v !== "" ? String(v) : "0")}
-              style={{ width: 160 }}
-            />
-            {asSpecifiedVol && (
-              <Button
-                size="compact-sm"
-                variant={isAtSpecified ? "filled" : "light"}
-                color="teal"
-                style={{ marginBottom: 4 }}
-                onClick={() => setVolume(asSpecifiedVol)}
-              >
-                As specified ({asSpecifiedVol} mL)
-              </Button>
-            )}
-          </Group>
-          <QuantityTable
-            label={
-              volumeNum > 0 ? `${item.label} (${volumeNum} mL)` : item.label
-            }
-            rows={quantityRows}
-          />
-          <Button
-            size="compact-xs"
-            variant="subtle"
-            color="blue"
-            style={{ alignSelf: "flex-start" }}
-            onClick={() => setMode("take")}
+    <Paper
+      withBorder
+      radius="md"
+      p="lg"
+      style={{
+        borderWidth: 2,
+        borderColor: answered
+          ? "var(--mantine-color-teal-4)"
+          : "var(--mantine-color-blue-4)",
+        background: answered ? "var(--mantine-color-teal-0)" : undefined,
+        transition: "background 150ms, border-color 150ms",
+      }}
+    >
+      <Stack gap="md">
+        <Group justify="space-between" wrap="nowrap">
+          <Text
+            size="11px"
+            tt="uppercase"
+            fw={700}
+            c={answered ? "teal.7" : "blue.6"}
           >
-            Reuse from another experiment instead
-          </Button>
-        </>
-      ) : (
-        <>
-          <Text size="sm" fw={600}>
-            Reuse a batch from another experiment
+            {positionLabel}
           </Text>
-          <Group gap="xs" align="flex-end">
+          {answered && (
+            <IconCheck size={18} color="var(--mantine-color-teal-6)" />
+          )}
+        </Group>
+
+        {choice === null ? (
+          <>
+            <Text size="lg" fw={600}>
+              How are you preparing{" "}
+              <Text span fw={800}>
+                {item.label}
+              </Text>
+              ?
+            </Text>
+            <Group gap="sm">
+              <Button size="md" color="teal" onClick={pickMake}>
+                Make fresh
+              </Button>
+              <Button size="md" variant="light" color="blue" onClick={pickTake}>
+                Reuse
+              </Button>
+            </Group>
+          </>
+        ) : choice === "make" ? (
+          <>
+            <Text size="lg" fw={600}>
+              How much{" "}
+              <Text span fw={800}>
+                {item.label}
+              </Text>{" "}
+              are you making, and when?
+            </Text>
+            <Group gap="md" align="flex-end" wrap="wrap">
+              <NumberInput
+                ref={inputRef}
+                size="md"
+                label="Amount"
+                suffix=" mL"
+                min={0}
+                step={0.5}
+                value={volumeNum || ""}
+                onChange={handleVolume}
+                style={{ width: 180 }}
+              />
+              <TextInput
+                size="md"
+                type="datetime-local"
+                label="Prepared at"
+                withAsterisk
+                value={preparedAt}
+                onChange={(e) => handlePreparedAt(e.currentTarget.value)}
+                style={{ width: 240 }}
+              />
+            </Group>
+            <QuantityTable rows={quantityRows} />
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="gray"
+              style={{ alignSelf: "flex-start" }}
+              onClick={() => setChoice(null)}
+            >
+              ← Change method
+            </Button>
+          </>
+        ) : (
+          <>
+            <Text size="lg" fw={600}>
+              Which experiment's batch of{" "}
+              <Text span fw={800}>
+                {item.label}
+              </Text>{" "}
+              are you reusing?
+            </Text>
             <Select
               size="md"
-              label="Source experiment"
               placeholder={
                 hasPriorBatches
                   ? "Select experiment..."
                   : "No prior batches found"
               }
-              style={{ flex: 1, minWidth: 260 }}
+              style={{ maxWidth: 420 }}
               disabled={!hasPriorBatches}
               data={selectData}
               value={sourceExpId}
-              onChange={setSourceExpId}
+              onChange={(v) => {
+                setSourceExpId(v)
+                if (v)
+                  onCommit({
+                    mode: "take",
+                    takenFromExpId: v,
+                    takenFromBatchId: item.key,
+                  })
+              }}
               clearable
             />
             <Button
               size="compact-xs"
               variant="subtle"
-              color="blue"
-              style={{ marginBottom: 6 }}
-              onClick={() => onBrowse(getRelevantInfo)}
+              color="gray"
+              style={{ alignSelf: "flex-start" }}
+              onClick={() => setChoice(null)}
             >
-              Browse
+              ← Change method
             </Button>
-          </Group>
-          <Button
-            size="compact-xs"
-            variant="subtle"
-            color="teal"
-            style={{ alignSelf: "flex-start" }}
-            onClick={() => setMode("make")}
-          >
-            Make a fresh batch instead
-          </Button>
-        </>
-      )}
-
-      <Group justify="space-between" mt="xs">
-        {canGoBack ? (
-          <Button variant="subtle" color="gray" onClick={onBack}>
-            ← Back
-          </Button>
-        ) : (
-          <span />
+          </>
         )}
-        <Button
-          color="blue"
-          disabled={!canContinue}
-          onClick={commitAndContinue}
-        >
-          Confirm &amp; continue
-        </Button>
-      </Group>
-    </Stack>
+
+        <Group justify="space-between" mt="xs">
+          {canGoBack ? (
+            <Button variant="subtle" color="gray" onClick={onBack}>
+              ← Back
+            </Button>
+          ) : (
+            <span />
+          )}
+          {choice !== null && (
+            <Button
+              color={answered ? "teal" : "blue"}
+              disabled={!answered}
+              onClick={commitAndContinue}
+            >
+              Confirm &amp; continue
+            </Button>
+          )}
+        </Group>
+      </Stack>
+    </Paper>
   )
 }
 
@@ -1060,53 +1008,14 @@ export function ChemicalsTab({
     ],
   )
 
-  // Build CID → known inventory entries map from same-process candidate experiments
-  const cidToEntries = useMemo(() => {
-    const stepToCid = new Map(
-      materialItems
-        .filter((m) => m.material.pubchemCid)
-        .map((m) => [m.stepId, m.material.pubchemCid!]),
-    )
-    const map = new Map<string, ChemicalEntry[]>()
-    for (const c of candidates) {
-      const overrides = c.exp.chemicalsPrep?.materialOverrides ?? {}
-      for (const [sid, ovr] of Object.entries(overrides)) {
-        if (!ovr.inventoryLabel) continue
-        const cid = stepToCid.get(sid)
-        if (!cid) continue
-        if (!map.has(cid)) map.set(cid, [])
-        const entries = map.get(cid)!
-        const isDupe = entries.some(
-          (e) =>
-            e.inventoryLabel === ovr.inventoryLabel && e.purity === ovr.purity,
-        )
-        if (!isDupe) {
-          entries.push({
-            inventoryLabel: ovr.inventoryLabel,
-            purity: ovr.purity,
-            supplier: ovr.supplier,
-            productId: ovr.productId,
-          })
-        }
-      }
-    }
-    return map
-  }, [materialItems, candidates])
-
-  const anyMakeFresh = solutionItems.some(
-    (item) => prep.solutionBatches?.[item.key]?.mode === "make",
-  )
-
-  const [browseInfo, setBrowseInfo] = useState<{
-    getRelevantInfo: (exp: Experiment) => string | null
-  } | null>(null)
-
-  const handleBrowse = useCallback(
-    (getRelevantInfo: (exp: Experiment) => string | null) => {
-      setBrowseInfo({ getRelevantInfo })
-    },
-    [],
-  )
+  // Default the "prepared at" datetime of the next solution to the most recent
+  // one the user has already entered (batches are usually prepared together).
+  const preparedAtValues = solutionItems
+    .map((item) => prep.solutionBatches?.[item.key]?.preparedAt)
+    .filter((v): v is string => Boolean(v))
+    .sort()
+  const defaultPreparedAt =
+    preparedAtValues[preparedAtValues.length - 1] ?? prep.prepTime ?? ""
 
   const updatePrep = (patch: Partial<ExperimentChemicalsPrep>) => {
     onUpdate({ ...experiment, chemicalsPrep: { ...prep, ...patch } })
@@ -1143,13 +1052,6 @@ export function ChemicalsTab({
     })
   }
 
-  const handleImportCollection = (collectionId: string) => {
-    const current = prep.importedCollectionIds ?? []
-    if (!current.includes(collectionId)) {
-      updatePrep({ importedCollectionIds: [...current, collectionId] })
-    }
-  }
-
   // ── Guided-flow queue ──────────────────────────────────────────────────────
   const queue = useMemo<QueueItem[]>(() => {
     const q: QueueItem[] = []
@@ -1175,13 +1077,14 @@ export function ChemicalsTab({
     const b = prep.solutionBatches?.[qi.item.key]
     if (!b) return false
     if (b.mode === "take") return Boolean(b.takenFromExpId)
-    return parseFloat(b.totalVolumeMl ?? "0") > 0
+    return parseFloat(b.totalVolumeMl ?? "0") > 0 && Boolean(b.preparedAt)
   }
 
   const doneCount = queue.filter(isDone).length
   const total = queue.length
   const allComplete = total > 0 && doneCount === total
   const firstIncomplete = queue.findIndex((qi) => !isDone(qi))
+  const materialCount = materialItems.length
 
   // `manualIndex` lets the user step back or jump to an already-answered item
   // via the summary's Edit buttons. When null, the flow shows the first
@@ -1212,24 +1115,6 @@ export function ChemicalsTab({
 
   return (
     <Stack gap="md">
-      {/* Shared browse modal */}
-      {browseInfo && (
-        <BrowsePlaneModal
-          opened={true}
-          onClose={() => setBrowseInfo(null)}
-          planes={planes}
-          activePlaneId={activePlaneId}
-          allExperiments={allExperiments}
-          currentProcessId={process.id}
-          importedCollectionIds={importedCollectionIds}
-          onImport={(collId) => {
-            handleImportCollection(collId)
-            setBrowseInfo(null)
-          }}
-          getRelevantInfo={browseInfo.getRelevantInfo}
-        />
-      )}
-
       {/* Top: collapsible "Chemicals" overview */}
       <Paper
         withBorder
@@ -1323,23 +1208,9 @@ export function ChemicalsTab({
 
             {solutionItems.length > 0 && (
               <Box>
-                <Group justify="space-between" mb="xs" align="flex-end">
-                  <Text size="xs" fw={700} tt="uppercase" c="dimmed">
-                    Solutions &amp; recipes
-                  </Text>
-                  {anyMakeFresh && (
-                    <TextInput
-                      type="datetime-local"
-                      size="xs"
-                      label="Solutions prepared at"
-                      value={prep.prepTime ?? ""}
-                      onChange={(e) =>
-                        updatePrep({ prepTime: e.currentTarget.value })
-                      }
-                      style={{ width: 220 }}
-                    />
-                  )}
-                </Group>
+                <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">
+                  Solutions &amp; recipes
+                </Text>
                 <Stack gap={4}>
                   {queue.map((qi, idx) =>
                     qi.kind === "solution" ? (
@@ -1365,52 +1236,37 @@ export function ChemicalsTab({
       {displayIndex !== null &&
         (() => {
           const qi = queue[displayIndex]
-          const prefix = manualIndex !== null ? "Editing" : "Next"
-          const kindWord = qi.kind === "material" ? "chemical" : "solution"
-          const positionLabel = `${prefix} ${kindWord} · ${displayIndex + 1} of ${total}`
+          if (qi.kind === "material") {
+            const positionLabel = `Chemical ${displayIndex + 1} of ${materialCount}`
+            return (
+              <MaterialQueryCard
+                key={qi.key}
+                material={qi.material}
+                sourceRecipeName={qi.sourceRecipeName}
+                override={prep.materialOverrides?.[qi.stepId]}
+                positionLabel={positionLabel}
+                canGoBack={displayIndex > 0}
+                onCommit={(patch) => updateMaterialOverride(qi.stepId, patch)}
+                onDone={() => setManualIndex(null)}
+                onBack={() => setManualIndex(displayIndex - 1)}
+              />
+            )
+          }
+          const solPos = displayIndex - materialCount + 1
+          const positionLabel = `Solution ${solPos} of ${solutionItems.length}`
           return (
-            <Paper
-              withBorder
-              radius="md"
-              p="lg"
-              style={{
-                borderColor: "var(--mantine-color-blue-4)",
-                borderWidth: 2,
-              }}
-            >
-              {qi.kind === "material" ? (
-                <MaterialQueryCard
-                  key={qi.key}
-                  stepId={qi.stepId}
-                  material={qi.material}
-                  override={prep.materialOverrides?.[qi.stepId]}
-                  knownEntries={
-                    qi.material.pubchemCid
-                      ? (cidToEntries.get(qi.material.pubchemCid) ?? [])
-                      : []
-                  }
-                  positionLabel={positionLabel}
-                  canGoBack={displayIndex > 0}
-                  onCommit={(patch) => updateMaterialOverride(qi.stepId, patch)}
-                  onDone={() => setManualIndex(null)}
-                  onBack={() => setManualIndex(displayIndex - 1)}
-                  onBrowse={handleBrowse}
-                />
-              ) : (
-                <SolutionQueryCard
-                  key={qi.key}
-                  item={qi.item}
-                  batch={prep.solutionBatches?.[qi.item.key]}
-                  candidates={candidates}
-                  positionLabel={positionLabel}
-                  canGoBack={displayIndex > 0}
-                  onCommit={(patch) => updateSolutionBatch(qi.item.key, patch)}
-                  onDone={() => setManualIndex(null)}
-                  onBack={() => setManualIndex(displayIndex - 1)}
-                  onBrowse={handleBrowse}
-                />
-              )}
-            </Paper>
+            <SolutionQueryCard
+              key={qi.key}
+              item={qi.item}
+              batch={prep.solutionBatches?.[qi.item.key]}
+              candidates={candidates}
+              positionLabel={positionLabel}
+              defaultPreparedAt={defaultPreparedAt}
+              canGoBack={displayIndex > 0}
+              onCommit={(patch) => updateSolutionBatch(qi.item.key, patch)}
+              onDone={() => setManualIndex(null)}
+              onBack={() => setManualIndex(displayIndex - 1)}
+            />
           )
         })()}
     </Stack>

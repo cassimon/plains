@@ -14,6 +14,7 @@ import {
   SimpleGrid,
   Stack,
   Text,
+  Textarea,
   TextInput,
   Tooltip,
 } from "@mantine/core"
@@ -41,13 +42,11 @@ import {
   type ProcessParameterKey,
   type ProcessSolutionRecipe,
   type ProcessStep,
-  type Substrate,
-  type SubstrateOutcome,
-  type SubstrateOutcomeStatus,
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
 import {
+  buildChemicalsExport,
   ChemicalsTab,
   collectChemicals,
   computeChemsDone,
@@ -1620,12 +1619,12 @@ function ExperimentGrid({
 // Three-Step Timeline Header
 // ─────────────────────────────────────────────────────────────────────────────
 
-type ExpTab = "chemicals" | "processing" | "outcomes"
+type ExpTab = "chemicals" | "processing" | "summary"
 
 const EXP_STEPS: Array<{ id: ExpTab; label: string; sublabel: string }> = [
   { id: "chemicals", label: "Step 1", sublabel: "Chemicals" },
   { id: "processing", label: "Step 2", sublabel: "Processing" },
-  { id: "outcomes", label: "Step 3", sublabel: "Outcomes" },
+  { id: "summary", label: "Step 3", sublabel: "Summary" },
 ]
 
 function ExperimentTimeline({
@@ -1633,18 +1632,18 @@ function ExperimentTimeline({
   onSetTab,
   chemicalsDone,
   processingDone,
-  devicesDone,
+  summaryDone,
 }: {
   activeTab: ExpTab
   onSetTab: (tab: ExpTab) => void
   chemicalsDone: boolean
   processingDone: boolean
-  devicesDone: boolean
+  summaryDone: boolean
 }) {
   const done: Record<ExpTab, boolean> = {
     chemicals: chemicalsDone,
     processing: processingDone,
-    outcomes: devicesDone,
+    summary: summaryDone,
   }
   return (
     <Group gap={0} align="center" mb="lg" wrap="nowrap">
@@ -1724,221 +1723,325 @@ function ExperimentTimeline({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Devices Tab
+// Summary Tab (experiment metadata + export)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Outcomes Tab
-// ─────────────────────────────────────────────────────────────────────────────
-
-const STATUS_META: Record<
-  SubstrateOutcomeStatus,
-  { label: string; color: string; bg: string; border: string }
-> = {
-  complete: {
-    label: "Complete",
-    color: "teal",
-    bg: "var(--mantine-color-teal-0)",
-    border: "var(--mantine-color-teal-3)",
-  },
-  incomplete: {
-    label: "Incomplete",
-    color: "orange",
-    bg: "var(--mantine-color-orange-0)",
-    border: "var(--mantine-color-orange-3)",
-  },
-  discarded: {
-    label: "Discarded",
-    color: "red",
-    bg: "var(--mantine-color-red-0)",
-    border: "var(--mantine-color-red-3)",
-  },
-}
-
-function SubstrateOutcomeRow({
-  substrate,
-  stageOptions,
-  onUpdate,
-}: {
-  substrate: Substrate
-  stageOptions: Array<{ value: string; label: string }>
-  onUpdate: (outcome: SubstrateOutcome | undefined) => void
-}) {
-  const status = substrate.outcome?.status
-  const meta = status ? STATUS_META[status] : null
-
-  const toggleStatus = (s: SubstrateOutcomeStatus) => {
-    if (status === s) {
-      onUpdate(undefined)
-    } else {
-      onUpdate({ ...(substrate.outcome ?? {}), status: s })
+function buildExportText(
+  experiment: Experiment,
+  process: Process,
+  allExperiments: Experiment[],
+): string {
+  const { materials, solutions } = buildChemicalsExport(
+    experiment,
+    process,
+    allExperiments,
+  )
+  const lines: string[] = []
+  lines.push(`Experiment: ${experiment.name || "Untitled"}`)
+  lines.push(`Process: ${process.name}`)
+  if (experiment.date) lines.push(`Start date: ${experiment.date}`)
+  if (experiment.endDate) lines.push(`End date: ${experiment.endDate}`)
+  if (experiment.description) lines.push(`Intent: ${experiment.description}`)
+  lines.push("")
+  lines.push("CHEMICALS")
+  if (materials.length === 0) {
+    lines.push("  (none)")
+  } else {
+    for (const m of materials) {
+      const extra = [m.purity, m.supplier, m.productId]
+        .filter(Boolean)
+        .join(", ")
+      const src = m.sourceRecipeName ? ` [from ${m.sourceRecipeName}]` : ""
+      lines.push(
+        `  ${m.name}${src}: ${m.inventoryLabel || "—"}${extra ? ` (${extra})` : ""}`,
+      )
     }
   }
-
-  return (
-    <Box
-      style={{
-        background: meta?.bg ?? undefined,
-        border: meta
-          ? `1px solid ${meta.border}`
-          : "1px solid var(--mantine-color-gray-2)",
-        borderRadius: 8,
-        padding: "8px 12px",
-        transition: "background 150ms, border 150ms",
-      }}
-    >
-      <Group gap="sm" wrap="nowrap" align="center">
-        {/* Name */}
-        <Text
-          size="sm"
-          fw={600}
-          style={{
-            minWidth: 120,
-            flex: "0 0 120px",
-            textDecoration: status === "discarded" ? "line-through" : undefined,
-            color: meta ? `var(--mantine-color-${meta.color}-7)` : undefined,
-          }}
-        >
-          {substrate.name}
-        </Text>
-
-        {/* Status buttons */}
-        <Group gap={4} wrap="nowrap">
-          {(
-            ["complete", "incomplete", "discarded"] as SubstrateOutcomeStatus[]
-          ).map((s) => (
-            <Button
-              key={s}
-              size="compact-xs"
-              variant={status === s ? "filled" : "light"}
-              color={STATUS_META[s].color}
-              onClick={() => toggleStatus(s)}
-            >
-              {STATUS_META[s].label}
-            </Button>
-          ))}
-        </Group>
-
-        {/* Conditional extras */}
-        {status === "incomplete" && stageOptions.length > 0 && (
-          <Select
-            size="xs"
-            placeholder="Stopped at step…"
-            data={stageOptions}
-            value={substrate.outcome?.stoppedAtStep ?? null}
-            onChange={(v) =>
-              onUpdate({
-                ...substrate.outcome!,
-                stoppedAtStep: v ?? undefined,
-              })
-            }
-            clearable
-            style={{ minWidth: 220, flex: 1 }}
-          />
-        )}
-        {status === "discarded" && (
-          <TextInput
-            size="xs"
-            placeholder="Reason (optional)"
-            value={substrate.outcome?.discardReason ?? ""}
-            onChange={(e) =>
-              onUpdate({
-                ...substrate.outcome!,
-                discardReason: e.currentTarget.value,
-              })
-            }
-            style={{ flex: 1 }}
-          />
-        )}
-      </Group>
-    </Box>
-  )
+  lines.push("")
+  lines.push("SOLUTIONS")
+  if (solutions.length === 0) {
+    lines.push("  (none)")
+  } else {
+    for (const s of solutions) {
+      if (s.mode === "take") {
+        lines.push(
+          `  ${s.name}: reused from ${s.reusedFromName ?? "another experiment"}`,
+        )
+      } else {
+        const at = s.preparedAt ? `, prepared ${s.preparedAt}` : ""
+        lines.push(
+          `  ${s.name}${s.volumeMl ? ` (${s.volumeMl} mL)` : ""}${at}:`,
+        )
+        for (const q of s.quantities) {
+          lines.push(`    - ${q.name}: ${q.amount} ${q.unit}`)
+        }
+      }
+    }
+  }
+  return lines.join("\n")
 }
 
-function OutcomesTab({
+function buildExportCsv(
+  experiment: Experiment,
+  process: Process,
+  allExperiments: Experiment[],
+): string {
+  const { materials, solutions } = buildChemicalsExport(
+    experiment,
+    process,
+    allExperiments,
+  )
+  const rows: string[][] = [["Type", "Name", "Detail", "Amount", "Unit"]]
+  for (const m of materials) {
+    const extra = [m.purity, m.supplier, m.productId].filter(Boolean).join(", ")
+    rows.push(["Chemical", m.name, m.inventoryLabel || "", extra, ""])
+  }
+  for (const s of solutions) {
+    if (s.mode === "take") {
+      rows.push([
+        "Solution",
+        s.name,
+        `reused from ${s.reusedFromName ?? "another experiment"}`,
+        "",
+        "",
+      ])
+    } else {
+      rows.push([
+        "Solution",
+        s.name,
+        s.preparedAt ? `prepared ${s.preparedAt}` : "total",
+        s.volumeMl ?? "",
+        "mL",
+      ])
+      for (const q of s.quantities) {
+        rows.push([
+          "Solution ingredient",
+          `${s.name} — ${q.name}`,
+          "",
+          q.amount,
+          q.unit,
+        ])
+      }
+    }
+  }
+  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
+  return rows.map((r) => r.map(esc).join(",")).join("\n")
+}
+
+function downloadFile(filename: string, content: string, type: string) {
+  const blob = new Blob([content], { type })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function SummaryTab({
   experiment,
   process,
+  allExperiments,
   onUpdate,
 }: {
   experiment: Experiment
   process: Process
+  allExperiments: Experiment[]
   onUpdate: (exp: Experiment) => void
 }) {
-  const stageOptions = process.stages.map((stage, idx) => {
-    const first = stage.alternatives[0]
-    const method = first?.depositionMethod?.value?.trim()
-    const desc = first?.inlineMaterial?.name ?? first?.name
-    return {
-      value: String(idx),
-      label: [`Step ${idx + 1}`, [method, desc].filter(Boolean).join(": ")]
-        .filter(Boolean)
-        .join(" — "),
-    }
-  })
+  const [copied, setCopied] = useState(false)
 
-  const updateSubstrate = (
-    subId: string,
-    outcome: SubstrateOutcome | undefined,
-  ) => {
-    onUpdate({
-      ...experiment,
-      substrates: experiment.substrates.map((s) =>
-        s.id === subId ? { ...s, outcome } : s,
-      ),
-    })
-  }
+  const { materials, solutions } = React.useMemo(
+    () => buildChemicalsExport(experiment, process, allExperiments),
+    [experiment, process, allExperiments],
+  )
 
-  const setAll = (status: SubstrateOutcomeStatus) => {
-    onUpdate({
-      ...experiment,
-      substrates: experiment.substrates.map((s) => ({
-        ...s,
-        outcome: { ...(s.outcome ?? {}), status },
-      })),
-    })
-  }
+  const safeName = (experiment.name || "experiment").replace(/[^\w.-]+/g, "_")
 
-  if (experiment.substrates.length === 0) {
-    return (
-      <Text size="sm" c="dimmed" ta="center" py="xl">
-        No substrates added yet. Add them in the Processing step first.
-      </Text>
+  const copyAll = () => {
+    navigator.clipboard.writeText(
+      buildExportText(experiment, process, allExperiments),
     )
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
   }
 
   return (
-    <Stack gap="md">
-      {/* Bulk actions */}
-      <Group gap="xs">
-        <Text size="xs" c="dimmed" fw={500} mr={4}>
-          Set all:
-        </Text>
-        {(
-          ["complete", "incomplete", "discarded"] as SubstrateOutcomeStatus[]
-        ).map((s) => (
-          <Button
-            key={s}
-            size="compact-xs"
-            variant="light"
-            color={STATUS_META[s].color}
-            onClick={() => setAll(s)}
-          >
-            {STATUS_META[s].label}
-          </Button>
-        ))}
-      </Group>
-
-      {/* Per-substrate rows */}
-      <Stack gap={4}>
-        {experiment.substrates.map((substrate) => (
-          <SubstrateOutcomeRow
-            key={substrate.id}
-            substrate={substrate}
-            stageOptions={stageOptions}
-            onUpdate={(outcome) => updateSubstrate(substrate.id, outcome)}
+    <Stack gap="lg">
+      {/* Experiment metadata */}
+      <SimpleGrid cols={2} spacing="md">
+        <Box>
+          <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+            Start Date
+          </Text>
+          <TextInput
+            type="date"
+            value={experiment.date}
+            onChange={(e) =>
+              onUpdate({ ...experiment, date: e.currentTarget.value })
+            }
           />
-        ))}
-      </Stack>
+        </Box>
+        <Box>
+          <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+            End Date
+          </Text>
+          <TextInput
+            type="date"
+            value={experiment.endDate ?? ""}
+            onChange={(e) =>
+              onUpdate({ ...experiment, endDate: e.currentTarget.value })
+            }
+          />
+        </Box>
+      </SimpleGrid>
+
+      <Box>
+        <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
+          Intent
+        </Text>
+        <Textarea
+          autosize
+          minRows={2}
+          placeholder="What is the purpose of this experiment?"
+          value={experiment.description}
+          onChange={(e) =>
+            onUpdate({ ...experiment, description: e.currentTarget.value })
+          }
+        />
+      </Box>
+
+      <Divider label="Export" labelPosition="center" />
+
+      <Paper withBorder radius="md" p="md">
+        <Group justify="space-between" mb="md" wrap="wrap">
+          <Text fw={700} size="sm">
+            Chemicals &amp; solution quantities
+          </Text>
+          <Group gap="xs">
+            <Button
+              size="xs"
+              variant="light"
+              color={copied ? "teal" : "blue"}
+              leftSection={
+                copied ? <IconCheck size={14} /> : <IconCopy size={14} />
+              }
+              onClick={copyAll}
+            >
+              {copied ? "Copied!" : "Copy"}
+            </Button>
+            <Button
+              size="xs"
+              variant="light"
+              leftSection={<IconDownload size={14} />}
+              onClick={() =>
+                downloadFile(
+                  `${safeName}_chemicals.txt`,
+                  buildExportText(experiment, process, allExperiments),
+                  "text/plain",
+                )
+              }
+            >
+              .txt
+            </Button>
+            <Button
+              size="xs"
+              variant="light"
+              leftSection={<IconDownload size={14} />}
+              onClick={() =>
+                downloadFile(
+                  `${safeName}_chemicals.csv`,
+                  buildExportCsv(experiment, process, allExperiments),
+                  "text/csv",
+                )
+              }
+            >
+              .csv
+            </Button>
+          </Group>
+        </Group>
+
+        <Stack gap="md">
+          <Box>
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">
+              Chemicals
+            </Text>
+            {materials.length === 0 ? (
+              <Text size="sm" c="dimmed">
+                None
+              </Text>
+            ) : (
+              <Stack gap={4}>
+                {materials.map((m, i) => (
+                  <Group key={i} justify="space-between" wrap="nowrap">
+                    <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
+                      <Text size="sm" fw={600} truncate>
+                        {m.name}
+                      </Text>
+                      {m.sourceRecipeName && (
+                        <Text size="xs" c="dimmed" truncate>
+                          from {m.sourceRecipeName}
+                        </Text>
+                      )}
+                    </Group>
+                    <Text
+                      size="sm"
+                      fw={500}
+                      c={m.inventoryLabel ? undefined : "dimmed"}
+                    >
+                      {m.inventoryLabel || "Not set"}
+                    </Text>
+                  </Group>
+                ))}
+              </Stack>
+            )}
+          </Box>
+
+          <Box>
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">
+              Solutions
+            </Text>
+            {solutions.length === 0 ? (
+              <Text size="sm" c="dimmed">
+                None
+              </Text>
+            ) : (
+              <Stack gap="sm">
+                {solutions.map((s, i) => (
+                  <Box key={i}>
+                    <Group justify="space-between" wrap="nowrap">
+                      <Text size="sm" fw={600}>
+                        {s.name}
+                      </Text>
+                      <Text size="sm" fw={500} c="dimmed">
+                        {s.mode === "take"
+                          ? `reused from ${s.reusedFromName ?? "another experiment"}`
+                          : s.volumeMl
+                            ? `${s.volumeMl} mL${s.preparedAt ? ` · ${s.preparedAt}` : ""}`
+                            : "Not set"}
+                      </Text>
+                    </Group>
+                    {s.quantities.length > 0 && (
+                      <Stack gap={2} mt={4} pl="md">
+                        {s.quantities.map((q, j) => (
+                          <Group key={j} justify="space-between">
+                            <Text size="xs" c="dimmed">
+                              {q.name}
+                            </Text>
+                            <Text size="xs" fw={600} ff="monospace">
+                              {q.amount} {q.unit}
+                            </Text>
+                          </Group>
+                        ))}
+                      </Stack>
+                    )}
+                  </Box>
+                ))}
+              </Stack>
+            )}
+          </Box>
+        </Stack>
+      </Paper>
     </Stack>
   )
 }
@@ -2066,10 +2169,10 @@ export default function ExperimentsPage() {
       solutionItems,
     )
     const procDone = selectedExperiment.substrates.length > 0
-    const devDone =
-      selectedExperiment.substrates.length > 0 &&
-      selectedExperiment.substrates.every((s) => Boolean(s.outcome?.status))
-    return chemDone && procDone && devDone
+    const summaryDone =
+      Boolean(selectedExperiment.description?.trim()) &&
+      Boolean(selectedExperiment.date)
+    return chemDone && procDone && summaryDone
   }, [selectedExperiment, selectedProcess])
 
   const expAllStepsDoneMap = React.useMemo(() => {
@@ -2087,10 +2190,8 @@ export default function ExperimentsPage() {
         solutionItems,
       )
       const procDone = exp.substrates.length > 0
-      const devDone =
-        exp.substrates.length > 0 &&
-        exp.substrates.every((s) => Boolean(s.outcome?.status))
-      map.set(exp.id, chemDone && procDone && devDone)
+      const summaryDone = Boolean(exp.description?.trim()) && Boolean(exp.date)
+      map.set(exp.id, chemDone && procDone && summaryDone)
     }
     return map
   }, [experiments, processes])
@@ -2582,7 +2683,7 @@ export default function ExperimentsPage() {
             {/* Header with title and meta info */}
             <Group justify="space-between" align="flex-start">
               <Paper withBorder p="sm" radius="md" style={{ flex: 1 }}>
-                <SimpleGrid cols={3} spacing="sm">
+                <SimpleGrid cols={2} spacing="sm">
                   <TextInput
                     label="Experiment Name"
                     placeholder="Name"
@@ -2595,23 +2696,6 @@ export default function ExperimentsPage() {
                       })
                     }
                   />
-
-                  <Box>
-                    <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                      Start Date
-                    </Text>
-                    <TextInput
-                      type="date"
-                      value={selectedExperiment.date}
-                      onChange={(e) =>
-                        handleUpdateExperiment({
-                          ...selectedExperiment,
-                          date: e.currentTarget.value,
-                        })
-                      }
-                      size="sm"
-                    />
-                  </Box>
 
                   <Paper
                     withBorder
@@ -2639,23 +2723,6 @@ export default function ExperimentsPage() {
               </Paper>
             </Group>
 
-            {/* Intent/Description */}
-            <Box>
-              <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                Intent / Description
-              </Text>
-              <TextInput
-                placeholder="What is the purpose of this experiment?"
-                value={selectedExperiment.description}
-                onChange={(e) =>
-                  handleUpdateExperiment({
-                    ...selectedExperiment,
-                    description: e.currentTarget.value,
-                  })
-                }
-              />
-            </Box>
-
             {/* Three-step timeline */}
             {(() => {
               const { materialItems, solutionItems } =
@@ -2666,12 +2733,10 @@ export default function ExperimentsPage() {
                 solutionItems,
               )
               const procDone = selectedExperiment.substrates.length > 0
-              const devDone =
-                selectedExperiment.substrates.length > 0 &&
-                selectedExperiment.substrates.every((s) =>
-                  Boolean(s.outcome?.status),
-                )
-              const allStepsDone = chemDone && procDone && devDone
+              const summaryDone =
+                Boolean(selectedExperiment.description?.trim()) &&
+                Boolean(selectedExperiment.date)
+              const allStepsDone = chemDone && procDone && summaryDone
               return (
                 <>
                   <ExperimentTimeline
@@ -2679,7 +2744,7 @@ export default function ExperimentsPage() {
                     onSetTab={setActiveExpTab}
                     chemicalsDone={chemDone}
                     processingDone={procDone}
-                    devicesDone={devDone}
+                    summaryDone={summaryDone}
                   />
 
                   {activeExpTab === "chemicals" && (
@@ -2763,20 +2828,12 @@ export default function ExperimentsPage() {
                     </Stack>
                   )}
 
-                  {activeExpTab === "outcomes" && (
+                  {activeExpTab === "summary" && (
                     <Paper withBorder p="md" radius="md">
-                      <Group gap="xs" mb="md">
-                        <IconCheck
-                          size={18}
-                          color="var(--mantine-color-teal-6)"
-                        />
-                        <Text size="sm" fw={700}>
-                          Step 3: Outcomes
-                        </Text>
-                      </Group>
-                      <OutcomesTab
+                      <SummaryTab
                         experiment={selectedExperiment}
                         process={selectedProcess}
+                        allExperiments={experiments}
                         onUpdate={handleUpdateExperiment}
                       />
                       {allStepsDone && (
