@@ -123,6 +123,9 @@ def test_login_access_token_disabled_when_oauth_enabled(client: TestClient) -> N
 
 def test_login_access_token_returns_usable_jwt(client: TestClient, db: Session) -> None:
     """Token from login endpoint can authenticate subsequent requests."""
+    from app.api import deps
+    from app.main import app
+
     email = "jwt-test@plains.dev"
     password = "JwtTestPass1!"
     crud.get_user_by_email(session=db, email=email) or crud.create_user(
@@ -136,10 +139,16 @@ def test_login_access_token_returns_usable_jwt(client: TestClient, db: Session) 
     assert r.status_code == 200
     token = r.json()["access_token"]
 
-    # Use the token to hit a protected endpoint
-    me = client.get(
-        f"{settings.API_V1_STR}/users/me",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert me.status_code == 200
+    # This test exercises the REAL JWT auth path, so the module-scoped
+    # synthetic-token override from conftest must be lifted for the check.
+    saved_override = app.dependency_overrides.pop(deps.get_current_user, None)
+    try:
+        me = client.get(
+            f"{settings.API_V1_STR}/users/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert me.status_code == 200
+    finally:
+        if saved_override is not None:
+            app.dependency_overrides[deps.get_current_user] = saved_override
     assert me.json()["email"] == email

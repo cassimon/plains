@@ -743,9 +743,12 @@ test.describe("Structured walk: create Experiment from Process", () => {
       await card.click()
       await page.waitForTimeout(200)
 
-      // Play button on the process list card ("New experiment")
+      // Play button on the process list card ("New experiment").
+      // Must be scoped to main: the sidebar "Experiments" nav icon is ALSO a
+      // player-play triangle — an unscoped .first() clicks the nav, which
+      // navigates to /experiments without spawning anything (vacuous test).
       const spawn = page
-        .locator("button:has(.tabler-icon-player-play):visible")
+        .locator("main button:has(.tabler-icon-player-play):visible")
         .first()
       await expect(spawn).toBeVisible({ timeout: 5000 })
       await expect(spawn).toBeEnabled()

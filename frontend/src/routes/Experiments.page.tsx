@@ -2096,6 +2096,17 @@ export default function ExperimentsPage() {
     Record<number, string>
   >({})
 
+  /** Select an experiment as a direct result of a user action, keeping the
+   *  app-wide activeEntity and last-selected bookkeeping in sync. */
+  const selectExperiment = useCallback(
+    (id: string) => {
+      setSelectedExpId(id)
+      setActiveEntity({ kind: "experiment", id })
+      updateLastSelected("experiment", id)
+    },
+    [setActiveEntity, updateLastSelected],
+  )
+
   // Track processed pending request IDs to avoid double-firing
   const processedPendingRequestIdsRef = useRef(new Set<string>())
 
@@ -2126,7 +2137,7 @@ export default function ExperimentsPage() {
 
     const newExp = newExperiment(processId)
     setExperiments((prev) => [...prev, newExp])
-    setSelectedExpId(newExp.id)
+    selectExperiment(newExp.id)
     setActiveExpTab("chemicals")
 
     // Link back to collection
@@ -2146,6 +2157,7 @@ export default function ExperimentsPage() {
     processes,
     setExperiments,
     updateElement,
+    selectExperiment,
   ])
 
   const selectedExperiment = experiments.find((e) => e.id === selectedExpId)
@@ -2207,12 +2219,13 @@ export default function ExperimentsPage() {
   const experimentsRef = useRef(experiments)
   experimentsRef.current = experiments
 
-  // Keep a ref so effect 4 can read the latest activeEntity without taking it
-  // as a dep — adding activeEntity to effect 4 deps would re-trigger the effect
-  // whenever effect 3 sets a new activeEntity object, causing an extra cycle.
-  const activeEntityRef = useRef(activeEntity)
-  activeEntityRef.current = activeEntity
-
+  // Sync is deliberately ONE-directional: activeEntity (context) → selectedExpId
+  // (local). The reverse direction is pushed imperatively by user-action
+  // handlers via selectExperiment() below. A second effect syncing
+  // selectedExpId → activeEntity re-created the "Maximum update depth exceeded"
+  // production crash: two effects mirroring each other's state with ref guards
+  // still oscillate, because each guard reads a ref that lags one commit
+  // behind the other effect's write (see CLAUDE.md, Strict Mode Pitfalls #4).
   React.useEffect(() => {
     if (activeEntity?.kind !== "experiment") {
       return
@@ -2223,22 +2236,6 @@ export default function ExperimentsPage() {
     setSelectedExpId(activeEntity.id)
   }, [activeEntity])
 
-  React.useEffect(() => {
-    if (!selectedExpId) {
-      return
-    }
-    // Guard: skip if activeEntity already reflects this experiment to prevent
-    // the effect-3 ↔ effect-4 feedback loop from causing excessive re-renders.
-    if (
-      activeEntityRef.current?.kind === "experiment" &&
-      activeEntityRef.current.id === selectedExpId
-    ) {
-      return
-    }
-    setActiveEntity({ kind: "experiment", id: selectedExpId })
-    updateLastSelected("experiment", selectedExpId)
-  }, [selectedExpId, setActiveEntity, updateLastSelected])
-
   // Create new experiment
   const doAddExperiment = ({
     planeId,
@@ -2247,7 +2244,7 @@ export default function ExperimentsPage() {
     if (!newExperimentProcessId) return
     const newExp = newExperiment(newExperimentProcessId)
     setExperiments((prev) => [...prev, newExp])
-    setSelectedExpId(newExp.id)
+    selectExperiment(newExp.id)
     updateElement(planeId, {
       ...collection,
       refs: [
@@ -2436,7 +2433,7 @@ export default function ExperimentsPage() {
     }
 
     setExperiments((prev) => [...prev, copy])
-    setSelectedExpId(copy.id)
+    selectExperiment(copy.id)
 
     // Keep copied experiment inside the same collection(s) as the source.
     for (const plane of planes) {
@@ -2589,7 +2586,7 @@ export default function ExperimentsPage() {
                           ? "calc(var(--mantine-spacing-sm) - 3px)"
                           : undefined,
                       }}
-                      onClick={() => setSelectedExpId(exp.id)}
+                      onClick={() => selectExperiment(exp.id)}
                     >
                       <Stack gap={4}>
                         <Text size="sm" fw={600} truncate>

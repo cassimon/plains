@@ -1,0 +1,78 @@
+diff --git a/cjs/components/ScrollArea/ScrollAreaRoot/ScrollAreaRoot.cjs b/cjs/components/ScrollArea/ScrollAreaRoot/ScrollAreaRoot.cjs
+index 3fb59c356cad34e04777758d8323e3eff41f2b49..ae34ec9a7fbc61c60310614e57d87be9d02842b0 100644
+--- a/cjs/components/ScrollArea/ScrollAreaRoot/ScrollAreaRoot.cjs
++++ b/cjs/components/ScrollArea/ScrollAreaRoot/ScrollAreaRoot.cjs
+@@ -31,7 +31,7 @@ const ScrollAreaRoot = React.forwardRef((_props, ref) => {
+   const [cornerHeight, setCornerHeight] = React.useState(0);
+   const [scrollbarXEnabled, setScrollbarXEnabled] = React.useState(false);
+   const [scrollbarYEnabled, setScrollbarYEnabled] = React.useState(false);
+-  const rootRef = hooks.useMergedRef(ref, (node) => setScrollArea(node));
++  const rootRef = hooks.useMergedRef(ref, setScrollArea);
+   return /* @__PURE__ */ jsxRuntime.jsx(
+     ScrollArea_context.ScrollAreaProvider,
+     {
+diff --git a/cjs/components/ScrollArea/ScrollAreaScrollbar/Scrollbar.cjs b/cjs/components/ScrollArea/ScrollAreaScrollbar/Scrollbar.cjs
+index dc852fc03b265eca0f8dde2069196d44c43345f9..5c4e75b9e04458859f37efd60f3338c0ae17daaa 100644
+--- a/cjs/components/ScrollArea/ScrollAreaScrollbar/Scrollbar.cjs
++++ b/cjs/components/ScrollArea/ScrollAreaScrollbar/Scrollbar.cjs
+@@ -24,7 +24,7 @@ const Scrollbar = React.forwardRef((props, forwardedRef) => {
+   } = props;
+   const context = ScrollArea_context.useScrollAreaContext();
+   const [scrollbar, setScrollbar] = React.useState(null);
+-  const composeRefs = hooks.useMergedRef(forwardedRef, (node) => setScrollbar(node));
++  const composeRefs = hooks.useMergedRef(forwardedRef, setScrollbar);
+   const rectRef = React.useRef(null);
+   const prevWebkitUserSelectRef = React.useRef("");
+   const { viewport } = context;
+diff --git a/cjs/components/ScrollArea/ScrollAreaThumb/ScrollAreaThumb.cjs b/cjs/components/ScrollArea/ScrollAreaThumb/ScrollAreaThumb.cjs
+index b82b7280caf315dada39a85358bb19ef5f5d0a22..566c10e674c4037e749e7bf34b5f7db06c7c75b3 100644
+--- a/cjs/components/ScrollArea/ScrollAreaThumb/ScrollAreaThumb.cjs
++++ b/cjs/components/ScrollArea/ScrollAreaThumb/ScrollAreaThumb.cjs
+@@ -14,7 +14,7 @@ const Thumb = React.forwardRef((props, forwardedRef) => {
+   const scrollAreaContext = ScrollArea_context.useScrollAreaContext();
+   const scrollbarContext = Scrollbar_context.useScrollbarContext();
+   const { onThumbPositionChange } = scrollbarContext;
+-  const composedRef = hooks.useMergedRef(forwardedRef, (node) => scrollbarContext.onThumbChange(node));
++  const composedRef = hooks.useMergedRef(forwardedRef, scrollbarContext.onThumbChange);
+   const removeUnlinkedScrollListenerRef = React.useRef(void 0);
+   const debounceScrollEnd = hooks.useDebouncedCallback(() => {
+     if (removeUnlinkedScrollListenerRef.current) {
+diff --git a/esm/components/ScrollArea/ScrollAreaRoot/ScrollAreaRoot.mjs b/esm/components/ScrollArea/ScrollAreaRoot/ScrollAreaRoot.mjs
+index dc0c6035032f6325e9dd41f8321a74a214059b15..f87ff2bad6ea46f6f8190f2d1d4ed70c882bfa01 100644
+--- a/esm/components/ScrollArea/ScrollAreaRoot/ScrollAreaRoot.mjs
++++ b/esm/components/ScrollArea/ScrollAreaRoot/ScrollAreaRoot.mjs
+@@ -29,7 +29,7 @@ const ScrollAreaRoot = forwardRef((_props, ref) => {
+   const [cornerHeight, setCornerHeight] = useState(0);
+   const [scrollbarXEnabled, setScrollbarXEnabled] = useState(false);
+   const [scrollbarYEnabled, setScrollbarYEnabled] = useState(false);
+-  const rootRef = useMergedRef(ref, (node) => setScrollArea(node));
++  const rootRef = useMergedRef(ref, setScrollArea);
+   return /* @__PURE__ */ jsx(
+     ScrollAreaProvider,
+     {
+diff --git a/esm/components/ScrollArea/ScrollAreaScrollbar/Scrollbar.mjs b/esm/components/ScrollArea/ScrollAreaScrollbar/Scrollbar.mjs
+index b1536c695a391ed5296eaf4e4daefc0643bd7e3b..32c34466d5ecba414a508632c05251156d77a78e 100644
+--- a/esm/components/ScrollArea/ScrollAreaScrollbar/Scrollbar.mjs
++++ b/esm/components/ScrollArea/ScrollAreaScrollbar/Scrollbar.mjs
+@@ -22,7 +22,7 @@ const Scrollbar = forwardRef((props, forwardedRef) => {
+   } = props;
+   const context = useScrollAreaContext();
+   const [scrollbar, setScrollbar] = useState(null);
+-  const composeRefs = useMergedRef(forwardedRef, (node) => setScrollbar(node));
++  const composeRefs = useMergedRef(forwardedRef, setScrollbar);
+   const rectRef = useRef(null);
+   const prevWebkitUserSelectRef = useRef("");
+   const { viewport } = context;
+diff --git a/esm/components/ScrollArea/ScrollAreaThumb/ScrollAreaThumb.mjs b/esm/components/ScrollArea/ScrollAreaThumb/ScrollAreaThumb.mjs
+index 8b0495a3ffe149b33fb193fa69ec5859c4a23641..eee1c25068d77886d418b6bc00a3d76a9bc0bd1b 100644
+--- a/esm/components/ScrollArea/ScrollAreaThumb/ScrollAreaThumb.mjs
++++ b/esm/components/ScrollArea/ScrollAreaThumb/ScrollAreaThumb.mjs
+@@ -12,7 +12,7 @@ const Thumb = forwardRef((props, forwardedRef) => {
+   const scrollAreaContext = useScrollAreaContext();
+   const scrollbarContext = useScrollbarContext();
+   const { onThumbPositionChange } = scrollbarContext;
+-  const composedRef = useMergedRef(forwardedRef, (node) => scrollbarContext.onThumbChange(node));
++  const composedRef = useMergedRef(forwardedRef, scrollbarContext.onThumbChange);
+   const removeUnlinkedScrollListenerRef = useRef(void 0);
+   const debounceScrollEnd = useDebouncedCallback(() => {
+     if (removeUnlinkedScrollListenerRef.current) {

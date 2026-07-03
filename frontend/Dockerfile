@@ -4,6 +4,9 @@ FROM oven/bun:1 AS build-stage
 WORKDIR /app
 
 COPY package.json bun.lock /app/
+# bun patchedDependencies (e.g. the @mantine/core ScrollArea ref fix) must be
+# present before `bun install` or the install fails.
+COPY patches /app/patches
 
 COPY frontend/package.json /app/frontend/
 

@@ -13,9 +13,22 @@ engine = create_engine(str(settings.SQLALCHEMY_DATABASE_URI))
 
 
 def init_db(session: Session) -> None:
+    from sqlalchemy import text
     from sqlmodel import SQLModel
 
     SQLModel.metadata.create_all(engine)
+
+    # Databases created before the FK was removed from
+    # LabSubstrate.substrate_material_id still carry the constraint;
+    # create_all() never alters existing tables, so drop it here.
+    # The column holds a process inline-substrate id, not a lab_material id.
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE lab_substrate DROP CONSTRAINT IF EXISTS "
+                "lab_substrate_substrate_material_id_fkey"
+            )
+        )
 
     user = session.exec(
         select(User).where(User.email == settings.FIRST_SUPERUSER)

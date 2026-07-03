@@ -11,6 +11,9 @@ class _FakeResult:
     def first(self):
         return self._value
 
+    def all(self):
+        return self._value
+
 
 class _FakeSession:
     def __init__(self, values):
@@ -18,6 +21,48 @@ class _FakeSession:
 
     def exec(self, _statement):
         return _FakeResult(next(self._values))
+
+
+def _orm_material(d):
+    """Convert the camelCase material dict used by these tests into an
+    ORM-shaped object matching what create_nomad_metadata_yaml reads from
+    the normalised lab_material table."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        id=d["id"],
+        name=d.get("name"),
+        type=d.get("type"),
+        cas_number=d.get("casNumber"),
+        pubchem_cid=d.get("pubchemCid"),
+        molecular_weight=d.get("molecularWeight"),
+        density=d.get("density"),
+        supplier=d.get("supplier"),
+        supplier_number=d.get("supplierNumber"),
+        purity=d.get("purity"),
+        state_at_rt=d.get("stateAtRt"),
+        height_mm=d.get("heightMm"),
+    )
+
+
+def _orm_solution(d):
+    """Same as _orm_material, for lab_solution rows with components."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        id=d["id"],
+        name=d.get("name"),
+        type=d.get("type"),
+        components=[
+            SimpleNamespace(
+                material_id=c.get("materialId"),
+                solution_ref_id=c.get("solutionId"),
+                amount=c.get("amount"),
+                unit=c.get("unit"),
+            )
+            for c in d.get("components") or []
+        ],
+    )
 
 
 def test_create_nomad_metadata_yaml_uses_solution_components_for_wet_layers():
@@ -96,7 +141,13 @@ def test_create_nomad_metadata_yaml_uses_solution_components_for_wet_layers():
             "processes": [],
         }
     )
-    session = _FakeSession([experiment, user_state])
+    session = _FakeSession(
+        [
+            experiment,
+            [_orm_material(m) for m in user_state.data["materials"]],
+            [_orm_solution(s) for s in user_state.data["solutions"]],
+        ]
+    )
 
     process_snapshot = {
         "id": "process-1",
@@ -228,7 +279,13 @@ def test_create_nomad_metadata_yaml_formats_perovskite_ions_and_coefficients():
     user_state = SimpleNamespace(
         data={"materials": [], "solutions": [], "processes": []}
     )
-    session = _FakeSession([experiment, user_state])
+    session = _FakeSession(
+        [
+            experiment,
+            [_orm_material(m) for m in user_state.data["materials"]],
+            [_orm_solution(s) for s in user_state.data["solutions"]],
+        ]
+    )
 
     process_snapshot = {
         "id": "process-2",
@@ -342,7 +399,13 @@ def test_create_nomad_metadata_yaml_generates_substrate_and_deposition_and_per_p
             "processes": [],
         }
     )
-    session = _FakeSession([experiment, user_state])
+    session = _FakeSession(
+        [
+            experiment,
+            [_orm_material(m) for m in user_state.data["materials"]],
+            [_orm_solution(s) for s in user_state.data["solutions"]],
+        ]
+    )
 
     process_snapshot = {
         "id": "process-pixels",

@@ -158,6 +158,7 @@ def test_upload_to_nomad_accepts_archive_path_from_form_data(
 
     monkeypatch.setattr(nomad_routes, "upload_to_nomad", fake_upload_to_nomad)
 
+    saved_overrides = dict(app.dependency_overrides)
     app.dependency_overrides[deps.get_current_user] = lambda: User(
         email="superuser@example.com",
         full_name="Test Superuser",
@@ -191,6 +192,7 @@ def test_upload_to_nomad_accepts_archive_path_from_form_data(
         assert not archive_path.exists()
     finally:
         app.dependency_overrides.clear()
+        app.dependency_overrides.update(saved_overrides)
         archive_path.unlink(missing_ok=True)
 
 
@@ -512,6 +514,7 @@ class TestNomadFullUploadFlow:
 
         monkeypatch.setattr(nomad_routes, "upload_to_nomad", _fake_upload)
 
+        saved_overrides = dict(app.dependency_overrides)
         app.dependency_overrides[deps.get_current_user] = lambda: User(
             email="su@example.com", is_superuser=True, is_active=True
         )
@@ -529,6 +532,7 @@ class TestNomadFullUploadFlow:
             assert len(upload_calls) == 1
         finally:
             app.dependency_overrides.clear()
+            app.dependency_overrides.update(saved_overrides)
 
     def test_upload_not_configured_returns_failure(
         self, client: TestClient, monkeypatch
@@ -541,6 +545,7 @@ class TestNomadFullUploadFlow:
         monkeypatch.setattr(settings, "NOMAD_USERNAME", None)
         monkeypatch.setattr(settings, "NOMAD_PASSWORD", None)
 
+        saved_overrides = dict(app.dependency_overrides)
         app.dependency_overrides[deps.get_current_user] = lambda: User(
             email="su@example.com", is_superuser=True, is_active=True
         )
@@ -555,6 +560,7 @@ class TestNomadFullUploadFlow:
             assert r.json()["success"] is False
         finally:
             app.dependency_overrides.clear()
+            app.dependency_overrides.update(saved_overrides)
 
     def test_upload_invalid_request_json_returns_422(
         self, client: TestClient, normal_user_token_headers: dict[str, str]
@@ -659,5 +665,4 @@ class TestNomadUploadPersistsNormalisedColumns:
                 "nomad_upload_id"
             ) == "upload-xyz"
         finally:
-            app.dependency_overrides.clear()
             archive_path.unlink(missing_ok=True)

@@ -147,6 +147,75 @@ useEffect(() => {
 }, [/* planes intentionally omitted */])
 ```
 
+### 4. "Maximum update depth exceeded" in `assignRef → mergeRefs` — read this before debugging
+
+This crash recurred across many sessions (minified as React error #185 in
+production). The stack always ends in Mantine ref plumbing and looks like:
+
+```
+Error: Maximum update depth exceeded.
+    dispatchSetState        ← a useState setter invoked AS a ref
+    assignRef / mergeRefs   ← @mantine/hooks useMergedRef
+```
+
+**That stack is a red herring.** Mantine's floating components (Select, Popover,
+Tooltip, Combobox, ScrollArea) put `useState` setters inside merged refs, so
+whichever setState happens to be the 25th nested update — usually a ref
+reattach during commit — is where React throws. The *driver* of the storm has
+always been in app code.
+
+**Actual root cause (found & fixed 2026-07, `Experiments.page.tsx`): two
+effects mirroring the same selection state in both directions.** Effect A
+synced `activeEntity` (AppContext) → `selectedExpId` (local); effect B synced
+`selectedExpId` → `activeEntity`. Both had "guards" reading the opposite value
+through a ref — but a ref mutated during render lags one commit behind the
+other effect's write, so with two experiments the pair oscillated A→B→A…
+forever, remounting the substrate table each cycle until React threw. That is
+why it fired when creating the **second** object (with one object the two
+writes converge) and specifically when arriving from another page (Processes →
+spawn → /experiments, where `activeEntity` starts out stale/null).
+
+**The rule — one-directional sync only.** Never write the same piece of state
+from two effects that watch each other's output, no matter how many ref guards
+are added. Pick one source of truth:
+- context → local may be an effect (`activeEntity` → `setSelectedExpId`);
+- local → context must be *imperative*, in the user-action handler
+  (see `selectExperiment()` in `Experiments.page.tsx`), never in an effect.
+
+If you find yourself adding a ref guard so "effect 3" and "effect 4" don't
+retrigger each other, delete one of the effects instead — the guard only
+shrinks the loop's duty cycle, it does not break the cycle.
+
+**Regression coverage.** `frontend/tests/integration/create-objects-loops.spec.ts`
+(real stack) drives create-Experiment-from-Processes ×3 and the File-Upload
+picker flow, asserting zero depth-exceeded errors AND that the objects really
+persisted (guards against vacuous passes); `frontend/tests/plains-infinite-loops.spec.ts`
+covers the mocked-backend routes. Run them after touching Experiments/Processes
+pages, `AppLayout`, or `AppContext` selection state. Two test-writing traps
+found while building these: (a) the sidebar "Experiments" nav icon is ALSO a
+player-play triangle — scope spawn-button locators to `main`; (b) two parallel
+browser sessions on one account clobber each other via `syncToBackend`'s
+delete-reconciliation — run such tests serially.
+
+**Hardening.** `patches/@mantine%2Fcore@7.17.8.patch` (applied via bun
+`patchedDependencies`) stabilizes ScrollArea's internal merged refs, which
+Mantine builds with new inline arrows every render — harmless alone, but it
+turns any app-level render storm into ref-reattach churn that ends in this
+crash. Keep the patch when bumping Mantine (or verify upstream fixed it).
+
+**Related backend gotcha (masked errors).** An unhandled backend exception
+returns a 500 *without CORS headers*, so the browser reports it as a CORS
+failure ("Access-Control-Allow-Origin missing") and `HttpBackend` sees only
+`TypeError: Failed to fetch`. Don't chase CORS config — find the 500 in
+`docker compose logs backend`. DB constraint violations are converted to
+CORS-visible 409s by the `IntegrityError` handler in `backend/app/main.py`;
+register handlers for specific exception types (not bare `Exception`) so
+responses pass back through `CORSMiddleware`. Historical instance: the GUI
+stores a *process inline-substrate id* in `lab_substrate.substrate_material_id`,
+which used to carry a FK to `lab_material` → IntegrityError → masked 500 on
+every save. The FK is intentionally gone (dropped in `init_db`); do not
+re-add it.
+
 ## Development URLs
 
 | Service | URL |

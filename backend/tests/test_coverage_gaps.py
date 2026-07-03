@@ -8,6 +8,7 @@ Tests targeting specific coverage gaps identified in the task audit:
 5. Cascade: deleting a solution removes its components
 """
 
+import io
 import uuid
 
 import pytest
@@ -261,6 +262,7 @@ class TestNomadUploadPersistence:
             },
         )
 
+        saved_overrides = dict(app.dependency_overrides)
         app.dependency_overrides[deps.get_current_user] = lambda: User(
             email="su@example.com", is_superuser=True, is_active=True
         )
@@ -279,6 +281,9 @@ class TestNomadUploadPersistence:
             r = client.post(
                 f"{API}/nomad/upload/nomad",
                 data={"request_json": _json.dumps(request_body)},
+                files=[
+                    ("files", ("m.csv", io.BytesIO(b"a,b\n1,2\n"), "text/plain"))
+                ],
             )
             assert r.status_code == 200
             data = r.json()
@@ -286,3 +291,4 @@ class TestNomadUploadPersistence:
             assert data["upload_id"] == "uid-123"
         finally:
             app.dependency_overrides.clear()
+            app.dependency_overrides.update(saved_overrides)

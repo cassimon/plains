@@ -501,6 +501,10 @@ def create_nomad_metadata_yaml(
             "molecularWeight": m.molecular_weight,
             "density": m.density,
             "supplier": m.supplier,
+            "supplierNumber": m.supplier_number,
+            "purity": m.purity,
+            "stateAtRt": m.state_at_rt,
+            "heightMm": m.height_mm,
         }
         for m in owner_materials
     }
@@ -509,6 +513,15 @@ def create_nomad_metadata_yaml(
             "id": str(s.id),
             "name": s.name,
             "type": s.type,
+            "components": [
+                {
+                    "materialId": str(c.material_id) if c.material_id else None,
+                    "solutionId": str(c.solution_ref_id) if c.solution_ref_id else None,
+                    "amount": c.amount,
+                    "unit": c.unit,
+                }
+                for c in s.components
+            ],
         }
         for s in owner_solutions
     }

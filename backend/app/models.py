@@ -827,9 +827,10 @@ class ProcessesPublic(SQLModel):
 # ============================================================================
 class LabSubstrateBase(SQLModel):
     name: str = Field(min_length=1, max_length=255)
-    substrate_material_id: uuid.UUID | None = Field(
-        default=None, foreign_key="lab_material.id", ondelete="SET NULL"
-    )
+    # Opaque reference chosen in the GUI: the frontend fills this with a
+    # process inline-substrate id (not a lab_material id), so it must not
+    # carry a foreign key — see init_db() which drops the legacy constraint.
+    substrate_material_id: uuid.UUID | None = Field(default=None)
     notes: str | None = None
     outcome_status: str | None = Field(default=None, max_length=50)
     outcome_stopped_at_step: str | None = Field(default=None, max_length=50)

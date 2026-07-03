@@ -3,9 +3,11 @@ from collections.abc import Callable
 
 import sentry_sdk
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 
@@ -31,6 +33,22 @@ app = FastAPI(
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+async def integrity_error_handler(request: Request, exc: IntegrityError) -> Response:
+    """Return DB constraint violations as a structured 409 instead of a bare
+    500. Handlers for specific exception types run inside the middleware
+    stack, so (unlike unhandled 500s) the response passes back through
+    CORSMiddleware and the browser sees the real error rather than a
+    misleading 'CORS header missing' failure."""
+    logging.getLogger("app").warning("Integrity error on %s: %s", request.url, exc)
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "Database constraint violated by this request."},
+    )
+
+
+app.add_exception_handler(IntegrityError, integrity_error_handler)
 
 # Set all CORS enabled origins
 if settings.all_cors_origins:
