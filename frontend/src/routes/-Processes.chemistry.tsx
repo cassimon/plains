@@ -276,20 +276,25 @@ export const PEROVSKITE_MATERIAL_SUGGESTIONS: ReadonlyArray<{
   {
     abbr: "PCBM",
     name: "PC61BM",
-    searchQuery: "Phenyl-C61-butyric acid methyl ester",
+    searchQuery: "[6,6]-Phenyl C61 butyric acid methyl ester",
     type: "n-type (ETL)",
+    pubchemCid: "53384373",
   },
   {
     abbr: "PC61BM",
     name: "[6,6]-Phenyl-C61-butyric acid methyl ester",
-    searchQuery: "Phenyl-C61-butyric acid methyl ester",
+    searchQuery: "[6,6]-Phenyl C61 butyric acid methyl ester",
     type: "n-type (ETL)",
+    pubchemCid: "53384373",
   },
   {
     abbr: "PC71BM",
+    // Verified CID; the bare name "PC71BM" resolves to a hydrogenated
+    // non-fullerene on PubChem, so the CID is pinned here.
     name: "[6,6]-Phenyl-C71-butyric acid methyl ester",
-    searchQuery: "Phenyl-C71-butyric acid methyl ester",
+    searchQuery: "[6,6]-Phenyl-C71-butyric acid methyl ester",
     type: "n-type (ETL)",
+    pubchemCid: "71777692",
   },
   {
     abbr: "C60",
@@ -339,6 +344,7 @@ export const PEROVSKITE_MATERIAL_SUGGESTIONS: ReadonlyArray<{
     searchQuery:
       "2,2',7,7'-tetrakis(N,N-di-p-methoxyphenylamine)-9,9'-spirobifluorene",
     type: "p-type (HTL)",
+    pubchemCid: "16161850",
   },
   {
     abbr: "Spiro",
@@ -346,23 +352,26 @@ export const PEROVSKITE_MATERIAL_SUGGESTIONS: ReadonlyArray<{
     searchQuery:
       "2,2',7,7'-tetrakis(N,N-di-p-methoxyphenylamine)-9,9'-spirobifluorene",
     type: "p-type (HTL)",
+    pubchemCid: "16161850",
   },
   {
+    // Polymer — PubChem has no polymer entry; the search resolves to the
+    // repeat-unit monomer, so keep it on the search path (no auto-fill CID).
     abbr: "PTAA",
     name: "Poly[bis(4-phenyl)(2,4,6-trimethylphenyl)amine]",
-    searchQuery: "PTAA polymer",
+    searchQuery: "PTAA",
     type: "p-type (HTL)",
   },
   {
     abbr: "P3HT",
     name: "Poly(3-hexylthiophene)",
-    searchQuery: "Poly(3-hexylthiophene)",
+    searchQuery: "P3HT",
     type: "p-type (HTL)",
   },
   {
     abbr: "PEDOT:PSS",
     name: "PEDOT:PSS",
-    searchQuery: "poly(3,4-ethylenedioxythiophene) polystyrene sulfonate",
+    searchQuery: "3,4-ethylenedioxythiophene",
     type: "p-type (HTL)",
   },
   {
@@ -396,15 +405,16 @@ export const PEROVSKITE_MATERIAL_SUGGESTIONS: ReadonlyArray<{
   {
     abbr: "FK102",
     name: "FK102 cobalt(III) TFSI",
-    searchQuery:
-      "tris(2-(1H-pyrazol-1-yl)-4-tert-butylpyridine)cobalt(III) bis(trifluoromethylsulfonyl)imide",
+    searchQuery: "FK102Co(II) TFSI salt",
     type: "additive",
+    pubchemCid: "154728151",
   },
   {
     abbr: "FK209",
     name: "FK209 cobalt(III) TFSI",
-    searchQuery: "cobalt tris(bis(trifluoromethanesulfonyl)imide)",
+    searchQuery: "FK209",
     type: "additive",
+    pubchemCid: "146012615",
   },
   {
     abbr: "PEAI",
@@ -442,15 +452,17 @@ export const PEROVSKITE_MATERIAL_SUGGESTIONS: ReadonlyArray<{
     pubchemCid: "22461615",
   },
   {
+    // Polymer — PubChem resolves only the monomer; keep on the search path.
     abbr: "PMMA",
     name: "Poly(methyl methacrylate)",
-    searchQuery: "Poly(methyl methacrylate)",
+    searchQuery: "methyl methacrylate",
     type: "passivation agent/layer",
   },
   {
+    // No PubChem entry for the free acid by name; falls back to manual entry.
     abbr: "PCBA",
     name: "Phenyl-C61-butyric acid",
-    searchQuery: "phenyl C61 butyric acid",
+    searchQuery: "[6,6]-Phenyl-C61-butyric acid",
     type: "n-type (ETL)",
   },
 ]

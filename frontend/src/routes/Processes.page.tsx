@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  Autocomplete,
   Badge,
   Box,
   Button,
@@ -188,6 +189,10 @@ const SUBSTRATE_PREPARATION_METHODS = [
   "Sonication",
 ]
 
+// Cleaning/prep methods that involve no material or solution — the post-add
+// "choose material" dialog is pointless for these, so it is skipped.
+const METHODS_WITHOUT_MATERIAL = new Set(["UV/Ozone", "Blow Cleaning"])
+
 const STEP_METHOD_OPTIONS: Record<ProcessStepCategory, string[]> = {
   wet_deposition: WET_DEPOSITION_METHODS,
   dry_deposition: DRY_DEPOSITION_METHODS,
@@ -317,8 +322,10 @@ const DEFAULT_DEPOSITION_KEYS: ProcessParameterKey[] = [
 ]
 
 const DEFAULT_ANNEALING_KEYS: ProcessParameterKey[] = [
-  "annealingTime",
+  // Temperature first — users fill in the setpoint before the duration and
+  // read the two-column grid left-to-right.
   "annealingTemp",
+  "annealingTime",
   "annealingAtmosphere",
 ]
 
@@ -337,7 +344,13 @@ function getParameterSections(stepCategory: ProcessStepCategory): {
         annealingTime: "Cleaning Time",
         depositionParameters: "Cleaning Parameters",
       },
-      placeholderOverrides: {},
+      // Cleaning steps aren't spin coating — offer cleaning-appropriate hints
+      // rather than the default "4000 rpm for 30 s" spin-speed placeholder.
+      placeholderOverrides: {
+        depositionMethod: "e.g. UV/Ozone, Sonication",
+        annealingTime: "e.g. 15",
+        depositionParameters: "e.g. 100 W, acetone then IPA",
+      },
     }
   }
 
@@ -660,6 +673,9 @@ type MaterialParamsPanelProps = {
   recipes: ProcessSolutionRecipe[]
   onSetRecipe: (recipeId: string | null) => void
   onSetInlineMaterial: (mat: ProcessStepInlineMaterial | null) => void
+  // Fired once a concrete material/recipe has been committed. Used by the
+  // post-add dialog to dismiss itself as soon as a choice is made.
+  onAfterSelect?: () => void
 }
 
 function MaterialParamsPanel({
@@ -668,6 +684,7 @@ function MaterialParamsPanel({
   recipes,
   onSetRecipe,
   onSetInlineMaterial,
+  onAfterSelect,
 }: MaterialParamsPanelProps) {
   type PanelMode =
     | { kind: "idle" }
@@ -759,6 +776,7 @@ function MaterialParamsPanel({
         ...props,
       })
       setMode({ kind: "idle" })
+      onAfterSelect?.()
     } catch {
       setMode((prev) =>
         prev.kind === "pubchem"
@@ -811,9 +829,11 @@ function MaterialParamsPanel({
       const props = await fetchPubChemPropsStep(hit.cid)
       onSetInlineMaterial({ name: hit.title, pubchemCid: hit.cid, ...props })
       setMode({ kind: "idle" })
+      onAfterSelect?.()
     } catch {
       onSetInlineMaterial({ name: hit.title, pubchemCid: hit.cid })
       setMode({ kind: "idle" })
+      onAfterSelect?.()
     }
   }
 
@@ -888,6 +908,7 @@ function MaterialParamsPanel({
                     onClick={() => {
                       onSetRecipe(r.id)
                       setMode({ kind: "idle" })
+                      onAfterSelect?.()
                     }}
                   >
                     {r.name || "Unnamed"}
@@ -1264,31 +1285,84 @@ const NOMAD_PEROVSKITE_X_IONS = new Set([
   "PF6",
 ])
 
+// Pure single-ion entries omit the redundant "1" coefficient (parser defaults
+// a bare ion to coefficient 1); mixed compositions keep explicit fractions.
 const PEROVSKITE_A_FORMULA_SUGGESTIONS = [
-  "FA1",
-  "MA1",
-  "Cs1",
+  "FA",
+  "MA",
+  "Cs",
   "FA0.9MA0.1",
   "Cs0.05FA0.79MA0.16",
   "Cs0.1FA0.9",
 ]
 
 const PEROVSKITE_B_FORMULA_SUGGESTIONS = [
-  "Pb1",
-  "Sn1",
+  "Pb",
+  "Sn",
   "Pb0.8Sn0.2",
   "Pb0.5Sn0.5",
   "Pb0.9Ge0.1",
 ]
 
 const PEROVSKITE_X_FORMULA_SUGGESTIONS = [
-  "I1",
-  "Br1",
-  "Cl1",
+  "I",
+  "Br",
+  "Cl",
   "I0.75Br0.25",
   "I0.5Br0.5",
   "Br0.2I0.8",
 ]
+
+/**
+ * A/B/X site input for the editable perovskite layer. Uses a Mantine
+ * Autocomplete (opaque, styled suggestion menu — matching the chemistry
+ * pickers) instead of the barely-visible native <datalist> input.
+ */
+function PerovskiteIonInput({
+  siteLabel,
+  value,
+  suggestions,
+  hasError,
+  onChange,
+}: {
+  siteLabel: string
+  value: string
+  suggestions: string[]
+  hasError: boolean
+  onChange: (value: string) => void
+}) {
+  return (
+    <Box style={{ flex: 1 }}>
+      <Text
+        size="9px"
+        c="white"
+        fw={600}
+        style={{ opacity: 0.85, marginBottom: 2 }}
+      >
+        {siteLabel}
+      </Text>
+      <Autocomplete
+        size="xs"
+        value={value}
+        data={suggestions}
+        error={hasError}
+        onChange={onChange}
+        onClick={(e) => e.stopPropagation()}
+        comboboxProps={{ withinPortal: true }}
+        selectFirstOptionOnChange={false}
+        styles={{
+          input: {
+            minHeight: 22,
+            height: 22,
+            padding: "0 6px",
+            fontSize: 11,
+            fontWeight: 600,
+          },
+        }}
+      />
+    </Box>
+  )
+}
 
 type PerovskiteSite = "A" | "B" | "X"
 
@@ -1539,7 +1613,11 @@ function getSourceTypeStr(
   if (step.solutionId) {
     const sol = solutions.find((s) => s.id === step.solutionId)
     if (sol?.type) return sol.type.toLowerCase()
-    for (const mat of getSolidComponents(step.solutionId, materials, solutions)) {
+    for (const mat of getSolidComponents(
+      step.solutionId,
+      materials,
+      solutions,
+    )) {
       if (mat.type) return mat.type.toLowerCase()
     }
     return ""
@@ -2811,159 +2889,63 @@ function ResultingStacks({
                                         Perovskite ABX3
                                       </Text>
                                       <Box style={{ display: "flex", gap: 4 }}>
-                                        <Box style={{ flex: 1 }}>
-                                          <Text
-                                            size="9px"
-                                            c="white"
-                                            fw={600}
-                                            style={{
-                                              opacity: 0.85,
-                                              marginBottom: 2,
-                                            }}
-                                          >
-                                            A
-                                          </Text>
-                                          <input
-                                            type="text"
-                                            list={`pvk-a-${stack.combination}-${layerIdx}`}
-                                            value={layer.perovskiteA}
-                                            onChange={(e) =>
-                                              onLayerChange(
-                                                stackIdx,
-                                                layerIdx,
-                                                "perovskiteA",
-                                                e.currentTarget.value,
-                                              )
-                                            }
-                                            onClick={(e) => e.stopPropagation()}
-                                            aria-invalid={
-                                              (perovskiteValidation?.aErrors
-                                                .length ?? 0) > 0
-                                            }
-                                            style={{
-                                              ...inLayerFieldInputStyle,
-                                              border:
-                                                (perovskiteValidation?.aErrors
-                                                  .length ?? 0) > 0
-                                                  ? "1px solid #ff8787"
-                                                  : inLayerFieldInputStyle.border,
-                                            }}
-                                          />
-                                          <datalist
-                                            id={`pvk-a-${stack.combination}-${layerIdx}`}
-                                          >
-                                            {PEROVSKITE_A_FORMULA_SUGGESTIONS.map(
-                                              (option) => (
-                                                <option
-                                                  key={option}
-                                                  value={option}
-                                                />
-                                              ),
-                                            )}
-                                          </datalist>
-                                        </Box>
-                                        <Box style={{ flex: 1 }}>
-                                          <Text
-                                            size="9px"
-                                            c="white"
-                                            fw={600}
-                                            style={{
-                                              opacity: 0.85,
-                                              marginBottom: 2,
-                                            }}
-                                          >
-                                            B
-                                          </Text>
-                                          <input
-                                            type="text"
-                                            list={`pvk-b-${stack.combination}-${layerIdx}`}
-                                            value={layer.perovskiteB}
-                                            onChange={(e) =>
-                                              onLayerChange(
-                                                stackIdx,
-                                                layerIdx,
-                                                "perovskiteB",
-                                                e.currentTarget.value,
-                                              )
-                                            }
-                                            onClick={(e) => e.stopPropagation()}
-                                            aria-invalid={
-                                              (perovskiteValidation?.bErrors
-                                                .length ?? 0) > 0
-                                            }
-                                            style={{
-                                              ...inLayerFieldInputStyle,
-                                              border:
-                                                (perovskiteValidation?.bErrors
-                                                  .length ?? 0) > 0
-                                                  ? "1px solid #ff8787"
-                                                  : inLayerFieldInputStyle.border,
-                                            }}
-                                          />
-                                          <datalist
-                                            id={`pvk-b-${stack.combination}-${layerIdx}`}
-                                          >
-                                            {PEROVSKITE_B_FORMULA_SUGGESTIONS.map(
-                                              (option) => (
-                                                <option
-                                                  key={option}
-                                                  value={option}
-                                                />
-                                              ),
-                                            )}
-                                          </datalist>
-                                        </Box>
-                                        <Box style={{ flex: 1 }}>
-                                          <Text
-                                            size="9px"
-                                            c="white"
-                                            fw={600}
-                                            style={{
-                                              opacity: 0.85,
-                                              marginBottom: 2,
-                                            }}
-                                          >
-                                            X
-                                          </Text>
-                                          <input
-                                            type="text"
-                                            list={`pvk-x-${stack.combination}-${layerIdx}`}
-                                            value={layer.perovskiteX}
-                                            onChange={(e) =>
-                                              onLayerChange(
-                                                stackIdx,
-                                                layerIdx,
-                                                "perovskiteX",
-                                                e.currentTarget.value,
-                                              )
-                                            }
-                                            onClick={(e) => e.stopPropagation()}
-                                            aria-invalid={
-                                              (perovskiteValidation?.xErrors
-                                                .length ?? 0) > 0
-                                            }
-                                            style={{
-                                              ...inLayerFieldInputStyle,
-                                              border:
-                                                (perovskiteValidation?.xErrors
-                                                  .length ?? 0) > 0
-                                                  ? "1px solid #ff8787"
-                                                  : inLayerFieldInputStyle.border,
-                                            }}
-                                          />
-                                          <datalist
-                                            id={`pvk-x-${stack.combination}-${layerIdx}`}
-                                          >
-                                            {PEROVSKITE_X_FORMULA_SUGGESTIONS.map(
-                                              (option) => (
-                                                <option
-                                                  key={option}
-                                                  value={option}
-                                                />
-                                              ),
-                                            )}
-                                          </datalist>
-                                        </Box>
+                                        <PerovskiteIonInput
+                                          siteLabel="A"
+                                          value={layer.perovskiteA}
+                                          suggestions={
+                                            PEROVSKITE_A_FORMULA_SUGGESTIONS
+                                          }
+                                          hasError={
+                                            (perovskiteValidation?.aErrors
+                                              .length ?? 0) > 0
+                                          }
+                                          onChange={(val) =>
+                                            onLayerChange(
+                                              stackIdx,
+                                              layerIdx,
+                                              "perovskiteA",
+                                              val,
+                                            )
+                                          }
+                                        />
+                                        <PerovskiteIonInput
+                                          siteLabel="B"
+                                          value={layer.perovskiteB}
+                                          suggestions={
+                                            PEROVSKITE_B_FORMULA_SUGGESTIONS
+                                          }
+                                          hasError={
+                                            (perovskiteValidation?.bErrors
+                                              .length ?? 0) > 0
+                                          }
+                                          onChange={(val) =>
+                                            onLayerChange(
+                                              stackIdx,
+                                              layerIdx,
+                                              "perovskiteB",
+                                              val,
+                                            )
+                                          }
+                                        />
+                                        <PerovskiteIonInput
+                                          siteLabel="X"
+                                          value={layer.perovskiteX}
+                                          suggestions={
+                                            PEROVSKITE_X_FORMULA_SUGGESTIONS
+                                          }
+                                          hasError={
+                                            (perovskiteValidation?.xErrors
+                                              .length ?? 0) > 0
+                                          }
+                                          onChange={(val) =>
+                                            onLayerChange(
+                                              stackIdx,
+                                              layerIdx,
+                                              "perovskiteX",
+                                              val,
+                                            )
+                                          }
+                                        />
                                       </Box>
                                       {hasPerovskiteErrors && (
                                         <Text
@@ -3044,62 +3026,86 @@ function ResultingStacks({
                                             field,
                                             value,
                                             hasError,
-                                          }) => (
-                                            <Box
-                                              key={label}
-                                              className={
-                                                pulseLayerField(layerIdx, field)
-                                                  ? "stk-pulse"
-                                                  : undefined
-                                              }
-                                              style={{
-                                                display: "flex",
-                                                flexDirection: "column",
-                                                alignItems: "center",
-                                                background: hasError
-                                                  ? "rgba(255,100,100,0.25)"
-                                                  : value
-                                                    ? "rgba(255,255,255,0.2)"
-                                                    : "rgba(255,255,255,0.08)",
-                                                border: hasError
-                                                  ? "1px dashed #ff8787"
-                                                  : value
-                                                    ? "1px solid rgba(255,255,255,0.4)"
-                                                    : "1px dashed rgba(255,255,255,0.35)",
-                                                borderRadius: 4,
-                                                padding: "1px 5px",
-                                                minWidth: 32,
-                                              }}
-                                            >
-                                              <Text
-                                                size="9px"
-                                                c="rgba(255,255,255,0.7)"
-                                                fw={700}
-                                                style={{ lineHeight: 1.1 }}
-                                              >
-                                                {label}
-                                              </Text>
-                                              <Text
-                                                size="xs"
-                                                c={
-                                                  hasError
-                                                    ? "#ffd8d8"
-                                                    : value
-                                                      ? "white"
-                                                      : "rgba(255,255,255,0.4)"
+                                          }) => {
+                                            // The field the guided flow is
+                                            // pointing at gets a near-opaque
+                                            // white highlight (with dark text)
+                                            // so the blinking box is obvious.
+                                            const isNext =
+                                              pulseLayerField(
+                                                layerIdx,
+                                                field,
+                                              ) && !hasError
+                                            return (
+                                              <Box
+                                                key={label}
+                                                className={
+                                                  isNext
+                                                    ? "stk-pulse"
+                                                    : undefined
                                                 }
-                                                fw={600}
                                                 style={{
-                                                  lineHeight: 1.2,
-                                                  fontStyle: value
-                                                    ? "normal"
-                                                    : "italic",
+                                                  display: "flex",
+                                                  flexDirection: "column",
+                                                  alignItems: "center",
+                                                  background: hasError
+                                                    ? "rgba(255,100,100,0.3)"
+                                                    : isNext
+                                                      ? "rgba(255,255,255,0.95)"
+                                                      : value
+                                                        ? "rgba(255,255,255,0.35)"
+                                                        : "rgba(0,0,0,0.28)",
+                                                  border: hasError
+                                                    ? "1px dashed #ff8787"
+                                                    : isNext
+                                                      ? "1px solid #ffffff"
+                                                      : value
+                                                        ? "1px solid rgba(255,255,255,0.6)"
+                                                        : "1px dashed rgba(255,255,255,0.5)",
+                                                  boxShadow: isNext
+                                                    ? "0 0 0 2px rgba(255,255,255,0.55)"
+                                                    : undefined,
+                                                  borderRadius: 4,
+                                                  padding: "1px 5px",
+                                                  minWidth: 32,
                                                 }}
                                               >
-                                                {value || "…"}
-                                              </Text>
-                                            </Box>
-                                          ),
+                                                <Text
+                                                  size="9px"
+                                                  c={
+                                                    isNext
+                                                      ? "rgba(0,0,0,0.6)"
+                                                      : "rgba(255,255,255,0.85)"
+                                                  }
+                                                  fw={700}
+                                                  style={{ lineHeight: 1.1 }}
+                                                >
+                                                  {label}
+                                                </Text>
+                                                <Text
+                                                  size="xs"
+                                                  c={
+                                                    hasError
+                                                      ? "#ffd8d8"
+                                                      : isNext
+                                                        ? "#1a1a1a"
+                                                        : value
+                                                          ? "white"
+                                                          : "rgba(255,255,255,0.7)"
+                                                  }
+                                                  fw={600}
+                                                  style={{
+                                                    lineHeight: 1.2,
+                                                    fontStyle: value
+                                                      ? "normal"
+                                                      : "italic",
+                                                  }}
+                                                >
+                                                  {value || "…"}
+                                                </Text>
+                                              </Box>
+                                            )
+                                          },
                                         )}
                                       </Box>
                                       {hasPerovskiteErrors && (
@@ -4168,7 +4174,9 @@ export function ProcessesPage() {
     setActiveEntity({ kind: "process", id: updated.id })
     setSelectedStepId(step.id)
     setPendingFocusStepId(step.id)
-    setMaterialModalStepId(step.id)
+    if (!method || !METHODS_WITHOUT_MATERIAL.has(method)) {
+      setMaterialModalStepId(step.id)
+    }
   }
 
   const handleAddAlternativeStep = (
@@ -4198,7 +4206,9 @@ export function ProcessesPage() {
     selectProcess(updated.id)
     setSelectedStepId(step.id)
     setPendingFocusStepId(step.id)
-    setMaterialModalStepId(step.id)
+    if (!method || !METHODS_WITHOUT_MATERIAL.has(method)) {
+      setMaterialModalStepId(step.id)
+    }
   }
 
   const handleChangeStepCategory = useCallback(
@@ -5685,7 +5695,7 @@ export function ProcessesPage() {
                         onRecover={handleRecoverStack}
                         onRefresh={handleGenerateStacks}
                       />
-                      {chemistryDone && depositionDone && (
+                      {chemistryDone && depositionDone && deviceDone && (
                         <Group justify="center" mt="lg">
                           <Button
                             size="lg"
@@ -7116,6 +7126,7 @@ export function ProcessesPage() {
               onSetInlineMaterial={(mat) =>
                 handleSetStepInlineMaterial(materialModalStep.id, mat)
               }
+              onAfterSelect={() => setMaterialModalStepId(null)}
             />
             <Group justify="space-between">
               <Button
