@@ -24,8 +24,10 @@ import { notifications } from "@mantine/notifications"
 import {
   IconArrowRight,
   IconCheck,
+  IconCloudUpload,
   IconCopy,
   IconDownload,
+  IconFileImport,
   IconInfoCircle,
   IconLayersIntersect,
   IconPlus,
@@ -36,8 +38,11 @@ import * as React from "react"
 import { useCallback, useRef, useState } from "react"
 import { autoResolveCollection } from "@/lib/autoResolveCollection"
 import {
+  buildSubstratesFromNames,
+  experimentProcessingDone,
   experimentSummaryDone,
   getExperimentAllStepsDone,
+  recognizeGroupNames,
 } from "@/lib/uploadFlow"
 import type { CollectionConfirmParams } from "../components/SelectCollectionModal"
 import {
@@ -115,11 +120,16 @@ function DeferredTextInput({
   value,
   onChange,
   onBlur,
+  pulseWhenEmpty,
   ...props
 }: Omit<React.ComponentProps<typeof TextInput>, "onChange" | "onBlur"> & {
   value: string
   onChange?: (value: string) => void
   onBlur?: (value: string) => void
+  /** When true and the (live) field is blank, wrap the input in a pulsing
+   *  highlight to prompt the user to fill it in. Keyed on the local value so
+   *  the buzz stops the moment they start typing, before blur commits. */
+  pulseWhenEmpty?: boolean
 }) {
   const [localValue, setLocalValue] = useState(value)
 
@@ -133,7 +143,7 @@ function DeferredTextInput({
     }
   }
 
-  return (
+  const input = (
     <TextInput
       {...props}
       value={localValue}
@@ -141,6 +151,17 @@ function DeferredTextInput({
       onBlur={handleBlur}
     />
   )
+
+  // Keep the wrapper element stable (only toggle the class) so the input isn't
+  // remounted — and focus lost — the moment the user types the first character.
+  if (pulseWhenEmpty) {
+    return (
+      <Box className={!localValue.trim() ? "exp-pulse" : undefined}>
+        {input}
+      </Box>
+    )
+  }
+  return input
 }
 
 function buildGeneratedSubstrateName(
@@ -221,12 +242,18 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
   onChangeGeneratorConfig,
   nextStepDefaults,
   onChangeNextStepDefault,
+  onConsultAdvanced,
 }: {
   process: Process
   generatorConfig: SubstrateGeneratorConfig
   onChangeGeneratorConfig: (patch: Partial<SubstrateGeneratorConfig>) => void
   nextStepDefaults: Record<number, string>
   onChangeNextStepDefault: (stageIndex: number, value: string) => void
+  /** Called the first time the user opens the advanced substrate settings.
+   *  Once consulted, newly added substrates are auto-named from the generator
+   *  config; before that they start blank so the user is prompted to name
+   *  each one directly in the table. */
+  onConsultAdvanced: () => void
 }) {
   const [showDetails, setShowDetails] = useState(false)
 
@@ -240,7 +267,13 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
           size="compact-xs"
           variant="subtle"
           color="gray"
-          onClick={() => setShowDetails((v) => !v)}
+          onClick={() =>
+            setShowDetails((v) => {
+              const next = !v
+              if (next) onConsultAdvanced()
+              return next
+            })
+          }
         >
           {showDetails ? "▲ Hide" : "▼ Show settings"}
         </Button>
@@ -448,6 +481,7 @@ function ExperimentGrid({
   substrateMaterialOptions,
   generatorConfig,
   nextStepDefaults,
+  advancedConsulted,
   onUpdate,
   onUpdateProcess,
   onAddSingleSubstrate,
@@ -457,6 +491,9 @@ function ExperimentGrid({
   substrateMaterialOptions: SubstrateMaterialOption[]
   generatorConfig: SubstrateGeneratorConfig
   nextStepDefaults: Record<number, string>
+  /** When false, added substrates start unnamed and their name fields buzz to
+   *  prompt manual entry; when true they are auto-named from the generator. */
+  advancedConsulted: boolean
   onUpdate: (exp: Experiment) => void
   onUpdateProcess: (process: Process) => void
   onAddSingleSubstrate: () => void
@@ -801,6 +838,35 @@ function ExperimentGrid({
     requestAnimationFrame(() => {
       nextInput.focus()
       nextInput.select()
+    })
+  }
+
+  // Commit the given name onto a substrate AND append a fresh one, in a single
+  // update. Doing both in one `onUpdate` avoids the two-write clobber where an
+  // add built from stale state would overwrite the just-typed name. Used by the
+  // Enter/Tab "type a name, jump to the next" flow — the new row is focused via
+  // pendingFocusNewSubstrate so, when unnamed, it keeps buzzing for input.
+  const commitNameAndAddSubstrate = (substrateId: string, name: string) => {
+    const renamed = experiment.substrates.map((substrate) =>
+      substrate.id === substrateId ? { ...substrate, name } : substrate,
+    )
+    const newSubstrate = {
+      id: crypto.randomUUID(),
+      name: advancedConsulted
+        ? buildGeneratedSubstrateName(
+            renamed.length + 1,
+            experiment,
+            generatorConfig,
+          )
+        : "",
+      substrateMaterialId: substrateMaterialOptions[0]?.value,
+      parameterValues: buildDefaultStageValues(),
+    }
+    pendingFocusNewSubstrate.current = true
+    onUpdate({
+      ...experiment,
+      numSubstrates: renamed.length + 1,
+      substrates: [...renamed, newSubstrate],
     })
   }
 
@@ -1340,6 +1406,8 @@ function ExperimentGrid({
                   ref={nameRefCallbacks[substrateIndex]}
                   size="xs"
                   value={substrate.name}
+                  placeholder="Name Substrate..."
+                  pulseWhenEmpty
                   onBlur={(value) =>
                     handleSubstrateNameChange(substrate.id, value)
                   }
@@ -1352,19 +1420,29 @@ function ExperimentGrid({
                       currentIndex === experiment.substrates.length - 1
                     if (e.key === "Enter") {
                       e.preventDefault()
-                      const value = e.currentTarget.value
-                      handleSubstrateNameChange(substrate.id, value)
-                      focusNameInput(currentIndex + 1)
-                    }
-                    if (e.key === "Tab") {
-                      e.preventDefault()
-                      if (!e.shiftKey && isLast) {
+                      // Enter jumps to the next substrate name, creating one
+                      // when at the end so names can be entered in a rapid
+                      // type → Enter → type flow.
+                      if (isLast) {
+                        commitNameAndAddSubstrate(
+                          substrate.id,
+                          e.currentTarget.value,
+                        )
+                      } else {
                         handleSubstrateNameChange(
                           substrate.id,
                           e.currentTarget.value,
                         )
-                        pendingFocusNewSubstrate.current = true
-                        onAddSingleSubstrate()
+                        focusNameInput(currentIndex + 1)
+                      }
+                    }
+                    if (e.key === "Tab") {
+                      e.preventDefault()
+                      if (!e.shiftKey && isLast) {
+                        commitNameAndAddSubstrate(
+                          substrate.id,
+                          e.currentTarget.value,
+                        )
                       } else {
                         focusNameInput(
                           e.shiftKey ? currentIndex - 1 : currentIndex + 1,
@@ -1478,7 +1556,12 @@ function ExperimentGrid({
 
           {/* Ghost add row — above Processing Times */}
           <tr
-            onClick={onAddSingleSubstrate}
+            onClick={() => {
+              // Focus the new (blank) name field so the user is prompted to
+              // name it right away.
+              pendingFocusNewSubstrate.current = true
+              onAddSingleSubstrate()
+            }}
             onMouseEnter={() => setAddRowHovered(true)}
             onMouseLeave={() => setAddRowHovered(false)}
             style={{
@@ -1526,7 +1609,10 @@ function ExperimentGrid({
                   borderTop: "2px solid var(--mantine-color-gray-2)",
                 }}
               >
-                Processing Times
+                Processing Times{" "}
+                <Text component="span" c="red.6" fw={700}>
+                  *
+                </Text>
               </td>
               <td
                 style={{ borderTop: "2px solid var(--mantine-color-gray-2)" }}
@@ -1545,6 +1631,7 @@ function ExperimentGrid({
                       <DeferredTextInput
                         size="xs"
                         type="datetime-local"
+                        pulseWhenEmpty
                         value={
                           experiment.processingTimes?.[processingKey] ?? ""
                         }
@@ -1761,6 +1848,89 @@ function ExperimentTimeline({
         </React.Fragment>
       ))}
     </Group>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Experiment-level result drop zone (shown on every tab, at the bottom)
+//
+// A second ingress into the upload flow: drop result files straight onto an
+// experiment. Neutral when idle; red when an upload is already in progress
+// (for this experiment → drop adds to it; for another → refused). Uses native
+// DOM drag handlers, never a Mantine Dropzone, to avoid merged-ref render loops.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ExperimentUploadDropZone({
+  belongsToThisExperiment,
+  hasOtherUpload,
+  onFiles,
+}: {
+  belongsToThisExperiment: boolean
+  hasOtherUpload: boolean
+  onFiles: (files: File[]) => void
+}) {
+  const [dragOver, setDragOver] = useState(false)
+  const active = belongsToThisExperiment || hasOtherUpload
+  const borderColor = dragOver
+    ? "var(--mantine-color-blue-5)"
+    : active
+      ? "var(--mantine-color-red-4)"
+      : "var(--mantine-color-gray-4)"
+  const label = belongsToThisExperiment
+    ? "Upload in progress for this experiment — drop more files to add them to the archive."
+    : hasOtherUpload
+      ? "Another upload is still in progress — finish or cancel it before starting a new one."
+      : "Drag & drop result files here to start an upload."
+  return (
+    <Box
+      mt="xl"
+      onDragOver={(e: React.DragEvent<HTMLDivElement>) => {
+        if (!e.dataTransfer.types.includes("Files")) {
+          return
+        }
+        e.preventDefault()
+        setDragOver(true)
+      }}
+      onDragLeave={(e: React.DragEvent<HTMLDivElement>) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setDragOver(false)
+        }
+      }}
+      onDrop={(e: React.DragEvent<HTMLDivElement>) => {
+        if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) {
+          return
+        }
+        e.preventDefault()
+        setDragOver(false)
+        onFiles(Array.from(e.dataTransfer.files))
+      }}
+      style={{
+        border: `2px dashed ${borderColor}`,
+        borderRadius: 8,
+        padding: "20px 16px",
+        textAlign: "center",
+        background: dragOver
+          ? "var(--mantine-color-blue-0)"
+          : active
+            ? "var(--mantine-color-red-0)"
+            : "transparent",
+        transition: "border 120ms ease, background 120ms ease",
+      }}
+    >
+      <Group justify="center" gap="xs" wrap="nowrap">
+        <IconCloudUpload
+          size={20}
+          color={
+            active
+              ? "var(--mantine-color-red-6)"
+              : "var(--mantine-color-gray-6)"
+          }
+        />
+        <Text size="sm" c={active ? "red.7" : "dimmed"} fw={active ? 600 : 500}>
+          {label}
+        </Text>
+      </Group>
+    </Box>
   )
 }
 
@@ -2195,6 +2365,8 @@ export default function ExperimentsPage() {
     pendingCollectionLink,
     setPendingCollectionLink,
     startUploadFlow,
+    uploadFlow,
+    addFilesToUploadFlow,
   } = useAppContext()
   const { getEntityColor, isEntityVisible } = useEntityCollection()
 
@@ -2216,6 +2388,10 @@ export default function ExperimentsPage() {
   const [nextStepDefaults, setNextStepDefaults] = useState<
     Record<number, string>
   >({})
+  // Whether the user has opened the advanced substrate settings. Until they do,
+  // newly added substrates start unnamed so their name fields buzz to prompt
+  // manual entry rather than silently receiving an auto-generated name.
+  const [advancedConsulted, setAdvancedConsulted] = useState(false)
 
   /** Select an experiment as a direct result of a user action, keeping the
    *  app-wide activeEntity and last-selected bookkeeping in sync. */
@@ -2304,7 +2480,10 @@ export default function ExperimentsPage() {
       materialItems,
       solutionItems,
     )
-    const procDone = selectedExperiment.substrates.length > 0
+    const procDone = experimentProcessingDone(
+      selectedExperiment,
+      selectedProcess,
+    )
     return chemDone && procDone && experimentSummaryDone(selectedExperiment)
   }, [selectedExperiment, selectedProcess])
 
@@ -2464,6 +2643,120 @@ export default function ExperimentsPage() {
     [setExperiments],
   )
 
+  // Files dropped straight onto an experiment (the bottom drop zone). Starts a
+  // flow carrying the real bytes; it naturally lands at 2/3 when the experiment
+  // is fully specified (only Upload left) or 1/3 when it isn't — the step state
+  // is derived by getUploadFlowSteps, so no manual step handling here.
+  const handleExperimentFilesDrop = useCallback(
+    (exp: Experiment, files: File[]) => {
+      if (files.length === 0) {
+        return
+      }
+      if (uploadFlow) {
+        if (uploadFlow.experimentId === exp.id) {
+          addFilesToUploadFlow(files)
+          notifications.show({
+            title: "Added to current upload",
+            message: `${files.length} file${
+              files.length === 1 ? "" : "s"
+            } added to the current upload.`,
+            color: "blue",
+          })
+        } else {
+          notifications.show({
+            title: "Upload already in progress",
+            message:
+              "There's still an incomplete upload — finish or cancel it before starting a new one.",
+            color: "red",
+          })
+        }
+        return
+      }
+      const process = processes.find((p) => p.id === exp.processId)
+      const fullySpecified = getExperimentAllStepsDone(exp, process)
+      const started = startUploadFlow({
+        origin: "add-results",
+        processId: exp.processId,
+        experimentId: exp.id,
+        files,
+        pendingFiles: files.map((f) => ({ name: f.name, size: f.size })),
+      })
+      if (!started) {
+        return
+      }
+      if (fullySpecified) {
+        // Complete → go straight to Results & Upload (opens Step 2 via the
+        // carried files, reusing the Req 2 path).
+        setPendingCollectionLink({
+          collectionId: "",
+          planeId: "",
+          kind: "result",
+          selectedExperimentId: exp.id,
+          openAddResults: true,
+          requestId: crypto.randomUUID(),
+        })
+        setActiveEntity({ kind: "experiment", id: exp.id })
+        updateLastSelected("experiment", exp.id)
+        void navigate({ to: "/results" })
+      } else {
+        notifications.show({
+          title: "Upload started",
+          message:
+            "Finish specifying this experiment (chemicals, substrates, summary) to upload its results.",
+          color: "yellow",
+        })
+      }
+    },
+    [
+      uploadFlow,
+      addFilesToUploadFlow,
+      processes,
+      startUploadFlow,
+      setPendingCollectionLink,
+      setActiveEntity,
+      updateLastSelected,
+      navigate,
+    ],
+  )
+
+  // Import from Upload (Processing tab): create substrates from the recognized
+  // group names in the active upload's staged file names.
+  const handleImportSubstratesFromUpload = useCallback(() => {
+    if (!selectedExperiment || !uploadFlow) {
+      return
+    }
+    const names = recognizeGroupNames(
+      (uploadFlow.pendingFiles ?? []).map((f) => f.name),
+    )
+    const created = buildSubstratesFromNames(
+      selectedExperiment.substrates,
+      names,
+    )
+    if (created.length === 0) {
+      notifications.show({
+        title: "Nothing to import",
+        message:
+          names.length === 0
+            ? "No substrate names were recognized in the uploaded files."
+            : "All recognized substrate names already exist.",
+        color: "yellow",
+      })
+      return
+    }
+    handleUpdateExperiment({
+      ...selectedExperiment,
+      substrates: [...selectedExperiment.substrates, ...created],
+      numSubstrates: selectedExperiment.substrates.length + created.length,
+    })
+    notifications.show({
+      title: "Substrates imported",
+      message: `Added ${created.length} substrate${
+        created.length === 1 ? "" : "s"
+      } from the uploaded files.`,
+      color: "green",
+    })
+  }, [selectedExperiment, uploadFlow, handleUpdateExperiment])
+
   const handleUpdateProcess = useCallback(
     (updatedProcess: Process) => {
       setProcesses((prev) =>
@@ -2492,11 +2785,15 @@ export default function ExperimentsPage() {
 
     const newSubstrate = {
       id: crypto.randomUUID(),
-      name: buildGeneratedSubstrateName(
-        selectedExperiment.substrates.length + 1,
-        selectedExperiment,
-        generatorConfig,
-      ),
+      // Leave the name blank (buzzing for manual entry) until the user has
+      // consulted the advanced settings that drive auto-naming.
+      name: advancedConsulted
+        ? buildGeneratedSubstrateName(
+            selectedExperiment.substrates.length + 1,
+            selectedExperiment,
+            generatorConfig,
+          )
+        : "",
       substrateMaterialId: substrateMaterialOptions[0]?.value,
       parameterValues: buildDefaultStageValues(),
     }
@@ -2511,6 +2808,7 @@ export default function ExperimentsPage() {
     selectedProcess,
     generatorConfig,
     nextStepDefaults,
+    advancedConsulted,
     substrateMaterialOptions,
     handleUpdateExperiment,
   ])
@@ -2861,7 +3159,10 @@ export default function ExperimentsPage() {
                 materialItems,
                 solutionItems,
               )
-              const procDone = selectedExperiment.substrates.length > 0
+              const procDone = experimentProcessingDone(
+                selectedExperiment,
+                selectedProcess,
+              )
               const summaryDone = experimentSummaryDone(selectedExperiment)
               const allStepsDone = chemDone && procDone && summaryDone
               return (
@@ -2900,7 +3201,24 @@ export default function ExperimentsPage() {
 
                   {activeExpTab === "processing" && (
                     <Stack gap="md">
-                      <Paper withBorder p="md" radius="md">
+                      <Paper
+                        withBorder
+                        p="md"
+                        radius="md"
+                        style={
+                          procDone
+                            ? {
+                                borderColor: "var(--mantine-color-teal-5)",
+                                background: "var(--mantine-color-teal-0)",
+                                transition:
+                                  "background 150ms, border-color 150ms",
+                              }
+                            : {
+                                transition:
+                                  "background 150ms, border-color 150ms",
+                              }
+                        }
+                      >
                         <Group gap="xs" mb="md">
                           <IconLayersIntersect
                             size={18}
@@ -2908,9 +3226,40 @@ export default function ExperimentsPage() {
                           />
                           <Text size="sm" fw={700}>
                             Step 2: Please specify how many substrates you
-                            prepared and what steps and parameters you use!
+                            prepared, what steps and parameters you use, and the
+                            execution time of every step!
                           </Text>
                         </Group>
+
+                        {/* Import substrate names from the active upload's
+                            recognized file-name groups (or prompt for one). */}
+                        {uploadFlow ? (
+                          <Group justify="space-between" mb="md" wrap="nowrap">
+                            <Text size="sm" c="dimmed">
+                              Result files are staged — import their device
+                              groups as substrates.
+                            </Text>
+                            <Button
+                              color="red"
+                              leftSection={<IconFileImport size={18} />}
+                              onClick={handleImportSubstratesFromUpload}
+                            >
+                              Import from Upload
+                            </Button>
+                          </Group>
+                        ) : (
+                          <Alert
+                            variant="light"
+                            color="gray"
+                            mb="md"
+                            icon={<IconCloudUpload size={18} />}
+                          >
+                            No active upload. Drop result files onto the canvas
+                            or this experiment to import substrate names from
+                            them.
+                          </Alert>
+                        )}
+
                         <SubstrateNameGenerator
                           process={selectedProcess}
                           generatorConfig={generatorConfig}
@@ -2927,6 +3276,7 @@ export default function ExperimentsPage() {
                               [stageIndex]: value,
                             }))
                           }
+                          onConsultAdvanced={() => setAdvancedConsulted(true)}
                         />
                         <ExperimentGrid
                           experiment={selectedExperiment}
@@ -2934,6 +3284,7 @@ export default function ExperimentsPage() {
                           substrateMaterialOptions={substrateMaterialOptions}
                           generatorConfig={generatorConfig}
                           nextStepDefaults={nextStepDefaults}
+                          advancedConsulted={advancedConsulted}
                           onUpdate={handleUpdateExperiment}
                           onUpdateProcess={handleUpdateProcess}
                           onAddSingleSubstrate={handleAddSingleSubstrate}
@@ -2977,6 +3328,20 @@ export default function ExperimentsPage() {
                       )}
                     </Paper>
                   )}
+
+                  {/* Experiment-level upload ingress — present on every tab. */}
+                  <ExperimentUploadDropZone
+                    belongsToThisExperiment={
+                      uploadFlow?.experimentId === selectedExperiment.id
+                    }
+                    hasOtherUpload={
+                      uploadFlow != null &&
+                      uploadFlow.experimentId !== selectedExperiment.id
+                    }
+                    onFiles={(files) =>
+                      handleExperimentFilesDrop(selectedExperiment, files)
+                    }
+                  />
                 </>
               )
             })()}

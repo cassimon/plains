@@ -1191,8 +1191,13 @@ function ResultsDetail({
   const [batchAssignTargetSubstrateId, setBatchAssignTargetSubstrateId] =
     useState<string | null>(null)
   const seenUnmatchedGroupIdsRef = useRef<Set<string>>(new Set())
-  const { processes, flushSave } = useAppContext()
+  const { processes, flushSave, uploadFlow } = useAppContext()
   const theme = useMantineTheme()
+  // Guards ingestion of an active upload flow's carried files: which flow has
+  // been consumed, and how many of its files, so Strict Mode's double-invoke
+  // can't re-ingest and later-added files ingest only their delta.
+  const consumedFlowRef = useRef<string | null>(null)
+  const consumedCountRef = useRef(0)
 
   // Build a map from inline substrate id → spec for the linked process
   const substrateSpecMap = useMemo(() => {
@@ -1225,14 +1230,9 @@ function ResultsDetail({
   const resultsRef = useRef<ExperimentResults | null>(null)
   const reviewAutoScrollRafRef = useRef<number | null>(null)
 
-  useEffect(() => {
-    if (!autoOpenAddResults) {
-      return
-    }
-    setIsResultsCardOpen(true)
-    setWorkflowStep(1)
-    onAutoOpenHandled?.()
-  }, [autoOpenAddResults, onAutoOpenHandled])
+  // Carry-over ingestion lives in a dedicated effect after `handleDrop` is
+  // defined (see below), so an incoming upload flow lands on Step 2 with its
+  // files already present.
 
   const stopReviewAutoScroll = useCallback(() => {
     if (reviewAutoScrollRafRef.current !== null) {
@@ -1768,6 +1768,56 @@ function ResultsDetail({
       experiment.name,
     ],
   )
+
+  // ── Ingest the active flow's carried files (one-directional) ───────────────
+  // When an upload flow for THIS experiment carries files (dropped in
+  // Organization / on the experiment zone), pull the bytes into the review via
+  // the existing `handleDrop` — which advances to Step 2. Tracks a consumed
+  // count so files added later ("add to the zip", Req 5) ingest incrementally,
+  // and so Strict Mode's double-invoke never re-ingests. flow.files → results
+  // only; nothing writes back to the flow, so there is no A↔B loop.
+  useEffect(() => {
+    const flow = uploadFlow
+    if (!flow || flow.experimentId !== experiment.id) {
+      return
+    }
+    if (consumedFlowRef.current !== flow.id) {
+      consumedFlowRef.current = flow.id
+      consumedCountRef.current = 0
+    }
+    const files = flow.files ?? []
+    if (files.length > consumedCountRef.current) {
+      const delta = files.slice(consumedCountRef.current)
+      consumedCountRef.current = files.length
+      void handleDrop(delta)
+    }
+  }, [uploadFlow, experiment.id, handleDrop])
+
+  // ── Open the card on arrival + pick the initial step ───────────────────────
+  // "Go to Results & Upload" / "Add Results" opens the card. If files will be
+  // (or were) ingested from the flow, the ingest effect lands on Step 2; else
+  // open Step 2 when files already exist, otherwise Step 1.
+  useEffect(() => {
+    if (!autoOpenAddResults) {
+      return
+    }
+    setIsResultsCardOpen(true)
+    const flow = uploadFlow
+    const willIngest =
+      !!flow &&
+      flow.experimentId === experiment.id &&
+      (flow.files?.length ?? 0) > 0
+    if (!willIngest) {
+      setWorkflowStep(results.files.length > 0 ? 2 : 1)
+    }
+    onAutoOpenHandled?.()
+  }, [
+    autoOpenAddResults,
+    onAutoOpenHandled,
+    uploadFlow,
+    experiment.id,
+    results.files.length,
+  ])
 
   // Handle manual assignment of unmatched group to substrate
   const handleAssignGroupToSubstrate = (

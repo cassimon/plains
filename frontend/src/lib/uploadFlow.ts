@@ -21,6 +21,7 @@ import {
   type ExperimentResults,
   getProcessStatus,
   type Process,
+  type Substrate,
 } from "@/store/AppContext"
 
 /** The three ordered steps of an upload flow. */
@@ -53,6 +54,13 @@ export type UploadFlow = {
   targetPlaneId?: string | null
   /** Files dropped in Organization, staged until an experiment is chosen. */
   pendingFiles?: StagedFile[]
+  /**
+   * The actual dropped `File` objects, kept in memory so the bytes follow the
+   * flow into the Results page (which uploads them to NOMAD) — the user never
+   * has to re-drop. Never persisted: the whole flow is ephemeral and dropped on
+   * logout / inactivity, so raw file handles never leave the browser session.
+   */
+  files?: File[]
   /**
    * When true, associating/creating an experiment auto-creates one substrate
    * per group recognized in the staged file names (flows where files arrive
@@ -96,6 +104,24 @@ export function experimentSummaryDone(exp: Experiment): boolean {
   )
 }
 
+/**
+ * Step 2 (Processing) is finished only when the experiment has at least one
+ * substrate AND every process stage has its execution time filled in. The
+ * per-step times are obligatory — this is what turns the processing layout
+ * green and unlocks Step 3. Times are stored per stage under `stage:${idx}`.
+ */
+export function experimentProcessingDone(
+  exp: Experiment,
+  process: Process | undefined,
+): boolean {
+  if (!process || exp.substrates.length === 0) {
+    return false
+  }
+  return process.stages.every((_stage, idx) =>
+    Boolean(exp.processingTimes?.[`stage:${idx}`]?.trim()),
+  )
+}
+
 export function getExperimentAllStepsDone(
   exp: Experiment,
   process: Process | undefined,
@@ -109,7 +135,7 @@ export function getExperimentAllStepsDone(
     materialItems,
     solutionItems,
   )
-  const procDone = exp.substrates.length > 0
+  const procDone = experimentProcessingDone(exp, process)
   return chemDone && procDone && experimentSummaryDone(exp)
 }
 
@@ -245,4 +271,27 @@ export function recognizeGroupNames(fileNames: string[]): string[] {
     }
   }
   return names
+}
+
+/**
+ * Build new `Substrate`s for the given names, skipping any whose name already
+ * exists (case-insensitive) among `existing`. Shared by the upload-flow target
+ * picker's auto-create checkbox and the Experiments "Import from Upload" button
+ * so both derive substrates from recognized file-name groups identically.
+ */
+export function buildSubstratesFromNames(
+  existing: Substrate[],
+  names: string[],
+): Substrate[] {
+  const taken = new Set(existing.map((sub) => sub.name.toLowerCase()))
+  const created: Substrate[] = []
+  for (const name of names) {
+    const key = name.toLowerCase()
+    if (taken.has(key)) {
+      continue
+    }
+    taken.add(key)
+    created.push({ id: crypto.randomUUID(), name })
+  }
+  return created
 }

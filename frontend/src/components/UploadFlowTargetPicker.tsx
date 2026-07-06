@@ -12,6 +12,7 @@ import { IconFlask2, IconPlus, IconX } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
 import { useCallback, useMemo } from "react"
 import {
+  buildSubstratesFromNames,
   getExperimentAllStepsDone,
   recognizeGroupNames,
 } from "@/lib/uploadFlow"
@@ -19,7 +20,6 @@ import {
   type CanvasCollectionElement,
   getProcessStatus,
   newExperiment,
-  type Substrate,
   useAppContext,
 } from "@/store/AppContext"
 
@@ -78,12 +78,10 @@ export function UploadFlowTargetPicker({
       // stay pure — Strict Mode double-invokes them). A just-created
       // experiment is not in `experiments` yet, so it has no substrates.
       const target = experiments.find((e) => e.id === targetExperimentId)
-      const existing = new Set(
-        (target?.substrates ?? []).map((sub) => sub.name.toLowerCase()),
+      const created = buildSubstratesFromNames(
+        target?.substrates ?? [],
+        recognizedNames,
       )
-      const created: Substrate[] = recognizedNames
-        .filter((name) => !existing.has(name.toLowerCase()))
-        .map((name) => ({ id: crypto.randomUUID(), name }))
       if (created.length === 0) {
         return
       }

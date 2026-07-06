@@ -6,6 +6,7 @@ import {
   Button,
   ColorSwatch,
   Divider,
+  FileButton,
   Group,
   Loader,
   Modal,
@@ -24,7 +25,6 @@ import {
 } from "@mantine/core"
 import { useDebouncedValue } from "@mantine/hooks"
 import { modals } from "@mantine/modals"
-import { notifications } from "@mantine/notifications"
 import {
   IconArrowRight,
   IconBold,
@@ -61,11 +61,8 @@ import {
 import { PlanesService } from "../client"
 import { UploadFlowTargetPicker } from "../components/UploadFlowTargetPicker"
 import useAuth from "../hooks/useAuth"
-import {
-  getUploadFlowSteps,
-  isUploadFlowComplete,
-  type StagedFile,
-} from "../lib/uploadFlow"
+import { getUploadFlowSteps, isUploadFlowComplete } from "../lib/uploadFlow"
+import { useStartOrAddUpload } from "../lib/useStartOrAddUpload"
 import {
   type CanvasCollectionElement,
   type CanvasElement,
@@ -1635,6 +1632,7 @@ function CollectionEl({
     setPendingCollectionLink,
     uploadFlow,
   } = useAppContext()
+  const startOrAddUpload = useStartOrAddUpload()
   // A file drop targeting this collection stages an incomplete upload. It shows
   // a blinking red marker until the flow finishes and becomes a real result.
   const uploadPending =
@@ -2421,6 +2419,66 @@ function CollectionEl({
                   </Tooltip>
                 )
               })}
+
+            {/* Result-file upload — small, non-dominant red affordance shown on
+                every collection so files can be uploaded without dragging. */}
+            {!markerOnly && (
+              <FileButton
+                multiple
+                onChange={(picked) => {
+                  if (picked.length > 0) {
+                    startOrAddUpload(picked, {
+                      collectionId: el.id,
+                      planeId,
+                    })
+                  }
+                }}
+              >
+                {(fileBtnProps) => (
+                  <Tooltip
+                    label="Upload result files"
+                    withArrow
+                    position="bottom"
+                    openDelay={300}
+                  >
+                    <Box
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        cursor: "pointer",
+                        borderRadius: 4,
+                        padding: "4px 5px",
+                        background: "var(--mantine-color-red-0)",
+                        outline: "1px dashed var(--mantine-color-red-4)",
+                        outlineOffset: 1,
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        fileBtnProps.onClick()
+                      }}
+                    >
+                      <IconCloudUpload
+                        size={20}
+                        color="var(--mantine-color-red-6)"
+                      />
+                      <Text
+                        size="xs"
+                        c="red.7"
+                        style={{
+                          lineHeight: 1,
+                          marginTop: 3,
+                          fontWeight: 600,
+                        }}
+                      >
+                        ↑
+                      </Text>
+                    </Box>
+                  </Tooltip>
+                )}
+              </FileButton>
+            )}
 
             {/* Note + textfield add buttons — same size/style, only when collection is fully empty */}
             {!markerOnly && el.refs.length === 0 && (
@@ -3463,8 +3521,8 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     copyElementToPlane,
     moveElementToPlane,
     uploadFlow,
-    startUploadFlow,
   } = useAppContext()
+  const startOrAddUpload = useStartOrAddUpload()
 
   const obLevel = useOnboardingLevel()
   const isFirstPlane = planes[0]?.id === plane.id
@@ -3841,25 +3899,18 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     fileList: FileList,
     dropCell: { col: number; row: number } | null,
   ) => {
-    if (uploadFlow) {
-      notifications.show({
-        title: "Upload already in progress",
-        message:
-          "Finish or cancel the current upload before dropping more files.",
-        color: "red",
-      })
+    const files = Array.from(fileList)
+    if (files.length === 0) {
       return
     }
-    const pendingFiles: StagedFile[] = Array.from(fileList).map((f) => ({
-      name: f.name,
-      size: f.size,
-    }))
 
     // An unfinished upload is always associated with a collection. Reuse the
     // collection under the cursor, or create an empty one at that cell so the
     // pending marker has a home ("empty collection with just this symbol").
+    // Only materialize a new collection when starting a *fresh* flow — an
+    // add-to-zip / different-target drop shouldn't spawn stray collections.
     let targetCollectionId: string | null = null
-    if (dropCell && dropCell.col >= 0 && dropCell.row >= 0) {
+    if (!uploadFlow && dropCell && dropCell.col >= 0 && dropCell.row >= 0) {
       const { col, row } = dropCell
       const existing = plane.elements.find((e) => {
         if (e.type !== "collection") return false
@@ -3884,37 +3935,24 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
         updatePlane({ ...plane, elements: [...plane.elements, newEl] })
         targetCollectionId = newEl.id
       }
+    } else if (uploadFlow && dropCell) {
+      // Resolve the collection under the cursor (if any) so the shared hook can
+      // tell same-target (add-to-zip) from different-target (warn).
+      const { col, row } = dropCell
+      const existing = plane.elements.find((e) => {
+        if (e.type !== "collection") return false
+        const c = e as CanvasCollectionElement
+        return (
+          Math.round(c.position.x / CELL_W) === col &&
+          Math.round(c.position.y / CELL_H) === row
+        )
+      }) as CanvasCollectionElement | undefined
+      targetCollectionId = existing?.id ?? null
     }
 
-    const started = startUploadFlow({
-      origin: "drag-drop",
-      pendingFiles,
-      targetCollectionId,
-      targetPlaneId: targetCollectionId ? plane.id : null,
-    })
-    if (!started) {
-      return
-    }
-    modals.open({
-      title: "Upload files",
-      children: (
-        <Stack gap="sm">
-          <Text size="sm" c="dimmed">
-            {pendingFiles.length} file{pendingFiles.length === 1 ? "" : "s"}{" "}
-            staged. Choose which process and experiment they belong to.
-          </Text>
-          <UploadFlowTargetPicker onNavigateAway={() => modals.closeAll()} />
-          <Group justify="flex-end">
-            <Button
-              variant="default"
-              size="xs"
-              onClick={() => modals.closeAll()}
-            >
-              Done
-            </Button>
-          </Group>
-        </Stack>
-      ),
+    startOrAddUpload(files, {
+      collectionId: targetCollectionId,
+      planeId: plane.id,
     })
   }
 
@@ -4503,6 +4541,43 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               } catch {}
             }}
           >
+            {/* Idle hint: no active upload → tell the user how to start one.
+                Non-interactive overlay so it never blocks drops. */}
+            {!uploadFlow && (
+              <Box
+                style={{
+                  position: "absolute",
+                  top: 10,
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  zIndex: 5,
+                  pointerEvents: "none",
+                }}
+              >
+                <Group
+                  gap={8}
+                  wrap="nowrap"
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 999,
+                    background: isDark
+                      ? "var(--mantine-color-dark-6)"
+                      : "var(--mantine-color-white)",
+                    border: "1px dashed var(--mantine-color-red-4)",
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+                  }}
+                >
+                  <IconCloudUpload
+                    size={18}
+                    color="var(--mantine-color-red-6)"
+                  />
+                  <Text size="sm" fw={600} c="red.7">
+                    Place files onto Plane for upload
+                  </Text>
+                </Group>
+              </Box>
+            )}
+
             {/* Unified grid: empty ghost cells + all canvas elements */}
             {(() => {
               const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }

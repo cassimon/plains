@@ -10,6 +10,7 @@ import {
   ThemeIcon,
   Tooltip,
 } from "@mantine/core"
+import { modals } from "@mantine/modals"
 import { notifications } from "@mantine/notifications"
 import {
   IconAlertTriangle,
@@ -151,8 +152,21 @@ export function UploadFlowStatus() {
   }
 
   const handleCancel = () => {
-    setOpened(false)
-    cancelUploadFlow()
+    modals.openConfirmModal({
+      title: "Discard this upload?",
+      children: (
+        <Text size="sm">
+          The staged files and progress for this upload will be lost. This can't
+          be undone.
+        </Text>
+      ),
+      labels: { confirm: "Discard upload", cancel: "Keep upload" },
+      confirmProps: { color: "red" },
+      onConfirm: () => {
+        setOpened(false)
+        cancelUploadFlow()
+      },
+    })
   }
 
   return (

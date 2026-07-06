@@ -1183,6 +1183,12 @@ type AppContextValue = {
   ) => boolean
   /** Patch the active flow (also refreshes its inactivity timer). */
   updateUploadFlow: (patch: Partial<UploadFlow>) => void
+  /**
+   * Append files to the active flow — both the raw `File` bytes (for upload)
+   * and their display metadata. Used when the user drops more files onto the
+   * same target ("add to the zip"). No-op when there is no active flow.
+   */
+  addFilesToUploadFlow: (files: File[]) => void
   /** Drop the active flow (user abort / logout / inactivity). */
   cancelUploadFlow: () => void
 }
@@ -1281,6 +1287,7 @@ export function AppProvider({
           targetCollectionId: init.targetCollectionId ?? null,
           targetPlaneId: init.targetPlaneId ?? null,
           pendingFiles: init.pendingFiles,
+          files: init.files ?? [],
           autoCreateSubstrates: init.autoCreateSubstrates ?? false,
           autoCreatedSubstrateIds: [],
           createdAt: new Date(now).toISOString(),
@@ -1295,6 +1302,25 @@ export function AppProvider({
     setUploadFlow((prev) =>
       prev ? { ...prev, ...patch, lastActivityAt: Date.now() } : prev,
     )
+  }, [])
+  const addFilesToUploadFlow = useCallback((files: File[]) => {
+    if (files.length === 0) {
+      return
+    }
+    setUploadFlow((prev) => {
+      if (!prev) {
+        return prev
+      }
+      return {
+        ...prev,
+        files: [...(prev.files ?? []), ...files],
+        pendingFiles: [
+          ...(prev.pendingFiles ?? []),
+          ...files.map((f) => ({ name: f.name, size: f.size })),
+        ],
+        lastActivityAt: Date.now(),
+      }
+    })
   }, [])
   const cancelUploadFlow = useCallback(() => setUploadFlow(null), [])
 
@@ -1830,6 +1856,7 @@ export function AppProvider({
         uploadFlow,
         startUploadFlow,
         updateUploadFlow,
+        addFilesToUploadFlow,
         cancelUploadFlow,
       }}
     >
