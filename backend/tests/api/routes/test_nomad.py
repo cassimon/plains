@@ -40,7 +40,9 @@ class TestNomadConfig:
     ) -> None:
         r = client.get(f"{BASE}/config", headers=normal_user_token_headers)
         data = r.json()
-        assert data["enabled"] == settings.NOMAD_OAUTH_ENABLED
+        # A non-OAuth user sees enabled=True when global credentials are
+        # configured or mock mode is on (settings.nomad_enabled).
+        assert data["enabled"] == settings.nomad_enabled
         assert data["url"] == settings.NOMAD_URL
 
 

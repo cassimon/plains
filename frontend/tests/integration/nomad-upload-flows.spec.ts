@@ -20,8 +20,9 @@
  * backend/tests/integration/test_nomad_archive_cleanup.py (the sweep runs
  * server-side where the archives live).
  */
-import { load as parseYaml } from "js-yaml"
+
 import type { Page } from "@playwright/test"
+import { load as parseYaml } from "js-yaml"
 import { expect, test } from "./fixtures"
 import { apiClient } from "./utils/api"
 
@@ -165,7 +166,6 @@ async function navigateTo(page: Page, label: string, urlPart: string) {
 /** Click a menu-trigger button and wait for a menu item, retrying — a React
  *  re-render right after the click can close an uncontrolled Mantine menu. */
 async function openMenuUntilItemVisible(
-  page: Page,
   trigger: () => Promise<void>,
   item: () => ReturnType<Page["getByRole"]>,
 ) {
@@ -198,7 +198,6 @@ async function addStepViaMenu(
   method: string,
 ) {
   await openMenuUntilItemVisible(
-    page,
     () => page.getByRole("button", { name: buttonLabel }).last().click(),
     () => page.getByRole("menuitem", { name: category }),
   )
@@ -243,7 +242,6 @@ async function createCompleteProcessInGui(page: Page, name: string) {
 
   // Substrate preparation step (empty-state menu)
   await openMenuUntilItemVisible(
-    page,
     () =>
       page
         .getByRole("button", { name: "Add Substrate Preparation" })
@@ -321,8 +319,16 @@ async function completeExperimentInGui(page: Page) {
 async function pickInUploadPickerAndGo(page: Page, processName: string) {
   const openPopoverWith = async (probe: () => ReturnType<Page["locator"]>) => {
     for (let attempt = 0; attempt < 5; attempt++) {
-      if (await probe().isVisible().catch(() => false)) return
-      await page.getByText(/File Upload/).first().click()
+      if (
+        await probe()
+          .isVisible()
+          .catch(() => false)
+      )
+        return
+      await page
+        .getByText(/File Upload/)
+        .first()
+        .click()
       await page.waitForTimeout(500)
     }
     await probe().waitFor({ state: "visible", timeout: 4_000 })
@@ -331,7 +337,9 @@ async function pickInUploadPickerAndGo(page: Page, processName: string) {
   // 1. Process
   const procSelect = () => page.getByPlaceholder("Select a process")
   await openPopoverWith(procSelect)
-  const already = await procSelect().inputValue().catch(() => "")
+  const already = await procSelect()
+    .inputValue()
+    .catch(() => "")
   if (!already) {
     await procSelect().click()
     await page
@@ -344,7 +352,9 @@ async function pickInUploadPickerAndGo(page: Page, processName: string) {
   // 2. Experiment (enabled once a process is chosen)
   const expSelect = () => page.getByPlaceholder("Select an experiment")
   await openPopoverWith(expSelect)
-  const alreadyExp = await expSelect().inputValue().catch(() => "")
+  const alreadyExp = await expSelect()
+    .inputValue()
+    .catch(() => "")
   if (!alreadyExp) {
     await expSelect().click()
     await page.getByRole("option").first().click()
@@ -898,6 +908,129 @@ test("flow 3: drop files and associate an existing process + experiment, then up
       stackPattern: /Perovskite/,
       expectAlternatives: false,
     })
+    await assertNoGuiErrors(page, errors)
+  } finally {
+    await cleanupEntities(authToken, processName)
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auto-create substrates option (flows 2/3): substrate names are created from
+// recognized file-name groups, and misrecognized names can be deleted.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("auto-create substrates from recognized groups, with deletion of misrecognized names", async ({
+  authedPage: page,
+  authToken,
+}) => {
+  test.setTimeout(300_000)
+  const processName = `NomadAuto-${Date.now()}`
+  const errors = collectGuiErrors(page)
+  // Two real measurement groups (AB41/AB42) plus one file whose recognized
+  // group ("README1") is a misrecognition the user will delete.
+  const stagedNames = [
+    "auto_AB41_JV.txt",
+    "auto_AB42_JV.txt",
+    "README1_notes.txt",
+  ]
+
+  try {
+    // 1. Drop the files first (flow 2 shape) → upload flow with staged files
+    await dropFilesOnOrganization(page, stagedNames)
+
+    // 2. Create + complete a process
+    await navigateTo(page, "Processes", "/processes")
+    await createCompleteProcessInGui(page, processName)
+
+    // 3. In the header picker: select the process, enable the auto-create
+    //    option, then create the experiment from the picker.
+    const openPopoverWith = async (
+      probe: () => ReturnType<Page["locator"]>,
+    ) => {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (
+          await probe()
+            .isVisible()
+            .catch(() => false)
+        )
+          return
+        await page
+          .getByText(/File Upload/)
+          .first()
+          .click()
+        await page.waitForTimeout(500)
+      }
+      await probe().waitFor({ state: "visible", timeout: 4_000 })
+    }
+
+    const procSelect = () => page.getByPlaceholder("Select a process")
+    await openPopoverWith(procSelect)
+    await procSelect().click()
+    await page
+      .getByRole("option", { name: new RegExp(processName) })
+      .first()
+      .click()
+    await page.waitForTimeout(400)
+
+    const autoCheckbox = () =>
+      page.getByText(/Auto-create substrate names from recognized groups/)
+    await openPopoverWith(autoCheckbox)
+    // The label lists the recognized groups
+    await expect(autoCheckbox().first()).toContainText("AB41")
+    await expect(autoCheckbox().first()).toContainText("AB42")
+    await expect(autoCheckbox().first()).toContainText("README1")
+    await autoCheckbox().first().click()
+    await page.waitForTimeout(300)
+
+    // exact:true — the page behind the popover has a "Create Experiment from
+    // Process" button that a substring match would hit first.
+    const createBtn = () =>
+      page.getByRole("button", { name: "Create experiment", exact: true })
+    await openPopoverWith(createBtn)
+    await expect(createBtn().first()).toBeEnabled()
+    await createBtn().first().click()
+    await page.waitForURL("**/experiments", { timeout: 8_000 })
+    await page.waitForTimeout(800)
+
+    // 4. The picker lists the auto-created substrates as removable chips —
+    //    delete the misrecognized "README1".
+    const chips = () => page.getByText("Auto-created:", { exact: true })
+    await openPopoverWith(chips)
+    for (const name of ["AB41", "AB42", "README1"]) {
+      await expect(
+        page.getByLabel(`Delete substrate ${name}`).first(),
+      ).toBeVisible({ timeout: 5_000 })
+    }
+    await page.getByLabel("Delete substrate README1").first().click()
+    await page.waitForTimeout(400)
+    await expect(page.getByLabel("Delete substrate README1")).toHaveCount(0)
+
+    // Close the popover and check the experiment's substrate table
+    await page.keyboard.press("Escape")
+    await page.getByText("Processing", { exact: true }).first().click()
+    await page.waitForTimeout(500)
+    await expect(page.locator("table input[value='AB41']").first()).toBeVisible(
+      { timeout: 8_000 },
+    )
+    await expect(
+      page.locator("table input[value='AB42']").first(),
+    ).toBeVisible()
+    await expect(page.locator("table input[value='README1']")).toHaveCount(0)
+
+    // 5. The names persist to the backend (flush window)
+    await page.waitForTimeout(4_000)
+    const bulk = await apiClient(authToken).get<{
+      processes: Array<{ id: string; name: string }>
+      experiments: Array<{
+        process_id: string | null
+        substrates: Array<{ name: string }>
+      }>
+    }>("/state/bulk")
+    const proc = bulk.processes.find((p) => p.name === processName)
+    const exp = bulk.experiments.find((e) => e.process_id === proc?.id)
+    const substrateNames = (exp?.substrates ?? []).map((s) => s.name).sort()
+    expect(substrateNames).toEqual(["AB41", "AB42"])
+
     await assertNoGuiErrors(page, errors)
   } finally {
     await cleanupEntities(authToken, processName)

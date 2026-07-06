@@ -344,6 +344,9 @@ class TestAuthToken:
             mock_settings.NOMAD_URL = EXPECTED_TEST_BASE_URL
             mock_settings.NOMAD_USERNAME = None
             mock_settings.NOMAD_PASSWORD = None
+            # Mock mode skips the credential check — this test asserts the
+            # real-server path, so force it off (a bare MagicMock is truthy).
+            mock_settings.NOMAD_MOCK_MODE = False
 
             print("Testing with no credentials...")
             print(f"  NOMAD_USERNAME: {mock_settings.NOMAD_USERNAME}")

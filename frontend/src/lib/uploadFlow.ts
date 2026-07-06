@@ -212,10 +212,13 @@ export function recognizeGroupNames(fileNames: string[]): string[] {
   const seen = new Set<string>()
   for (const fileName of fileNames) {
     const base = fileName.replace(/\.[^/.]+$/, "")
+    // File names use underscores/dashes as separators ("2025_AB41_JV"), which
+    // count as word characters — tokenize instead of relying on \b.
+    const tokens = base.split(/[_\-\s]+/).filter(Boolean)
     let name: string | null = null
-    const idMatch = base.match(/\b([A-Z]{2}\d{2,3})\b/)
-    if (idMatch) {
-      name = idMatch[1]
+    const idToken = tokens.find((t) => /^[A-Z]{2}\d{2,3}$/.test(t))
+    if (idToken) {
+      name = idToken
     } else {
       const wordMatch = base.match(/^([A-Za-z]+\d+)/)
       if (wordMatch) {
