@@ -52,10 +52,7 @@ import {
 } from "@/components/QuenchingModal"
 import type { CollectionConfirmParams } from "@/components/SelectCollectionModal"
 import { autoResolveCollection } from "@/lib/autoResolveCollection"
-import {
-  exportProcessProtocolAsDocx,
-  exportProcessProtocolAsPdf,
-} from "@/lib/processExport"
+import { exportProcessProtocolAsPdf } from "@/lib/processExport"
 import {
   type CanvasCollectionElement,
   getDependentLocations,
@@ -3480,7 +3477,6 @@ export function ProcessesPage() {
   const [dropStagePos, setDropStagePos] = useState<number | null>(null)
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null)
   const [isExportingPdf, setIsExportingPdf] = useState(false)
-  const [isExportingDocx, setIsExportingDocx] = useState(false)
   const [substrateSelectingIdx, setSubstrateSelectingIdx] = useState<
     number | null
   >(null)
@@ -3939,23 +3935,6 @@ export function ProcessesPage() {
       window.alert("Failed to export process PDF. Please try again.")
     } finally {
       setIsExportingPdf(false)
-    }
-  }
-
-  const handleExportProcessDocx = async () => {
-    if (!selectedProcess) return
-    try {
-      setIsExportingDocx(true)
-      await exportProcessProtocolAsDocx({
-        process: selectedProcess,
-        materials: materials.map((m) => ({ id: m.id, name: m.name })),
-        solutions: solutions.map((s) => ({ id: s.id, name: s.name })),
-      })
-    } catch (error) {
-      console.error("Failed to export process DOCX", error)
-      window.alert("Failed to export process DOCX. Please try again.")
-    } finally {
-      setIsExportingDocx(false)
     }
   }
 
@@ -5536,15 +5515,6 @@ export function ProcessesPage() {
                   loading={isExportingPdf}
                 >
                   Export PDF
-                </Button>
-                <Button
-                  size="xs"
-                  variant="light"
-                  leftSection={<IconDownload size={14} />}
-                  onClick={handleExportProcessDocx}
-                  loading={isExportingDocx}
-                >
-                  Export DOCX
                 </Button>
               </Group>
             </Group>

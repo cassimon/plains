@@ -102,6 +102,18 @@ All primary keys are UUIDs. All entities use cascade deletes. Each entity table 
 ### NOMAD Integration
 NOMAD auth credentials are read from a file outside the project root at `../sensitive config/.nomad_auth`. The backend routes are in `api/routes/nomad.py` and the service logic in `services/nomad.py`. Upload flow: zip measurement files → generate YAML metadata → POST to NOMAD API.
 
+### PDF Export/Import Schema Versioning
+Process/Experiment PDFs are editable AcroForm documents that embed a canonical, versioned JSON
+serialization of the entity (see `frontend/src/lib/pdfSchema.ts` and the plans in
+`docs/plans/process-experiment-pdf-*.md`). This round-trip (export → user edits in a PDF viewer →
+import) only works if serialization stays compatible.
+
+**Rule: bump `PDF_SCHEMA_VERSION` in `frontend/src/lib/pdfSchema.ts` whenever the serialized shape
+changes** — this includes changes to `Process`/`Experiment` in `AppContext.tsx` that alter what gets
+serialized, or to the AcroForm field-name codec. Every bump must add a corresponding entry to the
+import migration ladder so older PDFs remain readable (downward compatibility). Never reuse a version
+number for a different shape.
+
 ## React + Vite + Mantine: Strict Mode Pitfalls
 
 React Strict Mode (active in Vite dev) double-invokes effects and renders. Combined with Mantine hooks (`useMergedRef`, etc.), this creates infinite render loops if not handled carefully. Apply these patterns whenever adding new features to the frontend:

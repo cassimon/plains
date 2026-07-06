@@ -37,6 +37,7 @@ import { useNavigate as useRouterNavigate } from "@tanstack/react-router"
 import * as React from "react"
 import { useCallback, useRef, useState } from "react"
 import { autoResolveCollection } from "@/lib/autoResolveCollection"
+import { exportExperimentSummaryAsPdf } from "@/lib/processExport"
 import {
   buildSubstratesFromNames,
   experimentProcessingDone,
@@ -1993,63 +1994,6 @@ function buildExportText(
   return lines.join("\n")
 }
 
-function buildExportCsv(
-  experiment: Experiment,
-  process: Process,
-  allExperiments: Experiment[],
-): string {
-  const { materials, solutions } = buildChemicalsExport(
-    experiment,
-    process,
-    allExperiments,
-  )
-  const rows: string[][] = [["Type", "Name", "Detail", "Amount", "Unit"]]
-  for (const m of materials) {
-    const extra = [m.purity, m.supplier, m.productId].filter(Boolean).join(", ")
-    rows.push(["Chemical", m.name, m.inventoryLabel || "", extra, ""])
-  }
-  for (const s of solutions) {
-    if (s.mode === "take") {
-      rows.push([
-        "Solution",
-        s.name,
-        `reused from ${s.reusedFromName ?? "another experiment"}`,
-        "",
-        "",
-      ])
-    } else {
-      rows.push([
-        "Solution",
-        s.name,
-        s.preparedAt ? `prepared ${s.preparedAt}` : "total",
-        s.volumeMl ?? "",
-        "mL",
-      ])
-      for (const q of s.quantities) {
-        rows.push([
-          "Solution ingredient",
-          `${s.name} — ${q.name}`,
-          "",
-          q.amount,
-          q.unit,
-        ])
-      }
-    }
-  }
-  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
-  return rows.map((r) => r.map(esc).join(",")).join("\n")
-}
-
-function downloadFile(filename: string, content: string, type: string) {
-  const blob = new Blob([content], { type })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 function SummaryTab({
   experiment,
   process,
@@ -2062,13 +2006,33 @@ function SummaryTab({
   onUpdate: (exp: Experiment) => void
 }) {
   const [copied, setCopied] = useState(false)
+  const [includeFullProcess, setIncludeFullProcess] = useState(false)
+  const [isExportingPdf, setIsExportingPdf] = useState(false)
 
   const { materials, solutions } = React.useMemo(
     () => buildChemicalsExport(experiment, process, allExperiments),
     [experiment, process, allExperiments],
   )
 
-  const safeName = (experiment.name || "experiment").replace(/[^\w.-]+/g, "_")
+  const exportPdf = async () => {
+    try {
+      setIsExportingPdf(true)
+      await exportExperimentSummaryAsPdf({
+        experiment,
+        process,
+        materials: [],
+        solutions: [],
+        chemicals: materials,
+        solutionRows: solutions,
+        includeFullProcess,
+      })
+    } catch (error) {
+      console.error("Failed to export experiment PDF", error)
+      window.alert("Failed to export experiment PDF. Please try again.")
+    } finally {
+      setIsExportingPdf(false)
+    }
+  }
 
   const copyAll = () => {
     navigator.clipboard.writeText(
@@ -2227,32 +2191,21 @@ function SummaryTab({
               size="xs"
               variant="light"
               leftSection={<IconDownload size={14} />}
-              onClick={() =>
-                downloadFile(
-                  `${safeName}_chemicals.txt`,
-                  buildExportText(experiment, process, allExperiments),
-                  "text/plain",
-                )
-              }
+              onClick={exportPdf}
+              loading={isExportingPdf}
             >
-              .txt
-            </Button>
-            <Button
-              size="xs"
-              variant="light"
-              leftSection={<IconDownload size={14} />}
-              onClick={() =>
-                downloadFile(
-                  `${safeName}_chemicals.csv`,
-                  buildExportCsv(experiment, process, allExperiments),
-                  "text/csv",
-                )
-              }
-            >
-              .csv
+              Export PDF
             </Button>
           </Group>
         </Group>
+
+        <Checkbox
+          size="xs"
+          mb="md"
+          label="Include full process protocol before the experiment details"
+          checked={includeFullProcess}
+          onChange={(e) => setIncludeFullProcess(e.currentTarget.checked)}
+        />
 
         <Stack gap="md">
           <Box>

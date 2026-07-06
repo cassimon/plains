@@ -1,5 +1,18 @@
-import { summariseQuenchingValue } from "@/components/QuenchingModal"
 import {
+  type PDFDocument,
+  type PDFFont,
+  type PDFForm,
+  type PDFPage,
+  rgb,
+  StandardFonts,
+} from "pdf-lib"
+import { summariseQuenchingValue } from "@/components/QuenchingModal"
+import type {
+  ChemicalExportRow,
+  SolutionExportRow,
+} from "@/routes/-Experiments.chemicals"
+import {
+  type Experiment,
   PROCESS_PARAMETER_DEFINITIONS,
   type Process,
   type ProcessSolute,
@@ -7,9 +20,17 @@ import {
   type ProcessSolvent,
   type ProcessStep,
 } from "@/store/AppContext"
+import {
+  type EntityRefs,
+  embedPayload,
+  encodeFieldName,
+  type FieldPath,
+  serializeExperiment,
+  serializeProcess,
+} from "./pdfSchema"
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Public input type (unchanged — call sites in Processes.page.tsx stay the same)
+// Public input types
 // ─────────────────────────────────────────────────────────────────────────────
 
 type NamedEntity = { id: string; name: string }
@@ -20,12 +41,25 @@ type ProcessExportInput = {
   solutions: NamedEntity[]
 }
 
+type ExperimentExportInput = {
+  experiment: Experiment
+  process: Process
+  materials: NamedEntity[]
+  solutions: NamedEntity[]
+  /** Chemicals/solutions compiled by buildChemicalsExport in the caller. */
+  chemicals: ChemicalExportRow[]
+  solutionRows: SolutionExportRow[]
+  /** Prepend the full Process protocol pages before the experiment section. */
+  includeFullProcess: boolean
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Internal model types
+// Internal model types (rows carry entity ids so form fields can be addressed)
 // ─────────────────────────────────────────────────────────────────────────────
 
-type SolventRow = { name: string; volumeMl: number }
+type SolventRow = { id: string; name: string; volumeMl: number }
 type SoluteRow = {
+  id: string
   name: string
   amount: string
   unit: string
@@ -35,6 +69,7 @@ type AddedSolutionRow = { name: string; volumeMl: string }
 
 type ChemistrySection = {
   index: number
+  recipeId: string
   name: string
   type?: string
   isCommercial: boolean
@@ -43,14 +78,22 @@ type ChemistrySection = {
   handlingPreparation?: string
   handlingBeforeUse?: string
   totalSolventVolumeMl: number
+  totalSolventVolumeRaw: string
   solvents: SolventRow[]
   solutes: SoluteRow[]
   addedSolutions: AddedSolutionRow[]
 }
 
-type ParamRow = { label: string; value: string; unit?: string }
+type ParamRow = {
+  key: string
+  editable: boolean
+  label: string
+  value: string
+  unit?: string
+}
 
 type StepSection = {
+  stepId: string
   altLabel: string
   depositionMethod: string
   category: string
@@ -67,14 +110,17 @@ type StageSection = {
 }
 
 type SubstrateRow = {
+  id: string
   name: string
   rigidity: string
-  size: string
+  lengthCm: string
+  widthCm: string
   heightMm: string
   roughnessNm: string
 }
 
 type StackLayer = {
+  id: string
   name: string
   type: string
   thicknessNm: string
@@ -92,6 +138,7 @@ type DeviceStackSection = {
 }
 
 type ProcessExportModel = {
+  processId: string
   processName: string
   description: string
   exportDate: string
@@ -121,6 +168,8 @@ const LAYER_TYPE_LABELS: Record<string, string> = {
   additional: "Additional",
   back_contact: "Back Contact",
 }
+
+const SOLUTE_UNITS = ["mg", "ml", "mol"]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Calculation helpers
@@ -153,6 +202,7 @@ function distributeSolventVolumes(
 ): SolventRow[] {
   const totalRatio = solvents.reduce((s, v) => s + (v.volumeRatio || 0), 0) || 1
   return solvents.map((sv) => ({
+    id: sv.id,
     name: sv.name || "Solvent",
     volumeMl: (sv.volumeRatio / totalRatio) * totalVolumeMl,
   }))
@@ -163,25 +213,30 @@ function buildParamRows(
   materials: NamedEntity[],
   solutions: NamedEntity[],
 ): ParamRow[] {
-  return PROCESS_PARAMETER_DEFINITIONS.flatMap(({ key, label, unit }) => {
-    if (
-      key === "depositionMethod" ||
-      key === "depositionStartTime" ||
-      key === "annealingStartTime"
-    ) {
-      return []
-    }
-    const value = step[key]?.value?.trim()
-    if (!value) return []
-    if (key === "dryingMethod") {
-      const summary = summariseQuenchingValue(value, materials, solutions)
-      const display = summary
-        ? summary.replace(/^D\/Q:\s*/, "").replace(/\s*\|\s*/g, ", ")
-        : value
-      return [{ label: "Drying / Quenching", value: display }]
-    }
-    return [{ label, value, unit: unit || undefined }]
-  })
+  return PROCESS_PARAMETER_DEFINITIONS.flatMap(
+    ({ key, label, unit }): ParamRow[] => {
+      if (
+        key === "depositionMethod" ||
+        key === "depositionStartTime" ||
+        key === "annealingStartTime"
+      ) {
+        return []
+      }
+      const value = step[key]?.value?.trim()
+      if (!value) return []
+      if (key === "dryingMethod") {
+        const summary = summariseQuenchingValue(value, materials, solutions)
+        const display = summary
+          ? summary.replace(/^D\/Q:\s*/, "").replace(/\s*\|\s*/g, ", ")
+          : value
+        // Drying/Quenching is a composite value — keep it read-only.
+        return [
+          { key, editable: false, label: "Drying / Quenching", value: display },
+        ]
+      }
+      return [{ key, editable: true, label, value, unit: unit || undefined }]
+    },
+  )
 }
 
 function resolveStepMaterialLabel(
@@ -218,7 +273,7 @@ function resolveStepMaterialLabel(
       recipeRef: null,
     }
   }
-  return { label: "—", recipeRef: null }
+  return { label: "-", recipeRef: null }
 }
 
 function alphabeticLabel(index: number): string {
@@ -247,6 +302,45 @@ function triggerDownload(blob: Blob, filename: string) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// WinAnsi sanitisation — StandardFonts.Helvetica can only encode the WinAnsi
+// character set. Replace known specials and drop anything else so pdf-lib never
+// throws when generating text / field appearances.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const WINANSI_EXTRA = new Set<number>([
+  0x20ac, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030,
+  0x0160, 0x2039, 0x0152, 0x017d, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022,
+  0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x017e, 0x0178,
+])
+
+const SPECIAL_REPLACEMENTS: Record<string, string> = {
+  "→": "->",
+  "←": "<-",
+  "⟶": "->",
+  "≥": ">=",
+  "≤": "<=",
+  "≈": "~",
+  "‑": "-",
+}
+
+function sanitize(input: string): string {
+  let out = ""
+  for (const ch of input) {
+    const repl = SPECIAL_REPLACEMENTS[ch]
+    if (repl !== undefined) {
+      out += repl
+      continue
+    }
+    const cp = ch.codePointAt(0) ?? 0
+    if (cp >= 0x20 && cp <= 0x7e) out += ch
+    else if (cp >= 0xa0 && cp <= 0xff) out += ch
+    else if (WINANSI_EXTRA.has(cp)) out += ch
+    else out += "?"
+  }
+  return out
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Build export model (pure data extraction + calculations)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -254,7 +348,11 @@ function buildProcessExportModel({
   process,
   materials,
   solutions,
-}: ProcessExportInput): ProcessExportModel {
+}: {
+  process: Process
+  materials: NamedEntity[]
+  solutions: NamedEntity[]
+}): ProcessExportModel {
   const materialNameById = new Map(materials.map((m) => [m.id, m.name]))
   const solutionNameById = new Map(solutions.map((s) => [s.id, s.name]))
   const recipes = process.solutionRecipes ?? []
@@ -279,9 +377,11 @@ function buildProcessExportModel({
     if (!recipe) {
       return {
         index: i + 1,
+        recipeId: id,
         name: "Unknown Recipe",
         isCommercial: false,
         totalSolventVolumeMl: 0,
+        totalSolventVolumeRaw: "",
         solvents: [],
         solutes: [],
         addedSolutions: [],
@@ -290,6 +390,7 @@ function buildProcessExportModel({
     const totalMl = parseFloat(recipe.totalSolventVolumeMl) || 0
     return {
       index: i + 1,
+      recipeId: recipe.id,
       name: recipe.name,
       type: recipe.type || undefined,
       isCommercial: recipe.isCommercial ?? false,
@@ -298,8 +399,10 @@ function buildProcessExportModel({
       handlingPreparation: recipe.handlingPreparation?.trim() || undefined,
       handlingBeforeUse: recipe.handlingBeforeUse?.trim() || undefined,
       totalSolventVolumeMl: totalMl,
+      totalSolventVolumeRaw: recipe.totalSolventVolumeMl,
       solvents: distributeSolventVolumes(recipe.solvents, totalMl),
       solutes: recipe.solutes.map((sl) => ({
+        id: sl.id,
         name: sl.name || "Solute",
         amount: sl.amount,
         unit: sl.unit,
@@ -325,6 +428,7 @@ function buildProcessExportModel({
         recipeIndexById,
       )
       return {
+        stepId: step.id,
         altLabel:
           stage.alternatives.length > 1
             ? `Alternative ${alphabeticLabel(altIdx)}`
@@ -343,16 +447,18 @@ function buildProcessExportModel({
   // Substrates
   const substrates: SubstrateRow[] = (process.inlineSubstrates ?? []).map(
     (s) => ({
+      id: s.id,
       name: s.name || "Substrate",
       rigidity:
         s.rigidity === "rigid"
           ? "Rigid"
           : s.rigidity === "flexible"
             ? "Flexible"
-            : "—",
-      size: s.lengthCm && s.widthCm ? `${s.lengthCm} × ${s.widthCm}` : "—",
-      heightMm: s.heightMm || "—",
-      roughnessNm: s.surfaceRoughnessRmsNm || "—",
+            : "-",
+      lengthCm: s.lengthCm || "",
+      widthCm: s.widthCm || "",
+      heightMm: s.heightMm || "",
+      roughnessNm: s.surfaceRoughnessRmsNm || "",
     }),
   )
 
@@ -365,24 +471,26 @@ function buildProcessExportModel({
     )
     return {
       index: i + 1,
-      architecture: stack.architecture || "—",
-      pixelAreaCm2: stack.pixelAreaCm2 || "—",
-      numberOfPixels: stack.numberOfPixels || "—",
+      architecture: stack.architecture || "-",
+      pixelAreaCm2: stack.pixelAreaCm2 || "",
+      numberOfPixels: stack.numberOfPixels || "",
       layers: [...stack.layers].reverse().map((l) => ({
+        id: l.id,
         name: l.name || "Layer",
-        type: LAYER_TYPE_LABELS[l.layerType] || l.layerType || "—",
-        thicknessNm: l.thicknessNm || "—",
-        bandgapEv: l.bandgapEv || "—",
+        type: LAYER_TYPE_LABELS[l.layerType] || l.layerType || "-",
+        thicknessNm: l.thicknessNm || "",
+        bandgapEv: l.bandgapEv || "",
         perovskiteComposition:
           [l.perovskiteA, l.perovskiteB, l.perovskiteX]
             .filter(Boolean)
-            .join(" / ") || "—",
+            .join(" / ") || "-",
       })),
       hasPerovskite,
     }
   })
 
   return {
+    processId: process.id,
     processName: process.name || "Untitled Process",
     description: process.description?.trim() || "",
     exportDate: new Date().toLocaleDateString("en-GB", {
@@ -399,925 +507,686 @@ function buildProcessExportModel({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PDF rendering
+// PDF layout engine (pdf-lib). Origin is bottom-left; `y` tracks the top of the
+// next content line and decreases as we move down the page.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function drawPdfTable(
-  doc: any,
-  headers: string[],
-  rows: string[][],
-  colWidths: number[],
-  x: number,
-  startY: number,
-  margin: number,
-  pageHeight: number,
-): number {
-  const cellPadH = 5
-  const cellPadV = 5
-  const fontSize = 9
-  const lineH = 12
-  doc.setFontSize(fontSize)
+const MARGIN = 50
+const PAGE_W = 595.28 // A4 in pt
+const PAGE_H = 841.89
 
-  const computeRowHeight = (cells: string[]) => {
-    const maxLines = Math.max(
-      1,
-      ...cells.map((cell, i) => {
-        const w = (colWidths[i] ?? 80) - cellPadH * 2
-        return doc.splitTextToSize(String(cell), w).length
-      }),
-    )
-    return maxLines * lineH + cellPadV * 2
-  }
-
-  const totalWidth = colWidths.reduce((s, w) => s + w, 0)
-  let y = startY
-
-  const drawRow = (
-    cells: string[],
-    rowY: number,
-    bold: boolean,
-    fillRgb: [number, number, number],
-  ) => {
-    const rowHeight = computeRowHeight(cells)
-    doc.setFillColor(...fillRgb)
-    doc.rect(x, rowY, totalWidth, rowHeight, "F")
-    doc.setDrawColor(190, 190, 190)
-    doc.setLineWidth(0.3)
-    doc.rect(x, rowY, totalWidth, rowHeight, "S")
-
-    doc.setFont("helvetica", bold ? "bold" : "normal")
-    doc.setFontSize(fontSize)
-    doc.setTextColor(30, 30, 30)
-
-    let cellX = x
-    cells.forEach((cell, i) => {
-      const cellWidth = colWidths[i] ?? 80
-      const textWidth = cellWidth - cellPadH * 2
-      const lines: string[] = doc.splitTextToSize(String(cell), textWidth)
-      lines.forEach((line: string, lineIdx: number) => {
-        doc.text(
-          line,
-          cellX + cellPadH,
-          rowY + cellPadV + lineH * 0.82 + lineIdx * lineH,
-        )
-      })
-      // inner vertical divider
-      if (i < cells.length - 1) {
-        doc.setDrawColor(210, 210, 210)
-        doc.line(cellX + cellWidth, rowY, cellX + cellWidth, rowY + rowHeight)
-      }
-      cellX += cellWidth
-    })
-    return rowHeight
-  }
-
-  // header row
-  const headerHeight = computeRowHeight(headers)
-  if (y + headerHeight > pageHeight - margin) {
-    doc.addPage()
-    y = margin
-  }
-  drawRow(headers, y, true, [224, 231, 245])
-  y += headerHeight
-
-  // data rows
-  rows.forEach((row, rowIdx) => {
-    const rowHeight = computeRowHeight(row)
-    if (y + rowHeight > pageHeight - margin) {
-      doc.addPage()
-      y = margin
-    }
-    const fill: [number, number, number] =
-      rowIdx % 2 === 0 ? [255, 255, 255] : [248, 249, 251]
-    drawRow(row, y, false, fill)
-    y += rowHeight
-  })
-
-  return y
+function c(r: number, g: number, b: number) {
+  return rgb(r / 255, g / 255, b / 255)
 }
 
-async function renderPdfFromModel(
-  model: ProcessExportModel,
-  doc: any,
-): Promise<void> {
-  const margin = 50
-  const pageWidth: number = doc.internal.pageSize.getWidth()
-  const pageHeight: number = doc.internal.pageSize.getHeight()
-  const contentWidth = pageWidth - margin * 2
-  let y = margin
+const COLORS = {
+  title: c(25, 25, 60),
+  section: c(30, 80, 180),
+  sub: c(40, 40, 40),
+  mini: c(80, 80, 80),
+  label: c(50, 50, 50),
+  note: c(90, 90, 90),
+  id: c(150, 150, 150),
+  altLabel: c(60, 80, 140),
+  headerFill: c(224, 231, 245),
+  altRowFill: c(248, 249, 251),
+  border: c(190, 190, 190),
+  divider: c(210, 210, 210),
+  fieldBg: c(0.97 * 255, 0.98 * 255, 255),
+  fieldBorder: c(150, 170, 210),
+  pageNum: c(160, 160, 160),
+}
 
-  function ensureSpace(needed: number) {
-    if (y + needed > pageHeight - margin) {
-      doc.addPage()
-      y = margin
+type EditableCell = { field: FieldPath; value: string; options?: string[] }
+type TableCell = string | EditableCell
+
+function edit(
+  field: FieldPath,
+  value: string,
+  options?: string[],
+): EditableCell {
+  return { field, value, options }
+}
+
+function isEditable(cell: TableCell): cell is EditableCell {
+  return typeof cell !== "string"
+}
+
+class PdfLayout {
+  page!: PDFPage
+  y = 0
+  readonly contentWidth = PAGE_W - MARGIN * 2
+
+  constructor(
+    readonly doc: PDFDocument,
+    readonly form: PDFForm,
+    readonly font: PDFFont,
+    readonly fontBold: PDFFont,
+    readonly fontOblique: PDFFont,
+  ) {
+    this.newPage()
+  }
+
+  newPage() {
+    this.page = this.doc.addPage([PAGE_W, PAGE_H])
+    this.y = PAGE_H - MARGIN
+  }
+
+  ensureSpace(needed: number) {
+    if (this.y - needed < MARGIN) this.newPage()
+  }
+
+  private drawText(
+    text: string,
+    x: number,
+    size: number,
+    font: PDFFont,
+    color: ReturnType<typeof rgb>,
+  ) {
+    this.page.drawText(sanitize(text), {
+      x,
+      y: this.y - size,
+      size,
+      font,
+      color,
+    })
+  }
+
+  wrap(text: string, maxWidth: number, size: number, font: PDFFont): string[] {
+    const clean = sanitize(text)
+    const words = clean.split(/\s+/)
+    const lines: string[] = []
+    let cur = ""
+    const widthOf = (s: string) => font.widthOfTextAtSize(s, size)
+    for (const word of words) {
+      let w = word
+      // hard-break tokens longer than the line
+      while (widthOf(w) > maxWidth && w.length > 1) {
+        let i = 1
+        while (i < w.length && widthOf(w.slice(0, i + 1)) <= maxWidth) i++
+        if (cur) {
+          lines.push(cur)
+          cur = ""
+        }
+        lines.push(w.slice(0, i))
+        w = w.slice(i)
+      }
+      const candidate = cur ? `${cur} ${w}` : w
+      if (widthOf(candidate) <= maxWidth) {
+        cur = candidate
+      } else {
+        if (cur) lines.push(cur)
+        cur = w
+      }
     }
+    if (cur) lines.push(cur)
+    return lines.length ? lines : [""]
   }
 
-  function writeTitle(text: string) {
-    ensureSpace(32)
-    doc.setFont("helvetica", "bold")
-    doc.setFontSize(18)
-    doc.setTextColor(25, 25, 60)
-    doc.text(text, margin, y)
-    y += 26
+  writeTitle(text: string) {
+    this.ensureSpace(32)
+    this.drawText(text, MARGIN, 18, this.fontBold, COLORS.title)
+    this.y -= 26
   }
 
-  function writeSectionHeading(num: string, text: string) {
-    ensureSpace(34)
-    y += 10
-    doc.setFont("helvetica", "bold")
-    doc.setFontSize(13)
-    doc.setTextColor(30, 80, 180)
-    doc.text(`${num}  ${text}`, margin, y)
-    y += 5
-    doc.setDrawColor(30, 80, 180)
-    doc.setLineWidth(0.6)
-    doc.line(margin, y, margin + contentWidth, y)
-    doc.setLineWidth(0.2)
-    y += 9
+  writeSectionHeading(num: string, text: string) {
+    this.ensureSpace(40)
+    this.y -= 10
+    this.drawText(`${num}  ${text}`, MARGIN, 13, this.fontBold, COLORS.section)
+    this.y -= 18
+    this.page.drawLine({
+      start: { x: MARGIN, y: this.y + 4 },
+      end: { x: MARGIN + this.contentWidth, y: this.y + 4 },
+      thickness: 0.6,
+      color: COLORS.section,
+    })
+    this.y -= 9
   }
 
-  function writeSubHeading(text: string) {
-    ensureSpace(22)
-    y += 4
-    doc.setFont("helvetica", "bold")
-    doc.setFontSize(11)
-    doc.setTextColor(40, 40, 40)
-    doc.text(text, margin, y)
-    y += 14
+  writeSubHeading(text: string) {
+    this.ensureSpace(24)
+    this.y -= 4
+    this.drawText(text, MARGIN, 11, this.fontBold, COLORS.sub)
+    this.y -= 14
   }
 
-  function writeMiniHeading(text: string) {
-    ensureSpace(14)
-    doc.setFont("helvetica", "bold")
-    doc.setFontSize(9)
-    doc.setTextColor(80, 80, 80)
-    doc.text(text, margin, y)
-    y += 11
+  writeMiniHeading(text: string) {
+    this.ensureSpace(14)
+    this.drawText(text, MARGIN, 9, this.fontBold, COLORS.mini)
+    this.y -= 11
   }
 
-  function writeLabelValue(label: string, value: string) {
-    ensureSpace(14)
-    doc.setFontSize(10)
-    doc.setFont("helvetica", "bold")
-    doc.setTextColor(50, 50, 50)
+  /** Small, unremarkable grey line for machine identifiers. */
+  writeId(text: string) {
+    this.ensureSpace(11)
+    this.drawText(text, MARGIN, 7, this.font, COLORS.id)
+    this.y -= 10
+  }
+
+  writeLabelValue(label: string, value: string) {
+    this.ensureSpace(14)
     const labelText = `${label}: `
-    const labelWidth = doc.getTextWidth(labelText)
-    doc.text(labelText, margin, y)
-    doc.setFont("helvetica", "normal")
-    const valueLines: string[] = doc.splitTextToSize(
+    const labelWidth = this.fontBold.widthOfTextAtSize(sanitize(labelText), 10)
+    this.drawText(labelText, MARGIN, 10, this.fontBold, COLORS.label)
+    const valueLines = this.wrap(
       value,
-      contentWidth - labelWidth,
+      this.contentWidth - labelWidth,
+      10,
+      this.font,
     )
-    doc.text(valueLines[0] ?? "", margin + labelWidth, y)
-    y += 13
+    // first line sits on the label baseline
+    this.page.drawText(valueLines[0] ?? "", {
+      x: MARGIN + labelWidth,
+      y: this.y - 10,
+      size: 10,
+      font: this.font,
+      color: COLORS.label,
+    })
+    this.y -= 13
     for (let i = 1; i < valueLines.length; i++) {
-      ensureSpace(13)
-      doc.text(valueLines[i], margin + labelWidth, y)
-      y += 13
+      this.ensureSpace(13)
+      this.page.drawText(valueLines[i], {
+        x: MARGIN + labelWidth,
+        y: this.y - 10,
+        size: 10,
+        font: this.font,
+        color: COLORS.label,
+      })
+      this.y -= 13
     }
   }
 
-  function writeBullet(text: string) {
-    ensureSpace(13)
-    doc.setFont("helvetica", "normal")
-    doc.setFontSize(10)
-    doc.setTextColor(50, 50, 50)
-    const bulletWidth = doc.getTextWidth("  • ")
-    doc.text("  •", margin, y)
-    const lines: string[] = doc.splitTextToSize(
+  writeBullet(text: string) {
+    const bulletWidth = this.font.widthOfTextAtSize("  - ", 10)
+    const lines = this.wrap(
       text,
-      contentWidth - bulletWidth,
+      this.contentWidth - bulletWidth,
+      10,
+      this.font,
     )
-    lines.forEach((line: string, i: number) => {
-      ensureSpace(13)
-      doc.text(line, margin + bulletWidth, y + i * 13)
+    this.ensureSpace(13)
+    this.drawText("  -", MARGIN, 10, this.font, COLORS.label)
+    lines.forEach((line, i) => {
+      this.ensureSpace(13)
+      this.page.drawText(line, {
+        x: MARGIN + bulletWidth,
+        y: this.y - 10,
+        size: 10,
+        font: this.font,
+        color: COLORS.label,
+      })
+      if (i < lines.length - 1) this.y -= 13
     })
-    y += lines.length * 13
+    this.y -= 13
   }
 
-  function writeNote(text: string) {
-    ensureSpace(13)
-    doc.setFont("helvetica", "italic")
-    doc.setFontSize(9)
-    doc.setTextColor(90, 90, 90)
-    const lines: string[] = doc.splitTextToSize(text, contentWidth)
-    lines.forEach((line: string) => {
-      ensureSpace(12)
-      doc.text(line, margin, y)
-      y += 12
+  writeNote(text: string) {
+    const lines = this.wrap(text, this.contentWidth, 9, this.fontOblique)
+    for (const line of lines) {
+      this.ensureSpace(12)
+      this.drawText(line, MARGIN, 9, this.fontOblique, COLORS.note)
+      this.y -= 12
+    }
+  }
+
+  spacer(h: number) {
+    this.y -= h
+  }
+
+  private placeField(
+    cell: EditableCell,
+    rect: {
+      x: number
+      y: number
+      width: number
+      height: number
+    },
+  ) {
+    const name = encodeFieldName(cell.field)
+    if (cell.options) {
+      const dd = this.form.createDropdown(name)
+      const opts = cell.options.map(sanitize)
+      dd.setOptions(opts)
+      const val = sanitize(cell.value)
+      if (val && opts.includes(val)) dd.select(val)
+      dd.addToPage(this.page, {
+        ...rect,
+        font: this.font,
+        textColor: COLORS.label,
+        backgroundColor: COLORS.fieldBg,
+        borderColor: COLORS.fieldBorder,
+        borderWidth: 0.5,
+      })
+      dd.setFontSize(9)
+    } else {
+      const tf = this.form.createTextField(name)
+      tf.setText(sanitize(cell.value))
+      tf.addToPage(this.page, {
+        ...rect,
+        font: this.font,
+        textColor: COLORS.label,
+        backgroundColor: COLORS.fieldBg,
+        borderColor: COLORS.fieldBorder,
+        borderWidth: 0.5,
+      })
+      tf.setFontSize(9)
+    }
+  }
+
+  drawTable(headers: string[], rows: TableCell[][], colWidths: number[]) {
+    const cellPadH = 5
+    const cellPadV = 5
+    const size = 9
+    const lineH = 12
+    const totalWidth = colWidths.reduce((s, w) => s + w, 0)
+
+    const rowHeight = (cells: TableCell[]) => {
+      const maxLines = Math.max(
+        1,
+        ...cells.map((cell, i) => {
+          if (isEditable(cell)) return 1
+          const w = (colWidths[i] ?? 80) - cellPadH * 2
+          return this.wrap(cell, w, size, this.font).length
+        }),
+      )
+      return maxLines * lineH + cellPadV * 2
+    }
+
+    const drawRow = (
+      cells: TableCell[],
+      bold: boolean,
+      fill: ReturnType<typeof rgb>,
+    ) => {
+      const h = rowHeight(cells)
+      const top = this.y
+      const bottom = top - h
+      this.page.drawRectangle({
+        x: MARGIN,
+        y: bottom,
+        width: totalWidth,
+        height: h,
+        color: fill,
+        borderColor: COLORS.border,
+        borderWidth: 0.3,
+      })
+      let cellX = MARGIN
+      const font = bold ? this.fontBold : this.font
+      cells.forEach((cell, i) => {
+        const cw = colWidths[i] ?? 80
+        if (isEditable(cell)) {
+          this.placeField(cell, {
+            x: cellX + 2,
+            y: bottom + 2,
+            width: cw - 4,
+            height: h - 4,
+          })
+        } else {
+          const lines = this.wrap(cell, cw - cellPadH * 2, size, font)
+          lines.forEach((line, li) => {
+            this.page.drawText(line, {
+              x: cellX + cellPadH,
+              y: top - cellPadV - size - li * lineH,
+              size,
+              font,
+              color: c(30, 30, 30),
+            })
+          })
+        }
+        if (i < cells.length - 1) {
+          this.page.drawLine({
+            start: { x: cellX + cw, y: top },
+            end: { x: cellX + cw, y: bottom },
+            thickness: 0.3,
+            color: COLORS.divider,
+          })
+        }
+        cellX += cw
+      })
+      this.y = bottom
+    }
+
+    // header (repeat when a page break splits the table)
+    this.ensureSpace(rowHeight(headers))
+    drawRow(headers, true, COLORS.headerFill)
+
+    rows.forEach((row, idx) => {
+      const h = rowHeight(row)
+      if (this.y - h < MARGIN) {
+        this.newPage()
+        this.ensureSpace(rowHeight(headers))
+        drawRow(headers, true, COLORS.headerFill)
+      }
+      drawRow(row, false, idx % 2 === 0 ? c(255, 255, 255) : COLORS.altRowFill)
     })
   }
 
-  // ── Title block ──────────────────────────────────────────────────────────────
-  writeTitle(model.processName)
-  if (model.description) {
-    writeNote(model.description)
-    y += 2
+  finalizeFooters(footerLeft: string) {
+    const pages = this.doc.getPages()
+    const total = pages.length
+    pages.forEach((page, i) => {
+      page.drawText(sanitize(`Page ${i + 1} of ${total}`), {
+        x: MARGIN,
+        y: 20,
+        size: 8,
+        font: this.font,
+        color: COLORS.pageNum,
+      })
+      const right = sanitize(footerLeft)
+      const w = this.font.widthOfTextAtSize(right, 8)
+      page.drawText(right, {
+        x: PAGE_W - MARGIN - w,
+        y: 20,
+        size: 8,
+        font: this.font,
+        color: COLORS.pageNum,
+      })
+    })
   }
-  writeLabelValue("Export Date", model.exportDate)
-  writeLabelValue(
-    "Process",
-    `${model.stageCount} stage${model.stageCount !== 1 ? "s" : ""}${model.chemistry.length > 0 ? `, ${model.chemistry.length} solution recipe${model.chemistry.length !== 1 ? "s" : ""}` : ""}`,
-  )
-  y += 4
+}
 
-  // ── Section 1: Chemistry ─────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Section renderers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderProcessSections(L: PdfLayout, model: ProcessExportModel) {
+  const cw = L.contentWidth
+
+  // ── Chemistry ────────────────────────────────────────────────────────────
   if (model.chemistry.length > 0) {
-    writeSectionHeading("1.", "Chemistry — Solution Preparation")
-
+    L.writeSectionHeading("1.", "Chemistry — Solution Preparation")
     for (const chem of model.chemistry) {
       const badge = chem.isCommercial ? "[COMMERCIAL]" : "[LAB PREPARED]"
-      writeSubHeading(`1.${chem.index}  ${chem.name}  ${badge}`)
+      L.writeSubHeading(`1.${chem.index}  ${chem.name}  ${badge}`)
+      L.writeId(`Recipe ID: ${chem.recipeId}`)
 
-      if (chem.type) writeLabelValue("Type", chem.type)
+      if (chem.type) L.writeLabelValue("Type", chem.type)
 
       if (chem.isCommercial) {
-        if (chem.commercialName)
-          writeLabelValue("Commercial Name", chem.commercialName)
-        if (chem.supplierNumber)
-          writeLabelValue("Supplier / Ref.", chem.supplierNumber)
-      } else {
-        // Solvents table
-        if (chem.solvents.length > 0) {
-          writeLabelValue(
-            "Total Solvent Volume",
-            `${chem.totalSolventVolumeMl} mL`,
-          )
-          y += 2
-          writeMiniHeading("Solvents")
-          const solventColW = [
-            contentWidth * 0.55,
-            contentWidth * 0.25,
-            contentWidth * 0.2,
-          ]
-          y = drawPdfTable(
-            doc,
-            ["Solvent", "Volume (mL)", "Ratio"],
-            chem.solvents.map((sv) => [
-              sv.name,
-              sv.volumeMl.toFixed(2),
-              String(
-                Math.round(
-                  (sv.volumeMl / (chem.totalSolventVolumeMl || 1)) *
-                    chem.solvents.reduce((s, v) => s + v.volumeMl, 0),
-                ),
+        L.drawTable(
+          ["Field", "Value"],
+          [
+            [
+              "Commercial Name",
+              edit(
+                { kind: "recipeCommercialName", recipeId: chem.recipeId },
+                chem.commercialName ?? "",
               ),
-            ]),
-            solventColW,
-            margin,
-            y,
-            margin,
-            pageHeight,
+            ],
+            [
+              "Supplier / Ref.",
+              edit(
+                { kind: "recipeSupplierNumber", recipeId: chem.recipeId },
+                chem.supplierNumber ?? "",
+              ),
+            ],
+          ],
+          [cw * 0.42, cw * 0.58],
+        )
+        L.spacer(6)
+      } else {
+        if (chem.solvents.length > 0) {
+          L.writeMiniHeading("Solvents")
+          L.drawTable(
+            ["Solvent", "Total Volume (mL)", "Volume (mL)"],
+            [
+              [
+                "Total",
+                edit(
+                  { kind: "recipeTotalSolvent", recipeId: chem.recipeId },
+                  chem.totalSolventVolumeRaw ||
+                    String(chem.totalSolventVolumeMl),
+                ),
+                "",
+              ],
+              ...chem.solvents.map((sv): TableCell[] => [
+                sv.name,
+                "",
+                edit(
+                  {
+                    kind: "solventVolume",
+                    recipeId: chem.recipeId,
+                    solventId: sv.id,
+                  },
+                  sv.volumeMl.toFixed(2),
+                ),
+              ]),
+            ],
+            [cw * 0.5, cw * 0.25, cw * 0.25],
           )
-          y += 6
+          L.spacer(6)
         }
 
-        // Solutes table
         if (chem.solutes.length > 0) {
-          writeMiniHeading("Solutes")
-          const hasConcData = chem.solutes.some(
-            (sl) => sl.concentrationMolL !== null,
-          )
-          const soluteHeaders = hasConcData
+          L.writeMiniHeading("Solutes")
+          const hasConc = chem.solutes.some((s) => s.concentrationMolL !== null)
+          const headers = hasConc
             ? ["Compound", "Amount", "Unit", "Concentration (mol/L)"]
             : ["Compound", "Amount", "Unit"]
-          const soluteRows = chem.solutes.map((sl) =>
-            hasConcData
-              ? [sl.name, sl.amount, sl.unit, sl.concentrationMolL ?? "—"]
-              : [sl.name, sl.amount, sl.unit],
-          )
-          const soluteColW = hasConcData
-            ? [
-                contentWidth * 0.38,
-                contentWidth * 0.14,
-                contentWidth * 0.14,
-                contentWidth * 0.34,
-              ]
-            : [contentWidth * 0.55, contentWidth * 0.25, contentWidth * 0.2]
-          y = drawPdfTable(
-            doc,
-            soluteHeaders,
-            soluteRows,
-            soluteColW,
-            margin,
-            y,
-            margin,
-            pageHeight,
-          )
-          y += 6
+          const rows = chem.solutes.map((sl): TableCell[] => {
+            const base: TableCell[] = [
+              sl.name,
+              edit(
+                {
+                  kind: "soluteAmount",
+                  recipeId: chem.recipeId,
+                  soluteId: sl.id,
+                },
+                sl.amount,
+              ),
+              edit(
+                {
+                  kind: "soluteUnit",
+                  recipeId: chem.recipeId,
+                  soluteId: sl.id,
+                },
+                sl.unit,
+                SOLUTE_UNITS,
+              ),
+            ]
+            return hasConc ? [...base, sl.concentrationMolL ?? "-"] : base
+          })
+          const colW = hasConc
+            ? [cw * 0.38, cw * 0.16, cw * 0.16, cw * 0.3]
+            : [cw * 0.5, cw * 0.25, cw * 0.25]
+          L.drawTable(headers, rows, colW)
+          L.spacer(6)
         }
 
-        // Added solutions
         if (chem.addedSolutions.length > 0) {
-          writeMiniHeading("Added Solutions (pre-mixed)")
+          L.writeMiniHeading("Added Solutions (pre-mixed)")
           for (const as of chem.addedSolutions) {
-            writeBullet(`${as.name}: ${as.volumeMl} mL`)
+            L.writeBullet(`${as.name}: ${as.volumeMl} mL`)
           }
-          y += 2
+          L.spacer(2)
         }
       }
 
-      if (chem.handlingPreparation) {
-        writeLabelValue("Preparation Notes", chem.handlingPreparation)
-      }
-      if (chem.handlingBeforeUse) {
-        writeLabelValue("Notes Before Use", chem.handlingBeforeUse)
-      }
-      y += 6
+      if (chem.handlingPreparation)
+        L.writeLabelValue("Preparation Notes", chem.handlingPreparation)
+      if (chem.handlingBeforeUse)
+        L.writeLabelValue("Notes Before Use", chem.handlingBeforeUse)
+      L.spacer(6)
     }
   }
 
-  // ── Section 2: Process Steps ─────────────────────────────────────────────────
+  // ── Process Steps ──────────────────────────────────────────────────────────
   const stepsSection = model.chemistry.length > 0 ? "2." : "1."
-  writeSectionHeading(
+  L.writeSectionHeading(
     stepsSection,
     `Process Steps  (${model.stageCount} stage${model.stageCount !== 1 ? "s" : ""})`,
   )
 
   for (const stage of model.stages) {
     const altCount = stage.alternatives.length
-    const stageLabel = `Step ${stage.stageNumber} of ${model.stageCount}${altCount > 1 ? `  [${altCount} alternatives]` : ""}`
-    writeSubHeading(stageLabel)
+    L.writeSubHeading(
+      `Step ${stage.stageNumber} of ${model.stageCount}${altCount > 1 ? `  [${altCount} alternatives]` : ""}`,
+    )
 
     for (const alt of stage.alternatives) {
       if (stage.hasMultipleAlts) {
-        ensureSpace(14)
-        doc.setFont("helvetica", "bold")
-        doc.setFontSize(10)
-        doc.setTextColor(60, 80, 140)
-        doc.text(`${alt.altLabel}:`, margin, y)
-        y += 13
+        L.ensureSpace(14)
+        L.page.drawText(sanitize(`${alt.altLabel}:`), {
+          x: MARGIN,
+          y: L.y - 10,
+          size: 10,
+          font: L.fontBold,
+          color: COLORS.altLabel,
+        })
+        L.y -= 13
       }
-
-      writeLabelValue("Deposition Method", alt.depositionMethod)
-      writeLabelValue("Category", alt.category)
+      L.writeId(`Step ID: ${alt.stepId}`)
+      L.writeLabelValue("Deposition Method", alt.depositionMethod)
+      L.writeLabelValue("Category", alt.category)
       const matLine = alt.recipeRef
-        ? `${alt.materialLabel}  (→ ${alt.recipeRef})`
+        ? `${alt.materialLabel}  (-> ${alt.recipeRef})`
         : alt.materialLabel
-      writeLabelValue("Material / Solution", matLine)
+      L.writeLabelValue("Material / Solution", matLine)
 
       if (alt.params.length > 0) {
-        y += 2
-        writeMiniHeading("Process Parameters")
-        const paramRows = alt.params.map((p) => [
-          p.label,
-          `${p.value}${p.unit ? ` ${p.unit}` : ""}`,
+        L.spacer(2)
+        L.writeMiniHeading("Process Parameters")
+        const rows = alt.params.map((p): TableCell[] => [
+          p.unit ? `${p.label} (${p.unit})` : p.label,
+          p.editable
+            ? edit(
+                { kind: "stepParam", stepId: alt.stepId, paramKey: p.key },
+                p.value,
+              )
+            : p.value,
         ])
-        y = drawPdfTable(
-          doc,
-          ["Parameter", "Value"],
-          paramRows,
-          [contentWidth * 0.42, contentWidth * 0.58],
-          margin,
-          y,
-          margin,
-          pageHeight,
-        )
-        y += 4
+        L.drawTable(["Parameter", "Value"], rows, [cw * 0.42, cw * 0.58])
+        L.spacer(4)
       }
 
       if (alt.notes) {
-        writeLabelValue("Notes", alt.notes)
+        L.drawTable(
+          ["Notes", ""],
+          [["", edit({ kind: "stepNotes", stepId: alt.stepId }, alt.notes)]],
+          [cw * 0.16, cw * 0.84],
+        )
+        L.spacer(2)
       }
 
-      if (stage.hasMultipleAlts) y += 4
+      if (stage.hasMultipleAlts) L.spacer(4)
     }
-    y += 4
+    L.spacer(4)
   }
 
-  // ── Section 3: Substrates ────────────────────────────────────────────────────
+  // ── Substrates ─────────────────────────────────────────────────────────────
   if (model.substrates.length > 0) {
-    const subsSection =
-      model.chemistry.length > 0 ? "3." : model.stages.length > 0 ? "2." : "1."
-    writeSectionHeading(subsSection, "Substrate Specifications")
-    y = drawPdfTable(
-      doc,
-      ["Name", "Rigidity", "Size (cm)", "Height (mm)", "Roughness (RMS nm)"],
-      model.substrates.map((s) => [
+    const n = model.chemistry.length > 0 ? "3." : "2."
+    L.writeSectionHeading(n, "Substrate Specifications")
+    L.drawTable(
+      [
+        "Name",
+        "Rigidity",
+        "Length (cm)",
+        "Width (cm)",
+        "Height (mm)",
+        "Roughness (nm)",
+      ],
+      model.substrates.map((s): TableCell[] => [
         s.name,
         s.rigidity,
-        s.size,
-        s.heightMm,
-        s.roughnessNm,
+        edit({ kind: "substrateLength", substrateId: s.id }, s.lengthCm),
+        edit({ kind: "substrateWidth", substrateId: s.id }, s.widthCm),
+        edit({ kind: "substrateHeight", substrateId: s.id }, s.heightMm),
+        edit({ kind: "substrateRoughness", substrateId: s.id }, s.roughnessNm),
       ]),
-      [
-        contentWidth * 0.3,
-        contentWidth * 0.12,
-        contentWidth * 0.18,
-        contentWidth * 0.15,
-        contentWidth * 0.25,
-      ],
-      margin,
-      y,
-      margin,
-      pageHeight,
+      [cw * 0.24, cw * 0.13, cw * 0.16, cw * 0.16, cw * 0.15, cw * 0.16],
     )
-    y += 8
+    L.spacer(8)
   }
 
-  // ── Section 4: Device Stacks ─────────────────────────────────────────────────
+  // ── Device Stacks ──────────────────────────────────────────────────────────
   if (model.deviceStacks.length > 0) {
-    let sectionN = 1
-    if (model.chemistry.length > 0) sectionN++
-    if (model.stages.length > 0) sectionN++
-    if (model.substrates.length > 0) sectionN++
-    writeSectionHeading(`${sectionN}.`, "Device Stacks")
+    let n = 1
+    if (model.chemistry.length > 0) n++
+    if (model.stages.length > 0) n++
+    if (model.substrates.length > 0) n++
+    L.writeSectionHeading(`${n}.`, "Device Stacks")
 
     for (const stack of model.deviceStacks) {
-      writeSubHeading(`Stack ${stack.index}`)
-      writeLabelValue("Architecture", stack.architecture)
-      if (stack.pixelAreaCm2 !== "—")
-        writeLabelValue("Pixel Area", `${stack.pixelAreaCm2} cm²`)
-      if (stack.numberOfPixels !== "—")
-        writeLabelValue("Number of Pixels", stack.numberOfPixels)
-      y += 2
+      const stackIdx = stack.index - 1
+      L.writeSubHeading(`Stack ${stack.index}`)
+      L.writeLabelValue("Architecture", stack.architecture)
+      L.drawTable(
+        ["Pixel Area (cm²)", "Number of Pixels"],
+        [
+          [
+            edit({ kind: "stackPixelArea", stackIdx }, stack.pixelAreaCm2),
+            edit({ kind: "stackNumPixels", stackIdx }, stack.numberOfPixels),
+          ],
+        ],
+        [cw * 0.5, cw * 0.5],
+      )
+      L.spacer(4)
 
-      const stackHeaders = stack.hasPerovskite
+      const headers = stack.hasPerovskite
         ? [
             "Layer",
             "Type",
             "Thickness (nm)",
             "Bandgap (eV)",
-            "Perovskite (A/B/X)",
+            "Perovskite A/B/X",
           ]
         : ["Layer", "Type", "Thickness (nm)", "Bandgap (eV)"]
-      const stackRows = stack.layers.map((l) =>
-        stack.hasPerovskite
-          ? [
-              l.name,
-              l.type,
-              l.thicknessNm,
-              l.bandgapEv,
-              l.perovskiteComposition,
-            ]
-          : [l.name, l.type, l.thicknessNm, l.bandgapEv],
-      )
-      const stackColW = stack.hasPerovskite
-        ? [
-            contentWidth * 0.25,
-            contentWidth * 0.15,
-            contentWidth * 0.15,
-            contentWidth * 0.15,
-            contentWidth * 0.3,
-          ]
-        : [
-            contentWidth * 0.35,
-            contentWidth * 0.2,
-            contentWidth * 0.22,
-            contentWidth * 0.23,
-          ]
-      y = drawPdfTable(
-        doc,
-        stackHeaders,
-        stackRows,
-        stackColW,
-        margin,
-        y,
-        margin,
-        pageHeight,
-      )
-      y += 8
+      const rows = stack.layers.map((l): TableCell[] => {
+        const base: TableCell[] = [
+          l.name,
+          l.type,
+          edit(
+            { kind: "stackLayerThickness", stackIdx, layerId: l.id },
+            l.thicknessNm,
+          ),
+          edit(
+            { kind: "stackLayerBandgap", stackIdx, layerId: l.id },
+            l.bandgapEv,
+          ),
+        ]
+        return stack.hasPerovskite ? [...base, l.perovskiteComposition] : base
+      })
+      const colW = stack.hasPerovskite
+        ? [cw * 0.25, cw * 0.15, cw * 0.15, cw * 0.15, cw * 0.3]
+        : [cw * 0.35, cw * 0.2, cw * 0.22, cw * 0.23]
+      L.drawTable(headers, rows, colW)
+      L.spacer(8)
     }
-  }
-
-  // ── Page numbers ─────────────────────────────────────────────────────────────
-  const totalPages: number = doc.internal.getNumberOfPages()
-  for (let i = 1; i <= totalPages; i++) {
-    doc.setPage(i)
-    doc.setFont("helvetica", "normal")
-    doc.setFontSize(8)
-    doc.setTextColor(160, 160, 160)
-    if (i > 1) {
-      // header: process name on continuation pages
-      doc.text(model.processName, margin, margin - 12)
-    }
-    // footer: page N of M, export date
-    doc.text(`Page ${i} of ${totalPages}`, margin, pageHeight - 20)
-    doc.text(model.exportDate, pageWidth - margin, pageHeight - 20, {
-      align: "right",
-    })
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DOCX rendering
+// Document assembly
 // ─────────────────────────────────────────────────────────────────────────────
 
-type DocxModule = typeof import("docx") & Record<string, any>
+async function createLayout(): Promise<{ doc: PDFDocument; L: PdfLayout }> {
+  const { PDFDocument } = await import("pdf-lib")
+  const doc = await PDFDocument.create()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const fontBold = await doc.embedFont(StandardFonts.HelveticaBold)
+  const fontOblique = await doc.embedFont(StandardFonts.HelveticaOblique)
+  const form = doc.getForm()
+  const L = new PdfLayout(doc, form, font, fontBold, fontOblique)
+  return { doc, L }
+}
 
-async function buildDocxChildren(
+function renderTitleBlock(
+  L: PdfLayout,
   model: ProcessExportModel,
-  docx: DocxModule,
-): Promise<any[]> {
-  const {
-    Paragraph,
-    TextRun,
-    HeadingLevel,
-    Table,
-    TableRow,
-    TableCell,
-    WidthType,
-    BorderStyle,
-    ShadingType,
-  } = docx
-
-  const children: any[] = []
-
-  function labelValuePara(label: string, value: string): any {
-    return new Paragraph({
-      children: [
-        new TextRun({ text: `${label}: `, bold: true, size: 20 }),
-        new TextRun({ text: value, size: 20 }),
-      ],
-      spacing: { before: 20, after: 20 },
-    })
-  }
-
-  function makeTable(
-    headers: string[],
-    rows: string[][],
-    _colWidths?: number[],
-  ): any {
-    const pct = WidthType.PERCENTAGE
-    const totalPct = 100
-
-    const makeCell = (text: string, isHeader: boolean, rowIdx?: number): any =>
-      new TableCell({
-        children: [
-          new Paragraph({
-            children: [
-              new TextRun({ text, bold: isHeader, size: isHeader ? 18 : 18 }),
-            ],
-            spacing: { before: 60, after: 60 },
-          }),
-        ],
-        shading: isHeader
-          ? { type: ShadingType.SOLID, fill: "E0E7F5", color: "auto" }
-          : (rowIdx ?? 0) % 2 === 0
-            ? { type: ShadingType.SOLID, fill: "FFFFFF", color: "auto" }
-            : { type: ShadingType.SOLID, fill: "F8F9FB", color: "auto" },
-        margins: { top: 60, bottom: 60, left: 120, right: 120 },
-      })
-
-    const tableBorders = {
-      top: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
-      bottom: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
-      left: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
-      right: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
-      insideH: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
-      insideV: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
-    }
-
-    return new Table({
-      rows: [
-        new TableRow({
-          children: headers.map((h) => makeCell(h, true)),
-          tableHeader: true,
-        }),
-        ...rows.map(
-          (row, rowIdx) =>
-            new TableRow({
-              children: row.map((cell) => makeCell(cell, false, rowIdx)),
-            }),
-        ),
-      ],
-      width: { size: totalPct, type: pct },
-      borders: tableBorders,
-    })
-  }
-
-  function spacer(): any {
-    return new Paragraph({ text: "", spacing: { before: 60, after: 60 } })
-  }
-
-  function hRule(): any {
-    return new Paragraph({
-      text: "",
-      border: {
-        bottom: { style: BorderStyle.SINGLE, size: 6, color: "1E50B4" },
-      },
-      spacing: { before: 120, after: 120 },
-    })
-  }
-
-  // ── Title block ────────────────────────────────────────────────────────────
-  children.push(
-    new Paragraph({ text: model.processName, heading: HeadingLevel.TITLE }),
-  )
+  idLines: string[],
+) {
+  L.writeTitle(model.processName)
+  for (const line of idLines) L.writeId(line)
   if (model.description) {
-    children.push(
-      new Paragraph({
-        children: [
-          new TextRun({ text: model.description, italics: true, size: 20 }),
-        ],
-        spacing: { before: 60, after: 60 },
-      }),
-    )
+    L.writeNote(model.description)
+    L.spacer(2)
   }
-  children.push(labelValuePara("Export Date", model.exportDate))
-  children.push(
-    labelValuePara(
-      "Process",
-      `${model.stageCount} stage${model.stageCount !== 1 ? "s" : ""}${model.chemistry.length > 0 ? `, ${model.chemistry.length} solution recipe${model.chemistry.length !== 1 ? "s" : ""}` : ""}`,
-    ),
+  L.writeLabelValue("Export Date", model.exportDate)
+  L.writeLabelValue(
+    "Process",
+    `${model.stageCount} stage${model.stageCount !== 1 ? "s" : ""}${model.chemistry.length > 0 ? `, ${model.chemistry.length} solution recipe${model.chemistry.length !== 1 ? "s" : ""}` : ""}`,
   )
-  children.push(hRule())
-
-  // ── Section 1: Chemistry ───────────────────────────────────────────────────
-  if (model.chemistry.length > 0) {
-    children.push(
-      new Paragraph({
-        text: "1. Chemistry — Solution Preparation",
-        heading: HeadingLevel.HEADING_1,
-      }),
-    )
-
-    for (const chem of model.chemistry) {
-      const badge = chem.isCommercial ? " [COMMERCIAL]" : " [LAB PREPARED]"
-      children.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: `1.${chem.index}  ${chem.name}`,
-              bold: true,
-              size: 24,
-            }),
-            new TextRun({
-              text: badge,
-              bold: false,
-              size: 20,
-              color: chem.isCommercial ? "1A7F3C" : "1E50B4",
-            }),
-          ],
-          heading: HeadingLevel.HEADING_2,
-          spacing: { before: 200, after: 80 },
-        }),
-      )
-
-      if (chem.type) children.push(labelValuePara("Type", chem.type))
-
-      if (chem.isCommercial) {
-        if (chem.commercialName)
-          children.push(labelValuePara("Commercial Name", chem.commercialName))
-        if (chem.supplierNumber)
-          children.push(labelValuePara("Supplier / Ref.", chem.supplierNumber))
-      } else {
-        if (chem.solvents.length > 0) {
-          children.push(
-            labelValuePara(
-              "Total Solvent Volume",
-              `${chem.totalSolventVolumeMl} mL`,
-            ),
-          )
-          children.push(
-            new Paragraph({
-              children: [
-                new TextRun({ text: "Solvents", bold: true, size: 20 }),
-              ],
-              spacing: { before: 80, after: 40 },
-            }),
-          )
-          children.push(
-            makeTable(
-              ["Solvent", "Volume (mL)", "Ratio"],
-              chem.solvents.map((sv) => [
-                sv.name,
-                sv.volumeMl.toFixed(2),
-                String(
-                  Math.round(
-                    (sv.volumeMl / (chem.totalSolventVolumeMl || 1)) *
-                      chem.solvents.reduce((s, v) => s + v.volumeMl, 0),
-                  ),
-                ),
-              ]),
-            ),
-          )
-          children.push(spacer())
-        }
-
-        if (chem.solutes.length > 0) {
-          children.push(
-            new Paragraph({
-              children: [
-                new TextRun({ text: "Solutes", bold: true, size: 20 }),
-              ],
-              spacing: { before: 80, after: 40 },
-            }),
-          )
-          const hasConcData = chem.solutes.some(
-            (sl) => sl.concentrationMolL !== null,
-          )
-          const soluteHeaders = hasConcData
-            ? ["Compound", "Amount", "Unit", "Concentration (mol/L)"]
-            : ["Compound", "Amount", "Unit"]
-          const soluteRows = chem.solutes.map((sl) =>
-            hasConcData
-              ? [sl.name, sl.amount, sl.unit, sl.concentrationMolL ?? "—"]
-              : [sl.name, sl.amount, sl.unit],
-          )
-          children.push(makeTable(soluteHeaders, soluteRows))
-          children.push(spacer())
-        }
-
-        if (chem.addedSolutions.length > 0) {
-          children.push(
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: "Added Solutions (pre-mixed)",
-                  bold: true,
-                  size: 20,
-                }),
-              ],
-              spacing: { before: 80, after: 40 },
-            }),
-          )
-          for (const as of chem.addedSolutions) {
-            children.push(
-              new Paragraph({
-                children: [
-                  new TextRun({
-                    text: `${as.name}: ${as.volumeMl} mL`,
-                    size: 20,
-                  }),
-                ],
-                bullet: { level: 0 },
-                spacing: { before: 20, after: 20 },
-              }),
-            )
-          }
-          children.push(spacer())
-        }
-      }
-
-      if (chem.handlingPreparation) {
-        children.push(
-          labelValuePara("Preparation Notes", chem.handlingPreparation),
-        )
-      }
-      if (chem.handlingBeforeUse) {
-        children.push(
-          labelValuePara("Notes Before Use", chem.handlingBeforeUse),
-        )
-      }
-      children.push(spacer())
-    }
-
-    children.push(hRule())
-  }
-
-  // ── Section 2: Process Steps ───────────────────────────────────────────────
-  const stepsNum = model.chemistry.length > 0 ? "2" : "1"
-  children.push(
-    new Paragraph({
-      text: `${stepsNum}. Process Steps`,
-      heading: HeadingLevel.HEADING_1,
-    }),
-  )
-
-  for (const stage of model.stages) {
-    const altCount = stage.alternatives.length
-    const stageTitle = `Step ${stage.stageNumber} of ${model.stageCount}${altCount > 1 ? `  [${altCount} alternatives]` : ""}`
-    children.push(
-      new Paragraph({ text: stageTitle, heading: HeadingLevel.HEADING_2 }),
-    )
-
-    for (const alt of stage.alternatives) {
-      if (stage.hasMultipleAlts) {
-        children.push(
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `${alt.altLabel}`,
-                bold: true,
-                color: "3C5099",
-                size: 22,
-              }),
-            ],
-            spacing: { before: 100, after: 60 },
-          }),
-        )
-      }
-
-      children.push(labelValuePara("Deposition Method", alt.depositionMethod))
-      children.push(labelValuePara("Category", alt.category))
-      const matLine = alt.recipeRef
-        ? `${alt.materialLabel}  (→ ${alt.recipeRef})`
-        : alt.materialLabel
-      children.push(labelValuePara("Material / Solution", matLine))
-
-      if (alt.params.length > 0) {
-        children.push(
-          new Paragraph({
-            children: [
-              new TextRun({ text: "Process Parameters", bold: true, size: 20 }),
-            ],
-            spacing: { before: 80, after: 40 },
-          }),
-        )
-        children.push(
-          makeTable(
-            ["Parameter", "Value"],
-            alt.params.map((p) => [
-              p.label,
-              `${p.value}${p.unit ? ` ${p.unit}` : ""}`,
-            ]),
-          ),
-        )
-        children.push(spacer())
-      }
-
-      if (alt.notes) {
-        children.push(labelValuePara("Notes", alt.notes))
-      }
-
-      if (stage.hasMultipleAlts) children.push(spacer())
-    }
-    children.push(spacer())
-  }
-
-  children.push(hRule())
-
-  // ── Section 3: Substrates ──────────────────────────────────────────────────
-  if (model.substrates.length > 0) {
-    let subsNum = 1
-    if (model.chemistry.length > 0) subsNum++
-    if (model.stages.length > 0) subsNum++
-    children.push(
-      new Paragraph({
-        text: `${subsNum}. Substrate Specifications`,
-        heading: HeadingLevel.HEADING_1,
-      }),
-    )
-    children.push(
-      makeTable(
-        ["Name", "Rigidity", "Size (cm)", "Height (mm)", "Roughness (RMS nm)"],
-        model.substrates.map((s) => [
-          s.name,
-          s.rigidity,
-          s.size,
-          s.heightMm,
-          s.roughnessNm,
-        ]),
-      ),
-    )
-    children.push(hRule())
-  }
-
-  // ── Section 4: Device Stacks ───────────────────────────────────────────────
-  if (model.deviceStacks.length > 0) {
-    let stacksNum = 1
-    if (model.chemistry.length > 0) stacksNum++
-    if (model.stages.length > 0) stacksNum++
-    if (model.substrates.length > 0) stacksNum++
-    children.push(
-      new Paragraph({
-        text: `${stacksNum}. Device Stacks`,
-        heading: HeadingLevel.HEADING_1,
-      }),
-    )
-
-    for (const stack of model.deviceStacks) {
-      children.push(
-        new Paragraph({
-          text: `Stack ${stack.index}`,
-          heading: HeadingLevel.HEADING_2,
-        }),
-      )
-      children.push(labelValuePara("Architecture", stack.architecture))
-      if (stack.pixelAreaCm2 !== "—")
-        children.push(labelValuePara("Pixel Area", `${stack.pixelAreaCm2} cm²`))
-      if (stack.numberOfPixels !== "—")
-        children.push(labelValuePara("Number of Pixels", stack.numberOfPixels))
-
-      const stackHeaders = stack.hasPerovskite
-        ? [
-            "Layer",
-            "Type",
-            "Thickness (nm)",
-            "Bandgap (eV)",
-            "Perovskite (A/B/X)",
-          ]
-        : ["Layer", "Type", "Thickness (nm)", "Bandgap (eV)"]
-      const stackRows = stack.layers.map((l) =>
-        stack.hasPerovskite
-          ? [
-              l.name,
-              l.type,
-              l.thicknessNm,
-              l.bandgapEv,
-              l.perovskiteComposition,
-            ]
-          : [l.name, l.type, l.thicknessNm, l.bandgapEv],
-      )
-      children.push(spacer())
-      children.push(makeTable(stackHeaders, stackRows))
-      children.push(spacer())
-    }
-  }
-
-  return children
+  L.spacer(4)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1328,19 +1197,142 @@ export async function exportProcessProtocolAsPdf(
   input: ProcessExportInput,
 ): Promise<void> {
   const model = buildProcessExportModel(input)
-  const { jsPDF } = await import("jspdf")
-  const doc = new jsPDF({ unit: "pt", format: "a4" })
-  await renderPdfFromModel(model, doc)
-  doc.save(`${sanitizeFileBaseName(model.processName)}.pdf`)
+  const { doc, L } = await createLayout()
+
+  renderTitleBlock(L, model, [`Process ID: ${model.processId}`])
+  renderProcessSections(L, model)
+  L.finalizeFooters(model.exportDate)
+
+  const refs: EntityRefs = {
+    materials: input.materials,
+    solutions: input.solutions,
+  }
+  await embedPayload(doc, serializeProcess(input.process, refs))
+
+  const bytes = await doc.save()
+  triggerDownload(
+    new Blob([bytes as BlobPart], { type: "application/pdf" }),
+    `${sanitizeFileBaseName(model.processName)}.pdf`,
+  )
 }
 
-export async function exportProcessProtocolAsDocx(
-  input: ProcessExportInput,
+function renderExperimentSection(
+  L: PdfLayout,
+  input: ExperimentExportInput,
+  processModel: ProcessExportModel,
+) {
+  const { experiment, process, chemicals, solutionRows } = input
+  const cw = L.contentWidth
+
+  L.writeTitle(experiment.name || "Untitled Experiment")
+  L.writeId(`Experiment ID: ${experiment.id}`)
+  L.writeId(`Process ID: ${process.id}  (${process.name || "Untitled"})`)
+  if (experiment.description) {
+    L.writeNote(experiment.description)
+    L.spacer(2)
+  }
+
+  L.writeSectionHeading("1.", "Experiment Summary")
+  L.drawTable(
+    ["Field", "Value"],
+    [
+      ["Start Date", edit({ kind: "experimentDate" }, experiment.date ?? "")],
+      [
+        "End Date",
+        edit({ kind: "experimentEndDate" }, experiment.endDate ?? ""),
+      ],
+      [
+        "Intent",
+        edit({ kind: "experimentDescription" }, experiment.description ?? ""),
+      ],
+    ],
+    [cw * 0.3, cw * 0.7],
+  )
+  L.spacer(8)
+
+  // ── Chemicals ──────────────────────────────────────────────────────────────
+  L.writeSectionHeading("2.", "Chemicals & Solution Quantities")
+  L.writeSubHeading("Chemicals")
+  if (chemicals.length === 0) {
+    L.writeNote("None")
+  } else {
+    L.drawTable(
+      ["Chemical", "Source", "Inventory", "Details"],
+      chemicals.map((m): TableCell[] => [
+        m.name,
+        m.sourceRecipeName ? `from ${m.sourceRecipeName}` : "-",
+        m.inventoryLabel || "-",
+        [m.purity, m.supplier, m.productId].filter(Boolean).join(", ") || "-",
+      ]),
+      [cw * 0.28, cw * 0.24, cw * 0.24, cw * 0.24],
+    )
+  }
+  L.spacer(6)
+
+  L.writeSubHeading("Solutions")
+  if (solutionRows.length === 0) {
+    L.writeNote("None")
+  } else {
+    for (const s of solutionRows) {
+      if (s.mode === "take") {
+        L.writeLabelValue(
+          s.name,
+          `reused from ${s.reusedFromName ?? "another experiment"}`,
+        )
+      } else {
+        const at = s.preparedAt ? `, prepared ${s.preparedAt}` : ""
+        L.writeLabelValue(
+          s.name,
+          `${s.volumeMl ? `${s.volumeMl} mL` : "volume not set"}${at}`,
+        )
+        if (s.quantities.length > 0) {
+          L.drawTable(
+            ["Ingredient", "Amount", "Unit"],
+            s.quantities.map((q): TableCell[] => [q.name, q.amount, q.unit]),
+            [cw * 0.5, cw * 0.25, cw * 0.25],
+          )
+          L.spacer(4)
+        }
+      }
+    }
+  }
+  L.spacer(6)
+
+  // Reference the process id in the footer marker via the process model too.
+  void processModel
+}
+
+export async function exportExperimentSummaryAsPdf(
+  input: ExperimentExportInput,
 ): Promise<void> {
-  const model = buildProcessExportModel(input)
-  const docx = (await import("docx")) as DocxModule
-  const children = await buildDocxChildren(model, docx)
-  const document = new docx.Document({ sections: [{ children }] })
-  const blob = await docx.Packer.toBlob(document)
-  triggerDownload(blob, `${sanitizeFileBaseName(model.processName)}.docx`)
+  const processModel = buildProcessExportModel({
+    process: input.process,
+    materials: input.materials,
+    solutions: input.solutions,
+  })
+  const { doc, L } = await createLayout()
+
+  if (input.includeFullProcess) {
+    renderTitleBlock(L, processModel, [`Process ID: ${processModel.processId}`])
+    renderProcessSections(L, processModel)
+    L.newPage()
+  }
+
+  renderExperimentSection(L, input, processModel)
+  L.finalizeFooters(processModel.exportDate)
+
+  const refs: EntityRefs = {
+    materials: input.materials,
+    solutions: input.solutions,
+  }
+  await embedPayload(
+    doc,
+    serializeExperiment(input.experiment, input.process, refs),
+  )
+
+  const bytes = await doc.save()
+  triggerDownload(
+    new Blob([bytes as BlobPart], { type: "application/pdf" }),
+    `${sanitizeFileBaseName(input.experiment.name || "experiment")}.pdf`,
+  )
 }
