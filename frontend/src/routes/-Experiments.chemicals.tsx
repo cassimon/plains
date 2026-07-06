@@ -1087,16 +1087,35 @@ export function ChemicalsTab({
   const firstIncomplete = queue.findIndex((qi) => !isDone(qi))
   const materialCount = materialItems.length
 
-  // `manualIndex` lets the user step back or jump to an already-answered item
-  // via the summary's Edit buttons. When null, the flow shows the first
-  // unanswered question and advances automatically as each is confirmed.
-  const [manualIndex, setManualIndex] = useState<number | null>(null)
+  // Which question the guided flow is currently showing. It is an *explicit*
+  // pointer that only moves on a deliberate user action (Confirm & continue,
+  // Back, or an Edit click) — never automatically when the current item becomes
+  // "done". Deriving it directly from `firstIncomplete` (the previous design)
+  // made the card jump to the next question the instant the current one was
+  // committed, e.g. blurring the label to click "Add purity", or picking "Make
+  // fresh" for a solution whose amount/prepared-at were pre-filled from the
+  // previous one. `queue.length` means "all handled → hide the card".
+  // This component is remounted per experiment (keyed on experiment.id by the
+  // parent), so the initial pointer is correct for whichever experiment shows.
+  const [activeIndex, setActiveIndex] = useState<number>(() =>
+    firstIncomplete >= 0 ? firstIncomplete : queue.length,
+  )
   const displayIndex =
-    manualIndex !== null && manualIndex >= 0 && manualIndex < queue.length
-      ? manualIndex
-      : firstIncomplete >= 0
-        ? firstIncomplete
-        : null
+    activeIndex >= 0 && activeIndex < queue.length ? activeIndex : null
+
+  // Advance to the next still-unanswered question after the current one (falling
+  // back to any earlier gap); if everything is answered, hide the card.
+  const goToNext = () => {
+    setActiveIndex((cur) => {
+      for (let i = cur + 1; i < queue.length; i += 1) {
+        if (!isDone(queue[i])) return i
+      }
+      for (let i = 0; i < queue.length; i += 1) {
+        if (!isDone(queue[i])) return i
+      }
+      return queue.length
+    })
+  }
 
   const [summaryOpen, setSummaryOpen] = useState(allComplete)
   const wasComplete = useRef(allComplete)
@@ -1199,7 +1218,7 @@ export function ChemicalsTab({
                           "Not set"
                         }
                         done={isDone(qi)}
-                        onEdit={() => setManualIndex(idx)}
+                        onEdit={() => setActiveIndex(idx)}
                       />
                     ) : null,
                   )}
@@ -1222,7 +1241,7 @@ export function ChemicalsTab({
                           prep.solutionBatches?.[qi.item.key],
                         )}
                         done={isDone(qi)}
-                        onEdit={() => setManualIndex(idx)}
+                        onEdit={() => setActiveIndex(idx)}
                       />
                     ) : null,
                   )}
@@ -1248,8 +1267,8 @@ export function ChemicalsTab({
                 positionLabel={positionLabel}
                 canGoBack={displayIndex > 0}
                 onCommit={(patch) => updateMaterialOverride(qi.stepId, patch)}
-                onDone={() => setManualIndex(null)}
-                onBack={() => setManualIndex(displayIndex - 1)}
+                onDone={goToNext}
+                onBack={() => setActiveIndex(displayIndex - 1)}
               />
             )
           }
@@ -1265,8 +1284,8 @@ export function ChemicalsTab({
               defaultPreparedAt={defaultPreparedAt}
               canGoBack={displayIndex > 0}
               onCommit={(patch) => updateSolutionBatch(qi.item.key, patch)}
-              onDone={() => setManualIndex(null)}
-              onBack={() => setManualIndex(displayIndex - 1)}
+              onDone={goToNext}
+              onBack={() => setActiveIndex(displayIndex - 1)}
             />
           )
         })()}

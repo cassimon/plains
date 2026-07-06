@@ -81,6 +81,21 @@ export type UploadFlowStepStates = {
  * chemicals prep complete, at least one substrate, and description + date set.
  * Single source of truth shared by the Experiments page and the upload status.
  */
+/**
+ * Step 3 (Summary) is finished only when start date, end date and intent are all
+ * filled AND the user has explicitly confirmed the summary. Confirmation is
+ * sticky (see `Experiment.summaryConfirmed`), so editing later never re-requires
+ * it — but clearing a required field still un-completes the step.
+ */
+export function experimentSummaryDone(exp: Experiment): boolean {
+  return (
+    Boolean(exp.description?.trim()) &&
+    Boolean(exp.date) &&
+    Boolean(exp.endDate) &&
+    Boolean(exp.summaryConfirmed)
+  )
+}
+
 export function getExperimentAllStepsDone(
   exp: Experiment,
   process: Process | undefined,
@@ -95,8 +110,7 @@ export function getExperimentAllStepsDone(
     solutionItems,
   )
   const procDone = exp.substrates.length > 0
-  const summaryDone = Boolean(exp.description?.trim()) && Boolean(exp.date)
-  return chemDone && procDone && summaryDone
+  return chemDone && procDone && experimentSummaryDone(exp)
 }
 
 /** NOMAD statuses that mean the upload finished successfully. */

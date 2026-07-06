@@ -478,6 +478,9 @@ export type Experiment = {
   processingTimes?: { [stageId: string]: string }
   // Chemicals preparation data (Step 1)
   chemicalsPrep?: ExperimentChemicalsPrep
+  // Whether the user has confirmed the experiment summary (Step 3). Sticky:
+  // once confirmed it stays confirmed even if the summary is later edited.
+  summaryConfirmed?: boolean
   hasResults: boolean
   hasCompletedUpload?: boolean
 } // NOTE: Layer stack is now managed in the linked Process
@@ -650,7 +653,7 @@ export function newExperiment(processId: string): Experiment {
     id: crypto.randomUUID(),
     name: "New Experiment",
     description: "",
-    date: new Date().toISOString().slice(0, 10),
+    date: "", // start date is not defaulted — the user sets it in the Summary step
     processId, // required link to exactly one process
     architecture: "n-i-p",
     substrateMaterial: "Glass/ITO",

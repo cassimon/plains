@@ -16,11 +16,13 @@ import {
   Text,
   Textarea,
   TextInput,
+  ThemeIcon,
   Tooltip,
 } from "@mantine/core"
 import { modals } from "@mantine/modals"
 import { notifications } from "@mantine/notifications"
 import {
+  IconArrowRight,
   IconCheck,
   IconCopy,
   IconDownload,
@@ -33,7 +35,10 @@ import { useNavigate as useRouterNavigate } from "@tanstack/react-router"
 import * as React from "react"
 import { useCallback, useRef, useState } from "react"
 import { autoResolveCollection } from "@/lib/autoResolveCollection"
-import { getExperimentAllStepsDone } from "@/lib/uploadFlow"
+import {
+  experimentSummaryDone,
+  getExperimentAllStepsDone,
+} from "@/lib/uploadFlow"
 import type { CollectionConfirmParams } from "../components/SelectCollectionModal"
 import {
   type CanvasCollectionElement,
@@ -53,6 +58,41 @@ import {
   collectChemicals,
   computeChemsDone,
 } from "./-Experiments.chemicals"
+
+// Onboarding "pulse" highlight for the next field the user must fill — mirrors
+// the stack-configuration animation on the Processes page (`stk-pulse`).
+if (
+  typeof document !== "undefined" &&
+  !document.getElementById("exp-onboard-styles")
+) {
+  const s = document.createElement("style")
+  s.id = "exp-onboard-styles"
+  s.textContent = `
+    @keyframes exp-pulse {
+      0%   { box-shadow: 0 0 0 0 var(--mantine-color-blue-4); }
+      70%  { box-shadow: 0 0 0 6px rgba(34,139,230,0); }
+      100% { box-shadow: 0 0 0 0 rgba(34,139,230,0); }
+    }
+    .exp-pulse {
+      border-radius: var(--mantine-radius-sm);
+      animation: exp-pulse 1.6s ease-out infinite;
+    }
+  `
+  document.head.appendChild(s)
+}
+
+// Required summary fields, in the order the guided flow points at them.
+type SummaryFieldKey = "date" | "endDate" | "description"
+
+/** The next unfilled required summary field, or null when all are set. */
+function nextRequiredSummaryField(
+  experiment: Experiment,
+): SummaryFieldKey | null {
+  if (!experiment.date) return "date"
+  if (!experiment.endDate) return "endDate"
+  if (!experiment.description?.trim()) return "description"
+  return null
+}
 
 type SubstrateGeneratorConfig = {
   namePrefix: string
@@ -1868,50 +1908,131 @@ function SummaryTab({
     setTimeout(() => setCopied(false), 1500)
   }
 
+  // Guided highlighting: point the user at the next required field until the
+  // summary is confirmed. Confirmation is a one-time gate (see below) — once
+  // confirmed we stop pulsing even if the user edits fields afterwards.
+  const confirmed = Boolean(experiment.summaryConfirmed)
+  const nextField = confirmed ? null : nextRequiredSummaryField(experiment)
+  const allFilled = nextRequiredSummaryField(experiment) === null
+
+  const requiredLabel = (text: string, done: boolean) => (
+    <Group gap={6} align="center" mb={4}>
+      {done ? (
+        <IconCheck size={13} color="var(--mantine-color-teal-6)" />
+      ) : (
+        <Box
+          w={9}
+          h={9}
+          style={{
+            borderRadius: "50%",
+            background: "var(--mantine-color-red-5)",
+            flexShrink: 0,
+          }}
+        />
+      )}
+      <Text size="xs" fw={600} c={done ? "teal.7" : "dimmed"} tt="uppercase">
+        {text}
+      </Text>
+    </Group>
+  )
+
   return (
     <Stack gap="lg">
-      {/* Experiment metadata */}
+      {/* Experiment metadata — all three are required to complete Step 3 */}
       <SimpleGrid cols={2} spacing="md">
         <Box>
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-            Start Date
-          </Text>
-          <TextInput
-            type="date"
-            value={experiment.date}
-            onChange={(e) =>
-              onUpdate({ ...experiment, date: e.currentTarget.value })
-            }
-          />
+          {requiredLabel("Start Date", Boolean(experiment.date))}
+          <Box className={nextField === "date" ? "exp-pulse" : undefined}>
+            <TextInput
+              type="date"
+              value={experiment.date}
+              onChange={(e) =>
+                onUpdate({ ...experiment, date: e.currentTarget.value })
+              }
+            />
+          </Box>
         </Box>
         <Box>
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-            End Date
-          </Text>
-          <TextInput
-            type="date"
-            value={experiment.endDate ?? ""}
-            onChange={(e) =>
-              onUpdate({ ...experiment, endDate: e.currentTarget.value })
-            }
-          />
+          {requiredLabel("End Date", Boolean(experiment.endDate))}
+          <Box className={nextField === "endDate" ? "exp-pulse" : undefined}>
+            <TextInput
+              type="date"
+              value={experiment.endDate ?? ""}
+              onChange={(e) =>
+                onUpdate({ ...experiment, endDate: e.currentTarget.value })
+              }
+            />
+          </Box>
         </Box>
       </SimpleGrid>
 
       <Box>
-        <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-          Intent
-        </Text>
-        <Textarea
-          autosize
-          minRows={2}
-          placeholder="What is the purpose of this experiment?"
-          value={experiment.description}
-          onChange={(e) =>
-            onUpdate({ ...experiment, description: e.currentTarget.value })
-          }
-        />
+        {requiredLabel("Intent", Boolean(experiment.description?.trim()))}
+        <Box className={nextField === "description" ? "exp-pulse" : undefined}>
+          <Textarea
+            autosize
+            minRows={2}
+            placeholder="What is the purpose of this experiment?"
+            value={experiment.description}
+            onChange={(e) =>
+              onUpdate({ ...experiment, description: e.currentTarget.value })
+            }
+          />
+        </Box>
       </Box>
+
+      {/* Confirmation gate — turns Step 3 green. One-time: editing later never
+          re-requires it because `summaryConfirmed` stays true. */}
+      {confirmed ? (
+        <Paper
+          withBorder
+          radius="md"
+          p="sm"
+          style={{
+            borderColor: "var(--mantine-color-teal-4)",
+            background: "var(--mantine-color-teal-0)",
+          }}
+        >
+          <Group gap="sm" wrap="nowrap">
+            <ThemeIcon size={28} radius="xl" color="teal">
+              <IconCheck size={16} />
+            </ThemeIcon>
+            <Text size="sm" fw={600} c="teal.8">
+              Experiment summary confirmed
+            </Text>
+          </Group>
+        </Paper>
+      ) : (
+        <Paper
+          withBorder
+          radius="md"
+          p="md"
+          style={{
+            borderColor: allFilled
+              ? "var(--mantine-color-blue-4)"
+              : "var(--mantine-color-gray-3)",
+          }}
+        >
+          <Group justify="space-between" wrap="wrap" gap="sm">
+            <Text size="sm" c="dimmed">
+              {allFilled
+                ? "Review the details above, then confirm to complete this experiment."
+                : "Fill in start date, end date and intent to confirm the summary."}
+            </Text>
+            <Button
+              className={allFilled ? "exp-pulse" : undefined}
+              color="teal"
+              disabled={!allFilled}
+              leftSection={<IconCheck size={18} />}
+              onClick={() =>
+                onUpdate({ ...experiment, summaryConfirmed: true })
+              }
+            >
+              Confirm summary
+            </Button>
+          </Group>
+        </Paper>
+      )}
 
       <Divider label="Export" labelPosition="center" />
 
@@ -2184,10 +2305,7 @@ export default function ExperimentsPage() {
       solutionItems,
     )
     const procDone = selectedExperiment.substrates.length > 0
-    const summaryDone =
-      Boolean(selectedExperiment.description?.trim()) &&
-      Boolean(selectedExperiment.date)
-    return chemDone && procDone && summaryDone
+    return chemDone && procDone && experimentSummaryDone(selectedExperiment)
   }, [selectedExperiment, selectedProcess])
 
   const expAllStepsDoneMap = React.useMemo(() => {
@@ -2744,9 +2862,7 @@ export default function ExperimentsPage() {
                 solutionItems,
               )
               const procDone = selectedExperiment.substrates.length > 0
-              const summaryDone =
-                Boolean(selectedExperiment.description?.trim()) &&
-                Boolean(selectedExperiment.date)
+              const summaryDone = experimentSummaryDone(selectedExperiment)
               const allStepsDone = chemDone && procDone && summaryDone
               return (
                 <>
@@ -2761,21 +2877,21 @@ export default function ExperimentsPage() {
                   {activeExpTab === "chemicals" && (
                     <Box>
                       <ChemicalsTab
+                        key={selectedExperiment.id}
                         experiment={selectedExperiment}
                         process={selectedProcess}
                         allExperiments={experiments}
                         onUpdate={handleUpdateExperiment}
                       />
-                      {allStepsDone && (
+                      {chemDone && (
                         <Group justify="center" mt="xl">
                           <Button
                             size="lg"
-                            color="green"
-                            variant="subtle"
-                            leftSection={<IconDownload size={20} />}
-                            onClick={handleAddResultsForSelectedExperiment}
+                            color="blue"
+                            rightSection={<IconArrowRight size={20} />}
+                            onClick={() => setActiveExpTab("processing")}
                           >
-                            Add Results
+                            Continue to Step 2: Processing
                           </Button>
                         </Group>
                       )}
@@ -2822,16 +2938,15 @@ export default function ExperimentsPage() {
                           onUpdateProcess={handleUpdateProcess}
                           onAddSingleSubstrate={handleAddSingleSubstrate}
                         />
-                        {allStepsDone && (
+                        {procDone && (
                           <Group justify="center" mt="xl">
                             <Button
                               size="lg"
-                              color="green"
-                              variant="subtle"
-                              leftSection={<IconDownload size={20} />}
-                              onClick={handleAddResultsForSelectedExperiment}
+                              color="blue"
+                              rightSection={<IconArrowRight size={20} />}
+                              onClick={() => setActiveExpTab("summary")}
                             >
-                              Add Results
+                              Continue to Step 3: Summary
                             </Button>
                           </Group>
                         )}
