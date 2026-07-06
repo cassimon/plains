@@ -1,10 +1,23 @@
 # Plan: Import edited Process / Experiment PDFs (+ measurement data)
 
-**Status:** Proposed — **implemented later**, after the export plan
-([`process-experiment-pdf-export.md`](./process-experiment-pdf-export.md)) ships.
+**Status:** Core parse/diff/validate/apply engine **implemented** in
+`frontend/src/lib/pdfImport.ts` (covered by `frontend/tests/pdf-roundtrip.spec.ts`). Still to do:
+the modify-vs-new UI, the ownership/plane-sharing server enforcement (§7), and measurement-data
+auto-attach (§8).
 
 This document specifies how the app ingests a PDF that was produced by the export flow (optionally
 with the user's edits and/or attached measurement data) and reconciles it with the app's data.
+
+## Implementation notes (as built)
+
+- The canonical payload travels in a **hidden read-only AcroForm field** `plains:payload` (not the
+  file attachment) because pdf-lib round-trips form-field values reliably; the payload also carries a
+  **`fields` snapshot** of every editable field's exported value, so edit-detection is a direct
+  `current !== snapshot` compare rather than re-deriving export formatting. See
+  `pdfSchema.ts` (`embedPayload`/`readPayload`/`migratePayload`) and `pdfImport.ts`
+  (`importPdf` → `{ original, edited, edits, errors }`, plus `validateEdit`, `applyFieldValue`).
+- Only **stored** quantities are editable form fields; derived display values (per-solvent volume,
+  molar concentration) are static text, so every editable field maps 1:1 back onto the entity.
 
 ---
 

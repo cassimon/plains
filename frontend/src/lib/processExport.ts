@@ -25,6 +25,7 @@ import {
   embedPayload,
   encodeFieldName,
   type FieldPath,
+  type FieldSnapshot,
   serializeExperiment,
   serializeProcess,
 } from "./pdfSchema"
@@ -556,6 +557,8 @@ class PdfLayout {
   page!: PDFPage
   y = 0
   readonly contentWidth = PAGE_W - MARGIN * 2
+  /** Exported value of every editable field, keyed by field name (for import diffing). */
+  readonly fieldSnapshot: FieldSnapshot = {}
 
   constructor(
     readonly doc: PDFDocument,
@@ -748,7 +751,8 @@ class PdfLayout {
       const opts = cell.options.map(sanitize)
       dd.setOptions(opts)
       const val = sanitize(cell.value)
-      if (val && opts.includes(val)) dd.select(val)
+      const stored = val && opts.includes(val) ? val : ""
+      if (stored) dd.select(stored)
       dd.addToPage(this.page, {
         ...rect,
         font: this.font,
@@ -758,9 +762,11 @@ class PdfLayout {
         borderWidth: 0.5,
       })
       dd.setFontSize(9)
+      this.fieldSnapshot[name] = stored
     } else {
+      const stored = sanitize(cell.value)
       const tf = this.form.createTextField(name)
-      tf.setText(sanitize(cell.value))
+      tf.setText(stored)
       tf.addToPage(this.page, {
         ...rect,
         font: this.font,
@@ -770,6 +776,7 @@ class PdfLayout {
         borderWidth: 0.5,
       })
       tf.setFontSize(9)
+      this.fieldSnapshot[name] = stored
     }
   }
 
@@ -924,34 +931,32 @@ function renderProcessSections(L: PdfLayout, model: ProcessExportModel) {
         )
         L.spacer(6)
       } else {
+        // Editable: the stored total solvent volume. The per-solvent volumes
+        // below are derived (from ratios) and shown as read-only info.
+        L.drawTable(
+          ["Field", "Value"],
+          [
+            [
+              "Total Solvent Volume (mL)",
+              edit(
+                { kind: "recipeTotalSolvent", recipeId: chem.recipeId },
+                chem.totalSolventVolumeRaw || String(chem.totalSolventVolumeMl),
+              ),
+            ],
+          ],
+          [cw * 0.5, cw * 0.5],
+        )
+        L.spacer(4)
+
         if (chem.solvents.length > 0) {
           L.writeMiniHeading("Solvents")
           L.drawTable(
-            ["Solvent", "Total Volume (mL)", "Volume (mL)"],
-            [
-              [
-                "Total",
-                edit(
-                  { kind: "recipeTotalSolvent", recipeId: chem.recipeId },
-                  chem.totalSolventVolumeRaw ||
-                    String(chem.totalSolventVolumeMl),
-                ),
-                "",
-              ],
-              ...chem.solvents.map((sv): TableCell[] => [
-                sv.name,
-                "",
-                edit(
-                  {
-                    kind: "solventVolume",
-                    recipeId: chem.recipeId,
-                    solventId: sv.id,
-                  },
-                  sv.volumeMl.toFixed(2),
-                ),
-              ]),
-            ],
-            [cw * 0.5, cw * 0.25, cw * 0.25],
+            ["Solvent", "Volume (mL)"],
+            chem.solvents.map((sv): TableCell[] => [
+              sv.name,
+              sv.volumeMl.toFixed(2),
+            ]),
+            [cw * 0.6, cw * 0.4],
           )
           L.spacer(6)
         }
@@ -1193,9 +1198,10 @@ function renderTitleBlock(
 // Public entry points
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function exportProcessProtocolAsPdf(
+/** Build the Process protocol PDF and return its bytes (no download). */
+export async function buildProcessPdf(
   input: ProcessExportInput,
-): Promise<void> {
+): Promise<Uint8Array> {
   const model = buildProcessExportModel(input)
   const { doc, L } = await createLayout()
 
@@ -1207,12 +1213,21 @@ export async function exportProcessProtocolAsPdf(
     materials: input.materials,
     solutions: input.solutions,
   }
-  await embedPayload(doc, serializeProcess(input.process, refs))
+  await embedPayload(
+    doc,
+    serializeProcess(input.process, refs),
+    L.fieldSnapshot,
+  )
+  return doc.save()
+}
 
-  const bytes = await doc.save()
+export async function exportProcessProtocolAsPdf(
+  input: ProcessExportInput,
+): Promise<void> {
+  const bytes = await buildProcessPdf(input)
   triggerDownload(
     new Blob([bytes as BlobPart], { type: "application/pdf" }),
-    `${sanitizeFileBaseName(model.processName)}.pdf`,
+    `${sanitizeFileBaseName(input.process.name || "process-summary")}.pdf`,
   )
 }
 
@@ -1302,9 +1317,10 @@ function renderExperimentSection(
   void processModel
 }
 
-export async function exportExperimentSummaryAsPdf(
+/** Build the Experiment summary PDF and return its bytes (no download). */
+export async function buildExperimentPdf(
   input: ExperimentExportInput,
-): Promise<void> {
+): Promise<Uint8Array> {
   const processModel = buildProcessExportModel({
     process: input.process,
     materials: input.materials,
@@ -1328,9 +1344,15 @@ export async function exportExperimentSummaryAsPdf(
   await embedPayload(
     doc,
     serializeExperiment(input.experiment, input.process, refs),
+    L.fieldSnapshot,
   )
+  return doc.save()
+}
 
-  const bytes = await doc.save()
+export async function exportExperimentSummaryAsPdf(
+  input: ExperimentExportInput,
+): Promise<void> {
+  const bytes = await buildExperimentPdf(input)
   triggerDownload(
     new Blob([bytes as BlobPart], { type: "application/pdf" }),
     `${sanitizeFileBaseName(input.experiment.name || "experiment")}.pdf`,

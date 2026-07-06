@@ -28,11 +28,19 @@ export type EntityRefs = {
   solutions: EntityRef[]
 }
 
+/**
+ * Snapshot of every editable AcroForm field's exported value, keyed by field
+ * name (see the codec). Import diffs the PDF's live field values against this to
+ * detect user edits without having to re-derive export formatting.
+ */
+export type FieldSnapshot = Record<string, string>
+
 export type SerializedProcess = {
   schemaVersion: number
   kind: "process"
   process: Process
   refs: EntityRefs
+  fields?: FieldSnapshot
 }
 
 export type SerializedExperiment = {
@@ -41,6 +49,7 @@ export type SerializedExperiment = {
   experiment: Experiment
   process: Process
   refs: EntityRefs
+  fields?: FieldSnapshot
 }
 
 export type SerializedPayload = SerializedProcess | SerializedExperiment
@@ -222,15 +231,18 @@ export function decodeFieldName(name: string): FieldPath | null {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Payload embedding
+// Payload embedding & reading
 //
-// The canonical JSON is attached as a real PDF file (`plains.json`). The key ids
-// and schema version are ALSO mirrored into document metadata as a cheap fallback
-// in case a viewer strips attachments. Reading the attachment back is done in the
-// (later) import flow; the metadata mirror is easy to read either way.
+// The canonical JSON travels through the PDF two ways:
+//   1. a hidden, widget-less AcroForm text field (`plains:payload`) — the channel
+//      import reads, since pdf-lib round-trips form field values reliably;
+//   2. a real PDF file attachment (`plains.json`) — a human/tooling-friendly copy.
+// The key ids + schema version are also mirrored into document metadata as a
+// recognisability marker.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const PAYLOAD_ATTACHMENT_NAME = "plains.json"
+export const PAYLOAD_FIELD_NAME = "plains:payload"
 
 /** Marker embedded in the PDF Subject so an importer can recognise our files. */
 export function payloadMetadataMirror(payload: SerializedPayload): string {
@@ -242,16 +254,77 @@ export function payloadMetadataMirror(payload: SerializedPayload): string {
 export async function embedPayload(
   pdfDoc: PDFDocument,
   payload: SerializedPayload,
+  fields?: FieldSnapshot,
 ): Promise<void> {
-  const json = JSON.stringify(payload)
-  const bytes = new TextEncoder().encode(json)
-  await pdfDoc.attach(bytes, PAYLOAD_ATTACHMENT_NAME, {
+  const full: SerializedPayload = fields ? { ...payload, fields } : payload
+  const json = JSON.stringify(full)
+
+  // 1. Hidden form field (primary import channel). No addToPage → no widget, so
+  //    it never renders but persists in the AcroForm and reads back verbatim.
+  const form = pdfDoc.getForm()
+  const hidden = form.createTextField(PAYLOAD_FIELD_NAME)
+  hidden.setText(json)
+  hidden.enableReadOnly()
+
+  // 2. File attachment (human/tooling copy).
+  await pdfDoc.attach(new TextEncoder().encode(json), PAYLOAD_ATTACHMENT_NAME, {
     mimeType: "application/json",
     description: "Plains machine-readable process/experiment data",
     creationDate: new Date(),
     modificationDate: new Date(),
   })
-  // Metadata mirror (fallback + recognisability).
+
+  // 3. Metadata mirror (recognisability).
   pdfDoc.setKeywords([payloadMetadataMirror(payload)])
   pdfDoc.setSubject(payloadMetadataMirror(payload))
+}
+
+/** Read the canonical payload back out of the hidden form field. */
+export function readPayload(pdfDoc: PDFDocument): SerializedPayload | null {
+  const form = pdfDoc.getForm()
+  let json: string | undefined
+  try {
+    json = form.getTextField(PAYLOAD_FIELD_NAME).getText() ?? undefined
+  } catch {
+    return null
+  }
+  if (!json) return null
+  let raw: unknown
+  try {
+    raw = JSON.parse(json)
+  } catch {
+    return null
+  }
+  return migratePayload(raw)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Migration ladder — downward compatibility. Each entry migrates from version N
+// to N+1. Add one every time PDF_SCHEMA_VERSION is bumped so older PDFs remain
+// importable. (No migrations yet; v1 is the initial shape.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MIGRATIONS: Record<number, (p: SerializedPayload) => SerializedPayload> =
+  {
+    // 1: (p) => ({ ...p, schemaVersion: 2, /* transform */ }),
+  }
+
+/**
+ * Validate and upgrade a parsed payload to the current schema version. Returns
+ * null if it is not a recognisable Plains payload or is newer than this app.
+ */
+export function migratePayload(raw: unknown): SerializedPayload | null {
+  if (!raw || typeof raw !== "object") return null
+  const obj = raw as { schemaVersion?: unknown; kind?: unknown }
+  if (obj.kind !== "process" && obj.kind !== "experiment") return null
+  let version = typeof obj.schemaVersion === "number" ? obj.schemaVersion : 0
+  if (version > PDF_SCHEMA_VERSION) return null // PDF newer than app
+  let payload = raw as SerializedPayload
+  while (version < PDF_SCHEMA_VERSION) {
+    const migrate = MIGRATIONS[version]
+    if (!migrate) return null
+    payload = migrate(payload)
+    version = payload.schemaVersion
+  }
+  return payload
 }
