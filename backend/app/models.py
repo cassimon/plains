@@ -752,6 +752,10 @@ class ProcessGeneratedStackBase(SQLModel):
 
 class ProcessGeneratedStackLayerBase(SQLModel):
     layer_index: int = 0
+    # Reference to the ProcessStep (or substrate) this layer was generated
+    # from. Stack combinations share source steps, so this CANNOT be the row
+    # PK — the GUI keys layers by step for metadata generation and edits.
+    step_ref: str | None = Field(default=None, max_length=64)
     name: str = Field(default="", max_length=255)
     color: str = Field(default="", max_length=50)
     is_substrate: bool = False

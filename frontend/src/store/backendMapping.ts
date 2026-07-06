@@ -237,7 +237,7 @@ function stackFromApi(s: ApiObj): ProcessGeneratedStack {
       .slice()
       .sort((a: ApiObj, b: ApiObj) => a.layer_index - b.layer_index)
       .map((l: ApiObj) => ({
-        id: l.id,
+        id: l.step_ref ?? l.id,
         name: l.name ?? "",
         color: l.color ?? "",
         isSubstrate: !!l.is_substrate,
@@ -528,7 +528,10 @@ export function stacksToApi(p: Process): ApiObj[] {
     number_of_pixels: s.numberOfPixels ?? null,
     is_deleted: false,
     layers: s.layers.map((l, i) => ({
-      id: l.id,
+      // The layer's id references its source ProcessStep and is therefore
+      // SHARED across stack combinations — it must not be the DB row PK
+      // (unique). Send it as step_ref and let the server mint the row id.
+      step_ref: l.id,
       layer_index: i,
       name: l.name ?? "",
       color: l.color ?? "",

@@ -53,6 +53,15 @@ export type UploadFlow = {
   targetPlaneId?: string | null
   /** Files dropped in Organization, staged until an experiment is chosen. */
   pendingFiles?: StagedFile[]
+  /**
+   * When true, associating/creating an experiment auto-creates one substrate
+   * per group recognized in the staged file names (flows where files arrive
+   * before the experiment). User-checkable in the target picker.
+   */
+  autoCreateSubstrates?: boolean
+  /** Substrate ids auto-created from recognized groups, so misrecognized
+   *  names can be listed and deleted from the picker. */
+  autoCreatedSubstrateIds?: string[]
   createdAt: string
   /** Epoch ms of the last user interaction — drives the inactivity drop. */
   lastActivityAt: number
@@ -190,3 +199,33 @@ export function isUploadFlowComplete(steps: UploadFlowStepStates): boolean {
 
 /** Inactivity window after which an incomplete flow is dropped (ms). */
 export const UPLOAD_FLOW_INACTIVITY_MS = 30 * 60 * 1000
+
+/**
+ * Recognize substrate/device group names in staged file names, using the
+ * same conservative conventions as the Results page grouping:
+ *  1. two uppercase letters followed by 2–3 digits anywhere ("AB41"),
+ *  2. a letters-then-digits word at the start of the basename ("Device01").
+ * Names are deduplicated and returned in first-seen order.
+ */
+export function recognizeGroupNames(fileNames: string[]): string[] {
+  const names: string[] = []
+  const seen = new Set<string>()
+  for (const fileName of fileNames) {
+    const base = fileName.replace(/\.[^/.]+$/, "")
+    let name: string | null = null
+    const idMatch = base.match(/\b([A-Z]{2}\d{2,3})\b/)
+    if (idMatch) {
+      name = idMatch[1]
+    } else {
+      const wordMatch = base.match(/^([A-Za-z]+\d+)/)
+      if (wordMatch) {
+        name = wordMatch[1].toUpperCase()
+      }
+    }
+    if (name && !seen.has(name)) {
+      seen.add(name)
+      names.push(name)
+    }
+  }
+  return names
+}

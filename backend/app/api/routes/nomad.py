@@ -26,6 +26,7 @@ from app.services.nomad import (
     TEMP_UPLOAD_DIR,
     NomadAuthError,
     NomadUploadError,
+    cleanup_stale_archives,
     cleanup_temp_archive,
     create_nomad_metadata_yaml,
     create_secure_zip,
@@ -231,6 +232,8 @@ async def upload_files_for_nomad(
     in the archive. This allows the frontend to prepare the upload earlier in the workflow.
     """
     _require_nomad_upload_authorized(current_user)
+    # Opportunistic sweep: drop archives abandoned beyond the inactivity window.
+    cleanup_stale_archives()
 
     # Parse form manually so we can raise the per-request limits above Starlette's
     # default of 1000 files — researchers routinely drop thousands of files at once.
@@ -588,6 +591,8 @@ async def upload_to_nomad_endpoint(
     - files: Direct file upload
     """
     _require_nomad_upload_authorized(current_user)
+    # Opportunistic sweep: drop archives abandoned beyond the inactivity window.
+    cleanup_stale_archives()
 
     try:
         request = NomadUploadRequest.model_validate_json(request_json)

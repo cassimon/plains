@@ -1278,6 +1278,8 @@ export function AppProvider({
           targetCollectionId: init.targetCollectionId ?? null,
           targetPlaneId: init.targetPlaneId ?? null,
           pendingFiles: init.pendingFiles,
+          autoCreateSubstrates: init.autoCreateSubstrates ?? false,
+          autoCreatedSubstrateIds: [],
           createdAt: new Date(now).toISOString(),
           lastActivityAt: now,
         }

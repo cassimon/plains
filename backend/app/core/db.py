@@ -29,6 +29,14 @@ def init_db(session: Session) -> None:
                 "lab_substrate_substrate_material_id_fkey"
             )
         )
+        # Added after create_all shipped: the step reference a generated stack
+        # layer was built from (see ProcessGeneratedStackLayerBase.step_ref).
+        conn.execute(
+            text(
+                "ALTER TABLE process_generated_stack_layer "
+                "ADD COLUMN IF NOT EXISTS step_ref VARCHAR(64)"
+            )
+        )
 
     user = session.exec(
         select(User).where(User.email == settings.FIRST_SUPERUSER)

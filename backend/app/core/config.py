@@ -124,6 +124,10 @@ class Settings(BaseSettings):
     NOMAD_PASSWORD: str | None = None
     NOMAD_USE_GLOBAL_AUTH: bool = True
     NOMAD_MOCK_MODE: bool = False
+    # Temporary upload archives (.zip) left inactive longer than this are
+    # swept on the next NOMAD endpoint activity. Matches the GUI's 30-minute
+    # upload-flow inactivity window (UPLOAD_FLOW_INACTIVITY_MS).
+    NOMAD_ARCHIVE_MAX_AGE_S: int = 30 * 60
 
     @model_validator(mode="after")
     def _load_nomad_auth_from_file(self) -> Self:
@@ -147,7 +151,13 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def nomad_enabled(self) -> bool:
-        """Check if NOMAD is configured with global auth credentials."""
+        """Check if NOMAD is configured with global auth credentials.
+
+        Mock mode counts as enabled: it simulates a reachable NOMAD server so
+        the full upload flow (including the GUI's upload button) can run in
+        tests and demos without real credentials."""
+        if self.NOMAD_MOCK_MODE:
+            return True
         return bool(
             self.NOMAD_USE_GLOBAL_AUTH and self.NOMAD_USERNAME and self.NOMAD_PASSWORD
         )

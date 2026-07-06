@@ -15,6 +15,7 @@ Uses the nomad_utility_workflows package for NOMAD API interaction.
 import logging
 import re
 import tempfile
+import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -97,7 +98,8 @@ def get_nomad_token(username: str | None = None, password: str | None = None) ->
     use_username = username or settings.NOMAD_USERNAME
     use_password = password or settings.NOMAD_PASSWORD
 
-    if not use_username or not use_password:
+    # Mock mode never contacts a server, so it must not require credentials.
+    if not settings.NOMAD_MOCK_MODE and (not use_username or not use_password):
         raise NomadAuthError(
             "NOMAD credentials not configured. Add username/password to the NOMAD auth file (../sensitive config/.nomad_auth)"
         )
@@ -448,6 +450,7 @@ def create_nomad_metadata_yaml(
             for stack in stacks_orm:
                 layers = [
                     {
+                        "id": layer.step_ref or str(layer.id),
                         "name": layer.name,
                         "color": layer.color,
                         "isSubstrate": layer.is_substrate,
@@ -2709,6 +2712,42 @@ def delete_upload(upload_id: str, token: str | None = None) -> bool:
     except httpx.RequestError as e:
         logger.error(f"NOMAD delete request error: {e}")
         return False
+
+
+def cleanup_stale_archives(max_age_seconds: int | None = None) -> list[Path]:
+    """
+    Delete temporary upload archives that have been inactive for longer than
+    ``max_age_seconds`` (default: settings.NOMAD_ARCHIVE_MAX_AGE_S).
+
+    "Inactive" means the file's mtime is older than the window — every write
+    (adding files or metadata) refreshes the mtime, so an archive the user is
+    still working on is never swept. Called opportunistically from the NOMAD
+    endpoints so orphaned archives (browser closed, flow abandoned) do not
+    accumulate on disk.
+
+    Returns the list of deleted archive paths.
+    """
+    max_age = (
+        settings.NOMAD_ARCHIVE_MAX_AGE_S if max_age_seconds is None else max_age_seconds
+    )
+    deleted: list[Path] = []
+    if not TEMP_UPLOAD_DIR.exists():
+        return deleted
+    cutoff = time.time() - max_age
+    for candidate in TEMP_UPLOAD_DIR.glob("*.zip"):
+        try:
+            if candidate.is_file() and candidate.stat().st_mtime < cutoff:
+                candidate.unlink()
+                deleted.append(candidate)
+                logger.info(
+                    "Swept stale NOMAD upload archive (inactive > %ss): %s",
+                    max_age,
+                    candidate,
+                )
+        except OSError:
+            # Already gone or not deletable — never fail the caller for this.
+            logger.warning("Could not sweep stale archive %s", candidate)
+    return deleted
 
 
 def cleanup_temp_archive(zip_path: Path) -> bool:

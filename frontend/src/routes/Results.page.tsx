@@ -1191,7 +1191,7 @@ function ResultsDetail({
   const [batchAssignTargetSubstrateId, setBatchAssignTargetSubstrateId] =
     useState<string | null>(null)
   const seenUnmatchedGroupIdsRef = useRef<Set<string>>(new Set())
-  const { processes } = useAppContext()
+  const { processes, flushSave } = useAppContext()
   const theme = useMantineTheme()
 
   // Build a map from inline substrate id → spec for the linked process
@@ -2096,6 +2096,10 @@ function ResultsDetail({
 
     setPreparingUpload(true)
     try {
+      // Metadata generation reads the experiment/process from the database —
+      // flush the debounced save first or a fast user hits "not found".
+      await flushSave()
+
       let archivePath = lastArchivePath
 
       if (!archivePath) {
@@ -2250,6 +2254,7 @@ function ResultsDetail({
     buildNomadUploadRequest,
     experiment.id,
     experiment.name,
+    flushSave,
     lastArchivePath,
     results.deviceGroups.length,
     results.files.length,
@@ -2269,6 +2274,7 @@ function ResultsDetail({
 
     setNomadUploading(true)
     try {
+      await flushSave()
       const requestData = buildNomadUploadRequest()
 
       const formData = new FormData()
@@ -2375,6 +2381,7 @@ function ResultsDetail({
   }, [
     buildNomadUploadRequest,
     discardTemporaryArchive,
+    flushSave,
     lastArchivePath,
     nomadConfig?.enabled,
     onUpdateExperiment,
