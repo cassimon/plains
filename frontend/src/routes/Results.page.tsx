@@ -1356,6 +1356,18 @@ function ResultsDetail({
   const results = experimentResults ?? fallbackResults
   resultsRef.current = results
 
+  // Files already provided for this experiment: either ingested into `results`,
+  // or still staged on the active upload flow (carried from an Organization /
+  // experiment drop). Lets Step 1 show "files already present" instead of an
+  // empty "drop here" prompt when the user arrives via "Go to Results & Upload".
+  const flowStagedFileCount =
+    uploadFlow && uploadFlow.experimentId === experiment.id
+      ? (uploadFlow.pendingFiles?.length ?? 0)
+      : 0
+  const providedFileCount =
+    results.files.length > 0 ? results.files.length : flowStagedFileCount
+  const hasProvidedFiles = providedFileCount > 0
+
   // ── NOMAD status polling ──────────────────────────────────────────────────
   // Polls GET /upload/{id}/status every 5 s until the upload reaches a terminal
   // state (SUCCESS / FAILURE / NOT_FOUND).  The effect restarts whenever the
@@ -3069,14 +3081,12 @@ function ResultsDetail({
                             {
                               borderStyle: "dashed",
                               borderWidth: 2,
-                              borderColor:
-                                results.files.length > 0
-                                  ? "var(--mantine-color-green-4)"
-                                  : "var(--mantine-color-gray-4)",
-                              background:
-                                results.files.length > 0
-                                  ? "var(--mantine-color-green-0)"
-                                  : "var(--mantine-color-gray-0)",
+                              borderColor: hasProvidedFiles
+                                ? "var(--mantine-color-green-4)"
+                                : "var(--mantine-color-gray-4)",
+                              background: hasProvidedFiles
+                                ? "var(--mantine-color-green-0)"
+                                : "var(--mantine-color-gray-0)",
                               "--dropzone-reject-bg":
                                 "var(--mantine-color-green-0)",
                               "--dropzone-reject-color":
@@ -3105,7 +3115,7 @@ function ResultsDetail({
                               />
                             </Dropzone.Reject>
                             <Dropzone.Idle>
-                              {results.files.length > 0 ? (
+                              {hasProvidedFiles ? (
                                 <IconCheck
                                   size={48}
                                   color={theme.colors.green[6]}
@@ -3124,16 +3134,22 @@ function ResultsDetail({
                               <Text size="lg" inline fw={500}>
                                 {results.files.length > 0
                                   ? `${results.files.length} files uploaded`
-                                  : results.nomad?.upload_id
-                                    ? "Add More Files"
-                                    : "Drop Results here"}
+                                  : flowStagedFileCount > 0
+                                    ? `${flowStagedFileCount} file${
+                                        flowStagedFileCount === 1 ? "" : "s"
+                                      } staged`
+                                    : results.nomad?.upload_id
+                                      ? "Add More Files"
+                                      : "Drop Results here"}
                               </Text>
                               <Text size="sm" c="dimmed" inline mt={7}>
                                 {results.files.length > 0
                                   ? "Drop more files to add them"
-                                  : results.nomad?.upload_id
-                                    ? "Drag & drop additional measurement files to update the NOMAD upload"
-                                    : "Drag & drop measurement files (.txt, images, documents)"}
+                                  : flowStagedFileCount > 0
+                                    ? "These files are attached to this upload — drop more to add them"
+                                    : results.nomad?.upload_id
+                                      ? "Drag & drop additional measurement files to update the NOMAD upload"
+                                      : "Drag & drop measurement files (.txt, images, documents)"}
                               </Text>
                             </div>
                           </Group>

@@ -2421,8 +2421,8 @@ function CollectionEl({
               })}
 
             {/* Result-file upload — small, non-dominant red affordance shown on
-                every collection so files can be uploaded without dragging. */}
-            {!markerOnly && (
+                hover so files can be uploaded without dragging. */}
+            {!markerOnly && isCardHovered && (
               <FileButton
                 multiple
                 onChange={(picked) => {
@@ -4541,43 +4541,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               } catch {}
             }}
           >
-            {/* Idle hint: no active upload → tell the user how to start one.
-                Non-interactive overlay so it never blocks drops. */}
-            {!uploadFlow && (
-              <Box
-                style={{
-                  position: "absolute",
-                  top: 10,
-                  left: "50%",
-                  transform: "translateX(-50%)",
-                  zIndex: 5,
-                  pointerEvents: "none",
-                }}
-              >
-                <Group
-                  gap={8}
-                  wrap="nowrap"
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: 999,
-                    background: isDark
-                      ? "var(--mantine-color-dark-6)"
-                      : "var(--mantine-color-white)",
-                    border: "1px dashed var(--mantine-color-red-4)",
-                    boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
-                  }}
-                >
-                  <IconCloudUpload
-                    size={18}
-                    color="var(--mantine-color-red-6)"
-                  />
-                  <Text size="sm" fw={600} c="red.7">
-                    Place files onto Plane for upload
-                  </Text>
-                </Group>
-              </Box>
-            )}
-
             {/* Unified grid: empty ghost cells + all canvas elements */}
             {(() => {
               const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }

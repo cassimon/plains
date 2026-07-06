@@ -16,6 +16,7 @@ import {
 import { modals } from "@mantine/modals"
 import {
   IconChevronDown,
+  IconCloudUpload,
   IconLogout,
   IconMoon,
   IconSettings,
@@ -188,7 +189,9 @@ export function AppLayout() {
           style={{ position: "relative" }}
         >
           {/* Critical "File Upload" status — centered between path and login.
-              Renders nothing (and takes no layout space) when no flow is active. */}
+              Renders nothing (and takes no layout space) when no flow is active.
+              When idle on the Organization view, the same slot shows the
+              "place files" hint so the two occupy the exact same position. */}
           <div
             style={{
               position: "absolute",
@@ -198,7 +201,29 @@ export function AppLayout() {
               zIndex: 10,
             }}
           >
-            <UploadFlowStatus />
+            {uploadFlow ? (
+              <UploadFlowStatus />
+            ) : (
+              location.pathname.startsWith("/organization") && (
+                <Group
+                  gap={8}
+                  wrap="nowrap"
+                  style={{
+                    padding: "5px 14px",
+                    borderRadius: 999,
+                    border: "1px dashed var(--mantine-color-red-4)",
+                  }}
+                >
+                  <IconCloudUpload
+                    size={16}
+                    color="var(--mantine-color-red-6)"
+                  />
+                  <Text size="sm" fw={600} c="red.7">
+                    Place files onto Plane for upload
+                  </Text>
+                </Group>
+              )
+            )}
           </div>
           <Group gap={4} align="center">
             {/* Plane name — click navigates to org and deselects collection */}
