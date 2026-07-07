@@ -13,11 +13,10 @@
 //     target
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { Button, Group, Stack, Text } from "@mantine/core"
 import { modals } from "@mantine/modals"
 import { notifications } from "@mantine/notifications"
 import { useCallback } from "react"
-import { UploadFlowTargetPicker } from "../components/UploadFlowTargetPicker"
+import { UploadFlowPanel } from "../components/UploadFlowStatus"
 import { useAppContext } from "../store/AppContext"
 import type { StagedFile } from "./uploadFlow"
 
@@ -101,26 +100,13 @@ export function useStartOrAddUpload() {
       if (!started) {
         return
       }
+      // Render the exact same window as the top-bar badge's popover
+      // (`UploadFlowPanel`) so the post-drop dialog and the top-icon dialog are
+      // always identical. No title bar / close button: like the popover, it is
+      // dismissed by clicking outside or aborting — the top icon is the guideline.
       modals.open({
-        title: "Upload files",
-        children: (
-          <Stack gap="sm">
-            <Text size="sm" c="dimmed">
-              {pendingFiles.length} file{pendingFiles.length === 1 ? "" : "s"}{" "}
-              staged. Choose which process and experiment they belong to.
-            </Text>
-            <UploadFlowTargetPicker onNavigateAway={() => modals.closeAll()} />
-            <Group justify="flex-end">
-              <Button
-                variant="default"
-                size="xs"
-                onClick={() => modals.closeAll()}
-              >
-                Done
-              </Button>
-            </Group>
-          </Stack>
-        ),
+        withCloseButton: false,
+        children: <UploadFlowPanel onClose={() => modals.closeAll()} />,
       })
     },
     [

@@ -12,6 +12,7 @@ import {
   NativeSelect,
   NumberInput,
   Paper,
+  Popover,
   ScrollArea,
   Select,
   SimpleGrid,
@@ -60,6 +61,7 @@ import {
   type Material,
   newProcess,
   newProcessStep,
+  type Plane,
   PROCESS_PARAMETER_DEFINITIONS,
   type Process,
   type ProcessGeneratedStack,
@@ -280,6 +282,242 @@ function AddStepMenu({
         ))}
       </Menu.Dropdown>
     </Menu>
+  )
+}
+
+/**
+ * Button + popover for importing a step (with its chemistry recipe, if any)
+ * from another process. Mirrors the "Import Solution" widget in the
+ * Chemistry tab: Collection (Plane / Collection) → Process → Step, cascading
+ * NativeSelects. Defaults to the last process the user was active in
+ * (excluding the current one), resolved to its owning Plane/Collection, when
+ * available; otherwise falls back to the first option, same as Chemistry.
+ */
+function ImportStepButton({
+  label,
+  currentProcess,
+  planes,
+  allProcesses,
+  lastProcessId,
+  onImport,
+}: {
+  label: string
+  currentProcess: Process
+  planes: Plane[]
+  allProcesses: Process[]
+  lastProcessId?: string
+  onImport: (step: ProcessStep, extraRecipe?: ProcessSolutionRecipe) => void
+}) {
+  const [opened, setOpened] = useState(false)
+  const [collKey, setCollKey] = useState("")
+  const [processId, setProcessId] = useState("")
+  const [stepId, setStepId] = useState("")
+
+  // Build collection options: one entry per CanvasCollectionElement that has
+  // process refs (pointing to a process other than the current one)
+  const collectionOptions = useMemo(() => {
+    const opts: Array<{ value: string; label: string; processIds: string[] }> =
+      []
+    for (const plane of planes) {
+      for (const el of plane.elements) {
+        if (el.type !== "collection") continue
+        const coll = el as CanvasCollectionElement
+        const processIds = coll.refs
+          .filter((r) => r.kind === "process" && r.id !== currentProcess.id)
+          .map((r) => r.id)
+          .filter((id) => allProcesses.some((p) => p.id === id))
+        if (processIds.length === 0) continue
+        opts.push({
+          value: `${plane.id}:${coll.id}`,
+          label: `${plane.name} / ${coll.name}`,
+          processIds,
+        })
+      }
+    }
+    return opts
+  }, [planes, allProcesses, currentProcess.id])
+
+  const selectedColl = collectionOptions.find((o) => o.value === collKey)
+
+  const processOptions = useMemo(() => {
+    if (!selectedColl) return []
+    return selectedColl.processIds
+      .map((id) => allProcesses.find((p) => p.id === id))
+      .filter((p): p is Process => p !== undefined)
+      .map((p) => ({ value: p.id, label: p.name || "Unnamed process" }))
+  }, [selectedColl, allProcesses])
+
+  const selectedImportProcess = allProcesses.find((p) => p.id === processId)
+
+  const stepOptions = useMemo(() => {
+    if (!selectedImportProcess) return []
+    const opts: Array<{ value: string; label: string }> = []
+    for (const stage of selectedImportProcess.stages) {
+      for (const step of stage.alternatives) {
+        const catLabel =
+          STEP_CATEGORIES.find((c) => c.value === step.stepCategory)?.label ??
+          step.stepCategory
+        opts.push({
+          value: step.id,
+          label: `${step.name || "Unnamed"} (${catLabel})`,
+        })
+      }
+    }
+    return opts
+  }, [selectedImportProcess])
+
+  // Reset downstream selects when the parent changes, preferring the last
+  // active process (excluding the current one) when it's among the options.
+  useEffect(() => {
+    if (
+      lastProcessId &&
+      processOptions.some((o) => o.value === lastProcessId)
+    ) {
+      setProcessId(lastProcessId)
+    } else {
+      setProcessId(processOptions[0]?.value ?? "")
+    }
+  }, [processOptions, lastProcessId])
+
+  useEffect(() => {
+    setStepId(stepOptions[0]?.value ?? "")
+  }, [stepOptions])
+
+  const openImport = () => {
+    const preferred = lastProcessId
+      ? collectionOptions.find((o) => o.processIds.includes(lastProcessId))
+          ?.value
+      : undefined
+    setCollKey(preferred ?? collectionOptions[0]?.value ?? "")
+    setOpened(true)
+  }
+
+  const doImport = () => {
+    if (!selectedImportProcess) return
+    let srcStep: ProcessStep | undefined
+    for (const stage of selectedImportProcess.stages) {
+      const found = stage.alternatives.find((s) => s.id === stepId)
+      if (found) {
+        srcStep = found
+        break
+      }
+    }
+    if (!srcStep) return
+
+    // A step's chemRecipeId points at process.solutionRecipes[] scoped to its
+    // own process — copy the referenced recipe too so the link stays valid.
+    let extraRecipe: ProcessSolutionRecipe | undefined
+    if (srcStep.chemRecipeId) {
+      const srcRecipe = selectedImportProcess.solutionRecipes?.find(
+        (r) => r.id === srcStep?.chemRecipeId,
+      )
+      if (srcRecipe) {
+        extraRecipe = {
+          ...srcRecipe,
+          id: crypto.randomUUID(),
+          solvents: srcRecipe.solvents.map((s) => ({
+            ...s,
+            id: crypto.randomUUID(),
+          })),
+          solutes: srcRecipe.solutes.map((s) => ({
+            ...s,
+            id: crypto.randomUUID(),
+          })),
+          addedSolutions: srcRecipe.addedSolutions
+            ? [...srcRecipe.addedSolutions]
+            : undefined,
+        }
+      }
+    }
+
+    const copiedStep: ProcessStep = {
+      ...srcStep,
+      id: crypto.randomUUID(),
+      chemRecipeId: extraRecipe?.id,
+    }
+
+    onImport(copiedStep, extraRecipe)
+    setOpened(false)
+    setCollKey("")
+    setProcessId("")
+    setStepId("")
+  }
+
+  return (
+    <Popover
+      opened={opened}
+      onClose={() => setOpened(false)}
+      width={320}
+      position="bottom-start"
+      shadow="md"
+      withinPortal
+    >
+      <Popover.Target>
+        <Button
+          size="xs"
+          variant="subtle"
+          color="teal"
+          leftSection={<IconPlus size={14} />}
+          onClick={() => (opened ? setOpened(false) : openImport())}
+        >
+          {label}
+        </Button>
+      </Popover.Target>
+      <Popover.Dropdown>
+        <Stack gap="xs">
+          <Text size="sm" fw={600}>
+            Import step from another process
+          </Text>
+          {collectionOptions.length === 0 ? (
+            <Text size="xs" c="dimmed" maw={280}>
+              No collections with other processes found. Add processes to a
+              collection on a Plane to enable importing.
+            </Text>
+          ) : (
+            <>
+              <NativeSelect
+                label="Collection"
+                size="xs"
+                value={collKey}
+                onChange={(e) => setCollKey(e.currentTarget.value)}
+                data={collectionOptions.map((o) => ({
+                  label: o.label,
+                  value: o.value,
+                }))}
+              />
+              <NativeSelect
+                label="Process"
+                size="xs"
+                value={processId}
+                onChange={(e) => setProcessId(e.currentTarget.value)}
+                data={processOptions}
+                disabled={processOptions.length === 0}
+              />
+              <NativeSelect
+                label="Step"
+                size="xs"
+                value={stepId}
+                onChange={(e) => setStepId(e.currentTarget.value)}
+                data={stepOptions}
+                disabled={stepOptions.length === 0}
+              />
+              <Group gap="xs">
+                <Button size="xs" disabled={!stepId} onClick={doImport}>
+                  Import (copy)
+                </Button>
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  onClick={() => setOpened(false)}
+                >
+                  Cancel
+                </Button>
+              </Group>
+            </>
+          )}
+        </Stack>
+      </Popover.Dropdown>
+    </Popover>
   )
 }
 
@@ -1782,6 +2020,7 @@ function getLayerName(
   step: ProcessStep,
   materials: Material[],
   solutions: Solution[],
+  solutionRecipes?: ProcessSolutionRecipe[],
 ): string {
   // Try to get material/solution name
   if (step.materialId) {
@@ -1815,8 +2054,25 @@ function getLayerName(
     return step.depositionMethod?.value?.trim() || step.name || "Unnamed"
   }
   if (step.chemRecipeId) {
-    // name will be resolved by caller using solutionRecipes
-    return step.depositionMethod?.value?.trim() || step.name || "Unnamed"
+    // The solvent evaporates during deposition — name the layer after the
+    // solute(s) that remain, not the recipe's own (solvent-inclusive) name.
+    const recipe = solutionRecipes?.find((r) => r.id === step.chemRecipeId)
+    const soluteNames = Array.from(
+      new Set(
+        (recipe?.solutes ?? [])
+          .map((s) => s.name.trim())
+          .filter((name) => name.length > 0),
+      ),
+    )
+    if (soluteNames.length > 0) {
+      return soluteNames.join(", ")
+    }
+    return (
+      recipe?.name ||
+      step.depositionMethod?.value?.trim() ||
+      step.name ||
+      "Unnamed"
+    )
   }
   if (step.inlineMaterial?.name) {
     return step.inlineMaterial.name
@@ -1967,15 +2223,11 @@ function generateStackCombinations(
       ) {
         // absorb into previous perovskite group
       } else {
-        const recipeName = step.chemRecipeId
-          ? (solutionRecipes.find((r) => r.id === step.chemRecipeId)?.name ??
-            "")
-          : null
         merged.push({
           step,
           name: isPero
             ? "Perovskite"
-            : recipeName || getLayerName(step, materials, solutions),
+            : getLayerName(step, materials, solutions, solutionRecipes),
           isPerovskite: isPero,
         })
       }
@@ -2037,7 +2289,7 @@ function generateStackCombinations(
         }
       } else {
         // Modification step — associate with the most recent real layer
-        const name = getLayerName(step, materials, solutions)
+        const name = getLayerName(step, materials, solutions, solutionRecipes)
         if (!pending.has(currentLayerId)) {
           pending.set(currentLayerId, new Map())
         }
@@ -3592,6 +3844,28 @@ export function ProcessesPage() {
     [activeEntity, processes],
   )
 
+  // Tracks the process the user was active in immediately before the current
+  // one (as opposed to `lastSelectedByKind.process`, which is overwritten to
+  // the current process as soon as it's selected). Used to default the step
+  // import picker to "the other process the user was just looking at."
+  const prevSelectedProcessIdRef = useRef<string | undefined>(undefined)
+  const [lastActiveOtherProcessId, setLastActiveOtherProcessId] = useState<
+    string | undefined
+  >(undefined)
+  useEffect(() => {
+    const currentId = selectedProcess?.id
+    if (
+      currentId &&
+      prevSelectedProcessIdRef.current &&
+      prevSelectedProcessIdRef.current !== currentId
+    ) {
+      setLastActiveOtherProcessId(prevSelectedProcessIdRef.current)
+    }
+    if (currentId) {
+      prevSelectedProcessIdRef.current = currentId
+    }
+  }, [selectedProcess?.id])
+
   const stackInvalidationKey = useMemo(
     () => getStackInvalidationKey(selectedProcess),
     [selectedProcess],
@@ -4188,6 +4462,53 @@ export function ProcessesPage() {
     if (!method || !METHODS_WITHOUT_MATERIAL.has(method)) {
       setMaterialModalStepId(step.id)
     }
+  }
+
+  const handleImportStep = (
+    step: ProcessStep,
+    extraRecipe?: ProcessSolutionRecipe,
+  ) => {
+    if (!selectedProcess) return
+    const nextIndex = selectedProcess.stages.length
+    const newStage = { index: nextIndex, alternatives: [step] }
+    const updated: Process = {
+      ...selectedProcess,
+      stages: [...selectedProcess.stages, newStage],
+      solutionRecipes: extraRecipe
+        ? [...(selectedProcess.solutionRecipes ?? []), extraRecipe]
+        : selectedProcess.solutionRecipes,
+    }
+    setProcesses((prev) =>
+      prev.map((p) => (p.id === selectedProcess.id ? updated : p)),
+    )
+    setActiveEntity({ kind: "process", id: updated.id })
+    setSelectedStepId(step.id)
+    setPendingFocusStepId(step.id)
+  }
+
+  const handleImportAlternativeStep = (
+    stageIndex: number,
+    step: ProcessStep,
+    extraRecipe?: ProcessSolutionRecipe,
+  ) => {
+    if (!selectedProcess) return
+    const updated: Process = {
+      ...selectedProcess,
+      stages: selectedProcess.stages.map((stage) =>
+        stage.index === stageIndex
+          ? { ...stage, alternatives: [...stage.alternatives, step] }
+          : stage,
+      ),
+      solutionRecipes: extraRecipe
+        ? [...(selectedProcess.solutionRecipes ?? []), extraRecipe]
+        : selectedProcess.solutionRecipes,
+    }
+    setProcesses((prev) =>
+      prev.map((p) => (p.id === selectedProcess.id ? updated : p)),
+    )
+    selectProcess(updated.id)
+    setSelectedStepId(step.id)
+    setPendingFocusStepId(step.id)
   }
 
   const handleChangeStepCategory = useCallback(
@@ -6898,7 +7219,9 @@ export function ProcessesPage() {
                                         width: ROW_ACTION_SLOT_WIDTH,
                                         flexShrink: 0,
                                         display: "flex",
+                                        flexWrap: "wrap",
                                         justifyContent: "flex-start",
+                                        gap: 4,
                                       }}
                                     >
                                       <AddStepMenu
@@ -6909,6 +7232,20 @@ export function ProcessesPage() {
                                             stage.index,
                                             category,
                                             method,
+                                          )
+                                        }
+                                      />
+                                      <ImportStepButton
+                                        label="Import"
+                                        currentProcess={selectedProcess}
+                                        planes={planes}
+                                        allProcesses={processes}
+                                        lastProcessId={lastActiveOtherProcessId}
+                                        onImport={(step, extraRecipe) =>
+                                          handleImportAlternativeStep(
+                                            stage.index,
+                                            step,
+                                            extraRecipe,
                                           )
                                         }
                                       />
@@ -7032,6 +7369,14 @@ export function ProcessesPage() {
                                 onAdd={handleAddProcessStep}
                               />
                             )}
+                            <ImportStepButton
+                              label="Import"
+                              currentProcess={selectedProcess}
+                              planes={planes}
+                              allProcesses={processes}
+                              lastProcessId={lastActiveOtherProcessId}
+                              onImport={handleImportStep}
+                            />
                           </Group>
 
                           {hasBothSubstrateAndStep && (

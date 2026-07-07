@@ -59,7 +59,7 @@ import {
   useState,
 } from "react"
 import { PlanesService } from "../client"
-import { UploadFlowTargetPicker } from "../components/UploadFlowTargetPicker"
+import { UploadFlowPanel } from "../components/UploadFlowStatus"
 import useAuth from "../hooks/useAuth"
 import { getUploadFlowSteps, isUploadFlowComplete } from "../lib/uploadFlow"
 import { useStartOrAddUpload } from "../lib/useStartOrAddUpload"
@@ -132,6 +132,63 @@ function snapToCell(x: number, y: number): Vec2 {
     x: Math.round(x / CELL_STRIDE_W) * CELL_W,
     y: Math.round(y / CELL_STRIDE_H) * CELL_H,
   }
+}
+
+/** Grid-cell key ("col,row") for a snapped element position. */
+function cellKeyForPos(p: Vec2): string {
+  return `${Math.round(p.x / CELL_W)},${Math.round(p.y / CELL_H)}`
+}
+
+/**
+ * Every grid cell covered by positioned elements (collections / text / notes),
+ * excluding the given ids. Multi-cell text elements reserve their full span.
+ */
+function occupiedCellKeys(
+  elements: CanvasElement[],
+  excludeIds: string[],
+): Set<string> {
+  const occ = new Set<string>()
+  for (const el of elements) {
+    if (el.type === "line" || excludeIds.includes(el.id)) continue
+    const sized = el as { position: Vec2; size?: Vec2 }
+    const col0 = Math.round(sized.position.x / CELL_W)
+    const row0 = Math.round(sized.position.y / CELL_H)
+    const colSpan = Math.max(1, Math.round((sized.size?.x ?? CELL_W) / CELL_W))
+    const rowSpan = Math.max(1, Math.round((sized.size?.y ?? CELL_H) / CELL_H))
+    for (let r = 0; r < rowSpan; r++) {
+      for (let c = 0; c < colSpan; c++) occ.add(`${col0 + c},${row0 + r}`)
+    }
+  }
+  return occ
+}
+
+/**
+ * Return `preferred` if its cell is free, otherwise the next free cell in
+ * reading order (left→right, top→bottom). Reserves the chosen cell in
+ * `occupied` so consecutive calls never collide.
+ */
+function nextFreeCell(
+  occupied: Set<string>,
+  preferred: Vec2,
+  maxCols: number,
+): Vec2 {
+  const pref = { x: Math.max(0, preferred.x), y: Math.max(0, preferred.y) }
+  const prefKey = cellKeyForPos(pref)
+  if (!occupied.has(prefKey)) {
+    occupied.add(prefKey)
+    return pref
+  }
+  for (let row = 0; row < 5000; row++) {
+    for (let col = 0; col < maxCols; col++) {
+      const key = `${col},${row}`
+      if (!occupied.has(key)) {
+        occupied.add(key)
+        return { x: col * CELL_W, y: row * CELL_H }
+      }
+    }
+  }
+  occupied.add(prefKey)
+  return pref
 }
 
 const ROUTE_FOR_KIND: Record<CollectionRef["kind"], string> = {
@@ -1260,47 +1317,46 @@ function EmptyCellEl({
                 <Tooltip
                   key={kind}
                   label={
-                    isNext
-                      ? `${kindLabel} — next step!`
-                      : `Add ${kindLabel}`
-                }
-                withArrow
-                position="bottom"
-                openDelay={200}
-              >
-                <Box
-                  className={isNext ? "ob-pulse" : undefined}
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    cursor: "pointer",
-                    borderRadius: 4,
-                    padding: "4px 5px",
-                    background: `var(--mantine-color-${manColor}-${isNext ? "2" : "1"})`,
-                    outline: isNext
-                      ? `2px solid var(--mantine-color-${manColor}-4)`
-                      : undefined,
-                    outlineOffset: 1,
-                  }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    createAndLink(kind)
-                  }}
+                    isNext ? `${kindLabel} — next step!` : `Add ${kindLabel}`
+                  }
+                  withArrow
+                  position="bottom"
+                  openDelay={200}
                 >
-                  <Icon size={isNext ? 24 : 22} color={color} />
-                  <Text
-                    size="xs"
-                    c={manColor}
-                    style={{ lineHeight: 1, marginTop: 3, fontWeight: 600 }}
+                  <Box
+                    className={isNext ? "ob-pulse" : undefined}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      cursor: "pointer",
+                      borderRadius: 4,
+                      padding: "4px 5px",
+                      background: `var(--mantine-color-${manColor}-${isNext ? "2" : "1"})`,
+                      outline: isNext
+                        ? `2px solid var(--mantine-color-${manColor}-4)`
+                        : undefined,
+                      outlineOffset: 1,
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      createAndLink(kind)
+                    }}
                   >
-                    +
-                  </Text>
-                </Box>
-              </Tooltip>
-            )
-          })}
+                    <Icon size={isNext ? 24 : 22} color={color} />
+                    <Text
+                      size="xs"
+                      c={manColor}
+                      style={{ lineHeight: 1, marginTop: 3, fontWeight: 600 }}
+                    >
+                      +
+                    </Text>
+                  </Box>
+                </Tooltip>
+              )
+            },
+          )}
           <Tooltip
             label="Add sticky note"
             withArrow
@@ -1484,7 +1540,6 @@ function useCollectionOnboarding(
   }, [refs, processes, experiments, results, active])
 }
 
-
 function CollectionEl({
   el,
   planeId,
@@ -1493,6 +1548,7 @@ function CollectionEl({
   onDelete,
   pan,
   isDragOver,
+  isFileDragOver,
   isDragging,
   onStartDivide,
   onDragCollectionStart,
@@ -1507,6 +1563,7 @@ function CollectionEl({
   onDelete: () => void
   pan: Vec2
   isDragOver: boolean
+  isFileDragOver: boolean
   isDragging: boolean
   onStartDivide: () => void
   onDragCollectionStart: () => void
@@ -1541,10 +1598,7 @@ function CollectionEl({
   // Only a brand-new (empty) collection collapses to just the marker. A
   // populated collection keeps all its items visible/accessible alongside it.
   const markerOnly = uploadPending && el.refs.length === 0
-  const { unlocked, nextKind } = useCollectionOnboarding(
-    el.refs,
-    isFirstPlane,
-  )
+  const { unlocked, nextKind } = useCollectionOnboarding(el.refs, isFirstPlane)
   const isActive = activeCollectionId === el.id
   const navigate = useNavigate()
   const [isExpanded, setIsExpanded] = useState(false)
@@ -2099,18 +2153,23 @@ function CollectionEl({
             padding: 8,
             display: "flex",
             flexDirection: "column",
-            border: isDragOver
-              ? "3px dashed var(--mantine-color-blue-5)"
-              : isActive
-                ? `3px solid ${el.color || DEFAULT_ACCENT}`
-                : `2px solid ${el.color || DEFAULT_ACCENT}88`,
-            boxShadow:
-              isActive && !isDragOver
+            border: isFileDragOver
+              ? "3px dashed var(--mantine-color-red-6)"
+              : isDragOver
+                ? "3px dashed var(--mantine-color-blue-5)"
+                : isActive
+                  ? `3px solid ${el.color || DEFAULT_ACCENT}`
+                  : `2px solid ${el.color || DEFAULT_ACCENT}88`,
+            boxShadow: isFileDragOver
+              ? "0 0 0 3px var(--mantine-color-red-2)"
+              : isActive && !isDragOver
                 ? `0 0 0 3px ${el.color || DEFAULT_ACCENT}33, 0 0 14px 4px ${el.color || DEFAULT_ACCENT}1a`
                 : undefined,
-            background: isDragOver
-              ? "var(--mantine-color-blue-0)"
-              : "var(--mantine-color-body)",
+            background: isFileDragOver
+              ? "var(--mantine-color-red-0)"
+              : isDragOver
+                ? "var(--mantine-color-blue-0)"
+                : "var(--mantine-color-body)",
             cursor: "pointer",
             overflow: "hidden",
             transition: "border 120ms ease, box-shadow 120ms ease",
@@ -2173,27 +2232,12 @@ function CollectionEl({
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation()
+                    // Same canonical window as the top-bar badge popover and the
+                    // post-drop dialog — the top icon is the single guideline.
                     modals.open({
-                      title: "Finish file upload",
+                      withCloseButton: false,
                       children: (
-                        <Stack gap="sm">
-                          <Text size="sm" c="dimmed">
-                            Choose which process and experiment these files
-                            belong to.
-                          </Text>
-                          <UploadFlowTargetPicker
-                            onNavigateAway={() => modals.closeAll()}
-                          />
-                          <Group justify="flex-end">
-                            <Button
-                              variant="default"
-                              size="xs"
-                              onClick={() => modals.closeAll()}
-                            >
-                              Done
-                            </Button>
-                          </Group>
-                        </Stack>
+                        <UploadFlowPanel onClose={() => modals.closeAll()} />
                       ),
                     })
                   }}
@@ -2275,9 +2319,7 @@ function CollectionEl({
                   <Tooltip
                     key={kind}
                     label={
-                      isNext
-                        ? `${kindLabel} — next step!`
-                        : `Add ${kindLabel}`
+                      isNext ? `${kindLabel} — next step!` : `Add ${kindLabel}`
                     }
                     withArrow
                     position="bottom"
@@ -2453,8 +2495,8 @@ function CollectionEl({
         </Paper>
       )}
 
-      {/* Drag-over ghost when no refs yet and retracted */}
-      {!isExpanded && isDragOver && el.refs.length === 0 && (
+      {/* Drag-over ghost when no refs yet and retracted (non-file drags) */}
+      {!isExpanded && isDragOver && !isFileDragOver && el.refs.length === 0 && (
         <Box
           style={{
             position: "absolute",
@@ -2465,6 +2507,31 @@ function CollectionEl({
             pointerEvents: "none",
           }}
         />
+      )}
+
+      {/* Pronounced file-upload affordance while dragging files onto the card */}
+      {!isExpanded && isFileDragOver && (
+        <Box
+          style={{
+            position: "absolute",
+            inset: 4,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 4,
+            border: "2px dashed var(--mantine-color-red-6)",
+            borderRadius: 8,
+            background: "var(--mantine-color-red-0)",
+            pointerEvents: "none",
+            zIndex: 5,
+          }}
+        >
+          <IconCloudUpload size={40} color="var(--mantine-color-red-6)" />
+          <Text size="xs" fw={700} c="red.7" ta="center" px={4}>
+            Drop files to upload
+          </Text>
+        </Box>
       )}
 
       {/* ── EXPANDED VIEW ───────────────────────────────────────────────── */}
@@ -3415,8 +3482,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     setActiveCollectionId,
     activeCollectionId,
     planes,
-    copyElementToPlane,
-    moveElementToPlane,
     uploadFlow,
   } = useAppContext()
   const startOrAddUpload = useStartOrAddUpload()
@@ -3455,6 +3520,9 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
 
   const [activeDrawId, setActiveDrawId] = useState<string | null>(null)
   const [dragOverCellKey, setDragOverCellKey] = useState<string | null>(null)
+  // True while the current drag over a cell carries files (vs. a ref/element),
+  // so the target collection can show a pronounced file-upload affordance.
+  const [dragOverIsFiles, setDragOverIsFiles] = useState(false)
   const [draggingCollectionId, setDraggingCollectionId] = useState<
     string | null
   >(null)
@@ -3511,12 +3579,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     }
     return minColor
   }
-
-  // ── Transfer-to-plane dialog state ──────────────────────────────────────
-  const [transferDialog, setTransferDialog] = useState<{
-    element: CanvasCollectionElement
-    targetPlaneId: string
-  } | null>(null)
 
   const handleDropRefs = useCallback(
     (
@@ -4039,14 +4101,26 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
       return
     }
     const original = dividingCollection
-    // Place divided collections in adjacent grid cells
-    const leftPos = snapToCell(
-      Math.max(0, original.position.x - CELL_W),
-      original.position.y,
+    // Place the two halves in the cells immediately left/right of the original
+    // when those are free; otherwise fall back to the next free cell in reading
+    // order so a divided collection never overlaps an existing one.
+    const maxCols = Math.max(
+      1,
+      Math.floor((containerWidth || CELL_W * 6) / CELL_W),
     )
-    const rightPos = snapToCell(
-      original.position.x + CELL_W,
-      original.position.y,
+    const occupied = occupiedCellKeys(plane.elements, [original.id])
+    const leftPos = nextFreeCell(
+      occupied,
+      snapToCell(
+        Math.max(0, original.position.x - CELL_W),
+        original.position.y,
+      ),
+      maxCols,
+    )
+    const rightPos = nextFreeCell(
+      occupied,
+      snapToCell(original.position.x + CELL_W, original.position.y),
+      maxCols,
     )
     // Create left collection
     const leftCol: CanvasCollectionElement = {
@@ -4363,15 +4437,20 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               const cy = e.clientY - rect.top - childPan.y
               const col = Math.floor(cx / CELL_STRIDE_W)
               const row = Math.floor(cy / CELL_STRIDE_H)
-              if (col >= 0 && row >= 0) setDragOverCellKey(`${col},${row}`)
+              if (col >= 0 && row >= 0) {
+                setDragOverCellKey(`${col},${row}`)
+                setDragOverIsFiles(hasFiles)
+              }
             }}
             onDragLeave={(e: ReactDragEvent<HTMLDivElement>) => {
               if (!e.currentTarget.contains(e.relatedTarget as Node)) {
                 setDragOverCellKey(null)
+                setDragOverIsFiles(false)
               }
             }}
             onDrop={(e: ReactDragEvent<HTMLDivElement>) => {
               setDragOverCellKey(null)
+              setDragOverIsFiles(false)
               setDraggingCollectionId(null)
 
               const rect = containerRef.current?.getBoundingClientRect()
@@ -4556,6 +4635,11 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                         isDragOver={
                           isDragOver && draggingCollectionId !== el.id
                         }
+                        isFileDragOver={
+                          isDragOver &&
+                          dragOverIsFiles &&
+                          draggingCollectionId !== el.id
+                        }
                         isDragging={draggingCollectionId === el.id}
                         onStartDivide={() => {
                           handleStartDivide(el as CanvasCollectionElement)
@@ -4723,99 +4807,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
           onConfirm={handleConfirmDivide}
         />
       )}
-
-      {/* ── Transfer-to-plane dialog ──────────────────────────────────────────── */}
-      <Modal
-        opened={!!transferDialog}
-        onClose={() => setTransferDialog(null)}
-        title="Transfer to Plane"
-        size="sm"
-        centered
-      >
-        {transferDialog &&
-          (() => {
-            const targetPlane = planes.find(
-              (p) => p.id === transferDialog.targetPlaneId,
-            )
-            const sourceSharedWith = plane.sharedWith ?? []
-            const targetSharedWith = targetPlane?.sharedWith ?? []
-            const userLabel = (u: {
-              email: string
-              full_name: string | null
-            }) => u.full_name || u.email
-            return (
-              <Stack gap="md">
-                <Text size="sm">
-                  Move or copy{" "}
-                  <Text span fw={600}>
-                    "{transferDialog.element.name}"
-                  </Text>{" "}
-                  ({transferDialog.element.refs.length} item
-                  {transferDialog.element.refs.length !== 1 ? "s" : ""}) to{" "}
-                  <Text span fw={600}>
-                    "{targetPlane?.name ?? "Unknown"}"
-                  </Text>
-                  ?
-                </Text>
-                {targetSharedWith.length > 0 && (
-                  <Alert color="yellow" variant="light">
-                    <Text size="sm">
-                      Moving to a shared plane will grant access to:{" "}
-                      <strong>
-                        {targetSharedWith.map(userLabel).join(", ")}
-                      </strong>
-                    </Text>
-                  </Alert>
-                )}
-                {sourceSharedWith.length > 0 && (
-                  <Alert color="orange" variant="light">
-                    <Text size="sm">
-                      Moving away from a shared plane means:{" "}
-                      <strong>
-                        {sourceSharedWith.map(userLabel).join(", ")}
-                      </strong>{" "}
-                      will lose access to these items.
-                    </Text>
-                  </Alert>
-                )}
-                <Group justify="flex-end" gap="sm">
-                  <Button
-                    variant="default"
-                    onClick={() => setTransferDialog(null)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    leftSection={<IconCopy size={16} />}
-                    variant="light"
-                    onClick={() => {
-                      copyElementToPlane(
-                        transferDialog.element,
-                        transferDialog.targetPlaneId,
-                      )
-                      setTransferDialog(null)
-                    }}
-                  >
-                    Copy
-                  </Button>
-                  <Button
-                    leftSection={<IconArrowRight size={16} />}
-                    onClick={() => {
-                      moveElementToPlane(
-                        transferDialog.element,
-                        plane.id,
-                        transferDialog.targetPlaneId,
-                      )
-                      setTransferDialog(null)
-                    }}
-                  >
-                    Move
-                  </Button>
-                </Group>
-              </Stack>
-            )
-          })()}
-      </Modal>
     </Box>
   )
 }
@@ -5417,13 +5408,58 @@ export function OrganizationPage() {
     deletePlane,
     activePlaneId,
     setActivePlaneId,
+    copyElementToPlane,
+    moveElementToPlane,
   } = useAppContext()
   const { user } = useAuth()
 
-  const hoveredPlaneTabId: string | null = null
+  // Highlighted tab while a collection card is dragged over it.
+  const [hoveredPlaneTabId, setHoveredPlaneTabId] = useState<string | null>(
+    null,
+  )
+  // Transfer (move/copy) a collection dropped onto another plane's tab.
+  const [transferDialog, setTransferDialog] = useState<{
+    element: CanvasCollectionElement
+    sourcePlaneId: string
+    targetPlaneId: string
+  } | null>(null)
   const [newPlaneEditingId, setNewPlaneEditingId] = useState<string | null>(
     null,
   )
+
+  // Resolve a dragged collection element (by id) and the plane it lives on,
+  // then open the transfer dialog targeting `targetPlaneId`.
+  const openTransferForDrop = (
+    e: ReactDragEvent<HTMLElement>,
+    targetPlaneId: string,
+  ) => {
+    const raw =
+      e.dataTransfer.getData(COLLECTION_ELEMENT_DRAG_MIME) ||
+      e.dataTransfer.getData("text/plain")
+    if (!raw) return
+    let collectionId: string
+    try {
+      const parsed = JSON.parse(raw) as CollectionElementDragPayload
+      if (!parsed || typeof parsed.collectionId !== "string") return
+      collectionId = parsed.collectionId
+    } catch {
+      return
+    }
+    for (const p of planes) {
+      if (p.id === targetPlaneId) continue
+      const found = p.elements.find(
+        (el) => el.id === collectionId && el.type === "collection",
+      ) as CanvasCollectionElement | undefined
+      if (found) {
+        setTransferDialog({
+          element: found,
+          sourcePlaneId: p.id,
+          targetPlaneId,
+        })
+        return
+      }
+    }
+  }
 
   // Keep the user on a concrete plane; if the current plane disappears,
   // fall back to the first available plane.
@@ -5536,6 +5572,36 @@ export function OrganizationPage() {
                   value={p.id}
                   key={p.id}
                   data-plane-tab-id={p.id}
+                  onDragOver={(e: ReactDragEvent<HTMLButtonElement>) => {
+                    if (
+                      !e.dataTransfer.types.includes(
+                        COLLECTION_ELEMENT_DRAG_MIME,
+                      ) ||
+                      p.id === activePlaneId
+                    )
+                      return
+                    // Accept the collection-card drop and highlight this tab.
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = "move"
+                    if (hoveredPlaneTabId !== p.id) setHoveredPlaneTabId(p.id)
+                  }}
+                  onDragLeave={(e: ReactDragEvent<HTMLButtonElement>) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setHoveredPlaneTabId((cur) => (cur === p.id ? null : cur))
+                    }
+                  }}
+                  onDrop={(e: ReactDragEvent<HTMLButtonElement>) => {
+                    if (
+                      !e.dataTransfer.types.includes(
+                        COLLECTION_ELEMENT_DRAG_MIME,
+                      ) ||
+                      p.id === activePlaneId
+                    )
+                      return
+                    e.preventDefault()
+                    setHoveredPlaneTabId(null)
+                    openTransferForDrop(e, p.id)
+                  }}
                   style={
                     hoveredPlaneTabId === p.id
                       ? {
@@ -5604,6 +5670,102 @@ export function OrganizationPage() {
           ))}
         </Box>
       </Tabs>
+
+      {/* ── Transfer-to-plane dialog (drag a collection onto another tab) ── */}
+      <Modal
+        opened={!!transferDialog}
+        onClose={() => setTransferDialog(null)}
+        title="Transfer to Plane"
+        size="sm"
+        centered
+      >
+        {transferDialog &&
+          (() => {
+            const sourcePlane = planes.find(
+              (p) => p.id === transferDialog.sourcePlaneId,
+            )
+            const targetPlane = planes.find(
+              (p) => p.id === transferDialog.targetPlaneId,
+            )
+            const sourceSharedWith = sourcePlane?.sharedWith ?? []
+            const targetSharedWith = targetPlane?.sharedWith ?? []
+            const userLabel = (u: {
+              email: string
+              full_name: string | null
+            }) => u.full_name || u.email
+            return (
+              <Stack gap="md">
+                <Text size="sm">
+                  Move or copy{" "}
+                  <Text span fw={600}>
+                    "{transferDialog.element.name}"
+                  </Text>{" "}
+                  ({transferDialog.element.refs.length} item
+                  {transferDialog.element.refs.length !== 1 ? "s" : ""}) to{" "}
+                  <Text span fw={600}>
+                    "{targetPlane?.name ?? "Unknown"}"
+                  </Text>
+                  ?
+                </Text>
+                {targetSharedWith.length > 0 && (
+                  <Alert color="yellow" variant="light">
+                    <Text size="sm">
+                      Moving to a shared plane will grant access to:{" "}
+                      <strong>
+                        {targetSharedWith.map(userLabel).join(", ")}
+                      </strong>
+                    </Text>
+                  </Alert>
+                )}
+                {sourceSharedWith.length > 0 && (
+                  <Alert color="orange" variant="light">
+                    <Text size="sm">
+                      Moving away from a shared plane means:{" "}
+                      <strong>
+                        {sourceSharedWith.map(userLabel).join(", ")}
+                      </strong>{" "}
+                      will lose access to these items.
+                    </Text>
+                  </Alert>
+                )}
+                <Group justify="flex-end" gap="sm">
+                  <Button
+                    variant="default"
+                    onClick={() => setTransferDialog(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    leftSection={<IconCopy size={16} />}
+                    variant="light"
+                    onClick={() => {
+                      copyElementToPlane(
+                        transferDialog.element,
+                        transferDialog.targetPlaneId,
+                      )
+                      setTransferDialog(null)
+                    }}
+                  >
+                    Copy
+                  </Button>
+                  <Button
+                    leftSection={<IconArrowRight size={16} />}
+                    onClick={() => {
+                      moveElementToPlane(
+                        transferDialog.element,
+                        transferDialog.sourcePlaneId,
+                        transferDialog.targetPlaneId,
+                      )
+                      setTransferDialog(null)
+                    }}
+                  >
+                    Move
+                  </Button>
+                </Group>
+              </Stack>
+            )
+          })()}
+      </Modal>
     </Box>
   )
 }

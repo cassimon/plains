@@ -49,6 +49,8 @@ export function UploadFlowTargetPicker({
     updateLastSelected,
     planes,
     updateElement,
+    setActivePlaneId,
+    setActiveCollectionId,
   } = useAppContext()
   const navigate = useNavigate()
 
@@ -218,6 +220,13 @@ export function UploadFlowTargetPicker({
 
     setActiveEntity({ kind: "experiment", id: exp.id })
     updateLastSelected("experiment", exp.id)
+    // Follow the reference into the Experiments page from the General view (no
+    // plane/collection selected). A different active collection would filter the
+    // just-created experiment out of the left selection bar via `isEntityVisible`
+    // — General view guarantees it stays visible even though it's referenced by
+    // the flow's (possibly other) collection.
+    setActivePlaneId(null)
+    setActiveCollectionId(null)
     onNavigateAway?.()
     void navigate({ to: "/experiments" })
   }
