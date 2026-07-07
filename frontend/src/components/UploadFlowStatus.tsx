@@ -21,6 +21,7 @@ import {
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useRevealForFlow } from "@/lib/entityReveal"
 import {
   countDoneSteps,
   getUploadFlowSteps,
@@ -105,10 +106,9 @@ export function UploadFlowPanel({ onClose }: { onClose: () => void }) {
     setActiveEntity,
     updateLastSelected,
     setPendingCollectionLink,
-    setActivePlaneId,
-    setActiveCollectionId,
   } = useAppContext()
   const navigate = useNavigate()
+  const revealForFlow = useRevealForFlow()
 
   const steps = useMemo(() => {
     if (!uploadFlow) {
@@ -123,21 +123,15 @@ export function UploadFlowPanel({ onClose }: { onClose: () => void }) {
 
   const stepOrder: UploadFlowStep[] = ["process", "experiment", "upload"]
 
-  // Following any cross-collection reference out of the upload flow drops back to
-  // the General view (no plane, no collection selected). Otherwise the referenced
-  // experiment — which may belong to a different collection, or none — is filtered
-  // out of the left selection bar by `isEntityVisible`, and on the Results page it
-  // would even be auto-deselected. General view guarantees it stays visible.
-  const goToGeneralView = () => {
-    setActivePlaneId(null)
-    setActiveCollectionId(null)
-  }
-
   const handleGoToResults = () => {
     if (!uploadFlow.experimentId) {
       return
     }
-    goToGeneralView()
+    // Keep the experiment visible in the left selection bar without discarding the
+    // plane context: stay in its collection if we're already there, else drop to
+    // the plane's General view (never the cross-plane General view). See
+    // `computeRevealView` for why (isEntityVisible filtering / Results auto-deselect).
+    revealForFlow("experiment", uploadFlow.experimentId)
     setPendingCollectionLink({
       collectionId: "",
       planeId: "",

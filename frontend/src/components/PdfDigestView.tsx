@@ -32,6 +32,7 @@ import {
   IconTransferIn,
 } from "@tabler/icons-react"
 import { useMemo, useState } from "react"
+import { useRevealForFlow } from "@/lib/entityReveal"
 import {
   applyEditsToEntities,
   copyExperimentWithNewIds,
@@ -116,14 +117,28 @@ export function PdfDigestView() {
     setExperiments,
     setActiveEntity,
     updateLastSelected,
-    setActivePlaneId,
-    setActiveCollectionId,
   } = useAppContext()
+  const revealForFlow = useRevealForFlow()
 
-  const digests = uploadFlow?.pendingDigests ?? []
+  const allDigests = uploadFlow?.pendingDigests ?? []
   const [activeDocId, setActiveDocId] = useState<string | null>(null)
   // "overwrite" | "new" chosen in the differences prompt.
   const [resolution, setResolution] = useState<"overwrite" | "new">("overwrite")
+
+  // Rule 4: when a process is already selected in the flow, only offer the
+  // documents whose (own or derived-from) process matches that selection —
+  // mismatched experiments are ignored. Fall back to the full set when nothing
+  // matches, so the view is never left empty.
+  const selectedProcessId = uploadFlow?.processId ?? null
+  const digests = useMemo(() => {
+    if (!selectedProcessId) {
+      return allDigests
+    }
+    const matching = allDigests.filter(
+      (d) => d.result.original.process.id === selectedProcessId,
+    )
+    return matching.length > 0 ? matching : allDigests
+  }, [allDigests, selectedProcessId])
 
   const activeDoc: DigestDoc | undefined = useMemo(() => {
     if (digests.length === 0) {
@@ -158,24 +173,29 @@ export function PdfDigestView() {
 
   const hasDifferences = result.edits.length > 0 || result.errors.length > 0
 
-  // Following a reference out of the flow drops to General view so the selected
-  // entity is always visible in the left bar (same rule as the rest of the flow).
+  // Following a reference out of the flow keeps the selected entity visible in the
+  // left bar without discarding the plane context: stay in its collection when
+  // we're already there, else drop to the plane's General view (never the
+  // cross-plane General view). See `computeRevealView`.
   const selectForFlow = (processId: string, experimentId: string | null) => {
-    setActivePlaneId(null)
-    setActiveCollectionId(null)
-    updateUploadFlow({ processId, experimentId })
     if (experimentId) {
+      revealForFlow("experiment", experimentId)
+      updateUploadFlow({ processId, experimentId })
       setActiveEntity({ kind: "experiment", id: experimentId })
       updateLastSelected("experiment", experimentId)
     } else {
+      revealForFlow("process", processId)
+      updateUploadFlow({ processId, experimentId })
       setActiveEntity({ kind: "process", id: processId })
       updateLastSelected("process", processId)
     }
   }
 
   const removeActiveDoc = () => {
+    // Filter the FULL pending list (not the rule-4-filtered view) so docs hidden
+    // by the current-selection filter aren't silently dropped.
     updateUploadFlow({
-      pendingDigests: digests.filter((d) => d.id !== activeDoc.id),
+      pendingDigests: allDigests.filter((d) => d.id !== activeDoc.id),
     })
     setActiveDocId(null)
     setResolution("overwrite")

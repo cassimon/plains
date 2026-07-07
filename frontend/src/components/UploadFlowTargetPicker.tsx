@@ -11,6 +11,7 @@ import {
 import { IconFlask2, IconPlus, IconX } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
 import { useCallback, useMemo } from "react"
+import { homeCollectionForEntity } from "@/lib/entityReveal"
 import {
   buildSubstratesFromNames,
   getExperimentAllStepsDone,
@@ -49,6 +50,7 @@ export function UploadFlowTargetPicker({
     updateLastSelected,
     planes,
     updateElement,
+    activePlaneId,
     setActivePlaneId,
     setActiveCollectionId,
   } = useAppContext()
@@ -201,17 +203,24 @@ export function UploadFlowTargetPicker({
     updateUploadFlow({ experimentId: exp.id })
     autoCreateSubstratesFor(exp.id)
 
-    // Experiments created inside the drop/upload flow are always associated with
-    // the flow's collection. It stays hidden behind the pending marker until the
-    // flow completes, then surfaces as a normal experiment item.
-    if (uploadFlow.targetCollectionId && uploadFlow.targetPlaneId) {
-      const targetPlane = planes.find((p) => p.id === uploadFlow.targetPlaneId)
-      const collection = targetPlane?.elements.find(
-        (e) =>
-          e.id === uploadFlow.targetCollectionId && e.type === "collection",
+    // Rule 2: a new experiment joins the collection of its process. Prefer the
+    // collection that already holds the selected process; fall back to the flow's
+    // drop-target collection (where a process created earlier in this flow lives).
+    const home =
+      homeCollectionForEntity(planes, "process", processId) ??
+      (uploadFlow.targetCollectionId && uploadFlow.targetPlaneId
+        ? {
+            planeId: uploadFlow.targetPlaneId,
+            collectionId: uploadFlow.targetCollectionId,
+          }
+        : null)
+    if (home) {
+      const homePlane = planes.find((p) => p.id === home.planeId)
+      const collection = homePlane?.elements.find(
+        (e) => e.id === home.collectionId && e.type === "collection",
       ) as CanvasCollectionElement | undefined
       if (collection) {
-        updateElement(uploadFlow.targetPlaneId, {
+        updateElement(home.planeId, {
           ...collection,
           refs: [...collection.refs, { kind: "experiment", id: exp.id }],
         })
@@ -220,13 +229,16 @@ export function UploadFlowTargetPicker({
 
     setActiveEntity({ kind: "experiment", id: exp.id })
     updateLastSelected("experiment", exp.id)
-    // Follow the reference into the Experiments page from the General view (no
-    // plane/collection selected). A different active collection would filter the
-    // just-created experiment out of the left selection bar via `isEntityVisible`
-    // — General view guarantees it stays visible even though it's referenced by
-    // the flow's (possibly other) collection.
-    setActivePlaneId(null)
-    setActiveCollectionId(null)
+    // Stay in the collection the experiment was created in (rules 1 & 2). If it
+    // has no collection (orphan), fall back to the current plane's General view —
+    // NOT the cross-plane General view — so the plane context is preserved.
+    if (home) {
+      setActivePlaneId(home.planeId)
+      setActiveCollectionId(home.collectionId)
+    } else {
+      setActivePlaneId(activePlaneId)
+      setActiveCollectionId(null)
+    }
     onNavigateAway?.()
     void navigate({ to: "/experiments" })
   }

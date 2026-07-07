@@ -61,6 +61,7 @@ import {
 import { PlanesService } from "../client"
 import { UploadFlowPanel } from "../components/UploadFlowStatus"
 import useAuth from "../hooks/useAuth"
+import { filesFromDataTransfer } from "../lib/dropFiles"
 import { getUploadFlowSteps, isUploadFlowComplete } from "../lib/uploadFlow"
 import { useStartOrAddUpload } from "../lib/useStartOrAddUpload"
 import {
@@ -3854,10 +3855,9 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
   // Files dropped directly onto the canvas start (or are refused by) an upload
   // flow. Opens the Process → Experiment picker so the user maps the files.
   const handleFileDrop = (
-    fileList: FileList,
+    files: File[],
     dropCell: { col: number; row: number } | null,
   ) => {
-    const files = Array.from(fileList)
     if (files.length === 0) {
       return
     }
@@ -4472,7 +4472,12 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                     ),
                   }
                 }
-                handleFileDrop(e.dataTransfer.files, dropCell)
+                // Expand dropped folders into their measurement files (snapshot
+                // the entries synchronously — the DataTransfer is neutered after
+                // this handler returns).
+                void filesFromDataTransfer(e.dataTransfer).then((files) =>
+                  handleFileDrop(files, dropCell),
+                )
                 return
               }
 

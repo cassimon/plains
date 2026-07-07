@@ -37,6 +37,7 @@ import { useNavigate as useRouterNavigate } from "@tanstack/react-router"
 import * as React from "react"
 import { useCallback, useRef, useState } from "react"
 import { autoResolveCollection } from "@/lib/autoResolveCollection"
+import { filesFromDataTransfer } from "@/lib/dropFiles"
 import { exportExperimentSummaryAsPdf } from "@/lib/processExport"
 import {
   buildSubstratesFromNames,
@@ -1903,7 +1904,9 @@ function ExperimentUploadDropZone({
         }
         e.preventDefault()
         setDragOver(false)
-        onFiles(Array.from(e.dataTransfer.files))
+        // Expand dropped folders into their files (snapshot synchronously — the
+        // DataTransfer is neutered once this handler returns).
+        void filesFromDataTransfer(e.dataTransfer).then(onFiles)
       }}
       style={{
         border: `2px dashed ${borderColor}`,

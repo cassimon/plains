@@ -65,7 +65,22 @@ export function useStartOrAddUpload() {
       // returned handler synchronous (callers fire-and-forget) by running the
       // work in a detached task.
       void (async () => {
-        const { digests, others } = await detectDigestDocs(files)
+        const { digests, others, rejected } = await detectDigestDocs(files)
+
+        // Rule 4: a document whose experiment isn't derived from its own process
+        // is internally inconsistent — inform the user and ignore it.
+        if (rejected.length > 0) {
+          notifications.show({
+            title: `${rejected.length} document${
+              rejected.length === 1 ? "" : "s"
+            } ignored`,
+            message: rejected
+              .map((r) => `${r.fileName}: ${r.reason}`)
+              .join("; "),
+            color: "yellow",
+            autoClose: 8000,
+          })
+        }
 
         // ── An upload is already in progress ──────────────────────────────────
         if (uploadFlow) {

@@ -32,17 +32,29 @@ export function isPdfFile(file: File): boolean {
   return file.type === "application/pdf" || /\.pdf$/i.test(file.name)
 }
 
+/** A digestion candidate that had to be dropped, with a user-facing reason. */
+export type RejectedDoc = { fileName: string; reason: string }
+
 /**
  * Split dropped files into Plains process/experiment PDFs (parsed into
- * DigestDocs) and everything else. A PDF that isn't one of ours — or is
- * unreadable — simply lands in `others` and flows through to the upload as an
- * ordinary attachment, exactly as before.
+ * DigestDocs), everything else, and rejected docs. A PDF that isn't one of ours —
+ * or is unreadable — simply lands in `others` and flows through to the upload as
+ * an ordinary attachment, exactly as before.
+ *
+ * A well-formed export always carries an experiment together with the process it
+ * derives from, so an experiment PDF whose `experiment.processId` doesn't match
+ * its own process is internally inconsistent (hand-edited / corrupted). Such a doc
+ * is `rejected` (the caller informs the user and ignores it), never digested — a
+ * selected experiment must always derive from its selected process (rule 4).
  */
-export async function detectDigestDocs(
-  files: File[],
-): Promise<{ digests: DigestDoc[]; others: File[] }> {
+export async function detectDigestDocs(files: File[]): Promise<{
+  digests: DigestDoc[]
+  others: File[]
+  rejected: RejectedDoc[]
+}> {
   const digests: DigestDoc[] = []
   const others: File[] = []
+  const rejected: RejectedDoc[] = []
   for (const file of files) {
     if (!isPdfFile(file)) {
       others.push(file)
@@ -51,6 +63,17 @@ export async function detectDigestDocs(
     try {
       const bytes = await file.arrayBuffer()
       const result = await importPdf(bytes)
+      if (
+        result.kind === "experiment" &&
+        result.original.experiment &&
+        result.original.experiment.processId !== result.original.process.id
+      ) {
+        rejected.push({
+          fileName: file.name,
+          reason: "the experiment isn’t derived from its own process",
+        })
+        continue
+      }
       digests.push({ id: crypto.randomUUID(), fileName: file.name, result })
     } catch (err) {
       if (!(err instanceof NotAPlainsPdfError)) {
@@ -59,7 +82,7 @@ export async function detectDigestDocs(
       others.push(file)
     }
   }
-  return { digests, others }
+  return { digests, others, rejected }
 }
 
 /**
