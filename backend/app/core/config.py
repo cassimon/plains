@@ -102,6 +102,43 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
     USERS_OPEN_REGISTRATION: bool = True
+
+    # Access whitelist ─────────────────────────────────────────────────────────
+    # Comma-separated list of pre-authorised account emails (typically the NOMAD
+    # accounts allowed to use this deployment). When the list is empty the
+    # whitelist is disabled and any authenticated account is accepted (legacy
+    # behaviour). When non-empty, ONLY these emails may authenticate, sign up, or
+    # be provisioned — every other account is rejected with 403. Matching is
+    # case-insensitive. The configured FIRST_SUPERUSER is always implicitly
+    # allowed so an operator can never lock themselves out.
+    ALLOWED_EMAILS: Annotated[list[str] | str, BeforeValidator(parse_cors)] = []
+
+    @property
+    def email_whitelist_enabled(self) -> bool:
+        return bool(self.ALLOWED_EMAILS)
+
+    @property
+    def _allowed_emails_normalised(self) -> set[str]:
+        allowed = {
+            str(e).strip().lower() for e in self.ALLOWED_EMAILS if str(e).strip()
+        }
+        # The bootstrap superuser is always allowed so operators can't lock out.
+        allowed.add(str(self.FIRST_SUPERUSER).strip().lower())
+        return allowed
+
+    def is_email_allowed(self, email: str | None) -> bool:
+        """Return True if ``email`` may access the app.
+
+        Always True when the whitelist is disabled (empty ``ALLOWED_EMAILS``).
+        When enabled, only whitelisted emails (case-insensitive) are accepted;
+        a missing/empty email is always rejected.
+        """
+        if not self.email_whitelist_enabled:
+            return True
+        if not email:
+            return False
+        return email.strip().lower() in self._allowed_emails_normalised
+
     ROOT_PATH: str = ""  # e.g. "/plains" for path-prefix deployments
 
     # NOMAD Configuration

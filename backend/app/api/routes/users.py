@@ -57,6 +57,11 @@ def create_user(*, session: SessionDep, user_in: UserCreate) -> Any:
     """
     Create new user.
     """
+    if not settings.is_email_allowed(user_in.email):
+        raise HTTPException(
+            status_code=403,
+            detail="This email is not on the authorised access list",
+        )
     user = crud.get_user_by_email(session=session, email=user_in.email)
     if user:
         raise HTTPException(
@@ -156,6 +161,11 @@ def register_user(session: SessionDep, user_in: UserRegister) -> Any:
         raise HTTPException(
             status_code=403,
             detail="Open user registration is disabled",
+        )
+    if not settings.is_email_allowed(user_in.email):
+        raise HTTPException(
+            status_code=403,
+            detail="This email is not on the authorised access list",
         )
     user = crud.get_user_by_email(session=session, email=user_in.email)
     if user:

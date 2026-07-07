@@ -42,6 +42,22 @@ def _require_token(
 TokenDep = Annotated[str, Depends(_require_token)]
 
 
+def _enforce_email_whitelist(email: str | None) -> None:
+    """Reject accounts whose email is not on the access whitelist.
+
+    No-op when the whitelist is disabled (empty ALLOWED_EMAILS). This is the
+    single choke point that guarantees only pre-authorised NOMAD accounts can
+    obtain an authenticated session, regardless of which auth backend issued
+    the token.
+    """
+    if not settings.is_email_allowed(email):
+        logger.warning("[Auth] Rejected non-whitelisted account: %s", email)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is not authorised to access this application",
+        )
+
+
 def get_current_user(session: SessionDep, token: TokenDep) -> User:
     """Verify the Bearer token and return the matching user.
 
@@ -65,6 +81,7 @@ def get_current_user(session: SessionDep, token: TokenDep) -> User:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token: missing subject",
             )
+        _enforce_email_whitelist(email)
         user = session.exec(select(User).where(User.email == email)).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -82,9 +99,17 @@ def get_current_user(session: SessionDep, token: TokenDep) -> User:
             detail="Invalid token: missing subject claim",
         )
 
+    claim_email = claims.get("email")
     user = session.exec(select(User).where(User.nomad_sub == nomad_sub)).first()
+
+    # Enforce the whitelist before we trust the account — even for an
+    # already-provisioned user, so revoking access is as simple as removing the
+    # email from ALLOWED_EMAILS. Check the stored email for existing users and
+    # the NOMAD-asserted email when provisioning a new one.
+    _enforce_email_whitelist(user.email if user else claim_email)
+
     if not user:
-        email = claims.get("email")
+        email = claim_email
         name = claims.get("name")
         logger.info("[Auth] Auto-creating user from NOMAD token: %s", email)
         user = User(

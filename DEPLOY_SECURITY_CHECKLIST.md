@@ -8,6 +8,29 @@
 
 ## CRITICAL
 
+### C-0 — Restrict access to pre-authorised accounts (email whitelist)
+**Finding:** By default any account that can obtain a valid token (a local signup or
+any NOMAD OAuth login) could access the app. For a private lab deployment, access
+must be limited to a pre-authorised set of NOMAD accounts.
+
+**✅ Fixed (code):** Added an `ALLOWED_EMAILS` setting enforced at every
+authentication and user-provisioning choke point (`app/api/deps.py::get_current_user`
+for both the local-JWT and NOMAD-OAuth paths, plus `POST /users/signup`,
+`POST /users/`, and `POST /private/users/`). When `ALLOWED_EMAILS` is non-empty,
+only those emails (case-insensitive) may authenticate, sign up, or be
+auto-provisioned; everyone else gets HTTP 403. Empty ⇒ disabled (legacy behaviour).
+`FIRST_SUPERUSER` is always implicitly allowed.
+
+**Action required for deployment:**
+```bash
+# In your untracked .env / secrets store, list every authorised NOMAD account email:
+ALLOWED_EMAILS="alice@nomad.eu,bob@nomad.eu,admin@example.com"
+```
+Leaving `ALLOWED_EMAILS` empty on a public deployment means **anyone** with a NOMAD
+account can log in — set it. Covered by `tests/api/routes/test_email_whitelist.py`.
+
+---
+
 ### C-1 — `.env` was tracked by git; secrets committed in plain text
 **Finding:** The `.env` file was committed to the repository with placeholder secrets
 (`SECRET_KEY=changethis`, `POSTGRES_PASSWORD=changethis`, `FIRST_SUPERUSER_PASSWORD=changethis`).

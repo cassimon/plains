@@ -10,6 +10,7 @@ from app.models import (
     DeviceGroup,
     DeviceGroupCreate,
     DeviceGroupPublic,
+    Experiment,
     ExperimentResults,
     ExperimentResultsCreate,
     ExperimentResultsListPublic,
@@ -63,6 +64,13 @@ def create_result(
     results_in: ExperimentResultsCreate,
 ) -> Any:
     """Create new experiment results."""
+    # Prevent attaching results to another user's experiment (IDOR): the caller
+    # must own (or be a superuser over) the target experiment.
+    experiment = session.get(Experiment, experiment_id)
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if not current_user.is_superuser and experiment.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
     result = create_experiment_results(
         session=session,
         results_in=results_in,
