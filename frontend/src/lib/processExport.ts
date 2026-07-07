@@ -124,6 +124,7 @@ type StackLayer = {
   id: string
   name: string
   type: string
+  color: string
   thicknessNm: string
   bandgapEv: string
   perovskiteComposition: string
@@ -479,6 +480,7 @@ function buildProcessExportModel({
         id: l.id,
         name: l.name || "Layer",
         type: LAYER_TYPE_LABELS[l.layerType] || l.layerType || "-",
+        color: l.color || "#cccccc",
         thicknessNm: l.thicknessNm || "",
         bandgapEv: l.bandgapEv || "",
         perovskiteComposition:
@@ -780,20 +782,28 @@ class PdfLayout {
     }
   }
 
-  drawTable(headers: string[], rows: TableCell[][], colWidths: number[]) {
+  drawTable(
+    headers: string[],
+    rows: TableCell[][],
+    colWidths: number[],
+    size = 9,
+  ) {
     const cellPadH = 5
-    const cellPadV = 5
-    const size = 9
-    const lineH = 12
+    const cellPadV = 4
+    const lineH = size + 3
     const totalWidth = colWidths.reduce((s, w) => s + w, 0)
 
-    const rowHeight = (cells: TableCell[]) => {
+    // Measure with the font the cell will actually be drawn in — headers are
+    // bold (wider), so measuring them with the regular font under-counts lines
+    // and clips wrapped headers.
+    const rowHeight = (cells: TableCell[], bold: boolean) => {
+      const font = bold ? this.fontBold : this.font
       const maxLines = Math.max(
         1,
         ...cells.map((cell, i) => {
           if (isEditable(cell)) return 1
           const w = (colWidths[i] ?? 80) - cellPadH * 2
-          return this.wrap(cell, w, size, this.font).length
+          return this.wrap(cell, w, size, font).length
         }),
       )
       return maxLines * lineH + cellPadV * 2
@@ -804,7 +814,7 @@ class PdfLayout {
       bold: boolean,
       fill: ReturnType<typeof rgb>,
     ) => {
-      const h = rowHeight(cells)
+      const h = rowHeight(cells, bold)
       const top = this.y
       const bottom = top - h
       this.page.drawRectangle({
@@ -853,18 +863,74 @@ class PdfLayout {
     }
 
     // header (repeat when a page break splits the table)
-    this.ensureSpace(rowHeight(headers))
+    this.ensureSpace(rowHeight(headers, true))
     drawRow(headers, true, COLORS.headerFill)
 
     rows.forEach((row, idx) => {
-      const h = rowHeight(row)
+      const h = rowHeight(row, false)
       if (this.y - h < MARGIN) {
         this.newPage()
-        this.ensureSpace(rowHeight(headers))
+        this.ensureSpace(rowHeight(headers, true))
         drawRow(headers, true, COLORS.headerFill)
       }
       drawRow(row, false, idx % 2 === 0 ? c(255, 255, 255) : COLORS.altRowFill)
     })
+  }
+
+  /** Hex string (#rrggbb) → pdf-lib color, with a grey fallback. */
+  private hexColor(hex: string) {
+    const m = /^#?([0-9a-f]{6})$/i.exec((hex ?? "").trim())
+    if (!m) return c(204, 204, 204)
+    const n = parseInt(m[1], 16)
+    return c((n >> 16) & 255, (n >> 8) & 255, n & 255)
+  }
+
+  /**
+   * Draw a device stack as a real stack of colored layer bands (top layer first,
+   * substrate at the bottom), each labelled with name + type/thickness/bandgap.
+   */
+  drawStackDiagram(layers: StackLayer[]) {
+    const bandH = 26
+    const barW = 150
+    const totalH = layers.length * bandH
+    this.ensureSpace(totalH + 6)
+    const topY = this.y
+    layers.forEach((layer, i) => {
+      const bandTop = topY - i * bandH
+      this.page.drawRectangle({
+        x: MARGIN,
+        y: bandTop - bandH + 3,
+        width: barW,
+        height: bandH - 3,
+        color: this.hexColor(layer.color),
+        borderColor: c(120, 120, 120),
+        borderWidth: 0.5,
+      })
+      const labelX = MARGIN + barW + 12
+      this.page.drawText(sanitize(layer.name), {
+        x: labelX,
+        y: bandTop - 11,
+        size: 9,
+        font: this.fontBold,
+        color: COLORS.sub,
+      })
+      const detail = [
+        layer.type,
+        layer.thicknessNm ? `${layer.thicknessNm} nm` : "",
+        layer.bandgapEv ? `${layer.bandgapEv} eV` : "",
+        layer.perovskiteComposition !== "-" ? layer.perovskiteComposition : "",
+      ]
+        .filter(Boolean)
+        .join("   ·   ")
+      this.page.drawText(sanitize(detail), {
+        x: labelX,
+        y: bandTop - 21,
+        size: 8,
+        font: this.font,
+        color: COLORS.mini,
+      })
+    })
+    this.y = topY - totalH - 6
   }
 
   finalizeFooters(footerLeft: string) {
@@ -1099,6 +1165,7 @@ function renderProcessSections(L: PdfLayout, model: ProcessExportModel) {
         edit({ kind: "substrateRoughness", substrateId: s.id }, s.roughnessNm),
       ]),
       [cw * 0.24, cw * 0.13, cw * 0.16, cw * 0.16, cw * 0.15, cw * 0.16],
+      8, // compact small font
     )
     L.spacer(8)
   }
@@ -1125,8 +1192,14 @@ function renderProcessSections(L: PdfLayout, model: ProcessExportModel) {
         ],
         [cw * 0.5, cw * 0.5],
       )
+      L.spacer(8)
+
+      // Visual stack (top layer first, substrate at the bottom).
+      L.drawStackDiagram(stack.layers)
       L.spacer(4)
 
+      // Editable layer details (compact).
+      L.writeMiniHeading("Layer details (editable)")
       const headers = stack.hasPerovskite
         ? [
             "Layer",
@@ -1154,7 +1227,7 @@ function renderProcessSections(L: PdfLayout, model: ProcessExportModel) {
       const colW = stack.hasPerovskite
         ? [cw * 0.25, cw * 0.15, cw * 0.15, cw * 0.15, cw * 0.3]
         : [cw * 0.35, cw * 0.2, cw * 0.22, cw * 0.23]
-      L.drawTable(headers, rows, colW)
+      L.drawTable(headers, rows, colW, 8)
       L.spacer(8)
     }
   }

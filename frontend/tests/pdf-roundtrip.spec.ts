@@ -350,3 +350,154 @@ test("Process & Experiment survive a PDF export→import round-trip", async ({
     result.r3.expFieldNames.some((n) => n.includes(":solute:")),
   ).toBeTruthy()
 })
+
+test("a slightly altered PDF: several edits across the entity are detected & applied", async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await page.goto("/login", { waitUntil: "domcontentloaded" })
+
+  const ids = { RID, SID, STEP1, SUBID, LID }
+
+  const result = await page.evaluate(
+    async ({ processFixture, experimentFixture, ids }) => {
+      const expPath = "/src/lib/processExport.ts"
+      const impPath = "/src/lib/pdfImport.ts"
+      const schemaPath = "/src/lib/pdfSchema.ts"
+      const exp = (await import(
+        /* @vite-ignore */ expPath
+      )) as typeof import("@/lib/processExport")
+      const imp = (await import(
+        /* @vite-ignore */ impPath
+      )) as typeof import("@/lib/pdfImport")
+      const schema = (await import(
+        /* @vite-ignore */ schemaPath
+      )) as typeof import("@/lib/pdfSchema")
+
+      // Export an experiment PDF that embeds the full process (so a viewer could
+      // edit both process- and experiment-level quantities).
+      const bytes = await exp.buildExperimentPdf({
+        experiment: experimentFixture,
+        process: processFixture,
+        materials: [],
+        solutions: [],
+        chemicals: [],
+        solutionRows: [],
+        includeFullProcess: true,
+      })
+
+      // Field names of the quantities a user "edits" in a PDF viewer.
+      const f = {
+        annealingTemp: schema.encodeFieldName({
+          kind: "stepParam",
+          stepId: ids.STEP1,
+          paramKey: "annealingTemp",
+        }),
+        soluteAmount: schema.encodeFieldName({
+          kind: "soluteAmount",
+          recipeId: ids.RID,
+          soluteId: ids.SID,
+        }),
+        soluteUnit: schema.encodeFieldName({
+          kind: "soluteUnit",
+          recipeId: ids.RID,
+          soluteId: ids.SID,
+        }),
+        substrateHeight: schema.encodeFieldName({
+          kind: "substrateHeight",
+          substrateId: ids.SUBID,
+        }),
+        layerThickness: schema.encodeFieldName({
+          kind: "stackLayerThickness",
+          stackIdx: 0,
+          layerId: ids.LID,
+        }),
+        endDate: schema.encodeFieldName({ kind: "experimentEndDate" }),
+      }
+
+      const altered = await imp.writeFieldValues(bytes, {
+        [f.annealingTemp]: "120", // 100 → 120
+        [f.soluteAmount]: "12.5", // 10 → 12.5
+        [f.soluteUnit]: "mol", // mg → mol (dropdown)
+        [f.substrateHeight]: "1.2", // 1.1 → 1.2
+        [f.layerThickness]: "45", // 30 → 45
+        [f.endDate]: "2026-07-15", // 2026-07-10 → 2026-07-15
+      })
+
+      const r = await imp.importPdf(altered)
+
+      const rec = r.edited.process.solutionRecipes?.find(
+        (x) => x.id === ids.RID,
+      )
+      const sol = rec?.solutes.find((x) => x.id === ids.SID)
+      const step = r.edited.process.stages
+        .flatMap((s) => s.alternatives)
+        .find((a) => a.id === ids.STEP1)
+      const sub = r.edited.process.inlineSubstrates?.find(
+        (x) => x.id === ids.SUBID,
+      )
+      const layer = r.edited.process.generatedStacks?.[0]?.layers.find(
+        (l) => l.id === ids.LID,
+      )
+
+      const origSol = r.original.process.solutionRecipes
+        ?.find((x) => x.id === ids.RID)
+        ?.solutes.find((x) => x.id === ids.SID)
+
+      return {
+        editsLen: r.edits.length,
+        errorsLen: r.errors.length,
+        editsByName: Object.fromEntries(
+          r.edits.map((e) => [e.name, { old: e.oldValue, new: e.newValue }]),
+        ),
+        fieldNames: f,
+        applied: {
+          annealingTemp: step?.annealingTemp?.value,
+          soluteAmount: sol?.amount,
+          soluteUnit: sol?.unit,
+          substrateHeight: sub?.heightMm,
+          layerThickness: layer?.thicknessNm,
+          endDate: r.edited.experiment?.endDate,
+        },
+        original: {
+          soluteAmount: origSol?.amount,
+          soluteUnit: origSol?.unit,
+          endDate: r.original.experiment?.endDate,
+        },
+      }
+    },
+    { processFixture, experimentFixture, ids },
+  )
+
+  // exactly the six edits we made, no validation errors
+  expect(result.errorsLen).toBe(0)
+  expect(result.editsLen).toBe(6)
+
+  // each edit detected with the right old→new transition
+  const e = result.editsByName
+  expect(e[result.fieldNames.annealingTemp]).toEqual({ old: "100", new: "120" })
+  expect(e[result.fieldNames.soluteAmount]).toEqual({ old: "10", new: "12.5" })
+  expect(e[result.fieldNames.soluteUnit]).toEqual({ old: "mg", new: "mol" })
+  expect(e[result.fieldNames.substrateHeight]).toEqual({
+    old: "1.1",
+    new: "1.2",
+  })
+  expect(e[result.fieldNames.layerThickness]).toEqual({ old: "30", new: "45" })
+  expect(e[result.fieldNames.endDate]).toEqual({
+    old: "2026-07-10",
+    new: "2026-07-15",
+  })
+
+  // edits applied to the returned entity
+  expect(result.applied.annealingTemp).toBe("120")
+  expect(result.applied.soluteAmount).toBe("12.5")
+  expect(result.applied.soluteUnit).toBe("mol")
+  expect(result.applied.substrateHeight).toBe("1.2")
+  expect(result.applied.layerThickness).toBe("45")
+  expect(result.applied.endDate).toBe("2026-07-15")
+
+  // the canonical original is left untouched
+  expect(result.original.soluteAmount).toBe("10")
+  expect(result.original.soluteUnit).toBe("mg")
+  expect(result.original.endDate).toBe("2026-07-10")
+})
