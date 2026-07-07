@@ -27,7 +27,6 @@ services:
       args:
         # Empty VITE_API_URL → OpenAPI.BASE="" → relative URLs → nginx proxy below
         - VITE_API_URL=
-        - VITE_RASA_SERVER_URL=
         - VITE_BASE_PATH=/
         # Enable the JWT test-auth bypass so Playwright can authenticate without
         # a live Keycloak server (this image is only used for integration tests).

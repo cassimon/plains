@@ -133,46 +133,17 @@ services:
       - traefik.http.routers.${STACK_NAME?Variable not set}-backend.entrypoints=http
       - traefik.http.routers.${STACK_NAME?Variable not set}-backend.middlewares=${STACK_NAME?Variable not set}-plains-strip
 
-  # chatbot: (disabled — re-enable by uncommenting this block and the depends_on in frontend)
-  #   image: '${DOCKER_IMAGE_CHATBOT:-plains-chatbot}:${TAG-latest}'
-  #   restart: always
-  #   networks:
-  #     - traefik-public
-  #     - default
-  #   build:
-  #     context: .
-  #     dockerfile: frontend/Dockerfile.chatbot
-  #   environment:
-  #     - PORT=5005
-  #   healthcheck:
-  #     test: ["CMD", "wget", "-qO-", "http://localhost:5005/health"]
-  #     interval: 15s
-  #     timeout: 5s
-  #     retries: 3
-  #   labels:
-  #     - traefik.enable=true
-  #     - traefik.docker.network=traefik-public
-  #     - traefik.constraint-label=traefik-public
-  #     - traefik.http.services.${STACK_NAME?Variable not set}-chatbot.loadbalancer.server.port=5005
-  #     - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot.rule=Host(`${DOMAIN?Variable not set}`) && PathPrefix(`/plains/chatbot`)
-  #     - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot.entrypoints=http
-  #     - traefik.http.middlewares.${STACK_NAME?Variable not set}-chatbot-strip.stripprefix.prefixes=/plains/chatbot
-  #     - traefik.http.routers.${STACK_NAME?Variable not set}-chatbot.middlewares=${STACK_NAME?Variable not set}-chatbot-strip
-
   frontend:
     image: '${DOCKER_IMAGE_FRONTEND?Variable not set}:${TAG-latest}'
     restart: always
     networks:
       - traefik-public
       - default
-    # depends_on:  # uncomment when chatbot is re-enabled
-    #   - chatbot
     build:
       context: .
       dockerfile: frontend/Dockerfile
       args:
         - VITE_API_URL=https://${DOMAIN?Variable not set}/plains
-        - VITE_RASA_SERVER_URL=https://${DOMAIN?Variable not set}/plains/chatbot
         - VITE_BASE_PATH=/plains/
         - NODE_ENV=production
     labels:

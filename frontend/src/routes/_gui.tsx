@@ -2,7 +2,6 @@ import { MantineProvider } from "@mantine/core"
 import { ModalsProvider } from "@mantine/modals"
 import { createFileRoute } from "@tanstack/react-router"
 import { AppLayout } from "@/components/AppLayout"
-import { ChatWidgetComponent } from "@/components/ChatWidget"
 import { theme } from "@/gui/theme"
 import { ensureAuthenticated } from "@/lib/auth"
 import { AppProvider } from "@/store/AppContext"
@@ -18,7 +17,6 @@ function GuiLayout() {
       <AppProvider>
         <ModalsProvider>
           <AppLayout />
-          <ChatWidgetComponent />
         </ModalsProvider>
       </AppProvider>
     </MantineProvider>

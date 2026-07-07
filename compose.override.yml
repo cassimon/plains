@@ -110,28 +110,15 @@ services:
       - "1080:1080"
       - "1025:1025"
 
-  # chatbot: (disabled — re-enable by uncommenting this block and the depends_on in frontend)
-  #   restart: "no"
-  #   build:
-  #     context: .
-  #     dockerfile: frontend/Dockerfile.chatbot
-  #   ports:
-  #     - "5005:5005"
-  #   environment:
-  #     - PORT=5005
-
   frontend:
     restart: "no"
     ports:
       - "5173:80"
-    # depends_on:  # uncomment when chatbot is re-enabled
-    #   - chatbot
     build:
       context: .
       dockerfile: frontend/Dockerfile
       args:
         - VITE_API_URL=http://localhost:81/plains
-        - VITE_RASA_SERVER_URL=http://localhost:81/plains/chatbot
         - VITE_BASE_PATH=/plains/
         - NODE_ENV=development
 
