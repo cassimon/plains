@@ -74,6 +74,8 @@ import {
   type Experiment,
   type ExperimentResults,
   getDependentLocations,
+  getExperimentStatus,
+  getProcessStatus,
   type Plane,
   type Process,
   type TextFormatting,
@@ -1197,9 +1199,7 @@ function EmptyCellEl({
   } = useAppContext()
   const navigate = useNavigate()
   const [isHovered, setIsHovered] = useState(false)
-  const rawObLevel = useOnboardingLevel()
-  const obLevel: OnboardingLevel = isFirstPlane ? rawObLevel : 4
-  const obNextKind = ONBOARDING_NEXT_KIND[obLevel]
+  const { unlocked, nextKind } = useCollectionOnboarding(NO_REFS, isFirstPlane)
 
   const createAndLink = (kind: CollectionRef["kind"]) => {
     const color = nextCollectionColor()
@@ -1253,17 +1253,16 @@ function EmptyCellEl({
             justifyContent: "center",
           }}
         >
-          {SIX_KINDS.filter(({ kind }) =>
-            ONBOARDING_UNLOCK[obLevel].includes(kind),
-          ).map(({ kind, label: kindLabel, Icon, color, manColor }) => {
-            const isNext = kind === obNextKind
-            return (
-              <Tooltip
-                key={kind}
-                label={
-                  isNext && obLevel > 0
-                    ? `${kindLabel} — next step!`
-                    : `Add ${kindLabel}`
+          {SIX_KINDS.filter(({ kind }) => unlocked.has(kind)).map(
+            ({ kind, label: kindLabel, Icon, color, manColor }) => {
+              const isNext = kind === nextKind
+              return (
+                <Tooltip
+                  key={kind}
+                  label={
+                    isNext
+                      ? `${kindLabel} — next step!`
+                      : `Add ${kindLabel}`
                 }
                 withArrow
                 position="bottom"
@@ -1414,179 +1413,77 @@ const SIX_KINDS: {
 // Onboarding
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Onboarding is computed per-collection (not globally): each collection walks
+// the Process → Experiment → Result → Analysis ladder on its own. The next
+// step is only suggested once the *previous* step's entity is actually
+// complete, so an incomplete Process never pushes the user toward Experiments.
+
+type StepKind = CollectionRef["kind"]
+const STEP_ORDER: StepKind[] = ["process", "experiment", "result", "analysis"]
+
+// Stable empty-refs reference so useCollectionOnboarding memoization on an
+// empty cell doesn't recompute every render.
+const NO_REFS: CollectionRef[] = []
+
+type CollectionOnboarding = {
+  /** Kinds whose "+" add button should be offered for this collection. */
+  unlocked: Set<StepKind>
+  /** The single next sensible step to highlight, or null when none applies. */
+  nextKind: StepKind | null
+}
+
 /**
- * 0 = no processes yet   → only "process" + note + text unlocked
- * 1 = has process(es)    → + "experiment" unlocked (highlighted)
- * 2 = has experiment(s)  → + "result" unlocked (highlighted)
- * 3 = has result(s)      → + "analysis" unlocked (highlighted)
- * 4 = complete           → all kinds unlocked, no guidance shown
+ * Compute the onboarding state for a single collection from its own refs.
+ * A step becomes available once the previous step's entity is complete; the
+ * highlighted "next" step is the first not-yet-present kind that is available.
  */
-type OnboardingLevel = 0 | 1 | 2 | 3 | 4
-
-const ONBOARDING_UNLOCK: Record<OnboardingLevel, CollectionRef["kind"][]> = {
-  0: ["process"],
-  1: ["process", "experiment"],
-  2: ["process", "experiment", "result"],
-  3: ["process", "experiment", "result", "analysis"],
-  4: ["process", "experiment", "result", "analysis"],
-}
-
-const ONBOARDING_NEXT_KIND: Record<
-  OnboardingLevel,
-  CollectionRef["kind"] | null
-> = {
-  0: "process",
-  1: "experiment",
-  2: "result",
-  3: "analysis",
-  4: null,
-}
-
-const ONBOARDING_STEPS: Record<
-  0 | 1 | 2 | 3,
-  { step: number; title: string; body: string }
-> = {
-  0: {
-    step: 1,
-    title: "Create your first Process",
-    body: "A Process is the recipe for your device — it defines fabrication steps and chemistry. Hover any empty cell and click the Process icon to begin.",
-  },
-  1: {
-    step: 2,
-    title: "Create an Experiment",
-    body: "Process defined! An Experiment is a concrete run of your process — it records dates, substrates, and the actual materials used.",
-  },
-  2: {
-    step: 3,
-    title: "Upload Results",
-    body: "Experiment logged! Add measurement files to capture device performance data for this run.",
-  },
-  3: {
-    step: 4,
-    title: "Run an Analysis",
-    body: "Data uploaded! Create an Analysis to visualise and compare results across experiments.",
-  },
-}
-
-const ONBOARDING_COLORS: Record<0 | 1 | 2 | 3, string> = {
-  0: "gray",
-  1: "grape",
-  2: "orange",
-  3: "red",
-}
-
-function useOnboardingLevel(): OnboardingLevel {
-  const { processes, experiments, results, planes } = useAppContext()
-  return useMemo((): OnboardingLevel => {
-    if (processes.length === 0) return 0
-    if (experiments.length === 0) return 1
-    if (results.length === 0) return 2
-    const analysisCount = planes.reduce((total, p) => {
-      return (
-        total +
-        p.elements
-          .filter((e) => e.type === "collection")
-          .flatMap((e) => (e as CanvasCollectionElement).refs)
-          .filter((r) => r.kind === "analysis").length
-      )
-    }, 0)
-    if (analysisCount === 0) return 3
-    return 4
-  }, [processes.length, experiments.length, results.length, planes])
-}
-
-const ONBOARDING_AUTO_DISMISS_MS = 9000
-
-function OnboardingBanner({ level }: { level: OnboardingLevel }) {
-  const [dismissedLevel, setDismissedLevel] = useState<OnboardingLevel | null>(
-    null,
-  )
-  const [visible, setVisible] = useState(false)
-
-  // Slide in from below after a short delay; auto-dismiss after a while; reset when level advances
-  useEffect(() => {
-    if (level === 4 || level === dismissedLevel) return
-    setVisible(false)
-    const slideIn = setTimeout(() => setVisible(true), 600)
-    const autoDismiss = setTimeout(
-      () => setDismissedLevel(level),
-      600 + ONBOARDING_AUTO_DISMISS_MS,
-    )
-    return () => {
-      clearTimeout(slideIn)
-      clearTimeout(autoDismiss)
+function useCollectionOnboarding(
+  refs: CollectionRef[],
+  active: boolean,
+): CollectionOnboarding {
+  const { processes, experiments, results } = useAppContext()
+  return useMemo((): CollectionOnboarding => {
+    // Outside the guided context (e.g. secondary planes) everything is
+    // available and nothing is highlighted.
+    if (!active) {
+      return { unlocked: new Set<StepKind>(STEP_ORDER), nextKind: null }
     }
-  }, [level, dismissedLevel])
-
-  if (level === 4 || level === dismissedLevel) return null
-
-  const info = ONBOARDING_STEPS[level]
-  const color = ONBOARDING_COLORS[level]
-  const nextMeta = SIX_KINDS.find((k) => k.kind === ONBOARDING_NEXT_KIND[level])
-
-  return (
-    <Box
-      style={{
-        position: "absolute",
-        bottom: 20,
-        left: "50%",
-        transform: `translateX(-50%) translateY(${visible ? "0" : "24px"})`,
-        opacity: visible ? 1 : 0,
-        transition:
-          "transform 0.4s cubic-bezier(0.34, 1.4, 0.64, 1), opacity 0.35s ease",
-        zIndex: 200,
-        maxWidth: 480,
-        width: "calc(100% - 48px)",
-        pointerEvents: "none",
-      }}
-    >
-      <Paper
-        shadow="md"
-        px="md"
-        py="sm"
-        radius="md"
-        style={{
-          border: `2px solid var(--mantine-color-${color}-4)`,
-          background: `var(--mantine-color-${color}-0)`,
-          pointerEvents: "auto",
-        }}
-      >
-        <Group gap="sm" wrap="nowrap" align="flex-start">
-          {nextMeta && (
-            <nextMeta.Icon
-              size={22}
-              color={nextMeta.color}
-              style={{ flexShrink: 0, marginTop: 1 }}
-            />
-          )}
-          <Box style={{ flex: 1, minWidth: 0 }}>
-            <Group gap="xs" mb={3} align="center">
-              <Badge size="xs" color={color} variant="filled">
-                Step {info.step} / 4
-              </Badge>
-              <Text size="sm" fw={700}>
-                {info.title}
-              </Text>
-            </Group>
-            <Text size="xs" c="dimmed">
-              {info.body}
-            </Text>
-          </Box>
-          <ActionIcon
-            size="xs"
-            variant="subtle"
-            color="gray"
-            style={{ flexShrink: 0, marginTop: 1 }}
-            onClick={() => setDismissedLevel(level)}
-            aria-label="Dismiss"
-          >
-            <IconX size={12} />
-          </ActionIcon>
-        </Group>
-      </Paper>
-    </Box>
-  )
+    const stepComplete = (kind: StepKind): boolean => {
+      const kindRefs = refs.filter((r) => r.kind === kind)
+      if (kindRefs.length === 0) return false
+      return kindRefs.some((r) => {
+        if (kind === "process") {
+          const p = processes.find((x) => x.id === r.id)
+          return p ? getProcessStatus(p) === "complete" : false
+        }
+        if (kind === "experiment") {
+          const e = experiments.find((x) => x.id === r.id)
+          return e ? getExperimentStatus(e) === "complete" : false
+        }
+        if (kind === "result") {
+          const res = results.find((x) => x.id === r.id)
+          return res ? res.files.length > 0 : false
+        }
+        return true // analysis: presence alone counts as complete
+      })
+    }
+    const unlocked = new Set<StepKind>()
+    let nextKind: StepKind | null = null
+    let prevComplete = true
+    for (const kind of STEP_ORDER) {
+      const has = refs.some((r) => r.kind === kind)
+      // A step is offered once the previous step is complete; a kind already
+      // present stays offered so a second item can be added.
+      if (prevComplete || has) unlocked.add(kind)
+      // The highlighted next step is the first not-yet-present kind whose
+      // predecessor is already complete.
+      if (nextKind === null && prevComplete && !has) nextKind = kind
+      prevComplete = prevComplete && stepComplete(kind)
+    }
+    return { unlocked, nextKind }
+  }, [refs, processes, experiments, results, active])
 }
+
 
 function CollectionEl({
   el,
@@ -1644,9 +1541,10 @@ function CollectionEl({
   // Only a brand-new (empty) collection collapses to just the marker. A
   // populated collection keeps all its items visible/accessible alongside it.
   const markerOnly = uploadPending && el.refs.length === 0
-  const rawObLevel = useOnboardingLevel()
-  const obLevel: OnboardingLevel = isFirstPlane ? rawObLevel : 4
-  const obNextKind = ONBOARDING_NEXT_KIND[obLevel]
+  const { unlocked, nextKind } = useCollectionOnboarding(
+    el.refs,
+    isFirstPlane,
+  )
   const isActive = activeCollectionId === el.id
   const navigate = useNavigate()
   const [isExpanded, setIsExpanded] = useState(false)
@@ -2370,15 +2268,14 @@ function CollectionEl({
               (isCardHovered || el.refs.length === 0) &&
               SIX_KINDS.filter(
                 ({ kind }) =>
-                  !el.refs.some((r) => r.kind === kind) &&
-                  ONBOARDING_UNLOCK[obLevel].includes(kind),
+                  !el.refs.some((r) => r.kind === kind) && unlocked.has(kind),
               ).map(({ kind, label: kindLabel, Icon, color, manColor }) => {
-                const isNext = kind === obNextKind
+                const isNext = kind === nextKind
                 return (
                   <Tooltip
                     key={kind}
                     label={
-                      isNext && obLevel > 0
+                      isNext
                         ? `${kindLabel} — next step!`
                         : `Add ${kindLabel}`
                     }
@@ -2755,13 +2652,13 @@ function CollectionEl({
                       </Box>
 
                       {/* Col 3: add button — only shown when kind is unlocked and row is hovered/active */}
-                      {ONBOARDING_UNLOCK[obLevel].includes(kind) &&
+                      {unlocked.has(kind) &&
                         (hoveredRowKind === kind ||
                           addPopoverKind === kind ||
                           hoveredRefKind === kind) && (
                           <Tooltip
                             label={
-                              kind === obNextKind && obLevel > 0
+                              kind === nextKind
                                 ? `${kindLabel} — next step!`
                                 : `Add ${kindLabel}`
                             }
@@ -2771,7 +2668,7 @@ function CollectionEl({
                           >
                             <Box
                               className={
-                                kind === obNextKind ? "ob-pulse" : undefined
+                                kind === nextKind ? "ob-pulse" : undefined
                               }
                               style={{
                                 width: 30,
@@ -2784,11 +2681,11 @@ function CollectionEl({
                                 background:
                                   addPopoverKind === kind
                                     ? `var(--mantine-color-${manColor}-2)`
-                                    : kind === obNextKind
+                                    : kind === nextKind
                                       ? `var(--mantine-color-${manColor}-2)`
                                       : `var(--mantine-color-${manColor}-1)`,
                                 outline:
-                                  kind === obNextKind
+                                  kind === nextKind
                                     ? `2px solid var(--mantine-color-${manColor}-4)`
                                     : undefined,
                                 outlineOffset: 1,
@@ -3524,7 +3421,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
   } = useAppContext()
   const startOrAddUpload = useStartOrAddUpload()
 
-  const obLevel = useOnboardingLevel()
   const isFirstPlane = planes[0]?.id === plane.id
   const colorScheme = useComputedColorScheme("light")
   const isDark = colorScheme === "dark"
@@ -4690,9 +4586,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               onUpdate={(el) => updateElement(plane.id, el)}
               onDelete={(id) => deleteElement(plane.id, id)}
             />
-
-            {/* Onboarding guidance banner — only on the first plane */}
-            {isFirstPlane && <OnboardingBanner level={obLevel} />}
           </Box>
 
           {/* Horizontal scrollbar — only shown when elements overflow to the right */}

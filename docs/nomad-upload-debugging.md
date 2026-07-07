@@ -1,4 +1,4 @@
-# Debugging NOMAD Uploads
+1# Debugging NOMAD Uploads
 
 Every NOMAD upload is logged, and any upload that doesn't succeed keeps its file
 archive for **one week** so it can be re-examined. Admins get a central log;
