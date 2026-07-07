@@ -1296,6 +1296,7 @@ export function AppProvider({
           files: init.files ?? [],
           autoCreateSubstrates: init.autoCreateSubstrates ?? false,
           autoCreatedSubstrateIds: [],
+          pendingDigests: init.pendingDigests,
           createdAt: new Date(now).toISOString(),
           lastActivityAt: now,
         }

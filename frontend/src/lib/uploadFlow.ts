@@ -23,6 +23,7 @@ import {
   type Process,
   type Substrate,
 } from "@/store/AppContext"
+import type { DigestDoc } from "./pdfDigest"
 
 /** The three ordered steps of an upload flow. */
 export type UploadFlowStep = "process" | "experiment" | "upload"
@@ -70,6 +71,14 @@ export type UploadFlow = {
   /** Substrate ids auto-created from recognized groups, so misrecognized
    *  names can be listed and deleted from the picker. */
   autoCreatedSubstrateIds?: string[]
+  /**
+   * Exported Process/Experiment PDFs pulled out of a drop, awaiting digestion.
+   * While non-empty the flow's target picker is BLOCKED and the digest view is
+   * shown instead (see UploadFlowPanel): each doc is resolved into a selected or
+   * newly-created process/experiment, then removed. Transient — never persisted
+   * (the whole flow is ephemeral and dropped on logout / inactivity).
+   */
+  pendingDigests?: DigestDoc[]
   createdAt: string
   /** Epoch ms of the last user interaction — drives the inactivity drop. */
   lastActivityAt: number
@@ -241,33 +250,52 @@ export function isUploadFlowComplete(steps: UploadFlowStepStates): boolean {
 export const UPLOAD_FLOW_INACTIVITY_MS = 30 * 60 * 1000
 
 /**
- * Recognize substrate/device group names in staged file names, using the
- * same conservative conventions as the Results page grouping:
- *  1. two uppercase letters followed by 2–3 digits anywhere ("AB41"),
- *  2. a letters-then-digits word at the start of the basename ("Device01").
- * Names are deduplicated and returned in first-seen order.
+ * Best-effort device/substrate group name for a single file. Mirrors the Results
+ * page's `extractDeviceFromFilename` so substrates created from an upload line up
+ * with the groups the review step later matches against — but returns null (not a
+ * date/basename fallback) when nothing device-like is present, so pure numeric or
+ * date-prefixed names don't seed bogus substrates.
+ *
+ *  1. 2–4 letters + 2–3 digits as a whole separator-delimited token, ANYWHERE and
+ *     case-insensitively ("AI44" inside "2025-11-19_AI44-1C", "ab41") — the primary
+ *     lab substrate-ID convention. This is the key fix: it now survives a leading
+ *     date, which the old "must be at the start / must be uppercase" rule dropped.
+ *  2. a letters-then-digits word at the very start ("Device01").
+ *  3. the first separator-delimited token, but only when it carries a letter and
+ *     isn't purely numeric (so a leading "2025"/"01" is skipped).
+ */
+export function recognizeGroupName(fileName: string): string | null {
+  const base = fileName.replace(/\.[^/.]+$/, "")
+  const idMatch = base.match(/(?:^|[_\-\s])([A-Za-z]{2,4}\d{2,3})(?=$|[_\-\s])/)
+  if (idMatch) {
+    return idMatch[1].toUpperCase()
+  }
+  const wordMatch = base.match(/^([A-Za-z]+\d+)/)
+  if (wordMatch) {
+    return wordMatch[1].toUpperCase()
+  }
+  const first = base.split(/[_\-\s]+/).filter(Boolean)[0]
+  if (first && /[A-Za-z]/.test(first) && !/^\d+$/.test(first)) {
+    return first.toUpperCase()
+  }
+  return null
+}
+
+/**
+ * Recognize substrate/device group names across staged file names, deduplicated
+ * (case-insensitively) in first-seen order. See {@link recognizeGroupName}.
  */
 export function recognizeGroupNames(fileNames: string[]): string[] {
   const names: string[] = []
   const seen = new Set<string>()
   for (const fileName of fileNames) {
-    const base = fileName.replace(/\.[^/.]+$/, "")
-    // File names use underscores/dashes as separators ("2025_AB41_JV"), which
-    // count as word characters — tokenize instead of relying on \b.
-    const tokens = base.split(/[_\-\s]+/).filter(Boolean)
-    let name: string | null = null
-    const idToken = tokens.find((t) => /^[A-Z]{2}\d{2,3}$/.test(t))
-    if (idToken) {
-      name = idToken
-    } else {
-      const wordMatch = base.match(/^([A-Za-z]+\d+)/)
-      if (wordMatch) {
-        name = wordMatch[1].toUpperCase()
+    const name = recognizeGroupName(fileName)
+    if (name) {
+      const key = name.toLowerCase()
+      if (!seen.has(key)) {
+        seen.add(key)
+        names.push(name)
       }
-    }
-    if (name && !seen.has(name)) {
-      seen.add(name)
-      names.push(name)
     }
   }
   return names

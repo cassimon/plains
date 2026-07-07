@@ -1840,9 +1840,14 @@ function ResultsDetail({
       !!flow &&
       flow.experimentId === experiment.id &&
       (flow.files?.length ?? 0) > 0
-    if (!willIngest) {
-      setWorkflowStep(results.files.length > 0 ? 2 : 1)
-    }
+    // Pick the initial step from state deterministically. Previously we skipped
+    // setting the step when files would ingest and relied on `handleDrop` to
+    // advance to Step 2 — but `handleDrop` returns early when a drop yields no
+    // categorized files (e.g. a stray PDF, or files already present), leaving the
+    // card on Step 1. With prior files that step renders green (done) yet active,
+    // which is the reported inconsistency. Land on Step 2 whenever files exist or
+    // are about to ingest; `handleDrop` still (harmlessly) sets Step 2 on success.
+    setWorkflowStep(results.files.length > 0 || willIngest ? 2 : 1)
     onAutoOpenHandled?.()
   }, [
     autoOpenAddResults,

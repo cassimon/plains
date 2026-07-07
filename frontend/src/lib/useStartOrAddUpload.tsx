@@ -11,12 +11,18 @@
 //     target                the zip");
 //   • active flow, other   → refuse, telling the user to finish/cancel first.
 //     target
+//
+// Exported Process/Experiment PDFs are NOT upload attachments: they are split out
+// of the drop and registered as pending digestions on the flow (which blocks the
+// target picker and shows the digest view instead — see PdfDigestView). Only the
+// remaining files count toward the upload.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { modals } from "@mantine/modals"
 import { notifications } from "@mantine/notifications"
 import { useCallback } from "react"
 import { UploadFlowPanel } from "../components/UploadFlowStatus"
+import { detectDigestDocs } from "../lib/pdfDigest"
 import { useAppContext } from "../store/AppContext"
 import type { StagedFile } from "./uploadFlow"
 
@@ -31,10 +37,19 @@ export type UploadTarget = {
   experimentId?: string | null
 }
 
+/** Open the canonical flow window (identical to the top-bar badge's popover). */
+function openFlowPanel() {
+  modals.open({
+    withCloseButton: false,
+    children: <UploadFlowPanel onClose={() => modals.closeAll()} />,
+  })
+}
+
 export function useStartOrAddUpload() {
   const {
     uploadFlow,
     startUploadFlow,
+    updateUploadFlow,
     addFilesToUploadFlow,
     experiments,
     lastSelectedByKind,
@@ -46,72 +61,98 @@ export function useStartOrAddUpload() {
         return
       }
 
-      // ── An upload is already in progress ────────────────────────────────────
-      if (uploadFlow) {
-        const sameTarget =
-          (target.collectionId != null &&
-            uploadFlow.targetCollectionId === target.collectionId) ||
-          (target.experimentId != null &&
-            uploadFlow.experimentId === target.experimentId)
-        if (sameTarget) {
-          addFilesToUploadFlow(files)
-          notifications.show({
-            title: "Added to current upload",
-            message: `${files.length} file${
-              files.length === 1 ? "" : "s"
-            } added to the current upload.`,
-            color: "blue",
-          })
-        } else {
-          notifications.show({
-            title: "Upload already in progress",
-            message:
-              "There's still an incomplete upload — finish or cancel it before starting a new one.",
-            color: "red",
-          })
+      // Detection loads pdf-lib + parses each PDF, so it's async. Keep the
+      // returned handler synchronous (callers fire-and-forget) by running the
+      // work in a detached task.
+      void (async () => {
+        const { digests, others } = await detectDigestDocs(files)
+
+        // ── An upload is already in progress ──────────────────────────────────
+        if (uploadFlow) {
+          if (digests.length > 0) {
+            // Queue the docs behind any already pending, then surface the window.
+            updateUploadFlow({
+              pendingDigests: [
+                ...(uploadFlow.pendingDigests ?? []),
+                ...digests,
+              ],
+            })
+            openFlowPanel()
+          }
+          if (others.length > 0) {
+            const sameTarget =
+              (target.collectionId != null &&
+                uploadFlow.targetCollectionId === target.collectionId) ||
+              (target.experimentId != null &&
+                uploadFlow.experimentId === target.experimentId)
+            if (sameTarget) {
+              addFilesToUploadFlow(others)
+              notifications.show({
+                title: "Added to current upload",
+                message: `${others.length} file${
+                  others.length === 1 ? "" : "s"
+                } added to the current upload.`,
+                color: "blue",
+              })
+            } else if (digests.length === 0) {
+              notifications.show({
+                title: "Upload already in progress",
+                message:
+                  "There's still an incomplete upload — finish or cancel it before starting a new one.",
+                color: "red",
+              })
+            }
+          }
+          return
         }
-        return
-      }
 
-      // ── Fresh flow: preselect the most-likely process / experiment ──────────
-      // Prefer the most-recently-created experiment (appended last), falling
-      // back to the last one the user interacted with.
-      const defaultExpId =
-        experiments[experiments.length - 1]?.id ??
-        lastSelectedByKind.experiment ??
-        null
-      const defaultExp = defaultExpId
-        ? experiments.find((e) => e.id === defaultExpId)
-        : undefined
+        // Nothing usable in the drop.
+        if (digests.length === 0 && others.length === 0) {
+          return
+        }
 
-      const pendingFiles: StagedFile[] = files.map((f) => ({
-        name: f.name,
-        size: f.size,
-      }))
-      const started = startUploadFlow({
-        origin: "drag-drop",
-        files,
-        pendingFiles,
-        processId: defaultExp?.processId ?? null,
-        experimentId: defaultExp?.id ?? null,
-        targetCollectionId: target.collectionId,
-        targetPlaneId: target.collectionId ? target.planeId : null,
-      })
-      if (!started) {
-        return
-      }
-      // Render the exact same window as the top-bar badge's popover
-      // (`UploadFlowPanel`) so the post-drop dialog and the top-icon dialog are
-      // always identical. No title bar / close button: like the popover, it is
-      // dismissed by clicking outside or aborting — the top icon is the guideline.
-      modals.open({
-        withCloseButton: false,
-        children: <UploadFlowPanel onClose={() => modals.closeAll()} />,
-      })
+        // ── Fresh flow ────────────────────────────────────────────────────────
+        // When digesting, the process/experiment is decided by the PDF, so don't
+        // preselect defaults; otherwise prefer the most-recently-created
+        // experiment, falling back to the last one the user interacted with.
+        const defaultExpId =
+          digests.length > 0
+            ? null
+            : (experiments[experiments.length - 1]?.id ??
+              lastSelectedByKind.experiment ??
+              null)
+        const defaultExp = defaultExpId
+          ? experiments.find((e) => e.id === defaultExpId)
+          : undefined
+
+        const pendingFiles: StagedFile[] = others.map((f) => ({
+          name: f.name,
+          size: f.size,
+        }))
+        const started = startUploadFlow({
+          origin: "drag-drop",
+          files: others,
+          pendingFiles: others.length > 0 ? pendingFiles : undefined,
+          processId: defaultExp?.processId ?? null,
+          experimentId: defaultExp?.id ?? null,
+          targetCollectionId: target.collectionId,
+          targetPlaneId: target.collectionId ? target.planeId : null,
+          pendingDigests: digests.length > 0 ? digests : undefined,
+        })
+        if (!started) {
+          return
+        }
+        // Render the exact same window as the top-bar badge's popover
+        // (`UploadFlowPanel`) so the post-drop dialog and the top-icon dialog are
+        // always identical. No title bar / close button: like the popover, it is
+        // dismissed by clicking outside or aborting — the top icon is the guideline.
+        openFlowPanel()
+      })()
     },
     [
       uploadFlow,
       startUploadFlow,
+      updateUploadFlow,
       addFilesToUploadFlow,
       experiments,
       lastSelectedByKind,

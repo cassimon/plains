@@ -29,6 +29,7 @@ import {
   type UploadFlowStep,
 } from "@/lib/uploadFlow"
 import { useAppContext } from "@/store/AppContext"
+import { PdfDigestView } from "./PdfDigestView"
 import { UploadFlowTargetPicker } from "./UploadFlowTargetPicker"
 
 // Inject the critical-status pulse animation once.
@@ -206,20 +207,29 @@ export function UploadFlowPanel({ onClose }: { onClose: () => void }) {
 
       <Divider />
 
-      {/* Process / Experiment selection + create. Creating an experiment here
-          navigates to /experiments; the picker resets to General view itself
-          (see handleCreateExperiment) so this only needs to dismiss the host. */}
-      <UploadFlowTargetPicker onNavigateAway={onClose} />
+      {(uploadFlow.pendingDigests?.length ?? 0) > 0 ? (
+        // A Process/Experiment PDF was dropped: digestion BLOCKS the target
+        // picker and shows a different view until every doc is resolved into a
+        // selected / newly-created entity (issue 3).
+        <PdfDigestView />
+      ) : (
+        <>
+          {/* Process / Experiment selection + create. Creating an experiment here
+              navigates to /experiments; the picker resets to General view itself
+              (see handleCreateExperiment) so this only needs to dismiss the host. */}
+          <UploadFlowTargetPicker onNavigateAway={onClose} />
 
-      {/* Jump to Results to perform the upload */}
-      {steps.experiment === "done" && steps.upload !== "done" && (
-        <Button
-          size="xs"
-          leftSection={<IconCloudUpload size={14} />}
-          onClick={handleGoToResults}
-        >
-          Go to results & upload
-        </Button>
+          {/* Jump to Results to perform the upload */}
+          {steps.experiment === "done" && steps.upload !== "done" && (
+            <Button
+              size="xs"
+              leftSection={<IconCloudUpload size={14} />}
+              onClick={handleGoToResults}
+            >
+              Go to results & upload
+            </Button>
+          )}
+        </>
       )}
     </Stack>
   )
