@@ -491,6 +491,35 @@ export type NomadConfigResponse = {
     has_credentials: boolean;
 };
 
+export type NomadUploadLogPublic = {
+    user_id?: (string | null);
+    user_email: string;
+    experiment_id?: (string | null);
+    experiment_name?: string;
+    upload_id?: (string | null);
+    status?: string;
+    nomad_process_status?: (string | null);
+    current_process?: (string | null);
+    last_status_message?: (string | null);
+    error_message?: (string | null);
+    entries_count?: (number | null);
+    processing_failed?: (number | null);
+    archive_stash_path?: (string | null);
+    archive_size?: (number | null);
+    archive_expires_at?: (string | null);
+    id: string;
+    errors?: (Array<unknown> | null);
+    warnings?: (Array<unknown> | null);
+    created_at?: (string | null);
+    updated_at?: (string | null);
+    archive_available?: boolean;
+};
+
+export type NomadUploadLogsPublic = {
+    data: Array<NomadUploadLogPublic>;
+    count: number;
+};
+
 /**
  * Response from NOMAD upload.
  */
@@ -513,6 +542,9 @@ export type NomadUploadStatus = {
     [key: string]: unknown;
 }> | null);
     last_status_message?: (string | null);
+    current_process?: (string | null);
+    errors?: (Array<unknown> | null);
+    warnings?: (Array<unknown> | null);
     error?: (string | null);
 };
 
@@ -546,6 +578,13 @@ export type PlaneUpdate = {
     name?: (string | null);
 };
 
+export type PrivateUserCreate = {
+    email: string;
+    password: string;
+    full_name: string;
+    is_verified?: boolean;
+};
+
 export type ProcessCreate = {
     name: string;
     description?: (string | null);
@@ -573,6 +612,7 @@ export type ProcessGeneratedStackCreate = {
 
 export type ProcessGeneratedStackLayerCreate = {
     layer_index?: number;
+    step_ref?: (string | null);
     name?: string;
     color?: string;
     is_substrate?: boolean;
@@ -582,11 +622,15 @@ export type ProcessGeneratedStackLayerCreate = {
     perovskite_a?: string;
     perovskite_b?: string;
     perovskite_x?: string;
+    material_type?: string;
+    homo_ev?: string;
+    lumo_ev?: string;
     id?: string;
 };
 
 export type ProcessGeneratedStackLayerPublic = {
     layer_index?: number;
+    step_ref?: (string | null);
     name?: string;
     color?: string;
     is_substrate?: boolean;
@@ -596,6 +640,9 @@ export type ProcessGeneratedStackLayerPublic = {
     perovskite_a?: string;
     perovskite_b?: string;
     perovskite_x?: string;
+    material_type?: string;
+    homo_ev?: string;
+    lumo_ev?: string;
     id: string;
 };
 
@@ -1187,6 +1234,19 @@ export type NomadTestNomadAuthResponse = ({
     [key: string]: unknown;
 });
 
+export type NomadListNomadUploadLogData = {
+    limit?: number;
+    skip?: number;
+};
+
+export type NomadListNomadUploadLogResponse = (NomadUploadLogsPublic);
+
+export type NomadDownloadNomadUploadArchiveData = {
+    logId: string;
+};
+
+export type NomadDownloadNomadUploadArchiveResponse = (unknown);
+
 export type PlanesReadPlanesData = {
     limit?: number;
     skip?: number;
@@ -1326,6 +1386,12 @@ export type PlanesDeleteCollectionData = {
 };
 
 export type PlanesDeleteCollectionResponse = (unknown);
+
+export type PrivateCreateUserData = {
+    requestBody: PrivateUserCreate;
+};
+
+export type PrivateCreateUserResponse = (UserPublic);
 
 export type ProcessesReadProcessesData = {
     limit?: number;

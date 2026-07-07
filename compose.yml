@@ -107,6 +107,11 @@ services:
       - SENTRY_DSN=${SENTRY_DSN}
       - ROOT_PATH=${ROOT_PATH:-}
 
+    volumes:
+      # Durable stash for failed / not-yet-succeeded NOMAD upload archives.
+      # Survives container recreation so the one-week retention actually holds.
+      - nomad-stash:/var/lib/plains/nomad_stash
+
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/utils/health-check/"]
       interval: 10s
@@ -182,6 +187,7 @@ services:
       - traefik.http.routers.${STACK_NAME?Variable not set}-frontend.middlewares=${STACK_NAME?Variable not set}-plains-strip
 volumes:
   app-db-data:
+  nomad-stash:
 
 networks:
   traefik-public:

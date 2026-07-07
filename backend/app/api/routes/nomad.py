@@ -16,12 +16,34 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sqlmodel import col, func, select
 
-from app.api.deps import CurrentUser, SessionDep, TokenDep
+from app import crud
+from app.api.deps import (
+    CurrentUser,
+    SessionDep,
+    TokenDep,
+    get_current_active_superuser,
+)
 from app.core.config import settings
-from app.models import ExperimentResults
+from app.models import (
+    ExperimentResults,
+    NomadUploadLog,
+    NomadUploadLogPublic,
+    NomadUploadLogsPublic,
+    User,
+)
 from app.services.nomad import (
     TEMP_UPLOAD_DIR,
     NomadAuthError,
@@ -31,7 +53,10 @@ from app.services.nomad import (
     create_nomad_metadata_yaml,
     create_secure_zip,
     get_nomad_token,
+    get_upload_entries,
     get_upload_status,
+    purge_stash_file,
+    stash_archive,
     upload_to_nomad,
 )
 
@@ -97,6 +122,75 @@ def _require_nomad_upload_authorized(current_user: CurrentUser) -> None:
             status_code=403,
             detail="NOMAD upload requires an authenticated NOMAD OAuth user",
         )
+
+
+def _maybe_uuid(value: str | None) -> uuid.UUID | None:
+    """Best-effort parse of a UUID string; None on failure."""
+    if not value:
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _summarize_errors(errors: Any, last_status_message: str | None) -> str | None:
+    """Build a short human-readable error note from NOMAD's errors[] / message."""
+    parts: list[str] = []
+    if isinstance(errors, list):
+        parts.extend(str(e) for e in errors if e)
+    elif errors:
+        parts.append(str(errors))
+    summary = "; ".join(parts).strip()
+    if not summary and last_status_message:
+        summary = str(last_status_message).strip()
+    return summary or None
+
+
+def _archive_available(log: NomadUploadLog) -> bool:
+    """True when a stashed archive is still present on disk and downloadable."""
+    if not log.archive_stash_path:
+        return False
+    try:
+        return Path(log.archive_stash_path).is_file()
+    except OSError:
+        return False
+
+
+def _record_failed_upload(
+    session: SessionDep,
+    current_user: CurrentUser,
+    request: "NomadUploadRequest",
+    zip_path: Path | None,
+    *,
+    status: str,
+    error: str,
+) -> None:
+    """
+    Log an upload that failed before/at the NOMAD call and stash its archive
+    (if one was built) so it can be re-examined. Best-effort — never raises.
+    """
+    try:
+        log = crud.create_nomad_upload_log(
+            session=session,
+            user=current_user,
+            experiment_id=_maybe_uuid(request.experiment_id),
+            experiment_name=request.experiment_name,
+            upload_id=None,
+            status=status,
+            error_message=error,
+        )
+        if zip_path is not None and zip_path.exists():
+            stashed = stash_archive(zip_path, log.id)
+            crud.update_nomad_upload_log(
+                session=session,
+                log=log,
+                archive_stash_path=str(stashed),
+                archive_size=stashed.stat().st_size,
+                archive_expires_at=crud.stash_expiry(),
+            )
+    except Exception as e:  # noqa: BLE001 — logging must never mask the real error
+        logger.warning("Could not record failed NOMAD upload log/stash: %s", e)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -186,6 +280,9 @@ class NomadUploadStatus(BaseModel):
     status: str | None = None
     entries: int | list[dict] | None = None
     last_status_message: str | None = None
+    current_process: str | None = None
+    errors: list[Any] | None = None
+    warnings: list[Any] | None = None
     error: str | None = None
 
 
@@ -591,8 +688,10 @@ async def upload_to_nomad_endpoint(
     - files: Direct file upload
     """
     _require_nomad_upload_authorized(current_user)
-    # Opportunistic sweep: drop archives abandoned beyond the inactivity window.
+    # Opportunistic sweep: drop archives abandoned beyond the inactivity window,
+    # and purge any stashed failed-upload archives past their one-week TTL.
     cleanup_stale_archives()
+    crud.purge_expired_stash(session)
 
     try:
         request = NomadUploadRequest.model_validate_json(request_json)
@@ -631,6 +730,9 @@ async def upload_to_nomad_endpoint(
 
         validated_archive_path = candidate
         upload_archive_basename = candidate.stem
+
+    # Resolved inside the try; kept here so the except blocks can stash it.
+    zip_path: Path | None = None
 
     try:
         experiment_snapshot = None
@@ -715,13 +817,38 @@ async def upload_to_nomad_endpoint(
             existing_upload_id=existing_upload_id or None,
         )
 
-        # Clean up temporary archive
+        # Record the attempt in the central log and stash its archive. NOMAD only
+        # reports PENDING here — the real SUCCESS/FAILURE verdict arrives later via
+        # the status poll (check_upload_status), which purges the stash on success
+        # or keeps it (with error notes) on failure. The one-week TTL is a backstop.
+        try:
+            entries_val = result.get("entries")
+            log = crud.create_nomad_upload_log(
+                session=session,
+                user=current_user,
+                experiment_id=_maybe_uuid(request.experiment_id),
+                experiment_name=request.experiment_name,
+                upload_id=result.get("upload_id"),
+                status="PENDING",
+                nomad_process_status=result.get("processing_status"),
+                entries_count=entries_val if isinstance(entries_val, int) else None,
+            )
+            stashed = stash_archive(zip_path, log.id)
+            crud.update_nomad_upload_log(
+                session=session,
+                log=log,
+                archive_stash_path=str(stashed),
+                archive_size=stashed.stat().st_size,
+                archive_expires_at=crud.stash_expiry(),
+            )
+        except Exception as log_err:  # noqa: BLE001 — never fail the upload for logging
+            logger.warning("Could not record NOMAD upload log/stash: %s", log_err)
+
+        # Clean up the temporary archive (the durable copy now lives in the stash)
         cleanup_temp_archive(zip_path)
 
         # Update experiment results with NOMAD info (if result exists)
         try:
-            from sqlmodel import select
-
             exp_uuid = uuid.UUID(request.experiment_id)
             statement = select(ExperimentResults).where(
                 ExperimentResults.experiment_id == exp_uuid,
@@ -779,18 +906,27 @@ async def upload_to_nomad_endpoint(
 
     except NomadAuthError as e:
         logger.error(f"NOMAD auth error: {e}")
+        _record_failed_upload(
+            session, current_user, request, zip_path, status="ERROR", error=str(e)
+        )
         return NomadUploadResponse(
             success=False,
             message=str(e),
         )
     except NomadUploadError as e:
         logger.error(f"NOMAD upload error: {e}")
+        _record_failed_upload(
+            session, current_user, request, zip_path, status="FAILED", error=str(e)
+        )
         return NomadUploadResponse(
             success=False,
             message=str(e),
         )
     except Exception as e:
         logger.error(f"Unexpected error during NOMAD upload: {e}")
+        _record_failed_upload(
+            session, current_user, request, zip_path, status="ERROR", error=str(e)
+        )
         return NomadUploadResponse(
             success=False,
             message=f"Upload failed: {e}",
@@ -799,6 +935,7 @@ async def upload_to_nomad_endpoint(
 
 @router.get("/upload/{upload_id}/status", response_model=NomadUploadStatus)
 def check_upload_status(
+    session: SessionDep,
     current_user: CurrentUser,
     token: TokenDep,
     upload_id: str,
@@ -806,7 +943,12 @@ def check_upload_status(
     """
     Check the status of a NOMAD upload.
 
-    Use this to monitor processing progress after upload.
+    Use this to monitor processing progress after upload. In addition to
+    returning the status, this resolves the central upload log entry: on a
+    terminal SUCCESS the stashed archive is purged; on a terminal failure the
+    archive is kept and enriched with NOMAD's error/warning diagnostics so an
+    admin can re-examine it.
+
     Works with both OAuth user tokens and global service credentials.
     """
     use_user_token = bool(settings.NOMAD_OAUTH_ENABLED and current_user.nomad_sub)
@@ -826,6 +968,15 @@ def check_upload_status(
 
         if "error" in status:
             logger.warning(f"[NOMAD][status] Error in status: {status['error']}")
+            # A 404 means the upload was deleted on NOMAD — record it as such and
+            # keep any stashed archive for inspection.
+            if "404" in str(status["error"]):
+                _resolve_upload_log(
+                    session,
+                    upload_id,
+                    status="NOT_FOUND",
+                    error_message="Upload not found on NOMAD (deleted externally)",
+                )
             return NomadUploadStatus(
                 upload_id=upload_id,
                 error=status["error"],
@@ -834,6 +985,9 @@ def check_upload_status(
         process_status = status.get("process_status")
         last_status_message = status.get("last_status_message")
         entries_raw = status.get("entries")
+        current_process = status.get("current_process")
+        errors = status.get("errors") or None
+        warnings = status.get("warnings") or None
 
         logger.info(
             f"[NOMAD][status] Extracted fields - process_status: {process_status}, "
@@ -853,11 +1007,28 @@ def check_upload_status(
             f"[NOMAD][status] Normalized status for {upload_id}: {normalized_status}"
         )
 
+        # Resolve the central upload log against this status.
+        _resolve_upload_log(
+            session,
+            upload_id,
+            status=normalized_status,
+            nomad_process_status=process_status,
+            current_process=current_process,
+            last_status_message=last_status_message,
+            errors=errors,
+            warnings=warnings,
+            entries=entries_raw,
+            nomad_token=nomad_token,
+        )
+
         return NomadUploadStatus(
             upload_id=upload_id,
             status=normalized_status,
             entries=entries_raw,
             last_status_message=last_status_message,
+            current_process=current_process,
+            errors=errors,
+            warnings=warnings,
         )
 
     except Exception as e:
@@ -865,6 +1036,77 @@ def check_upload_status(
             upload_id=upload_id,
             error=str(e),
         )
+
+
+def _resolve_upload_log(
+    session: SessionDep,
+    upload_id: str,
+    *,
+    status: str | None,
+    nomad_process_status: str | None = None,
+    current_process: str | None = None,
+    last_status_message: str | None = None,
+    errors: Any = None,
+    warnings: Any = None,
+    entries: Any = None,
+    error_message: str | None = None,
+    nomad_token: str | None = None,
+) -> None:
+    """
+    Update the central log row for `upload_id` from a status response, resolving
+    the stashed archive: purge it on terminal SUCCESS, keep+enrich it on terminal
+    failure. Best-effort — a logging failure must never break status polling.
+    """
+    try:
+        log = crud.get_nomad_upload_log_by_upload_id(
+            session=session, upload_id=upload_id
+        )
+        if log is None:
+            return
+
+        norm = (status or "").upper()
+        fields: dict[str, Any] = {
+            "nomad_process_status": nomad_process_status,
+            "current_process": current_process,
+            "last_status_message": last_status_message,
+        }
+        if errors is not None:
+            fields["errors"] = errors
+        if warnings is not None:
+            fields["warnings"] = warnings
+        if isinstance(entries, int):
+            fields["entries_count"] = entries
+
+        if norm == "SUCCESS":
+            fields["status"] = "SUCCESS"
+            purge_stash_file(log.archive_stash_path)
+            fields["archive_stash_path"] = None
+        elif norm in ("FAILURE", "FAILED", "NOT_FOUND", "ERROR"):
+            fields["status"] = "FAILED" if norm in ("FAILURE", "FAILED") else norm
+            summary = error_message or _summarize_errors(errors, last_status_message)
+            # Pull per-entry failure detail for the richest diagnostics.
+            entry_info = get_upload_entries(upload_id, token=nomad_token)
+            if entry_info.get("processing_failed") is not None:
+                fields["processing_failed"] = entry_info["processing_failed"]
+            entry_errors = entry_info.get("entry_errors") or []
+            if entry_errors:
+                merged = list(errors) if isinstance(errors, list) else []
+                merged.append({"entry_errors": entry_errors})
+                fields["errors"] = merged
+                if not summary:
+                    summary = _summarize_errors(
+                        [e for ee in entry_errors for e in ee.get("errors", [])],
+                        last_status_message,
+                    )
+            if summary:
+                fields["error_message"] = summary
+            # Stash is intentionally retained for failed uploads.
+        elif status:
+            fields["status"] = status
+
+        crud.update_nomad_upload_log(session=session, log=log, **fields)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not resolve NOMAD upload log for %s: %s", upload_id, e)
 
 
 @router.post("/auth/test")
@@ -896,3 +1138,69 @@ def test_nomad_auth(_current_user: CurrentUser) -> dict[str, Any]:
             "configured": True,
             "url": settings.NOMAD_URL,
         }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Admin: central upload log + failed-archive stash
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/upload-log", response_model=NomadUploadLogsPublic)
+def list_nomad_upload_log(
+    session: SessionDep,
+    _admin: User = Depends(get_current_active_superuser),
+    skip: int = 0,
+    limit: int = 100,
+) -> NomadUploadLogsPublic:
+    """
+    Central log of every NOMAD upload attempt (superuser only).
+
+    Lists all uploads — by user email, experiment, and outcome — newest first.
+    Purges any expired stashed archives as a side effect (one-week retention).
+    """
+    crud.purge_expired_stash(session)
+
+    count = session.exec(select(func.count()).select_from(NomadUploadLog)).one()
+    rows = session.exec(
+        select(NomadUploadLog)
+        .order_by(col(NomadUploadLog.created_at).desc())
+        .offset(skip)
+        .limit(limit)
+    ).all()
+
+    data = [
+        NomadUploadLogPublic.model_validate(
+            row, update={"archive_available": _archive_available(row)}
+        )
+        for row in rows
+    ]
+    return NomadUploadLogsPublic(data=data, count=count)
+
+
+@router.get("/upload-log/{log_id}/archive")
+def download_nomad_upload_archive(
+    session: SessionDep,
+    log_id: uuid.UUID,
+    _admin: User = Depends(get_current_active_superuser),
+) -> FileResponse:
+    """
+    Download the stashed archive of a (typically failed) upload (superuser only).
+
+    404 when the upload succeeded (archive purged) or the one-week TTL expired.
+    """
+    log = session.get(NomadUploadLog, log_id)
+    if log is None:
+        raise HTTPException(status_code=404, detail="Upload log not found")
+    if not log.archive_stash_path:
+        raise HTTPException(
+            status_code=404,
+            detail="No stashed archive for this upload (succeeded or expired)",
+        )
+    path = Path(log.archive_stash_path)
+    if not path.is_file():
+        raise HTTPException(
+            status_code=404, detail="Stashed archive is no longer available"
+        )
+
+    download_name = f"{log.experiment_name or 'upload'}_{log.upload_id or log.id}.zip"
+    return FileResponse(path, media_type="application/zip", filename=download_name)

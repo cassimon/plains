@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AnalysesReadAnalysesData, AnalysesReadAnalysesResponse, AnalysesCreateAnalysisData, AnalysesCreateAnalysisResponse, AnalysesReadAnalysisData, AnalysesReadAnalysisResponse, AnalysesUpdateAnalysisData, AnalysesUpdateAnalysisResponse, AnalysesDeleteAnalysisData, AnalysesDeleteAnalysisResponse, ExperimentsReadExperimentsData, ExperimentsReadExperimentsResponse, ExperimentsCreateItemData, ExperimentsCreateItemResponse, ExperimentsReadExperimentData, ExperimentsReadExperimentResponse, ExperimentsUpdateItemData, ExperimentsUpdateItemResponse, ExperimentsDeleteExperimentData, ExperimentsDeleteExperimentResponse, ExperimentsSetExperimentMaterialsData, ExperimentsSetExperimentMaterialsResponse, ExperimentsSetExperimentSolutionsData, ExperimentsSetExperimentSolutionsResponse, ExperimentsReplaceExperimentSubstratesData, ExperimentsReplaceExperimentSubstratesResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginAuthConfigResponse, MaterialsReadMaterialsData, MaterialsReadMaterialsResponse, MaterialsCreateMaterialData, MaterialsCreateMaterialResponse, MaterialsReadMaterialData, MaterialsReadMaterialResponse, MaterialsUpdateMaterialData, MaterialsUpdateMaterialResponse, MaterialsDeleteMaterialData, MaterialsDeleteMaterialResponse, NomadGetNomadConfigResponse, NomadUploadFilesForNomadResponse, NomadAddMetadataToArchiveData, NomadAddMetadataToArchiveResponse, NomadPreviewMetadataFromArchiveData, NomadPreviewMetadataFromArchiveResponse, NomadDiscardUploadedArchiveData, NomadDiscardUploadedArchiveResponse, NomadUploadToNomadEndpointData, NomadUploadToNomadEndpointResponse, NomadCheckUploadStatusData, NomadCheckUploadStatusResponse, NomadTestNomadAuthResponse, PlanesReadPlanesData, PlanesReadPlanesResponse, PlanesCreatePlaneData, PlanesCreatePlaneResponse, PlanesReadPlaneData, PlanesReadPlaneResponse, PlanesUpdatePlaneData, PlanesUpdatePlaneResponse, PlanesDeletePlaneData, PlanesDeletePlaneResponse, PlanesSharePlaneData, PlanesSharePlaneResponse, PlanesUnsharePlaneData, PlanesUnsharePlaneResponse, PlanesSearchUsersData, PlanesSearchUsersResponse, PlanesCreateStickyNoteData, PlanesCreateStickyNoteResponse, PlanesReplaceStickyNotesData, PlanesReplaceStickyNotesResponse, PlanesUpdateStickyNoteData, PlanesUpdateStickyNoteResponse, PlanesDeleteStickyNoteData, PlanesDeleteStickyNoteResponse, PlanesCreateTextFieldData, PlanesCreateTextFieldResponse, PlanesReplaceTextFieldsData, PlanesReplaceTextFieldsResponse, PlanesUpdateTextFieldData, PlanesUpdateTextFieldResponse, PlanesDeleteTextFieldData, PlanesDeleteTextFieldResponse, PlanesCreateCollectionData, PlanesCreateCollectionResponse, PlanesReplaceCollectionsData, PlanesReplaceCollectionsResponse, PlanesUpdateCollectionData, PlanesUpdateCollectionResponse, PlanesDeleteCollectionData, PlanesDeleteCollectionResponse, ProcessesReadProcessesData, ProcessesReadProcessesResponse, ProcessesCreateProcessData, ProcessesCreateProcessResponse, ProcessesReadProcessData, ProcessesReadProcessResponse, ProcessesUpdateProcessData, ProcessesUpdateProcessResponse, ProcessesDeleteProcessData, ProcessesDeleteProcessResponse, ProcessesReadProcessRecipesData, ProcessesReadProcessRecipesResponse, ProcessesCreateProcessRecipeData, ProcessesCreateProcessRecipeResponse, ProcessesReplaceProcessRecipesData, ProcessesReplaceProcessRecipesResponse, ProcessesUpdateProcessRecipeData, ProcessesUpdateProcessRecipeResponse, ProcessesDeleteProcessRecipeData, ProcessesDeleteProcessRecipeResponse, ProcessesReadProcessStepsData, ProcessesReadProcessStepsResponse, ProcessesCreateProcessStepData, ProcessesCreateProcessStepResponse, ProcessesReplaceProcessStepsData, ProcessesReplaceProcessStepsResponse, ProcessesUpdateProcessStepData, ProcessesUpdateProcessStepResponse, ProcessesDeleteProcessStepData, ProcessesDeleteProcessStepResponse, ProcessesReadProcessStacksData, ProcessesReadProcessStacksResponse, ProcessesCreateProcessStackData, ProcessesCreateProcessStackResponse, ProcessesReplaceProcessStacksData, ProcessesReplaceProcessStacksResponse, ProcessesUpdateProcessStackData, ProcessesUpdateProcessStackResponse, ProcessesDeleteProcessStackData, ProcessesDeleteProcessStackResponse, ProcessesReadProcessInlineSubstratesData, ProcessesReadProcessInlineSubstratesResponse, ProcessesReplaceProcessInlineSubstratesData, ProcessesReplaceProcessInlineSubstratesResponse, ProcessesReadProcessSubstrateDimensionsData, ProcessesReadProcessSubstrateDimensionsResponse, ProcessesReplaceProcessSubstrateDimensionsData, ProcessesReplaceProcessSubstrateDimensionsResponse, ResultsReadResultsData, ResultsReadResultsResponse, ResultsCreateResultData, ResultsCreateResultResponse, ResultsReadResultData, ResultsReadResultResponse, ResultsUpdateResultData, ResultsUpdateResultResponse, ResultsDeleteResultData, ResultsDeleteResultResponse, ResultsReplaceMeasurementFilesData, ResultsReplaceMeasurementFilesResponse, ResultsReplaceDeviceGroupsData, ResultsReplaceDeviceGroupsResponse, SolutionsReadSolutionsData, SolutionsReadSolutionsResponse, SolutionsCreateItemData, SolutionsCreateItemResponse, SolutionsReadSolutionData, SolutionsReadSolutionResponse, SolutionsUpdateItemData, SolutionsUpdateItemResponse, SolutionsDeleteSolutionData, SolutionsDeleteSolutionResponse, StateReadStateResponse, StateUpdateStateData, StateUpdateStateResponse, StateGetBulkStateResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { AnalysesReadAnalysesData, AnalysesReadAnalysesResponse, AnalysesCreateAnalysisData, AnalysesCreateAnalysisResponse, AnalysesReadAnalysisData, AnalysesReadAnalysisResponse, AnalysesUpdateAnalysisData, AnalysesUpdateAnalysisResponse, AnalysesDeleteAnalysisData, AnalysesDeleteAnalysisResponse, ExperimentsReadExperimentsData, ExperimentsReadExperimentsResponse, ExperimentsCreateItemData, ExperimentsCreateItemResponse, ExperimentsReadExperimentData, ExperimentsReadExperimentResponse, ExperimentsUpdateItemData, ExperimentsUpdateItemResponse, ExperimentsDeleteExperimentData, ExperimentsDeleteExperimentResponse, ExperimentsSetExperimentMaterialsData, ExperimentsSetExperimentMaterialsResponse, ExperimentsSetExperimentSolutionsData, ExperimentsSetExperimentSolutionsResponse, ExperimentsReplaceExperimentSubstratesData, ExperimentsReplaceExperimentSubstratesResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginAuthConfigResponse, MaterialsReadMaterialsData, MaterialsReadMaterialsResponse, MaterialsCreateMaterialData, MaterialsCreateMaterialResponse, MaterialsReadMaterialData, MaterialsReadMaterialResponse, MaterialsUpdateMaterialData, MaterialsUpdateMaterialResponse, MaterialsDeleteMaterialData, MaterialsDeleteMaterialResponse, NomadGetNomadConfigResponse, NomadUploadFilesForNomadResponse, NomadAddMetadataToArchiveData, NomadAddMetadataToArchiveResponse, NomadPreviewMetadataFromArchiveData, NomadPreviewMetadataFromArchiveResponse, NomadDiscardUploadedArchiveData, NomadDiscardUploadedArchiveResponse, NomadUploadToNomadEndpointData, NomadUploadToNomadEndpointResponse, NomadCheckUploadStatusData, NomadCheckUploadStatusResponse, NomadTestNomadAuthResponse, NomadListNomadUploadLogData, NomadListNomadUploadLogResponse, NomadDownloadNomadUploadArchiveData, NomadDownloadNomadUploadArchiveResponse, PlanesReadPlanesData, PlanesReadPlanesResponse, PlanesCreatePlaneData, PlanesCreatePlaneResponse, PlanesReadPlaneData, PlanesReadPlaneResponse, PlanesUpdatePlaneData, PlanesUpdatePlaneResponse, PlanesDeletePlaneData, PlanesDeletePlaneResponse, PlanesSharePlaneData, PlanesSharePlaneResponse, PlanesUnsharePlaneData, PlanesUnsharePlaneResponse, PlanesSearchUsersData, PlanesSearchUsersResponse, PlanesCreateStickyNoteData, PlanesCreateStickyNoteResponse, PlanesReplaceStickyNotesData, PlanesReplaceStickyNotesResponse, PlanesUpdateStickyNoteData, PlanesUpdateStickyNoteResponse, PlanesDeleteStickyNoteData, PlanesDeleteStickyNoteResponse, PlanesCreateTextFieldData, PlanesCreateTextFieldResponse, PlanesReplaceTextFieldsData, PlanesReplaceTextFieldsResponse, PlanesUpdateTextFieldData, PlanesUpdateTextFieldResponse, PlanesDeleteTextFieldData, PlanesDeleteTextFieldResponse, PlanesCreateCollectionData, PlanesCreateCollectionResponse, PlanesReplaceCollectionsData, PlanesReplaceCollectionsResponse, PlanesUpdateCollectionData, PlanesUpdateCollectionResponse, PlanesDeleteCollectionData, PlanesDeleteCollectionResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProcessesReadProcessesData, ProcessesReadProcessesResponse, ProcessesCreateProcessData, ProcessesCreateProcessResponse, ProcessesReadProcessData, ProcessesReadProcessResponse, ProcessesUpdateProcessData, ProcessesUpdateProcessResponse, ProcessesDeleteProcessData, ProcessesDeleteProcessResponse, ProcessesReadProcessRecipesData, ProcessesReadProcessRecipesResponse, ProcessesCreateProcessRecipeData, ProcessesCreateProcessRecipeResponse, ProcessesReplaceProcessRecipesData, ProcessesReplaceProcessRecipesResponse, ProcessesUpdateProcessRecipeData, ProcessesUpdateProcessRecipeResponse, ProcessesDeleteProcessRecipeData, ProcessesDeleteProcessRecipeResponse, ProcessesReadProcessStepsData, ProcessesReadProcessStepsResponse, ProcessesCreateProcessStepData, ProcessesCreateProcessStepResponse, ProcessesReplaceProcessStepsData, ProcessesReplaceProcessStepsResponse, ProcessesUpdateProcessStepData, ProcessesUpdateProcessStepResponse, ProcessesDeleteProcessStepData, ProcessesDeleteProcessStepResponse, ProcessesReadProcessStacksData, ProcessesReadProcessStacksResponse, ProcessesCreateProcessStackData, ProcessesCreateProcessStackResponse, ProcessesReplaceProcessStacksData, ProcessesReplaceProcessStacksResponse, ProcessesUpdateProcessStackData, ProcessesUpdateProcessStackResponse, ProcessesDeleteProcessStackData, ProcessesDeleteProcessStackResponse, ProcessesReadProcessInlineSubstratesData, ProcessesReadProcessInlineSubstratesResponse, ProcessesReplaceProcessInlineSubstratesData, ProcessesReplaceProcessInlineSubstratesResponse, ProcessesReadProcessSubstrateDimensionsData, ProcessesReadProcessSubstrateDimensionsResponse, ProcessesReplaceProcessSubstrateDimensionsData, ProcessesReplaceProcessSubstrateDimensionsResponse, ResultsReadResultsData, ResultsReadResultsResponse, ResultsCreateResultData, ResultsCreateResultResponse, ResultsReadResultData, ResultsReadResultResponse, ResultsUpdateResultData, ResultsUpdateResultResponse, ResultsDeleteResultData, ResultsDeleteResultResponse, ResultsReplaceMeasurementFilesData, ResultsReplaceMeasurementFilesResponse, ResultsReplaceDeviceGroupsData, ResultsReplaceDeviceGroupsResponse, SolutionsReadSolutionsData, SolutionsReadSolutionsResponse, SolutionsCreateItemData, SolutionsCreateItemResponse, SolutionsReadSolutionData, SolutionsReadSolutionResponse, SolutionsUpdateItemData, SolutionsUpdateItemResponse, SolutionsDeleteSolutionData, SolutionsDeleteSolutionResponse, StateReadStateResponse, StateUpdateStateData, StateUpdateStateResponse, StateGetBulkStateResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class AnalysesService {
     /**
@@ -600,7 +600,12 @@ export class NomadService {
      * Check Upload Status
      * Check the status of a NOMAD upload.
      *
-     * Use this to monitor processing progress after upload.
+     * Use this to monitor processing progress after upload. In addition to
+     * returning the status, this resolves the central upload log entry: on a
+     * terminal SUCCESS the stashed archive is purged; on a terminal failure the
+     * archive is kept and enriched with NOMAD's error/warning diagnostics so an
+     * admin can re-examine it.
+     *
      * Works with both OAuth user tokens and global service credentials.
      * @param data The data for the request.
      * @param data.uploadId
@@ -632,6 +637,55 @@ export class NomadService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/v1/nomad/auth/test'
+        });
+    }
+    
+    /**
+     * List Nomad Upload Log
+     * Central log of every NOMAD upload attempt (superuser only).
+     *
+     * Lists all uploads — by user email, experiment, and outcome — newest first.
+     * Purges any expired stashed archives as a side effect (one-week retention).
+     * @param data The data for the request.
+     * @param data.skip
+     * @param data.limit
+     * @returns NomadUploadLogsPublic Successful Response
+     * @throws ApiError
+     */
+    public static listNomadUploadLog(data: NomadListNomadUploadLogData = {}): CancelablePromise<NomadListNomadUploadLogResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/nomad/upload-log',
+            query: {
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Download Nomad Upload Archive
+     * Download the stashed archive of a (typically failed) upload (superuser only).
+     *
+     * 404 when the upload succeeded (archive purged) or the one-week TTL expired.
+     * @param data The data for the request.
+     * @param data.logId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static downloadNomadUploadArchive(data: NomadDownloadNomadUploadArchiveData): CancelablePromise<NomadDownloadNomadUploadArchiveResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/nomad/upload-log/{log_id}/archive',
+            path: {
+                log_id: data.logId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
         });
     }
 }
@@ -1084,6 +1138,28 @@ export class PlanesService {
                 plane_id: data.planeId,
                 collection_id: data.collectionId
             },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
+
+export class PrivateService {
+    /**
+     * Create User
+     * Create a new user.
+     * @param data The data for the request.
+     * @param data.requestBody
+     * @returns UserPublic Successful Response
+     * @throws ApiError
+     */
+    public static createUser(data: PrivateCreateUserData): CancelablePromise<PrivateCreateUserResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/private/users/',
+            body: data.requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: 'Validation Error'
             }

@@ -4768,15 +4768,18 @@ export function ProcessesPage() {
     )
   }
 
-  const getSubstrateLabel = useCallback((substrateId: string | undefined) => {
-    if (!substrateId) return null
-    const substrate = materials.find((m) => m.id === substrateId)
-    if (!substrate) return null
-    return {
-      name: substrate.name || "Unnamed substrate",
-      rigidity: substrate.substrateRigidity || "—",
-    }
-  }, [])
+  const getSubstrateLabel = useCallback(
+    (substrateId: string | undefined) => {
+      if (!substrateId) return null
+      const substrate = materials.find((m) => m.id === substrateId)
+      if (!substrate) return null
+      return {
+        name: substrate.name || "Unnamed substrate",
+        rigidity: substrate.substrateRigidity || "—",
+      }
+    },
+    [materials.find],
+  )
 
   const getSourceSuggestions = useCallback(
     (
@@ -4830,7 +4833,7 @@ export function ProcessesPage() {
 
       return suggestions
     },
-    [selectedProcess, selectedStep],
+    [selectedProcess, selectedStep, materials.find, solutions.find],
   )
 
   const displayedStages = useMemo(() => {
@@ -4874,7 +4877,7 @@ export function ProcessesPage() {
       }
       return "No material"
     },
-    [selectedProcess],
+    [selectedProcess, solutions.find, materials.find],
   )
 
   const getParameterFlowLines = useCallback(
@@ -4912,7 +4915,7 @@ export function ProcessesPage() {
       return lines
     },
     // biome-ignore lint/correctness/useExhaustiveDependencies: solutions and materials are passed to summariseQuenchingValue
-    [selectedProcess?.solutionRecipes],
+    [selectedProcess?.solutionRecipes, solutions, materials],
   )
 
   const selectedStepParameterSections = useMemo(() => {

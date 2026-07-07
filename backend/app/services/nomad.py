@@ -14,6 +14,7 @@ Uses the nomad_utility_workflows package for NOMAD API interaction.
 
 import logging
 import re
+import shutil
 import tempfile
 import time
 import uuid
@@ -30,6 +31,10 @@ logger = logging.getLogger(__name__)
 
 # Temporary directory for zip files (will be cleaned up after upload)
 TEMP_UPLOAD_DIR = Path(tempfile.gettempdir()) / "plains_nomad_uploads"
+
+# Durable stash for archives of failed / not-yet-succeeded uploads. Backed by a
+# named Docker volume so it survives container recreation (see compose.yml).
+STASH_DIR = Path(settings.NOMAD_STASH_DIR)
 
 
 def _safe_json_dict(response: httpx.Response, *, context: str) -> dict[str, Any]:
@@ -2791,3 +2796,114 @@ def cleanup_all_temp_archives() -> int:
 
     logger.info(f"Cleaned up {count} temporary archives")
     return count
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Failed-upload stash
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def ensure_stash_dir() -> Path:
+    """Ensure the durable stash directory exists."""
+    STASH_DIR.mkdir(parents=True, exist_ok=True)
+    return STASH_DIR
+
+
+def stash_archive(zip_path: Path, log_id: uuid.UUID | str) -> Path:
+    """
+    Copy an upload archive into the durable stash, keyed by its log id.
+
+    The archive is *copied* (not moved) so the caller's existing temp-archive
+    cleanup is unaffected. Returns the path to the stashed copy.
+
+    Raises:
+        FileNotFoundError: If the source archive does not exist.
+    """
+    if not zip_path.exists():
+        raise FileNotFoundError(f"Archive to stash not found: {zip_path}")
+    ensure_stash_dir()
+    dest = STASH_DIR / f"{log_id}.zip"
+    shutil.copy2(zip_path, dest)
+    logger.info(
+        "Stashed upload archive for log %s: %s (%d bytes)",
+        log_id,
+        dest,
+        dest.stat().st_size,
+    )
+    return dest
+
+
+def purge_stash_file(stash_path: str | Path | None) -> bool:
+    """Delete a single stashed archive. Returns True if a file was removed."""
+    if not stash_path:
+        return False
+    path = Path(stash_path)
+    try:
+        # Only ever touch files inside the stash dir.
+        if not path.resolve().is_relative_to(STASH_DIR.resolve()):
+            logger.warning("Refusing to purge stash path outside stash dir: %s", path)
+            return False
+        if path.exists() and path.is_file():
+            path.unlink()
+            logger.info("Purged stashed archive: %s", path)
+            return True
+        return False
+    except OSError as e:
+        logger.error("Failed to purge stashed archive %s: %s", path, e)
+        return False
+
+
+def get_upload_entries(upload_id: str, token: str | None = None) -> dict[str, Any]:
+    """
+    Fetch per-entry processing data for an upload (maximum diagnostic info).
+
+    Returns a dict with ``processing_failed`` (int) and ``entry_errors`` (a list
+    of ``{entry_id, mainfile, errors}`` for entries that reported errors). On any
+    problem returns an empty dict — this is best-effort enrichment only.
+    """
+    if not token:
+        token = get_nomad_token()
+
+    entries_url = f"{settings.NOMAD_URL}/uploads/{upload_id}/entries"
+
+    # ── MOCK MODE ──────────────────────────────────────────────────────
+    if settings.NOMAD_MOCK_MODE:
+        logger.info(
+            "[MOCK MODE] get_upload_entries — would GET %s. Returning empty.",
+            entries_url,
+        )
+        return {"processing_failed": 0, "entry_errors": []}
+    # ───────────────────────────────────────────────────────────────────
+
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(
+                entries_url,
+                params={"page_size": 100},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if response.status_code != 200:
+                logger.warning("NOMAD entries check failed: %s", response.status_code)
+                return {}
+            raw = _safe_json_dict(response, context="entries")
+            entry_errors: list[dict[str, Any]] = []
+            for entry in raw.get("data") or []:
+                if not isinstance(entry, dict):
+                    continue
+                errs = entry.get("errors") or []
+                if errs:
+                    entry_errors.append(
+                        {
+                            "entry_id": entry.get("entry_id"),
+                            "mainfile": entry.get("mainfile"),
+                            "errors": errs,
+                        }
+                    )
+            return {
+                "processing_failed": raw.get("processing_failed"),
+                "processing_successful": raw.get("processing_successful"),
+                "entry_errors": entry_errors,
+            }
+    except httpx.RequestError as e:
+        logger.warning("NOMAD entries request error: %s", e)
+        return {}

@@ -1,8 +1,10 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
+from app.core.config import settings
 from app.core.security import get_password_hash, verify_password
 from app.models import (
     Analysis,
@@ -27,6 +29,7 @@ from app.models import (
     LabSolutionUpdate,
     LabSubstrate,
     MeasurementFile,
+    NomadUploadLog,
     Plane,
     PlaneCreate,
     PlaneUpdate,
@@ -44,6 +47,7 @@ from app.models import (
     UserCreate,
     UserUpdate,
 )
+from app.services.nomad import purge_stash_file
 
 
 def _apply_update(session: Session, db_obj: Any, update_in: Any) -> Any:
@@ -336,3 +340,90 @@ def update_collection(
     collection_in: DataCollectionUpdate,
 ) -> DataCollection:
     return _apply_update(session, db_collection, collection_in)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NOMAD upload log + failed-archive stash
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def create_nomad_upload_log(
+    *,
+    session: Session,
+    user: User,
+    experiment_id: uuid.UUID | None,
+    experiment_name: str,
+    upload_id: str | None,
+    status: str,
+    **fields: Any,
+) -> NomadUploadLog:
+    """Record a NOMAD upload attempt in the central audit log."""
+    log = NomadUploadLog(
+        user_id=user.id,
+        user_email=user.email,
+        experiment_id=experiment_id,
+        experiment_name=experiment_name or "",
+        upload_id=upload_id,
+        status=status,
+        **fields,
+    )
+    session.add(log)
+    session.commit()
+    session.refresh(log)
+    return log
+
+
+def update_nomad_upload_log(
+    *, session: Session, log: NomadUploadLog, **fields: Any
+) -> NomadUploadLog:
+    """Update a log row and bump updated_at."""
+    for key, value in fields.items():
+        setattr(log, key, value)
+    log.updated_at = datetime.now(timezone.utc)
+    session.add(log)
+    session.commit()
+    session.refresh(log)
+    return log
+
+
+def get_nomad_upload_log_by_upload_id(
+    *, session: Session, upload_id: str
+) -> NomadUploadLog | None:
+    """Most recent log row for a NOMAD upload id (re-uploads reuse the id)."""
+    return session.exec(
+        select(NomadUploadLog)
+        .where(NomadUploadLog.upload_id == upload_id)
+        .order_by(col(NomadUploadLog.created_at).desc())
+    ).first()
+
+
+def purge_expired_stash(session: Session) -> int:
+    """
+    Delete stashed archives past their retention window and null their path
+    (the log row itself is kept as history). Enforces the one-week cap and is
+    called opportunistically from the NOMAD endpoints. Returns the count purged.
+    """
+    now = datetime.now(timezone.utc)
+    stale = session.exec(
+        select(NomadUploadLog).where(
+            col(NomadUploadLog.archive_stash_path).is_not(None),
+            col(NomadUploadLog.archive_expires_at).is_not(None),
+            col(NomadUploadLog.archive_expires_at) < now,
+        )
+    ).all()
+    purged = 0
+    for log in stale:
+        purge_stash_file(log.archive_stash_path)
+        log.archive_stash_path = None
+        session.add(log)
+        purged += 1
+    if purged:
+        session.commit()
+    return purged
+
+
+def stash_expiry() -> datetime:
+    """Retention deadline for a newly stashed archive (now + one week cap)."""
+    return datetime.now(timezone.utc) + timedelta(
+        seconds=settings.NOMAD_STASH_MAX_AGE_S
+    )

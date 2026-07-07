@@ -775,6 +775,12 @@ export type NomadUploadInfo = {
   mainfile?: string
   /** Number of entries in the upload (NOMAD API returns this as int) */
   entries?: number
+  /** NOMAD's human-readable status line (surfaced from the status poll). */
+  lastStatusMessage?: string
+  /** NOMAD error diagnostics for a failed upload (shown inline on Results). */
+  errors?: unknown[]
+  /** NOMAD warning diagnostics for the upload. */
+  warnings?: unknown[]
 }
 
 /** All results data for an experiment */

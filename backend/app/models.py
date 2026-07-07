@@ -1106,6 +1106,66 @@ class ExperimentResultsListPublic(SQLModel):
 
 
 # ============================================================================
+# NOMAD Upload Log
+# ============================================================================
+# Central audit log of every NOMAD upload attempt. Deliberately NOT linked to
+# User/Experiment via cascade relationships: the log must survive deletion of
+# either, so the owning identifiers are denormalized (user_email is authoritative).
+# Failed / not-yet-succeeded uploads keep their file archive stashed on disk
+# (archive_stash_path) until they succeed or the one-week TTL sweeps them.
+class NomadUploadLogBase(SQLModel):
+    user_id: uuid.UUID | None = Field(default=None, index=True)
+    user_email: str = Field(max_length=255, index=True)
+    experiment_id: uuid.UUID | None = Field(default=None, index=True)
+    experiment_name: str = Field(default="", max_length=255)
+    upload_id: str | None = Field(default=None, max_length=255, index=True)
+    # PENDING | SUCCESS | FAILED | NOT_FOUND | ERROR
+    status: str = Field(default="PENDING", max_length=50, index=True)
+    nomad_process_status: str | None = Field(default=None, max_length=100)
+    current_process: str | None = Field(default=None, max_length=100)
+    last_status_message: str | None = Field(default=None)
+    error_message: str | None = Field(default=None)
+    entries_count: int | None = None
+    processing_failed: int | None = None
+    archive_stash_path: str | None = Field(default=None, max_length=1024)
+    archive_size: int | None = None
+    archive_expires_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True)
+    )
+
+
+class NomadUploadLog(NomadUploadLogBase, table=True):
+    __tablename__ = "nomad_upload_log"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    # Full NOMAD errors/warnings arrays (maximum diagnostic info).
+    errors: list[Any] | None = _jsonb_field()
+    warnings: list[Any] | None = _jsonb_field()
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),
+    )
+    updated_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),
+    )
+
+
+class NomadUploadLogPublic(NomadUploadLogBase):
+    id: uuid.UUID
+    errors: list[Any] | None = None
+    warnings: list[Any] | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    # Derived: whether a stashed archive is still on disk and downloadable.
+    archive_available: bool = False
+
+
+class NomadUploadLogsPublic(SQLModel):
+    data: list[NomadUploadLogPublic]
+    count: int
+
+
+# ============================================================================
 # Analysis
 # ============================================================================
 class AnalysisRefBase(SQLModel):

@@ -2,9 +2,10 @@ import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { Suspense } from "react"
 
-import { type UserPublic, UsersService } from "@/client"
+import { NomadService, type UserPublic, UsersService } from "@/client"
 import AddUser from "@/components/Admin/AddUser"
 import { columns, type UserTableData } from "@/components/Admin/columns"
+import { nomadUploadColumns } from "@/components/Admin/nomadUploadColumns"
 import { DataTable } from "@/components/Common/DataTable"
 import PendingUsers from "@/components/Pending/PendingUsers"
 import useAuth from "@/hooks/useAuth"
@@ -13,6 +14,13 @@ function getUsersQueryOptions() {
   return {
     queryFn: () => UsersService.readUsers({ skip: 0, limit: 100 }),
     queryKey: ["users"],
+  }
+}
+
+function getNomadUploadLogQueryOptions() {
+  return {
+    queryFn: () => NomadService.listNomadUploadLog({ skip: 0, limit: 100 }),
+    queryKey: ["nomad-upload-log"],
   }
 }
 
@@ -59,19 +67,45 @@ function UsersTable() {
   )
 }
 
+function NomadUploadLogContent() {
+  const { data } = useSuspenseQuery(getNomadUploadLogQueryOptions())
+  return <DataTable columns={nomadUploadColumns} data={data?.data ?? []} />
+}
+
+function NomadUploadLogTable() {
+  return (
+    <Suspense fallback={<PendingUsers />}>
+      <NomadUploadLogContent />
+    </Suspense>
+  )
+}
+
 function Admin() {
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-10">
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Users</h1>
+            <p className="text-muted-foreground">
+              Manage user accounts and permissions
+            </p>
+          </div>
+          <AddUser />
+        </div>
+        <UsersTable />
+      </div>
+
+      <div className="flex flex-col gap-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Users</h1>
+          <h1 className="text-2xl font-bold tracking-tight">NOMAD Uploads</h1>
           <p className="text-muted-foreground">
-            Manage user accounts and permissions
+            Central log of every NOMAD upload. Failed uploads keep their file
+            archive (downloadable) for one week.
           </p>
         </div>
-        <AddUser />
+        <NomadUploadLogTable />
       </div>
-      <UsersTable />
     </div>
   )
 }

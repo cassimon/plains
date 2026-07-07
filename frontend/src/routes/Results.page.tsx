@@ -1427,7 +1427,25 @@ function ResultsDetail({
           })
         }
 
-        if (newStatus !== current.nomad?.status) {
+        // NOMAD diagnostics (present on both progressing and terminal states) —
+        // surfaced so the Results NOMAD panel can show *why* an upload failed.
+        const diag = statusResult as {
+          last_status_message?: string | null
+          errors?: unknown[] | null
+          warnings?: unknown[] | null
+        }
+        const nextErrors = diag.errors ?? undefined
+        const nextWarnings = diag.warnings ?? undefined
+        const nextMessage = diag.last_status_message ?? undefined
+
+        const diagnosticsChanged =
+          nextMessage !== current.nomad?.lastStatusMessage ||
+          JSON.stringify(nextErrors) !==
+            JSON.stringify(current.nomad?.errors) ||
+          JSON.stringify(nextWarnings) !==
+            JSON.stringify(current.nomad?.warnings)
+
+        if (newStatus !== current.nomad?.status || diagnosticsChanged) {
           console.info("[NOMAD][poll] status changed", {
             uploadId,
             from: current.nomad?.status,
@@ -1444,6 +1462,9 @@ function ResultsDetail({
                 typeof statusResult.entries === "number"
                   ? statusResult.entries
                   : undefined,
+              lastStatusMessage: nextMessage,
+              errors: nextErrors,
+              warnings: nextWarnings,
             },
             updatedAt: new Date().toISOString(),
           })

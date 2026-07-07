@@ -128,6 +128,13 @@ class Settings(BaseSettings):
     # swept on the next NOMAD endpoint activity. Matches the GUI's 30-minute
     # upload-flow inactivity window (UPLOAD_FLOW_INACTIVITY_MS).
     NOMAD_ARCHIVE_MAX_AGE_S: int = 30 * 60
+    # Failed / not-yet-succeeded uploads keep their file archive in this stash
+    # directory so admins can re-examine or re-upload them. Mounted as a durable
+    # named Docker volume (see compose.yml) so the stash survives container
+    # recreation. Entries older than NOMAD_STASH_MAX_AGE_S are swept on the next
+    # NOMAD endpoint activity (a hard one-week retention cap).
+    NOMAD_STASH_DIR: str = "/var/lib/plains/nomad_stash"
+    NOMAD_STASH_MAX_AGE_S: int = 7 * 24 * 60 * 60
 
     @model_validator(mode="after")
     def _load_nomad_auth_from_file(self) -> Self:

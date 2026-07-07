@@ -3571,6 +3571,247 @@ export const NomadConfigResponseSchema = {
     description: 'NOMAD configuration status.'
 } as const;
 
+export const NomadUploadLogPublicSchema = {
+    properties: {
+        user_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'User Id'
+        },
+        user_email: {
+            type: 'string',
+            maxLength: 255,
+            title: 'User Email'
+        },
+        experiment_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Experiment Id'
+        },
+        experiment_name: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Experiment Name',
+            default: ''
+        },
+        upload_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 255
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Upload Id'
+        },
+        status: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Status',
+            default: 'PENDING'
+        },
+        nomad_process_status: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 100
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Nomad Process Status'
+        },
+        current_process: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 100
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Current Process'
+        },
+        last_status_message: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Status Message'
+        },
+        error_message: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Message'
+        },
+        entries_count: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Entries Count'
+        },
+        processing_failed: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Processing Failed'
+        },
+        archive_stash_path: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 1024
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Archive Stash Path'
+        },
+        archive_size: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Archive Size'
+        },
+        archive_expires_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Archive Expires At'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        errors: {
+            anyOf: [
+                {
+                    items: {},
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Errors'
+        },
+        warnings: {
+            anyOf: [
+                {
+                    items: {},
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Warnings'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        },
+        updated_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Updated At'
+        },
+        archive_available: {
+            type: 'boolean',
+            title: 'Archive Available',
+            default: false
+        }
+    },
+    type: 'object',
+    required: ['user_email', 'id'],
+    title: 'NomadUploadLogPublic'
+} as const;
+
+export const NomadUploadLogsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/NomadUploadLogPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'NomadUploadLogsPublic'
+} as const;
+
 export const NomadUploadResponseSchema = {
     properties: {
         success: {
@@ -3681,6 +3922,41 @@ export const NomadUploadStatusSchema = {
                 }
             ],
             title: 'Last Status Message'
+        },
+        current_process: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Current Process'
+        },
+        errors: {
+            anyOf: [
+                {
+                    items: {},
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Errors'
+        },
+        warnings: {
+            anyOf: [
+                {
+                    items: {},
+                    type: 'array'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Warnings'
         },
         error: {
             anyOf: [
@@ -3842,6 +4118,31 @@ export const PlanesPublicSchema = {
     title: 'PlanesPublic'
 } as const;
 
+export const PrivateUserCreateSchema = {
+    properties: {
+        email: {
+            type: 'string',
+            title: 'Email'
+        },
+        password: {
+            type: 'string',
+            title: 'Password'
+        },
+        full_name: {
+            type: 'string',
+            title: 'Full Name'
+        },
+        is_verified: {
+            type: 'boolean',
+            title: 'Is Verified',
+            default: false
+        }
+    },
+    type: 'object',
+    required: ['email', 'password', 'full_name'],
+    title: 'PrivateUserCreate'
+} as const;
+
 export const ProcessCreateSchema = {
     properties: {
         name: {
@@ -3986,6 +4287,18 @@ export const ProcessGeneratedStackLayerCreateSchema = {
             title: 'Layer Index',
             default: 0
         },
+        step_ref: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 64
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Step Ref'
+        },
         name: {
             type: 'string',
             maxLength: 255,
@@ -4037,6 +4350,24 @@ export const ProcessGeneratedStackLayerCreateSchema = {
             type: 'string',
             maxLength: 255,
             title: 'Perovskite X',
+            default: ''
+        },
+        material_type: {
+            type: 'string',
+            maxLength: 100,
+            title: 'Material Type',
+            default: ''
+        },
+        homo_ev: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Homo Ev',
+            default: ''
+        },
+        lumo_ev: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Lumo Ev',
             default: ''
         },
         id: {
@@ -4056,6 +4387,18 @@ export const ProcessGeneratedStackLayerPublicSchema = {
             title: 'Layer Index',
             default: 0
         },
+        step_ref: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 64
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Step Ref'
+        },
         name: {
             type: 'string',
             maxLength: 255,
@@ -4107,6 +4450,24 @@ export const ProcessGeneratedStackLayerPublicSchema = {
             type: 'string',
             maxLength: 255,
             title: 'Perovskite X',
+            default: ''
+        },
+        material_type: {
+            type: 'string',
+            maxLength: 100,
+            title: 'Material Type',
+            default: ''
+        },
+        homo_ev: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Homo Ev',
+            default: ''
+        },
+        lumo_ev: {
+            type: 'string',
+            maxLength: 50,
+            title: 'Lumo Ev',
             default: ''
         },
         id: {
