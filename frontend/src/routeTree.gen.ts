@@ -18,6 +18,7 @@ import { Route as GuiRouteImport } from './routes/_gui'
 import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
+import { Route as GuiTrashRouteImport } from './routes/_gui/trash'
 import { Route as GuiResultsRouteImport } from './routes/_gui/results'
 import { Route as GuiProcessesRouteImport } from './routes/_gui/processes'
 import { Route as GuiOrganizationRouteImport } from './routes/_gui/organization'
@@ -69,6 +70,11 @@ const LayoutAdminRoute = LayoutAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => LayoutRoute,
 } as any)
+const GuiTrashRoute = GuiTrashRouteImport.update({
+  id: '/trash',
+  path: '/trash',
+  getParentRoute: () => GuiRoute,
+} as any)
 const GuiResultsRoute = GuiResultsRouteImport.update({
   id: '/results',
   path: '/results',
@@ -117,6 +123,7 @@ export interface FileRoutesByFullPath {
   '/organization': typeof GuiOrganizationRoute
   '/processes': typeof GuiProcessesRoute
   '/results': typeof GuiResultsRoute
+  '/trash': typeof GuiTrashRoute
   '/admin': typeof LayoutAdminRoute
   '/settings': typeof LayoutSettingsRoute
   '/auth/nomad/callback': typeof AuthNomadCallbackRoute
@@ -133,6 +140,7 @@ export interface FileRoutesByTo {
   '/organization': typeof GuiOrganizationRoute
   '/processes': typeof GuiProcessesRoute
   '/results': typeof GuiResultsRoute
+  '/trash': typeof GuiTrashRoute
   '/admin': typeof LayoutAdminRoute
   '/settings': typeof LayoutSettingsRoute
   '/auth/nomad/callback': typeof AuthNomadCallbackRoute
@@ -151,6 +159,7 @@ export interface FileRoutesById {
   '/_gui/organization': typeof GuiOrganizationRoute
   '/_gui/processes': typeof GuiProcessesRoute
   '/_gui/results': typeof GuiResultsRoute
+  '/_gui/trash': typeof GuiTrashRoute
   '/_layout/admin': typeof LayoutAdminRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/': typeof LayoutIndexRoute
@@ -170,6 +179,7 @@ export interface FileRouteTypes {
     | '/organization'
     | '/processes'
     | '/results'
+    | '/trash'
     | '/admin'
     | '/settings'
     | '/auth/nomad/callback'
@@ -186,6 +196,7 @@ export interface FileRouteTypes {
     | '/organization'
     | '/processes'
     | '/results'
+    | '/trash'
     | '/admin'
     | '/settings'
     | '/auth/nomad/callback'
@@ -203,6 +214,7 @@ export interface FileRouteTypes {
     | '/_gui/organization'
     | '/_gui/processes'
     | '/_gui/results'
+    | '/_gui/trash'
     | '/_layout/admin'
     | '/_layout/settings'
     | '/_layout/'
@@ -284,6 +296,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAdminRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_gui/trash': {
+      id: '/_gui/trash'
+      path: '/trash'
+      fullPath: '/trash'
+      preLoaderRoute: typeof GuiTrashRouteImport
+      parentRoute: typeof GuiRoute
+    }
     '/_gui/results': {
       id: '/_gui/results'
       path: '/results'
@@ -343,6 +362,7 @@ interface GuiRouteChildren {
   GuiOrganizationRoute: typeof GuiOrganizationRoute
   GuiProcessesRoute: typeof GuiProcessesRoute
   GuiResultsRoute: typeof GuiResultsRoute
+  GuiTrashRoute: typeof GuiTrashRoute
 }
 
 const GuiRouteChildren: GuiRouteChildren = {
@@ -352,6 +372,7 @@ const GuiRouteChildren: GuiRouteChildren = {
   GuiOrganizationRoute: GuiOrganizationRoute,
   GuiProcessesRoute: GuiProcessesRoute,
   GuiResultsRoute: GuiResultsRoute,
+  GuiTrashRoute: GuiTrashRoute,
 }
 
 const GuiRouteWithChildren = GuiRoute._addFileChildren(GuiRouteChildren)

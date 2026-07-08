@@ -6,6 +6,7 @@ import {
   IconNotebook,
   IconPlayerPlay,
   IconStack3,
+  IconTrash,
   IconUpload,
 } from "@tabler/icons-react"
 
@@ -18,4 +19,5 @@ export const pageIcons = {
   "/analysis": IconChartBar,
   "/export": IconUpload,
   "/organization": IconNotebook,
+  "/trash": IconTrash,
 }

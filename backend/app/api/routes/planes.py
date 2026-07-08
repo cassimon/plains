@@ -42,7 +42,10 @@ def _has_plane_access(plane: Plane, user: User) -> bool:
     return False
 
 
-def _populate(plane: Plane) -> PlanePublic:
+def _populate(
+    plane: Plane, trashed_collection_ids: set[uuid.UUID] | None = None
+) -> PlanePublic:
+    excluded = trashed_collection_ids or set()
     return PlanePublic(
         id=plane.id,
         name=plane.name,
@@ -53,7 +56,11 @@ def _populate(plane: Plane) -> PlanePublic:
         created_at=plane.created_at,
         sticky_notes=[StickyNotePublic.model_validate(n) for n in plane.sticky_notes],
         text_fields=[TextFieldPublic.model_validate(t) for t in plane.text_fields],
-        collections=[DataCollectionPublic.model_validate(c) for c in plane.collections],
+        collections=[
+            DataCollectionPublic.model_validate(c)
+            for c in plane.collections
+            if c.id not in excluded
+        ],
         shared_with=[UserPublic.model_validate(s.user) for s in plane.shared_with],
     )
 

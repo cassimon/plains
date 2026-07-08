@@ -15,6 +15,7 @@ import {
   type BackendAdapter,
   HttpBackend,
   InMemoryBackend,
+  type TrashEntry,
   UNLOAD_BACKUP_KEY,
 } from "./backend"
 
@@ -1215,6 +1216,18 @@ type AppContextValue = {
   /** Immediately persist the current state (call before logout). */
   flushSave: () => Promise<void>
 
+  // ── Trash (soft-delete) ────────────────────────────────────────────────────
+  /** Fetch the current user's trashed items. */
+  getTrash: () => Promise<TrashEntry[]>
+  /** Restore an item (+ its upward dependency closure), then reload state. */
+  restoreTrash: (entityType: string, id: string) => Promise<void>
+  /** Permanently delete a single trashed item. */
+  purgeTrash: (entityType: string, id: string) => Promise<void>
+  /** Permanently delete everything in trash. */
+  emptyTrash: () => Promise<void>
+  /** Re-apply the authoritative server snapshot (replaces local arrays). */
+  reloadFromBackend: () => Promise<void>
+
   // ── Upload flow ("File Upload" critical status) ───────────────────────────
   /** The single active upload flow, or null. Only one may exist at a time. */
   uploadFlow: UploadFlow | null
@@ -1467,6 +1480,67 @@ export function AppProvider({
       void persistDirtyState()
     }, SAVE_DEBOUNCE_MS)
   }, [loaded, persistDirtyState])
+
+  // ── Trash (soft-delete) ────────────────────────────────────────────────────
+  // Authoritatively re-apply the server snapshot. Used after a trash
+  // restore/purge/empty, where local arrays must be replaced (not merged) so
+  // restored items appear and purged ones stay gone. Pending edits are flushed
+  // first so nothing is lost.
+  const reloadFromBackend = useCallback(async () => {
+    dirtyRef.current = true
+    await persistDirtyState()
+    const snapshot = await backend.load()
+    setExperiments(snapshot.experiments)
+    setProcesses(snapshot.processes)
+    const staleResultIds = new Set(
+      snapshot.results
+        .filter((r) => r.files.length > 0 && !r.nomad?.upload_id)
+        .map((r) => r.id),
+    )
+    setResults(snapshot.results.filter((r) => !staleResultIds.has(r.id)))
+    setFolders(snapshot.folders ?? [])
+    setPlanes(
+      snapshot.planes.map((plane) => ({
+        ...plane,
+        elements: plane.elements.map((el) => {
+          if (el.type !== "collection") return el
+          const col = el as CanvasCollectionElement
+          const nextRefs = col.refs.filter(
+            (ref) => !(ref.kind === "result" && staleResultIds.has(ref.id)),
+          )
+          return nextRefs.length === col.refs.length
+            ? el
+            : { ...col, refs: nextRefs }
+        }),
+      })),
+    )
+    setActivePlaneId((current) =>
+      current && snapshot.planes.some((p) => p.id === current)
+        ? current
+        : (snapshot.planes[0]?.id ?? null),
+    )
+  }, [backend, persistDirtyState])
+
+  const getTrash = useCallback(() => backend.getTrash(), [backend])
+
+  const restoreTrash = useCallback(
+    async (entityType: string, id: string) => {
+      await backend.restoreTrash(entityType, id)
+      await reloadFromBackend()
+    },
+    [backend, reloadFromBackend],
+  )
+
+  const purgeTrash = useCallback(
+    async (entityType: string, id: string) => {
+      await backend.purgeTrash(entityType, id)
+    },
+    [backend],
+  )
+
+  const emptyTrash = useCallback(async () => {
+    await backend.emptyTrash()
+  }, [backend])
 
   // ── Load persisted state on mount ──────────────────────────────────────────
 
@@ -1977,6 +2051,11 @@ export function AppProvider({
           await persistDirtyState()
           console.log("[AppContext] flushSave complete")
         },
+        getTrash,
+        restoreTrash,
+        purgeTrash,
+        emptyTrash,
+        reloadFromBackend,
         uploadFlow,
         startUploadFlow,
         updateUploadFlow,

@@ -4,9 +4,10 @@ from typing import Any
 
 from fastapi import APIRouter
 from sqlalchemy.orm.attributes import flag_modified
-from sqlmodel import or_, select
+from sqlmodel import col, or_, select
 
 from app.api.deps import CurrentUser, SessionDep
+from app.api.query import trashed_ids, visible
 from app.api.routes.planes import _populate as _populate_plane
 from app.models import (
     Analysis,
@@ -24,6 +25,7 @@ from app.models import (
     UserState,
     UserStatePublic,
 )
+from app.services.trash import sweep_expired_trash
 
 logger = logging.getLogger(__name__)
 
@@ -67,30 +69,55 @@ def update_state(
 
 @router.get("/bulk", response_model=BulkStateResponse)
 def get_bulk_state(session: SessionDep, current_user: CurrentUser) -> Any:
-    """Load all user entities in a single request."""
+    """Load all user entities in a single request.
+
+    This is the single login bootstrap, so it also runs the trash TTL sweep
+    (cheap thanks to the deleted_at/owner_id indexes) and excludes every
+    soft-deleted row via ``visible()`` — trashed items must never reach a
+    picker, and the snapshot is where they'd otherwise leak in.
+    """
     uid = current_user.id
-    planes = session.exec(
+    sweep_expired_trash(session, current_user)
+
+    # Planes carry a share join, so the owner filter can't come from visible();
+    # apply owner-or-shared here and exclude trashed planes explicitly.
+    trashed_planes = trashed_ids(session, current_user, "plane")
+    plane_stmt = (
         select(Plane)
         .outerjoin(PlaneShare, Plane.id == PlaneShare.plane_id)
         .where(or_(Plane.owner_id == uid, PlaneShare.user_id == uid))
         .distinct()
-    ).all()
+    )
+    if trashed_planes:
+        plane_stmt = plane_stmt.where(col(Plane.id).not_in(trashed_planes))
+    planes = session.exec(plane_stmt).all()
+    trashed_collections = trashed_ids(session, current_user, "collection")
+
     folders = session.exec(select(PlaneFolder).where(PlaneFolder.owner_id == uid)).all()
     return BulkStateResponse(
         materials=session.exec(
-            select(LabMaterial).where(LabMaterial.owner_id == uid)
+            visible(select(LabMaterial), LabMaterial, current_user, entity_type="material")
         ).all(),
         solutions=session.exec(
-            select(LabSolution).where(LabSolution.owner_id == uid)
+            visible(select(LabSolution), LabSolution, current_user, entity_type="solution")
         ).all(),
-        processes=session.exec(select(Process).where(Process.owner_id == uid)).all(),
+        processes=session.exec(
+            visible(select(Process), Process, current_user, entity_type="process")
+        ).all(),
         experiments=session.exec(
-            select(Experiment).where(Experiment.owner_id == uid)
+            visible(select(Experiment), Experiment, current_user, entity_type="experiment")
         ).all(),
         results=session.exec(
-            select(ExperimentResults).where(ExperimentResults.owner_id == uid)
+            visible(
+                select(ExperimentResults),
+                ExperimentResults,
+                current_user,
+                entity_type="result",
+            )
         ).all(),
-        analyses=session.exec(select(Analysis).where(Analysis.owner_id == uid)).all(),
-        planes=[_populate_plane(p) for p in planes],
+        analyses=session.exec(
+            visible(select(Analysis), Analysis, current_user, entity_type="analysis")
+        ).all(),
+        planes=[_populate_plane(p, trashed_collections) for p in planes],
         folders=[PlaneFolderPublic.model_validate(f) for f in folders],
     )

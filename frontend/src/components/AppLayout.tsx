@@ -22,6 +22,7 @@ import {
   IconSettings,
   IconSun,
   IconX,
+  IconTrash as TrashIcon,
 } from "@tabler/icons-react"
 import { Outlet, useLocation, useNavigate } from "@tanstack/react-router"
 import { useEffect, useMemo } from "react"
@@ -503,6 +504,34 @@ export function AppLayout() {
               </Tooltip>
             )
           })}
+
+          {/* Trash — pinned to the bottom, always visible. Not part of `pages`
+              so it is excluded from the collection-dimming logic above. */}
+          <div style={{ marginTop: "auto" }}>
+            <Tooltip label="Trash" position="right">
+              <ActionIcon
+                variant={
+                  location.pathname.startsWith("/trash") ? "filled" : "subtle"
+                }
+                size="lg"
+                radius="md"
+                onClick={() => navigate({ to: "/trash" })}
+                aria-label="Trash"
+                style={{
+                  width: rem(48),
+                  height: rem(48),
+                  background: location.pathname.startsWith("/trash")
+                    ? accentColor
+                    : undefined,
+                  color: location.pathname.startsWith("/trash")
+                    ? "white"
+                    : "var(--mantine-color-gray-6)",
+                }}
+              >
+                <TrashIcon size={28} />
+              </ActionIcon>
+            </Tooltip>
+          </div>
         </Stack>
       </AppShell.Navbar>
 

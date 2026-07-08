@@ -13,6 +13,7 @@ from app.api.routes import (
     results,
     solutions,
     state,
+    trash,
     users,
     utils,
 )
@@ -31,6 +32,7 @@ api_router.include_router(analyses.router)
 api_router.include_router(planes.router)
 api_router.include_router(plane_folders.router)
 api_router.include_router(state.router)
+api_router.include_router(trash.router)
 api_router.include_router(nomad.router)
 
 

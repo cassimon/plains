@@ -43,6 +43,28 @@ type TopEntity =
   | "planes"
   | "plane-folders"
 
+/** A soft-deleted item as returned by GET /trash/. */
+export type TrashEntry = {
+  id: string
+  entityType: string // process | experiment | result | analysis | plane | collection
+  entityId: string
+  name: string
+  originalPlaneId: string | null
+  deletedAt: string
+}
+
+/**
+ * Maps the diff-delete TopEntity buckets to the backend trash `entity_type`.
+ * Folders are intentionally absent — they are not trashable (deleting a folder
+ * only un-groups its planes) and keep hard-delete semantics.
+ */
+const TRASH_TYPE_FOR: Partial<Record<TopEntity, string>> = {
+  processes: "process",
+  experiments: "experiment",
+  results: "result",
+  planes: "plane",
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 export type AuthTokens = {
@@ -204,6 +226,16 @@ export interface BackendAdapter {
   createElement(planeId: string, element: CanvasElement): Promise<CanvasElement>
   updateElement(planeId: string, element: CanvasElement): Promise<CanvasElement>
   deleteElement(planeId: string, elementId: string): Promise<void>
+
+  // ── Trash (soft-delete) ────────────────────────────────────────────────────
+  /** List the current user's trashed items. */
+  getTrash(): Promise<TrashEntry[]>
+  /** Restore an item (and its upward dependency closure) from trash. */
+  restoreTrash(entityType: string, id: string): Promise<void>
+  /** Permanently delete a single trashed item. */
+  purgeTrash(entityType: string, id: string): Promise<void>
+  /** Permanently delete everything in trash. */
+  emptyTrash(): Promise<void>
 }
 
 // ── In-memory (default) adapter ──────────────────────────────────────────────
@@ -377,6 +409,14 @@ export class InMemoryBackend implements BackendAdapter {
         : p,
     )
   }
+
+  // In-memory backend has no persistent trash — no-op stubs.
+  async getTrash(): Promise<TrashEntry[]> {
+    return []
+  }
+  async restoreTrash(_entityType: string, _id: string): Promise<void> {}
+  async purgeTrash(_entityType: string, _id: string): Promise<void> {}
+  async emptyTrash(): Promise<void> {}
 }
 
 // ── HTTP adapter ─────────────────────────────────────────────────────────────
@@ -599,14 +639,64 @@ export class HttpBackend implements BackendAdapter {
     currentIds: string[],
   ): Promise<void> {
     const current = new Set(currentIds)
+    const trashType = TRASH_TYPE_FOR[type]
     for (const id of this.serverIds[type]) {
       if (current.has(id)) continue
       try {
-        await this.request("DELETE", `/${type}/${id}`)
+        if (trashType) {
+          // Soft-delete: move to trash instead of destroying the row. The trash
+          // entry causes the server to hide the item from /state/bulk even if a
+          // stale second session re-upserts it, which is what previously let
+          // deleted planes reappear. Restorable from the Trash page.
+          await this.request("POST", "/trash/", {
+            entity_type: trashType,
+            entity_id: id,
+          })
+        } else {
+          // Folders are not trashable — hard delete (un-groups its planes).
+          await this.request("DELETE", `/${type}/${id}`)
+        }
       } catch (err) {
         if (!(err instanceof HttpError && err.status === 404)) throw err
       }
     }
+  }
+
+  // ── Trash (soft-delete) ────────────────────────────────────────────────────
+
+  async getTrash(): Promise<TrashEntry[]> {
+    const res = await this.request("GET", "/trash/")
+    const rows = (res?.data ?? []) as Array<{
+      id: string
+      entity_type: string
+      entity_id: string
+      name: string
+      original_plane_id: string | null
+      deleted_at: string
+    }>
+    return rows.map((r) => ({
+      id: r.id,
+      entityType: r.entity_type,
+      entityId: r.entity_id,
+      name: r.name,
+      originalPlaneId: r.original_plane_id,
+      deletedAt: r.deleted_at,
+    }))
+  }
+
+  async restoreTrash(entityType: string, id: string): Promise<void> {
+    await this.request("POST", "/trash/restore", {
+      entity_type: entityType,
+      entity_id: id,
+    })
+  }
+
+  async purgeTrash(entityType: string, id: string): Promise<void> {
+    await this.request("POST", `/trash/${entityType}/${id}/purge`)
+  }
+
+  async emptyTrash(): Promise<void> {
+    await this.request("POST", "/trash/empty")
   }
 
   /**

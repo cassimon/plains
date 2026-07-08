@@ -109,11 +109,14 @@ export function useStartOrAddUpload() {
                 } added to the current upload.`,
                 color: "blue",
               })
-            } else if (digests.length === 0) {
+            } else {
+              // Dropped onto a different collection/experiment than the active
+              // upload targets. Never silently swallow the files — tell the user
+              // the current upload has to be finished or dropped first.
               notifications.show({
                 title: "Upload already in progress",
                 message:
-                  "There's still an incomplete upload — finish or cancel it before starting a new one.",
+                  "There's still an incomplete upload for another target — finish or delete it before starting a new one.",
                 color: "red",
               })
             }

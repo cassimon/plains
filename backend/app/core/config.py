@@ -173,6 +173,10 @@ class Settings(BaseSettings):
     NOMAD_STASH_DIR: str = "/var/lib/plains/nomad_stash"
     NOMAD_STASH_MAX_AGE_S: int = 7 * 24 * 60 * 60
 
+    # Soft-deleted (trashed) items are permanently swept this many days after
+    # deletion, on the next login bootstrap (GET /state/bulk, GET /trash/).
+    TRASH_TTL_DAYS: int = 30
+
     @model_validator(mode="after")
     def _load_nomad_auth_from_file(self) -> Self:
         """Read NOMAD credentials from the auth file unless already supplied."""

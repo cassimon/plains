@@ -12,7 +12,12 @@ import {
 } from "@mantine/core"
 import { modals } from "@mantine/modals"
 import { notifications } from "@mantine/notifications"
-import { IconCheck, IconCloudUpload, IconX } from "@tabler/icons-react"
+import {
+  IconCheck,
+  IconCloudUpload,
+  IconTrash,
+  IconX,
+} from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRevealForFlow } from "@/lib/entityReveal"
@@ -104,16 +109,16 @@ export function UploadFlowPanel({ onClose }: { onClose: () => void }) {
     void navigate({ to: "/results" })
   }
 
-  const handleCancel = () => {
+  const handleDelete = () => {
     modals.openConfirmModal({
-      title: "Discard this upload?",
+      title: "Delete this upload?",
       children: (
         <Text size="sm">
-          The staged files and progress for this upload will be lost. This can't
-          be undone.
+          The staged files for this upload will be{" "}
+          <strong>permanently deleted</strong>. This can't be undone.
         </Text>
       ),
-      labels: { confirm: "Discard upload", cancel: "Keep upload" },
+      labels: { confirm: "Delete permanently", cancel: "Keep upload" },
       confirmProps: { color: "red" },
       onConfirm: () => {
         onClose()
@@ -131,17 +136,30 @@ export function UploadFlowPanel({ onClose }: { onClose: () => void }) {
         <Text fw={700} size="sm">
           File Upload
         </Text>
-        <Tooltip label="Abort upload" withArrow>
-          <ActionIcon
-            size="sm"
-            variant="subtle"
-            color="red"
-            onClick={handleCancel}
-            aria-label="Abort upload"
-          >
-            <IconX size={14} />
-          </ActionIcon>
-        </Tooltip>
+        <Group gap={4}>
+          <Tooltip label="Delete upload permanently" withArrow>
+            <ActionIcon
+              size="sm"
+              variant="subtle"
+              color="red"
+              onClick={handleDelete}
+              aria-label="Delete upload permanently"
+            >
+              <IconTrash size={14} />
+            </ActionIcon>
+          </Tooltip>
+          <Tooltip label="Close" withArrow>
+            <ActionIcon
+              size="sm"
+              variant="subtle"
+              color="gray"
+              onClick={onClose}
+              aria-label="Close"
+            >
+              <IconX size={14} />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
       </Group>
 
       {(uploadFlow.pendingDigests?.length ?? 0) > 0 ? (

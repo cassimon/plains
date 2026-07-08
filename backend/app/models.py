@@ -1217,6 +1217,75 @@ class NomadUploadLogsPublic(SQLModel):
 
 
 # ============================================================================
+# Trash (soft-delete)
+# ============================================================================
+# Soft-delete registry: a row here marks an entity id as "trashed" without
+# touching the entity's own table, so existing cascade FKs stay valid and
+# restore is just deleting the trash row. Permanent delete / TTL sweep call
+# session.delete(entity) so cascades still clean up children. entity_id is
+# deliberately NOT a foreign key — it spans several tables (mirrors the
+# denormalised NomadUploadLog pattern).
+TRASHABLE_TYPES = (
+    "process",
+    "experiment",
+    "result",
+    "analysis",
+    "plane",
+    "collection",
+)
+
+
+class TrashEntryBase(SQLModel):
+    entity_type: str = Field(max_length=32, index=True)
+    entity_id: uuid.UUID = Field(index=True)
+    name: str = Field(default="", max_length=255)
+    # Plane the entity was on when trashed — drives the restore plane-exception
+    # prompt (a member restored off a trashed plane needs a new destination).
+    original_plane_id: uuid.UUID | None = None
+
+
+class TrashEntry(TrashEntryBase, table=True):
+    __tablename__ = "trash_entry"
+    __table_args__ = (UniqueConstraint("entity_type", "entity_id"),)
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    deleted_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),
+        index=True,
+    )
+
+
+class TrashEntryPublic(TrashEntryBase):
+    id: uuid.UUID
+    deleted_at: datetime
+
+
+class TrashListPublic(SQLModel):
+    data: list[TrashEntryPublic]
+    count: int
+
+
+class TrashCreate(SQLModel):
+    entity_type: str = Field(max_length=32)
+    entity_id: uuid.UUID
+
+
+class TrashRestore(SQLModel):
+    entity_type: str = Field(max_length=32)
+    entity_id: uuid.UUID
+
+
+class TrashRestoreResult(SQLModel):
+    """Ids that were un-trashed, grouped by type, so the frontend can re-place
+    the restored entities onto a plane (placement lives in the canvas layer)."""
+
+    restored: list[TrashEntryPublic]
+
+
+# ============================================================================
 # Analysis
 # ============================================================================
 class AnalysisRefBase(SQLModel):

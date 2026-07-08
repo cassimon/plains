@@ -12,6 +12,7 @@ import { ThemeProvider } from "./components/theme-provider"
 import { Toaster } from "./components/ui/sonner"
 import { clearKeycloak, getTokenAsync } from "./lib/keycloakInstance"
 import "@mantine/core/styles.css"
+import "@mantine/notifications/styles.css"
 import "./index.css"
 import { routeTree } from "./routeTree.gen"
 
