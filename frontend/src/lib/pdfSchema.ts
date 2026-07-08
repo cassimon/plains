@@ -19,7 +19,7 @@ import type { PDFDocument } from "pdf-lib"
 import type { Experiment, Process } from "@/store/AppContext"
 
 /** Bump on ANY change to the serialized shape or the field-name codec. */
-export const PDF_SCHEMA_VERSION = 1
+export const PDF_SCHEMA_VERSION = 2
 
 /** Minimal name lookups so an importer can resolve ids without the whole DB. */
 export type EntityRef = { id: string; name: string }
@@ -96,11 +96,25 @@ export type FieldPath =
   | { kind: "recipeTotalSolvent"; recipeId: string }
   | { kind: "recipeCommercialName"; recipeId: string }
   | { kind: "recipeSupplierNumber"; recipeId: string }
-  | { kind: "solventVolume"; recipeId: string; solventId: string }
+  | { kind: "solventRatio"; recipeId: string; solventId: string }
   | { kind: "soluteAmount"; recipeId: string; soluteId: string }
   | { kind: "soluteUnit"; recipeId: string; soluteId: string }
   | { kind: "stepParam"; stepId: string; paramKey: string }
+  | { kind: "stepQuench"; stepId: string; subKey: string }
   | { kind: "stepNotes"; stepId: string }
+  // Per-substrate experiment fields (one set per substrate the exp is run on).
+  | { kind: "experimentSubstrateName"; substrateId: string }
+  | {
+      kind: "experimentStageSelection"
+      substrateId: string
+      stageIndex: number
+    }
+  | {
+      kind: "experimentVariationValue"
+      substrateId: string
+      stepId: string
+      paramKey: string
+    }
   | { kind: "substrateLength"; substrateId: string }
   | { kind: "substrateWidth"; substrateId: string }
   | { kind: "substrateHeight"; substrateId: string }
@@ -127,16 +141,24 @@ export function encodeFieldName(path: FieldPath): string {
       return `chem${SEP}${path.recipeId}${SEP}commercialName`
     case "recipeSupplierNumber":
       return `chem${SEP}${path.recipeId}${SEP}supplierNumber`
-    case "solventVolume":
-      return `chem${SEP}${path.recipeId}${SEP}solvent${SEP}${path.solventId}${SEP}volume`
+    case "solventRatio":
+      return `chem${SEP}${path.recipeId}${SEP}solvent${SEP}${path.solventId}${SEP}ratio`
     case "soluteAmount":
       return `chem${SEP}${path.recipeId}${SEP}solute${SEP}${path.soluteId}${SEP}amount`
     case "soluteUnit":
       return `chem${SEP}${path.recipeId}${SEP}solute${SEP}${path.soluteId}${SEP}unit`
     case "stepParam":
       return `step${SEP}${path.stepId}${SEP}param${SEP}${path.paramKey}`
+    case "stepQuench":
+      return `step${SEP}${path.stepId}${SEP}quench${SEP}${path.subKey}`
     case "stepNotes":
       return `step${SEP}${path.stepId}${SEP}notes`
+    case "experimentSubstrateName":
+      return `expsub${SEP}${path.substrateId}${SEP}name`
+    case "experimentStageSelection":
+      return `expsub${SEP}${path.substrateId}${SEP}stage${SEP}${path.stageIndex}`
+    case "experimentVariationValue":
+      return `expsub${SEP}${path.substrateId}${SEP}var${SEP}${path.stepId}${SEP}${path.paramKey}`
     case "substrateLength":
       return `substrate${SEP}${path.substrateId}${SEP}lengthCm`
     case "substrateWidth":
@@ -184,8 +206,8 @@ export function decodeFieldName(name: string): FieldPath | null {
         return { kind: "recipeCommercialName", recipeId }
       if (parts[2] === "supplierNumber")
         return { kind: "recipeSupplierNumber", recipeId }
-      if (parts[2] === "solvent" && parts[4] === "volume")
-        return { kind: "solventVolume", recipeId, solventId: parts[3] }
+      if (parts[2] === "solvent" && parts[4] === "ratio")
+        return { kind: "solventRatio", recipeId, solventId: parts[3] }
       if (parts[2] === "solute" && parts[4] === "amount")
         return { kind: "soluteAmount", recipeId, soluteId: parts[3] }
       if (parts[2] === "solute" && parts[4] === "unit")
@@ -197,7 +219,28 @@ export function decodeFieldName(name: string): FieldPath | null {
       if (!stepId) return null
       if (parts[2] === "param" && parts[3])
         return { kind: "stepParam", stepId, paramKey: parts[3] }
+      if (parts[2] === "quench" && parts[3])
+        return { kind: "stepQuench", stepId, subKey: parts[3] }
       if (parts[2] === "notes") return { kind: "stepNotes", stepId }
+      return null
+    }
+    case "expsub": {
+      const substrateId = parts[1]
+      if (!substrateId) return null
+      if (parts[2] === "name")
+        return { kind: "experimentSubstrateName", substrateId }
+      if (parts[2] === "stage" && parts[3] !== undefined) {
+        const stageIndex = Number(parts[3])
+        if (Number.isNaN(stageIndex)) return null
+        return { kind: "experimentStageSelection", substrateId, stageIndex }
+      }
+      if (parts[2] === "var" && parts[3] && parts[4])
+        return {
+          kind: "experimentVariationValue",
+          substrateId,
+          stepId: parts[3],
+          paramKey: parts[4],
+        }
       return null
     }
     case "substrate": {
@@ -306,7 +349,11 @@ export function readPayload(pdfDoc: PDFDocument): SerializedPayload | null {
 
 const MIGRATIONS: Record<number, (p: SerializedPayload) => SerializedPayload> =
   {
-    // 1: (p) => ({ ...p, schemaVersion: 2, /* transform */ }),
+    // v1 → v2: the canonical payload shape is unchanged; only the field-name
+    // codec grew (editable solvent ratios, quenching sub-fields, per-substrate
+    // experiment fields). A v1 PDF's field snapshot uses only v1 field names,
+    // which still decode, so no data transform is needed — just bump the tag.
+    1: (p) => ({ ...p, schemaVersion: 2 }),
   }
 
 /**

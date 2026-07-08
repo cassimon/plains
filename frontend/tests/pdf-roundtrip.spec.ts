@@ -32,6 +32,8 @@ const SUBID = "dddddddd-0000-4000-8000-000000000001"
 const LID = "eeeeeeee-0000-4000-8000-000000000001"
 const PROC_ID = "ffffffff-0000-4000-8000-000000000001"
 const EXP_ID = "ffffffff-0000-4000-8000-000000000002"
+const SUB_A = "99999999-0000-4000-8000-00000000000a" // experiment substrate A
+const SUB_B = "99999999-0000-4000-8000-00000000000b" // experiment substrate B
 
 const processFixture: Process = {
   id: PROC_ID,
@@ -51,6 +53,12 @@ const processFixture: Process = {
           substrateTemp: { value: "25", mode: "constant" },
           annealingTemp: { value: "100", mode: "constant" },
           annealingTime: { value: "10", mode: "constant" },
+          // Antisolvent drying/quenching — decoded into editable scalar fields.
+          dryingMethod: {
+            value:
+              "type=Antisolvent|media=Chlorobenzene|volume=0.2 mL|timeUntilStart=5",
+            mode: "constant",
+          },
           notes: "spin at 3000 rpm",
         },
       ],
@@ -163,12 +171,31 @@ const experimentFixture: Experiment = {
   substrateMaterial: "glass",
   substrateWidth: 2.5,
   substrateLength: 2.5,
-  numSubstrates: 1,
+  numSubstrates: 2,
   devicesPerSubstrate: 6,
   deviceArea: 0.16,
   deviceType: "full",
   processId: PROC_ID,
-  substrates: [],
+  substrates: [
+    {
+      id: SUB_A,
+      name: "sub_A",
+      parameterValues: {
+        "stageSelection:0": STEP1,
+        "stageSelection:1": STEP2,
+        [`${STEP1}:annealingTemp`]: "110",
+      },
+    },
+    {
+      id: SUB_B,
+      name: "sub_B",
+      parameterValues: {
+        "stageSelection:0": STEP1,
+        "stageSelection:1": "SKIP",
+        [`${STEP1}:annealingTemp`]: "120",
+      },
+    },
+  ],
   hasResults: false,
 }
 
@@ -289,7 +316,7 @@ test("Process & Experiment survive a PDF export→import round-trip", async ({
 
   // ── 1. Process payload fully survives ──────────────────────────────────────
   expect(result.r1.kind).toBe("process")
-  expect(result.r1.schemaVersion).toBe(1)
+  expect(result.r1.schemaVersion).toBe(2)
   expect(result.r1.roundProcess).toEqual(norm(processFixture))
   // Unedited PDF ⇒ no spurious edits / errors.
   expect(result.r1.editsLen).toBe(0)
@@ -304,6 +331,9 @@ test("Process & Experiment survive a PDF export→import round-trip", async ({
   expect(has("commercialName")).toBeTruthy()
   expect(has("supplierNumber")).toBeTruthy()
   expect(has(":param:")).toBeTruthy() // step params
+  expect(has(":quench:")).toBeTruthy() // editable quenching scalars
+  expect(has(":solvent:")).toBeTruthy() // editable solvent volume ratio
+  expect(has(":ratio")).toBeTruthy()
   expect(has(":notes")).toBeTruthy()
   expect(has("lengthCm")).toBeTruthy()
   expect(has("widthCm")).toBeTruthy()
@@ -348,6 +378,16 @@ test("Process & Experiment survive a PDF export→import round-trip", async ({
   ).toBeTruthy()
   expect(
     result.r3.expFieldNames.some((n) => n.includes(":solute:")),
+  ).toBeTruthy()
+  // Per-substrate experiment fields: editable name, step choice, variation.
+  expect(
+    result.r3.expFieldNames.some((n) => n === `expsub:${SUB_A}:name`),
+  ).toBeTruthy()
+  expect(
+    result.r3.expFieldNames.some((n) => n.startsWith(`expsub:${SUB_A}:stage:`)),
+  ).toBeTruthy()
+  expect(
+    result.r3.expFieldNames.some((n) => n.startsWith(`expsub:${SUB_A}:var:`)),
   ).toBeTruthy()
 })
 
@@ -500,4 +540,125 @@ test("a slightly altered PDF: several edits across the entity are detected & app
   expect(result.original.soluteAmount).toBe("10")
   expect(result.original.soluteUnit).toBe("mg")
   expect(result.original.endDate).toBe("2026-07-10")
+})
+
+test("new editable fields round-trip: solvent ratio, quenching, substrate name, step choice, variation", async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await page.goto("/login", { waitUntil: "domcontentloaded" })
+
+  const ids = { RID, SOLV1, STEP1, STEP2, SUB_A, SUB_B }
+
+  const result = await page.evaluate(
+    async ({ processFixture, experimentFixture, ids }) => {
+      const exp = (await import(
+        /* @vite-ignore */ "/src/lib/processExport.ts"
+      )) as typeof import("@/lib/processExport")
+      const imp = (await import(
+        /* @vite-ignore */ "/src/lib/pdfImport.ts"
+      )) as typeof import("@/lib/pdfImport")
+      const schema = (await import(
+        /* @vite-ignore */ "/src/lib/pdfSchema.ts"
+      )) as typeof import("@/lib/pdfSchema")
+      const choices = (await import(
+        /* @vite-ignore */ "/src/lib/stageStepChoices.ts"
+      )) as typeof import("@/lib/stageStepChoices")
+
+      const bytes = await exp.buildExperimentPdf({
+        experiment: experimentFixture,
+        process: processFixture,
+        materials: [],
+        solutions: [],
+        chemicals: [],
+        solutionRows: [],
+        includeFullProcess: true,
+      })
+
+      // The label a viewer would pick to route SUB_B's stage 1 to STEP2 (it was
+      // "Skip step"). Built with the SAME helper import uses to resolve it back.
+      const stage1Options = choices.buildStageStepOptions(
+        processFixture.stages[1].alternatives,
+        processFixture.solutionRecipes ?? [],
+      )
+      const step2Label =
+        stage1Options.find((o) => o.value === ids.STEP2)?.label ?? ""
+
+      const f = {
+        solventRatio: schema.encodeFieldName({
+          kind: "solventRatio",
+          recipeId: ids.RID,
+          solventId: ids.SOLV1,
+        }),
+        quenchVolume: schema.encodeFieldName({
+          kind: "stepQuench",
+          stepId: ids.STEP1,
+          subKey: "volume",
+        }),
+        subName: schema.encodeFieldName({
+          kind: "experimentSubstrateName",
+          substrateId: ids.SUB_A,
+        }),
+        stageChoice: schema.encodeFieldName({
+          kind: "experimentStageSelection",
+          substrateId: ids.SUB_B,
+          stageIndex: 1,
+        }),
+        variation: schema.encodeFieldName({
+          kind: "experimentVariationValue",
+          substrateId: ids.SUB_A,
+          stepId: ids.STEP1,
+          paramKey: "annealingTemp",
+        }),
+      }
+
+      const altered = await imp.writeFieldValues(bytes, {
+        [f.solventRatio]: "5", // 3 → 5
+        [f.quenchVolume]: "0.35", // 0.2 → 0.35 (mL preserved)
+        [f.subName]: "sub_A_renamed", // sub_A → renamed
+        [f.stageChoice]: step2Label, // Skip → STEP2
+        [f.variation]: "115", // 110 → 115
+      })
+
+      const r = await imp.importPdf(altered)
+
+      const proc = r.edited.process
+      const experiment = r.edited.experiment
+      const solvent = proc.solutionRecipes
+        ?.find((x) => x.id === ids.RID)
+        ?.solvents.find((s) => s.id === ids.SOLV1)
+      const step1 = proc.stages
+        .flatMap((s) => s.alternatives)
+        .find((a) => a.id === ids.STEP1)
+      const subA = experiment?.substrates.find((s) => s.id === ids.SUB_A)
+      const subB = experiment?.substrates.find((s) => s.id === ids.SUB_B)
+
+      return {
+        editsLen: r.edits.length,
+        errorsLen: r.errors.length,
+        step2Label,
+        solventRatio: solvent?.volumeRatio,
+        quenchValue: step1?.dryingMethod?.value,
+        subAName: subA?.name,
+        stageChoice: subB?.parameterValues?.["stageSelection:1"],
+        variation: subA?.parameterValues?.[`${ids.STEP1}:annealingTemp`],
+      }
+    },
+    { processFixture, experimentFixture, ids },
+  )
+
+  expect(result.errorsLen).toBe(0)
+  expect(result.editsLen).toBe(5)
+  // solvent ratio is numeric on the entity
+  expect(result.solventRatio).toBe(5)
+  // quenching re-encodes the one scalar, preserving its unit + other params
+  expect(result.quenchValue).toContain("volume=0.35 mL")
+  expect(result.quenchValue).toContain("timeUntilStart=5")
+  expect(result.quenchValue).toContain("type=Antisolvent")
+  // substrate name applied
+  expect(result.subAName).toBe("sub_A_renamed")
+  // step choice: the label mapped back to STEP2's id
+  expect(result.stageChoice).toBe(STEP2)
+  // variation value applied
+  expect(result.variation).toBe("115")
 })

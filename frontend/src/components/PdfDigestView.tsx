@@ -57,14 +57,16 @@ function describeFieldPath(path: FieldPath): string {
       return "Recipe · commercial name"
     case "recipeSupplierNumber":
       return "Recipe · supplier number"
-    case "solventVolume":
-      return "Recipe · solvent volume"
+    case "solventRatio":
+      return "Recipe · solvent volume ratio"
     case "soluteAmount":
       return "Recipe · solute amount"
     case "soluteUnit":
       return "Recipe · solute unit"
     case "stepParam":
       return `Step parameter · ${path.paramKey}`
+    case "stepQuench":
+      return `Step · drying/quenching · ${path.subKey}`
     case "stepNotes":
       return "Step notes"
     case "substrateLength":
@@ -89,6 +91,12 @@ function describeFieldPath(path: FieldPath): string {
       return "Experiment · end date"
     case "experimentDescription":
       return "Experiment · description"
+    case "experimentSubstrateName":
+      return "Substrate · name"
+    case "experimentStageSelection":
+      return `Substrate · step choice (stage ${path.stageIndex + 1})`
+    case "experimentVariationValue":
+      return `Substrate · varied parameter · ${path.paramKey}`
   }
 }
 

@@ -6,6 +6,7 @@ from sqlmodel import col, func, select
 
 from app import crud
 from app.api.deps import CurrentUser, SessionDep
+from app.api.query import visible
 from app.models import (
     Process,
     ProcessCreate,
@@ -40,12 +41,14 @@ router = APIRouter(prefix="/processes", tags=["processes"])
 def read_processes(
     session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 100
 ) -> Any:
-    """Retrieve processes."""
-    base = select(Process)
-    count_base = select(func.count()).select_from(Process)
-    if not current_user.is_superuser:
-        base = base.where(Process.owner_id == current_user.id)
-        count_base = count_base.where(Process.owner_id == current_user.id)
+    """Retrieve processes (excludes soft-deleted / trashed rows)."""
+    base = visible(select(Process), Process, current_user, entity_type="process")
+    count_base = visible(
+        select(func.count()).select_from(Process),
+        Process,
+        current_user,
+        entity_type="process",
+    )
     count = session.exec(count_base).one()
     statement = base.order_by(col(Process.created_at).desc()).offset(skip).limit(limit)
     items = session.exec(statement).all()

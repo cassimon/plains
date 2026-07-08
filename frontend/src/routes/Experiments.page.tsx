@@ -40,6 +40,7 @@ import { autoResolveCollection } from "@/lib/autoResolveCollection"
 import { filesFromDataTransfer } from "@/lib/dropFiles"
 import { homeCollectionForEntity } from "@/lib/entityReveal"
 import { exportExperimentSummaryAsPdf } from "@/lib/processExport"
+import { buildStageStepOptions } from "@/lib/stageStepChoices"
 import {
   buildSubstratesFromNames,
   experimentProcessingDone,
@@ -182,58 +183,9 @@ function buildGeneratedSubstrateName(
   return `${parts.join("_")}_${index}`
 }
 
-function alphabeticSuffix(index: number): string {
-  let n = index
-  let suffix = ""
-  do {
-    suffix = String.fromCharCode(65 + (n % 26)) + suffix
-    n = Math.floor(n / 26) - 1
-  } while (n >= 0)
-  return suffix
-}
-
-function buildStepBaseLabel(
-  step: ProcessStep,
-  solutionRecipes: ProcessSolutionRecipe[] = [],
-): string {
-  const depositionMethod = step.depositionMethod?.value?.trim() || "Deposition"
-  const materialName =
-    step.inlineMaterial?.name ||
-    (step.chemRecipeId
-      ? (solutionRecipes.find((r) => r.id === step.chemRecipeId)?.name ?? null)
-      : null)
-  return materialName
-    ? `${depositionMethod}: ${materialName}`
-    : depositionMethod
-}
-
-function buildStageStepOptions(
-  alternatives: ProcessStep[],
-  solutionRecipes: ProcessSolutionRecipe[] = [],
-) {
-  const options = alternatives.map((step) => ({
-    value: step.id,
-    label: buildStepBaseLabel(step, solutionRecipes),
-  }))
-
-  const totalByLabel = new Map<string, number>()
-  for (const option of options) {
-    totalByLabel.set(option.label, (totalByLabel.get(option.label) ?? 0) + 1)
-  }
-
-  const seenByLabel = new Map<string, number>()
-  const deduped = options.map((option) => {
-    const total = totalByLabel.get(option.label) ?? 0
-    if (total <= 1) {
-      return option
-    }
-    const seen = seenByLabel.get(option.label) ?? 0
-    seenByLabel.set(option.label, seen + 1)
-    return { ...option, label: `${option.label} (${alphabeticSuffix(seen)})` }
-  })
-
-  return [...deduped, { value: "SKIP", label: "Skip step" }]
-}
+// `buildStageStepOptions` / `buildStepBaseLabel` now live in
+// `@/lib/stageStepChoices` so the PDF export/import round-trip builds identical
+// step-choice options (see import below).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Edit SubstrateName Generator (simplified display above table)

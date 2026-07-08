@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
+from app.api.query import visible
 from app.crud import create_experiment_results, update_experiment_results
 from app.models import (
     DeviceGroup,
@@ -29,11 +30,15 @@ def read_results(
     session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 100
 ) -> Any:
     """Retrieve experiment results."""
-    base = select(ExperimentResults)
-    count_base = select(func.count()).select_from(ExperimentResults)
-    if not current_user.is_superuser:
-        base = base.where(ExperimentResults.owner_id == current_user.id)
-        count_base = count_base.where(ExperimentResults.owner_id == current_user.id)
+    base = visible(
+        select(ExperimentResults), ExperimentResults, current_user, entity_type="result"
+    )
+    count_base = visible(
+        select(func.count()).select_from(ExperimentResults),
+        ExperimentResults,
+        current_user,
+        entity_type="result",
+    )
     count = session.exec(count_base).one()
     statement = (
         base.order_by(col(ExperimentResults.created_at).desc())

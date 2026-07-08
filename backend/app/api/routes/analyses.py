@@ -6,6 +6,7 @@ from sqlmodel import col, func, select
 
 from app import crud
 from app.api.deps import CurrentUser, SessionDep
+from app.api.query import visible
 from app.models import (
     AnalysesPublic,
     Analysis,
@@ -22,11 +23,13 @@ def read_analyses(
     session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 100
 ) -> Any:
     """Retrieve analyses."""
-    base = select(Analysis)
-    count_base = select(func.count()).select_from(Analysis)
-    if not current_user.is_superuser:
-        base = base.where(Analysis.owner_id == current_user.id)
-        count_base = count_base.where(Analysis.owner_id == current_user.id)
+    base = visible(select(Analysis), Analysis, current_user, entity_type="analysis")
+    count_base = visible(
+        select(func.count()).select_from(Analysis),
+        Analysis,
+        current_user,
+        entity_type="analysis",
+    )
     count = session.exec(count_base).one()
     statement = base.order_by(col(Analysis.created_at).desc()).offset(skip).limit(limit)
     items = session.exec(statement).all()

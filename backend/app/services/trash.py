@@ -99,7 +99,9 @@ def _children(session: Session, entity_type: str, obj: Any) -> list[tuple[str, A
     if entity_type == "collection":
         out: list[tuple[str, Any]] = []
         for t, model in _PLACEABLE:
-            rows = session.exec(select(model).where(model.collection_id == obj.id)).all()
+            rows = session.exec(
+                select(model).where(model.collection_id == obj.id)
+            ).all()
             out += [(t, r) for r in rows]
         return out
     if entity_type == "plane":
@@ -147,7 +149,9 @@ def _closure(
     edge_fn: Any,
 ) -> list[tuple[str, Any]]:
     """Breadth-first transitive closure over edge_fn, including the root."""
-    seen: dict[tuple[str, uuid.UUID], tuple[str, Any]] = {(entity_type, obj.id): (entity_type, obj)}
+    seen: dict[tuple[str, uuid.UUID], tuple[str, Any]] = {
+        (entity_type, obj.id): (entity_type, obj)
+    }
     stack = [(entity_type, obj)]
     while stack:
         t, o = stack.pop()
@@ -239,9 +243,7 @@ def restore(
     return removed
 
 
-def purge(
-    session: Session, user: User, entity_type: str, entity_id: uuid.UUID
-) -> None:
+def purge(session: Session, user: User, entity_type: str, entity_id: uuid.UUID) -> None:
     """Permanently delete a single trashed entity (cascades) + its trash row."""
     entry = _existing_entry(session, user, entity_type, entity_id)
     model = MODEL_BY_TYPE.get(entity_type)

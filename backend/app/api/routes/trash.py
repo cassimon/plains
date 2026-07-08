@@ -27,7 +27,10 @@ def _validate_type(entity_type: str) -> None:
 
 
 def _verify_owner(
-    session: SessionDep, current_user: CurrentUser, entity_type: str, entity_id: uuid.UUID
+    session: SessionDep,
+    current_user: CurrentUser,
+    entity_type: str,
+    entity_id: uuid.UUID,
 ) -> None:
     """404 if the entity is missing, 403 if it isn't the caller's.
 
@@ -85,9 +88,7 @@ def restore_entity(
     frontend can re-place them on a plane."""
     _validate_type(body.entity_type)
     _verify_owner(session, current_user, body.entity_type, body.entity_id)
-    removed = trash_svc.restore(
-        session, current_user, body.entity_type, body.entity_id
-    )
+    removed = trash_svc.restore(session, current_user, body.entity_type, body.entity_id)
     return TrashRestoreResult(restored=removed)
 
 

@@ -96,16 +96,22 @@ def get_bulk_state(session: SessionDep, current_user: CurrentUser) -> Any:
     folders = session.exec(select(PlaneFolder).where(PlaneFolder.owner_id == uid)).all()
     return BulkStateResponse(
         materials=session.exec(
-            visible(select(LabMaterial), LabMaterial, current_user, entity_type="material")
+            visible(
+                select(LabMaterial), LabMaterial, current_user, entity_type="material"
+            )
         ).all(),
         solutions=session.exec(
-            visible(select(LabSolution), LabSolution, current_user, entity_type="solution")
+            visible(
+                select(LabSolution), LabSolution, current_user, entity_type="solution"
+            )
         ).all(),
         processes=session.exec(
             visible(select(Process), Process, current_user, entity_type="process")
         ).all(),
         experiments=session.exec(
-            visible(select(Experiment), Experiment, current_user, entity_type="experiment")
+            visible(
+                select(Experiment), Experiment, current_user, entity_type="experiment"
+            )
         ).all(),
         results=session.exec(
             visible(

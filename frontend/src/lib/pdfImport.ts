@@ -13,6 +13,10 @@
 
 import type { PDFForm } from "pdf-lib"
 import {
+  isNumericQuenchKey,
+  updateQuenchingField,
+} from "@/components/QuenchingModal"
+import {
   type Experiment,
   PROCESS_PARAMETER_DEFINITIONS,
   type Process,
@@ -25,6 +29,7 @@ import {
   PAYLOAD_FIELD_NAME,
   readPayload,
 } from "./pdfSchema"
+import { buildStageStepOptions, SKIP_STEP } from "./stageStepChoices"
 
 const SOLUTE_UNITS = ["mg", "ml", "mol"]
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -81,6 +86,7 @@ function readFieldValue(form: PDFForm, name: string): string {
 
 const NUMERIC_KINDS = new Set<FieldPath["kind"]>([
   "recipeTotalSolvent",
+  "solventRatio",
   "soluteAmount",
   "substrateLength",
   "substrateWidth",
@@ -111,12 +117,17 @@ export function validateEdit(path: FieldPath, value: string): string | null {
       ? null
       : "must be a date (YYYY-MM-DD)"
   }
-  if (path.kind === "stepParam") {
+  if (path.kind === "stepParam" || path.kind === "experimentVariationValue") {
     const def = PROCESS_PARAMETER_DEFINITIONS.find(
       (d) => d.key === path.paramKey,
     )
     if (def?.type === "number")
       return isNumeric(value) ? null : "must be a number"
+  }
+  if (path.kind === "stepQuench") {
+    return isNumericQuenchKey(path.subKey) && !isNumeric(value)
+      ? "must be a number"
+      : null
   }
   return null // free-text fields
 }
@@ -164,6 +175,14 @@ export function applyFieldValue(
       if (r) r.totalSolventVolumeMl = value
       break
     }
+    case "solventRatio": {
+      const sv = recipe(path.recipeId)?.solvents.find(
+        (x) => x.id === path.solventId,
+      )
+      // Solvents store a numeric ratio; empty clears to 0.
+      if (sv) sv.volumeRatio = value.trim() === "" ? 0 : Number(value)
+      break
+    }
     case "soluteAmount": {
       const s = recipe(path.recipeId)?.solutes.find(
         (x) => x.id === path.soluteId,
@@ -185,6 +204,22 @@ export function applyFieldValue(
         const key = path.paramKey as ProcessParameterKey
         const existing = step[key]
         step[key] = { value, mode: existing?.mode ?? "constant" }
+      }
+      break
+    }
+    case "stepQuench": {
+      const step = findStep(process, path.stepId)
+      if (step?.dryingMethod) {
+        // Re-encode just this scalar into the composite quenching string,
+        // preserving its unit and every other (untouched) quenching parameter.
+        step.dryingMethod = {
+          ...step.dryingMethod,
+          value: updateQuenchingField(
+            step.dryingMethod.value,
+            path.subKey,
+            value,
+          ),
+        }
       }
       break
     }
@@ -238,6 +273,42 @@ export function applyFieldValue(
     case "experimentDescription":
       if (experiment) experiment.description = value
       break
+    case "experimentSubstrateName": {
+      const sub = experiment?.substrates.find((s) => s.id === path.substrateId)
+      if (sub) sub.name = value
+      break
+    }
+    case "experimentStageSelection": {
+      const sub = experiment?.substrates.find((s) => s.id === path.substrateId)
+      const stage = process.stages[path.stageIndex]
+      if (sub && stage) {
+        // The PDF dropdown stores the visible label; map it back to a step id
+        // (or SKIP). Unresolvable labels are left as-is (no-op).
+        const options = buildStageStepOptions(
+          stage.alternatives,
+          process.solutionRecipes ?? [],
+        )
+        const match = options.find((o) => o.label === value)
+        if (match) {
+          sub.parameterValues = {
+            ...(sub.parameterValues ?? {}),
+            [`stageSelection:${path.stageIndex}`]:
+              match.value === SKIP_STEP ? SKIP_STEP : match.value,
+          }
+        }
+      }
+      break
+    }
+    case "experimentVariationValue": {
+      const sub = experiment?.substrates.find((s) => s.id === path.substrateId)
+      if (sub) {
+        sub.parameterValues = {
+          ...(sub.parameterValues ?? {}),
+          [`${path.stepId}:${path.paramKey}`]: value,
+        }
+      }
+      break
+    }
   }
 }
 

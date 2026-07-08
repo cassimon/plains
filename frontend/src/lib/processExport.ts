@@ -6,7 +6,10 @@ import {
   rgb,
   StandardFonts,
 } from "pdf-lib"
-import { summariseQuenchingValue } from "@/components/QuenchingModal"
+import {
+  type QuenchingField,
+  quenchingFields,
+} from "@/components/QuenchingModal"
 import type {
   ChemicalExportRow,
   SolutionExportRow,
@@ -19,6 +22,7 @@ import {
   type ProcessSolutionRecipe,
   type ProcessSolvent,
   type ProcessStep,
+  type Substrate,
 } from "@/store/AppContext"
 import {
   type EntityRefs,
@@ -29,6 +33,11 @@ import {
   serializeExperiment,
   serializeProcess,
 } from "./pdfSchema"
+import {
+  buildStageStepOptions,
+  resolveStageSelection,
+  SKIP_STEP,
+} from "./stageStepChoices"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public input types
@@ -58,7 +67,12 @@ type ExperimentExportInput = {
 // Internal model types (rows carry entity ids so form fields can be addressed)
 // ─────────────────────────────────────────────────────────────────────────────
 
-type SolventRow = { id: string; name: string; volumeMl: number }
+type SolventRow = {
+  id: string
+  name: string
+  volumeRatio: number
+  volumeMl: number
+}
 type SoluteRow = {
   id: string
   name: string
@@ -93,6 +107,12 @@ type ParamRow = {
   unit?: string
 }
 
+/** Drying / Quenching, decoded into individually-editable scalar parameters. */
+type QuenchingSection = {
+  type: string
+  fields: QuenchingField[]
+}
+
 type StepSection = {
   stepId: string
   altLabel: string
@@ -101,6 +121,7 @@ type StepSection = {
   materialLabel: string
   recipeRef: string | null
   params: ParamRow[]
+  quenching?: QuenchingSection
   notes?: string
 }
 
@@ -206,39 +227,37 @@ function distributeSolventVolumes(
   return solvents.map((sv) => ({
     id: sv.id,
     name: sv.name || "Solvent",
+    volumeRatio: sv.volumeRatio || 0,
     volumeMl: (sv.volumeRatio / totalRatio) * totalVolumeMl,
   }))
 }
 
-function buildParamRows(
-  step: ProcessStep,
-  materials: NamedEntity[],
-  solutions: NamedEntity[],
-): ParamRow[] {
+/**
+ * All process parameters are editable EXCEPT Drying/Quenching, which is a
+ * composite string handled separately (see buildStepQuenching). Numeric-typed
+ * parameters are validated as numbers on import; the rest are free text.
+ */
+function buildParamRows(step: ProcessStep): ParamRow[] {
   return PROCESS_PARAMETER_DEFINITIONS.flatMap(
     ({ key, label, unit }): ParamRow[] => {
-      if (
-        key === "depositionMethod" ||
-        key === "depositionStartTime" ||
-        key === "annealingStartTime"
-      ) {
-        return []
-      }
+      if (key === "dryingMethod") return [] // rendered as editable quench fields
       const value = step[key]?.value?.trim()
       if (!value) return []
-      if (key === "dryingMethod") {
-        const summary = summariseQuenchingValue(value, materials, solutions)
-        const display = summary
-          ? summary.replace(/^D\/Q:\s*/, "").replace(/\s*\|\s*/g, ", ")
-          : value
-        // Drying/Quenching is a composite value — keep it read-only.
-        return [
-          { key, editable: false, label: "Drying / Quenching", value: display },
-        ]
-      }
       return [{ key, editable: true, label, value, unit: unit || undefined }]
     },
   )
+}
+
+/** Decode a step's Drying/Quenching value into editable scalar fields. */
+function buildStepQuenching(
+  step: ProcessStep,
+  resolveMedia: (raw: string) => string,
+): QuenchingSection | undefined {
+  const value = step.dryingMethod?.value?.trim()
+  if (!value) return undefined
+  const { type, fields } = quenchingFields(value, resolveMedia)
+  if (!type || fields.length === 0) return undefined
+  return { type, fields }
 }
 
 function resolveStepMaterialLabel(
@@ -359,6 +378,19 @@ function buildProcessExportModel({
   const solutionNameById = new Map(solutions.map((s) => [s.id, s.name]))
   const recipes = process.solutionRecipes ?? []
 
+  // Antisolvent-quenching media is stored as a `kind:id` reference; resolve it to
+  // a human name for the read-only media field (falls back to the raw value).
+  const resolveMedia = (raw: string): string => {
+    const idx = raw.indexOf(":")
+    if (idx === -1) return raw
+    const kind = raw.slice(0, idx)
+    const id = raw.slice(idx + 1)
+    if (kind === "material") return materialNameById.get(id) ?? raw
+    if (kind === "solution") return solutionNameById.get(id) ?? raw
+    if (kind === "recipe") return recipes.find((r) => r.id === id)?.name ?? raw
+    return raw
+  }
+
   // Collect recipe IDs referenced by any step, in stage order, deduped
   const referencedRecipeIds: string[] = []
   const seenIds = new Set<string>()
@@ -440,7 +472,8 @@ function buildProcessExportModel({
         category: STEP_CATEGORY_LABELS[step.stepCategory] || step.stepCategory,
         materialLabel: label,
         recipeRef,
-        params: buildParamRows(step, materials, solutions),
+        params: buildParamRows(step),
+        quenching: buildStepQuenching(step, resolveMedia),
         notes: step.notes?.trim() || undefined,
       }
     }),
@@ -1016,13 +1049,25 @@ function renderProcessSections(L: PdfLayout, model: ProcessExportModel) {
 
         if (chem.solvents.length > 0) {
           L.writeMiniHeading("Solvents")
+          // Solvents are stored as VOLUME RATIOS (the mixing recipe), not
+          // absolute volumes — editing the ratio is the logically-correct knob.
+          // The mL column is derived (ratio ÷ total ratio × total volume) and
+          // read-only, since a flat PDF cannot recompute it.
           L.drawTable(
-            ["Solvent", "Volume (mL)"],
+            ["Solvent", "Volume ratio", "Volume (mL, derived)"],
             chem.solvents.map((sv): TableCell[] => [
               sv.name,
+              edit(
+                {
+                  kind: "solventRatio",
+                  recipeId: chem.recipeId,
+                  solventId: sv.id,
+                },
+                String(sv.volumeRatio),
+              ),
               sv.volumeMl.toFixed(2),
             ]),
-            [cw * 0.6, cw * 0.4],
+            [cw * 0.44, cw * 0.28, cw * 0.28],
           )
           L.spacer(6)
         }
@@ -1124,6 +1169,24 @@ function renderProcessSections(L: PdfLayout, model: ProcessExportModel) {
                 p.value,
               )
             : p.value,
+        ])
+        L.drawTable(["Parameter", "Value"], rows, [cw * 0.42, cw * 0.58])
+        L.spacer(4)
+      }
+
+      // Drying / Quenching — each scalar parameter is individually editable; the
+      // quenching TYPE and any media reference stay read-only.
+      if (alt.quenching) {
+        L.spacer(2)
+        L.writeMiniHeading(`Drying / Quenching  (${alt.quenching.type})`)
+        const rows = alt.quenching.fields.map((f): TableCell[] => [
+          f.unit ? `${f.label} (${f.unit})` : f.label,
+          f.editable
+            ? edit(
+                { kind: "stepQuench", stepId: alt.stepId, subKey: f.key },
+                f.value,
+              )
+            : f.value,
         ])
         L.drawTable(["Parameter", "Value"], rows, [cw * 0.42, cw * 0.58])
         L.spacer(4)
@@ -1387,8 +1450,185 @@ function renderExperimentSection(
   }
   L.spacer(6)
 
+  // ── Substrates: names + per-substrate process step choices + variations ──────
+  renderExperimentSubstrates(L, experiment, process)
+
   // Reference the process id in the footer marker via the process model too.
   void processModel
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Experiment substrate rendering — an experiment is run over one or more
+// substrates. Each substrate has an editable name, a per-stage "step choice"
+// (which alternative of that stage it went through, or Skip), and, when the
+// process marks parameters for variation, its own value for each varied
+// parameter. All of these are round-trippable editable fields.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type VariationColumn = {
+  stepId: string
+  paramKey: string
+  stageIndex: number
+  label: string
+  /** Base (process-level) value, shown when a substrate has no override. */
+  baseValue: string
+}
+
+function buildVariationColumns(
+  experiment: Experiment,
+  process: Process,
+): VariationColumn[] {
+  const recipes = process.solutionRecipes ?? []
+  const columns = new Map<string, VariationColumn>()
+
+  // Index every step by id, with its stage index and display label.
+  const stepInfo = new Map<
+    string,
+    { stageIndex: number; label: string; step: ProcessStep }
+  >()
+  process.stages.forEach((stage, stageIndex) => {
+    const options = buildStageStepOptions(stage.alternatives, recipes)
+    for (const step of stage.alternatives) {
+      const label = options.find((o) => o.value === step.id)?.label ?? step.name
+      stepInfo.set(step.id, { stageIndex, label, step })
+    }
+  })
+
+  for (const substrate of experiment.substrates) {
+    const values = substrate.parameterValues ?? {}
+    for (const key of Object.keys(values)) {
+      if (key.startsWith("stageSelection:")) continue
+      const [stepId, paramKey] = key.split(":")
+      if (!stepId || !paramKey) continue
+      const paramDef = PROCESS_PARAMETER_DEFINITIONS.find(
+        (d) => d.key === paramKey,
+      )
+      const info = stepInfo.get(stepId)
+      if (!paramDef || !info) continue
+      const columnKey = `${stepId}:${paramKey}`
+      if (columns.has(columnKey)) continue
+      columns.set(columnKey, {
+        stepId,
+        paramKey,
+        stageIndex: info.stageIndex,
+        label: `#${info.stageIndex + 1} ${info.label} — ${paramDef.label}`,
+        baseValue: info.step[paramDef.key]?.value?.trim() ?? "",
+      })
+    }
+  }
+
+  return Array.from(columns.values()).sort((a, b) =>
+    a.stageIndex !== b.stageIndex
+      ? a.stageIndex - b.stageIndex
+      : a.label.localeCompare(b.label),
+  )
+}
+
+function renderExperimentSubstrates(
+  L: PdfLayout,
+  experiment: Experiment,
+  process: Process,
+) {
+  const substrates: Substrate[] = experiment.substrates ?? []
+  if (substrates.length === 0) return
+  const cw = L.contentWidth
+  const recipes = process.solutionRecipes ?? []
+
+  L.writeSectionHeading("3.", "Substrates & Process Step Choices")
+  L.writeNote(
+    "One block per substrate. The name and the chosen step for each stage are editable; " +
+      "changes are applied to the matching substrate on import.",
+  )
+  L.spacer(2)
+
+  for (let i = 0; i < substrates.length; i++) {
+    const substrate = substrates[i]
+    L.writeSubHeading(`Substrate ${i + 1}`)
+    L.writeId(`Substrate ID: ${substrate.id}`)
+
+    // Editable name.
+    L.drawTable(
+      ["Field", "Value"],
+      [
+        [
+          "Name",
+          edit(
+            { kind: "experimentSubstrateName", substrateId: substrate.id },
+            substrate.name ?? "",
+          ),
+        ],
+      ],
+      [cw * 0.3, cw * 0.7],
+    )
+    L.spacer(4)
+
+    // Per-stage step choice (dropdown of that stage's alternatives + Skip).
+    if (process.stages.length > 0) {
+      L.writeMiniHeading("Process step choices")
+      const rows = process.stages.map((stage, stageIndex): TableCell[] => {
+        const options = buildStageStepOptions(stage.alternatives, recipes)
+        const selectedId = resolveStageSelection(
+          substrate.parameterValues,
+          stageIndex,
+          stage.alternatives,
+        )
+        const selectedLabel =
+          options.find((o) => o.value === selectedId)?.label ??
+          options.find((o) => o.value === SKIP_STEP)?.label ??
+          ""
+        return [
+          `Step ${stageIndex + 1}`,
+          edit(
+            {
+              kind: "experimentStageSelection",
+              substrateId: substrate.id,
+              stageIndex,
+            },
+            selectedLabel,
+            options.map((o) => o.label),
+          ),
+        ]
+      })
+      L.drawTable(["Stage", "Selected step"], rows, [cw * 0.22, cw * 0.78])
+      L.spacer(6)
+    }
+  }
+
+  // ── Parameter variations (matrix: substrate × varied parameter) ──────────────
+  const columns = buildVariationColumns(experiment, process)
+  if (columns.length === 0) return
+
+  L.writeSectionHeading("4.", "Parameter Variations")
+  L.writeNote(
+    "Per-substrate values for parameters the process marked as varied. Each cell is editable.",
+  )
+  L.spacer(2)
+
+  const headers = ["Substrate", ...columns.map((c) => c.label)]
+  const rows = substrates.map((substrate): TableCell[] => {
+    const values = substrate.parameterValues ?? {}
+    return [
+      substrate.name || "Substrate",
+      ...columns.map((col): TableCell => {
+        const key = `${col.stepId}:${col.paramKey}`
+        const value = values[key] ?? col.baseValue
+        return edit(
+          {
+            kind: "experimentVariationValue",
+            substrateId: substrate.id,
+            stepId: col.stepId,
+            paramKey: col.paramKey,
+          },
+          value,
+        )
+      }),
+    ]
+  })
+  // First column for the substrate name, remaining width split across params.
+  const nameW = cw * 0.24
+  const paramW = (cw - nameW) / columns.length
+  L.drawTable(headers, rows, [nameW, ...columns.map(() => paramW)], 8)
+  L.spacer(8)
 }
 
 /** Build the Experiment summary PDF and return its bytes (no download). */

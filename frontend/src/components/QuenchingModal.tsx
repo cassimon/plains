@@ -402,6 +402,291 @@ function parseQuenchingValue(value: string): {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PDF-facing helpers — expose the individual quenching parameters as editable
+// scalar fields so an exported PDF can round-trip them (see lib/processExport.ts
+// and lib/pdfImport.ts). The quenching TYPE stays read-only: switching type
+// changes the whole field set, which a flat PDF form cannot express coherently.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Parse a `type=…|k=v|…` quenching string into a flat key→value map. */
+export function parseQuenchingPairs(value: string): Record<string, string> {
+  const pairs: Record<string, string> = {}
+  if (!value) return pairs
+  value.split("|").forEach((segment) => {
+    const idx = segment.indexOf("=")
+    if (idx === -1) return
+    pairs[segment.slice(0, idx).trim()] = segment.slice(idx + 1).trim()
+  })
+  return pairs
+}
+
+type QuenchFieldMeta = {
+  key: string
+  label: string
+  numeric: boolean
+  editable: boolean
+  /** Stored as `"<scalar> <unit>"` — split the unit off before editing. */
+  hasUnit: boolean
+}
+
+const QUENCH_FIELD_META: Record<QuenchingType, QuenchFieldMeta[]> = {
+  Gas: [
+    {
+      key: "gasType",
+      label: "Gas type",
+      numeric: false,
+      editable: true,
+      hasUnit: false,
+    }, // prettier-ignore
+    {
+      key: "pressure",
+      label: "Pressure",
+      numeric: true,
+      editable: true,
+      hasUnit: true,
+    },
+    {
+      key: "flowRate",
+      label: "Flow rate",
+      numeric: true,
+      editable: true,
+      hasUnit: true,
+    },
+    {
+      key: "height",
+      label: "Nozzle height",
+      numeric: true,
+      editable: true,
+      hasUnit: true,
+    }, // prettier-ignore
+    {
+      key: "nozzleWidth",
+      label: "Nozzle width",
+      numeric: true,
+      editable: true,
+      hasUnit: true,
+    }, // prettier-ignore
+    {
+      key: "nozzleForm",
+      label: "Nozzle form",
+      numeric: false,
+      editable: true,
+      hasUnit: false,
+    }, // prettier-ignore
+    {
+      key: "timeUntilStart",
+      label: "Time until start (s)",
+      numeric: true,
+      editable: true,
+      hasUnit: false,
+    }, // prettier-ignore
+  ],
+  Antisolvent: [
+    {
+      key: "media",
+      label: "Media",
+      numeric: false,
+      editable: false,
+      hasUnit: false,
+    },
+    {
+      key: "depositionMethod",
+      label: "Deposition method",
+      numeric: false,
+      editable: true,
+      hasUnit: false,
+    }, // prettier-ignore
+    {
+      key: "flowRate",
+      label: "Flow rate",
+      numeric: true,
+      editable: true,
+      hasUnit: true,
+    },
+    {
+      key: "height",
+      label: "Height",
+      numeric: true,
+      editable: true,
+      hasUnit: true,
+    },
+    {
+      key: "volume",
+      label: "Volume",
+      numeric: true,
+      editable: true,
+      hasUnit: true,
+    },
+    {
+      key: "timeUntilStart",
+      label: "Time until start (s)",
+      numeric: true,
+      editable: true,
+      hasUnit: false,
+    }, // prettier-ignore
+  ],
+  Vacuum: [
+    {
+      key: "height",
+      label: "Height",
+      numeric: true,
+      editable: true,
+      hasUnit: true,
+    },
+    {
+      key: "baseArea",
+      label: "Base area",
+      numeric: true,
+      editable: true,
+      hasUnit: true,
+    },
+    {
+      key: "pumpModel",
+      label: "Pump model",
+      numeric: false,
+      editable: true,
+      hasUnit: false,
+    }, // prettier-ignore
+    {
+      key: "deadVolume",
+      label: "Dead volume",
+      numeric: true,
+      editable: true,
+      hasUnit: true,
+    }, // prettier-ignore
+    {
+      key: "evacuationTime",
+      label: "Evacuation time",
+      numeric: true,
+      editable: true,
+      hasUnit: true,
+    }, // prettier-ignore
+    {
+      key: "timeUntilStart",
+      label: "Time until start (s)",
+      numeric: true,
+      editable: true,
+      hasUnit: false,
+    }, // prettier-ignore
+  ],
+}
+
+/** Numeric-ness of a quenching sub-key is stable across types (import validation). */
+export const QUENCH_NUMERIC_KEYS = new Set<string>([
+  "pressure",
+  "flowRate",
+  "height",
+  "nozzleWidth",
+  "volume",
+  "baseArea",
+  "deadVolume",
+  "evacuationTime",
+  "timeUntilStart",
+])
+
+export function isNumericQuenchKey(key: string): boolean {
+  return QUENCH_NUMERIC_KEYS.has(key)
+}
+
+export type QuenchingField = {
+  key: string
+  label: string
+  /** Editable scalar (unit stripped), or a display label for read-only fields. */
+  value: string
+  unit?: string
+  editable: boolean
+  numeric: boolean
+}
+
+/**
+ * Decode a quenching string into the fields that are actually SET, ready to be
+ * placed as editable PDF form fields. `resolveMedia` turns a media reference
+ * (`material:<id>` etc.) into a human name for the read-only media field.
+ */
+export function quenchingFields(
+  value: string,
+  resolveMedia?: (raw: string) => string,
+): { type: QuenchingType | null; fields: QuenchingField[] } {
+  const pairs = parseQuenchingPairs(value)
+  const rawType = pairs.type
+  if (!rawType || !(rawType in QUENCH_FIELD_META)) {
+    return { type: null, fields: [] }
+  }
+  const type = rawType as QuenchingType
+  const fields: QuenchingField[] = []
+  for (const meta of QUENCH_FIELD_META[type]) {
+    const raw =
+      meta.key === "media" ? (pairs.media ?? pairs.material) : pairs[meta.key] // prettier-ignore
+    if (raw === undefined || raw === "") continue
+    if (meta.key === "media") {
+      fields.push({
+        key: meta.key,
+        label: meta.label,
+        value: resolveMedia ? resolveMedia(raw) : raw,
+        editable: false,
+        numeric: false,
+      })
+      continue
+    }
+    let scalar = raw
+    let unit: string | undefined
+    if (meta.hasUnit) {
+      const i = raw.indexOf(" ")
+      if (i >= 0) {
+        scalar = raw.slice(0, i)
+        unit = raw.slice(i + 1)
+      }
+    }
+    fields.push({
+      key: meta.key,
+      label: meta.label,
+      value: scalar,
+      unit,
+      editable: meta.editable,
+      numeric: meta.numeric,
+    })
+  }
+  return { type, fields }
+}
+
+/**
+ * Apply a single edited scalar back into a quenching string, preserving the
+ * field's original unit and every other (untouched) parameter. An empty scalar
+ * clears the parameter. Returns the string unchanged for unknown keys.
+ */
+export function updateQuenchingField(
+  value: string,
+  key: string,
+  scalar: string,
+): string {
+  const pairs = parseQuenchingPairs(value)
+  const rawType = pairs.type
+  if (!rawType || !(rawType in QUENCH_FIELD_META)) return value
+  const type = rawType as QuenchingType
+  const meta = QUENCH_FIELD_META[type].find((m) => m.key === key)
+  if (!meta?.editable) return value
+
+  const trimmed = scalar.trim()
+  if (trimmed === "") {
+    delete pairs[key]
+  } else if (meta.hasUnit) {
+    const old = pairs[key] ?? ""
+    const i = old.indexOf(" ")
+    const unit = i >= 0 ? old.slice(i + 1) : ""
+    pairs[key] = unit ? `${trimmed} ${unit}` : trimmed
+  } else {
+    pairs[key] = trimmed
+  }
+
+  return [
+    `type=${type}`,
+    ...Object.entries(pairs)
+      .filter(([k]) => k !== "type")
+      .map(([k, v]) => `${k}=${v}`),
+  ].join("|")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Sub-forms
 // ─────────────────────────────────────────────────────────────────────────────
 

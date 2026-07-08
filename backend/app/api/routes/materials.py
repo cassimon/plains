@@ -6,6 +6,7 @@ from sqlmodel import col, func, select
 
 from app import crud
 from app.api.deps import CurrentUser, SessionDep
+from app.api.query import visible
 from app.models import (
     LabMaterial,
     LabMaterialCreate,
@@ -22,11 +23,15 @@ def read_materials(
     session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 100
 ) -> Any:
     """Retrieve materials."""
-    base = select(LabMaterial)
-    count_base = select(func.count()).select_from(LabMaterial)
-    if not current_user.is_superuser:
-        base = base.where(LabMaterial.owner_id == current_user.id)
-        count_base = count_base.where(LabMaterial.owner_id == current_user.id)
+    base = visible(
+        select(LabMaterial), LabMaterial, current_user, entity_type="material"
+    )
+    count_base = visible(
+        select(func.count()).select_from(LabMaterial),
+        LabMaterial,
+        current_user,
+        entity_type="material",
+    )
     count = session.exec(count_base).one()
     statement = (
         base.order_by(col(LabMaterial.created_at).desc()).offset(skip).limit(limit)

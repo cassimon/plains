@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
+from app.api.query import visible
 from app.crud import create_experiment, update_experiment
 from app.models import (
     EntityRefList,
@@ -27,38 +28,23 @@ router = APIRouter(prefix="/experiments", tags=["experiments"])
 def read_experiments(
     session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 100
 ) -> Any:
-    """Retrieve experiments."""
-    if current_user.is_superuser:
-        count_statement = select(func.count()).select_from(Experiment)
-        count = session.exec(count_statement).one()
-        statement = (
-            select(Experiment)
-            .order_by(col(Experiment.created_at).desc())
-            .offset(skip)
-            .limit(limit)
-        )
-        items = [
-            ExperimentPublic.model_validate(item)
-            for item in session.exec(statement).all()
-        ]
-    else:
-        count_statement = (
-            select(func.count())
-            .select_from(Experiment)
-            .where(Experiment.owner_id == current_user.id)
-        )
-        count = session.exec(count_statement).one()
-        statement = (
-            select(Experiment)
-            .where(Experiment.owner_id == current_user.id)
-            .order_by(col(Experiment.created_at).desc())
-            .offset(skip)
-            .limit(limit)
-        )
-        items = [
-            ExperimentPublic.model_validate(item)
-            for item in session.exec(statement).all()
-        ]
+    """Retrieve experiments (excludes soft-deleted / trashed rows)."""
+    count_statement = visible(
+        select(func.count()).select_from(Experiment),
+        Experiment,
+        current_user,
+        entity_type="experiment",
+    )
+    count = session.exec(count_statement).one()
+    statement = (
+        visible(select(Experiment), Experiment, current_user, entity_type="experiment")
+        .order_by(col(Experiment.created_at).desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    items = [
+        ExperimentPublic.model_validate(item) for item in session.exec(statement).all()
+    ]
     return ExperimentsPublic(data=items, count=count)
 
 

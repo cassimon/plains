@@ -1,9 +1,14 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import Session, select
 
+from app import crud
 from app.core.config import settings
-from tests.utils.utils import random_lower_string
+from app.models import ProcessCreate, TrashEntry, User, UserCreate
+from tests.utils.utils import random_email, random_lower_string
 
 API = settings.API_V1_STR
 TRASH = f"{API}/trash"
@@ -39,6 +44,27 @@ def _create_result(
     )
     assert r.status_code == 200, r.text
     return r.json()
+
+
+def _create_plane(client: TestClient, headers: dict) -> dict:
+    r = client.post(
+        f"{API}/planes/",
+        json={"name": random_lower_string()},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _create_collection(client: TestClient, headers: dict, plane_id: str) -> dict:
+    cid = str(uuid.uuid4())
+    r = client.put(
+        f"{API}/planes/{plane_id}/collections",
+        json=[{"id": cid, "i": 0, "j": 0, "name": random_lower_string()}],
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    return next(c for c in r.json() if c["id"] == cid)
 
 
 def _bulk(client: TestClient, headers: dict) -> dict:
@@ -193,3 +219,227 @@ class TestPurgeAndEmpty:
         assert r.status_code == 200, r.text
         listing = client.get(f"{TRASH}/", headers=normal_user_token_headers).json()
         assert listing["count"] == 0
+
+
+class TestPlaneCascade:
+    def test_trash_plane_cascades_to_members_and_collections(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        h = normal_user_token_headers
+        plane = _create_plane(client, h)
+        collection = _create_collection(client, h, plane["id"])
+        # A process placed on the plane + collection.
+        r = client.post(
+            f"{API}/processes/",
+            json={
+                "name": random_lower_string(),
+                "skip_chemistry": True,
+                "plane_id": plane["id"],
+                "collection_id": collection["id"],
+            },
+            headers=h,
+        )
+        assert r.status_code == 200, r.text
+        proc = r.json()
+
+        _trash(client, h, "plane", plane["id"])
+
+        bulk = _bulk(client, h)
+        assert not any(p["id"] == plane["id"] for p in bulk["planes"])
+        assert not any(p["id"] == proc["id"] for p in bulk["processes"])
+        # Collection is cascade-trashed and filtered out of every plane payload.
+        all_collections = [c for p in bulk["planes"] for c in p["collections"]]
+        assert collection["id"] not in {c["id"] for c in all_collections}
+
+        # It is all restorable together by restoring the plane.
+        _restore(client, h, "plane", plane["id"])
+        listing = client.get(f"{TRASH}/", headers=h).json()
+        # Restoring the plane alone does not force the members back (they are its
+        # downward closure, not its upward one) — only the plane leaves trash.
+        remaining = {e["entity_id"] for e in listing["data"]}
+        assert plane["id"] not in remaining
+
+    def test_original_plane_recorded(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        h = normal_user_token_headers
+        plane = _create_plane(client, h)
+        r = client.post(
+            f"{API}/processes/",
+            json={
+                "name": random_lower_string(),
+                "skip_chemistry": True,
+                "plane_id": plane["id"],
+            },
+            headers=h,
+        )
+        proc = r.json()
+        _trash(client, h, "process", proc["id"])
+        listing = client.get(f"{TRASH}/", headers=h).json()
+        entry = next(e for e in listing["data"] if e["entity_id"] == proc["id"])
+        assert entry["original_plane_id"] == plane["id"]
+
+
+class TestCollectionCascade:
+    def test_trash_collection_cascades_to_members(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        h = normal_user_token_headers
+        plane = _create_plane(client, h)
+        collection = _create_collection(client, h, plane["id"])
+        r = client.post(
+            f"{API}/processes/",
+            json={
+                "name": random_lower_string(),
+                "skip_chemistry": True,
+                "plane_id": plane["id"],
+                "collection_id": collection["id"],
+            },
+            headers=h,
+        )
+        proc = r.json()
+        _trash(client, h, "collection", collection["id"])
+        bulk = _bulk(client, h)
+        # The plane survives; the collection and its member process do not.
+        assert any(p["id"] == plane["id"] for p in bulk["planes"])
+        assert not any(p["id"] == proc["id"] for p in bulk["processes"])
+
+
+class TestListRouteFiltering:
+    def test_trashed_process_absent_from_list_route(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        h = normal_user_token_headers
+        proc = _create_process(client, h)
+        before = client.get(f"{API}/processes/", headers=h).json()
+        assert any(p["id"] == proc["id"] for p in before["data"])
+        _trash(client, h, "process", proc["id"])
+        after = client.get(f"{API}/processes/", headers=h).json()
+        assert not any(p["id"] == proc["id"] for p in after["data"])
+
+
+class TestIdempotency:
+    def test_retrash_is_noop(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        h = normal_user_token_headers
+        proc = _create_process(client, h)
+        first = _trash(client, h, "process", proc["id"])
+        assert first["count"] >= 1
+        second = _trash(client, h, "process", proc["id"])
+        assert second["count"] == 0  # already trashed → nothing new created
+        listing = client.get(f"{TRASH}/", headers=h).json()
+        matches = [e for e in listing["data"] if e["entity_id"] == proc["id"]]
+        assert len(matches) == 1  # no duplicate trash row
+
+
+class TestTTLSweep:
+    def test_expired_entries_are_swept(
+        self, client: TestClient, normal_user_token_headers: dict, db: Session
+    ) -> None:
+        h = normal_user_token_headers
+        proc = _create_process(client, h)
+        _trash(client, h, "process", proc["id"])
+        # Age the trash row well past the TTL.
+        entry = db.exec(
+            select(TrashEntry).where(TrashEntry.entity_id == uuid.UUID(proc["id"]))
+        ).first()
+        assert entry is not None
+        entry.deleted_at = datetime.now(timezone.utc) - timedelta(
+            days=settings.TRASH_TTL_DAYS + 5
+        )
+        db.add(entry)
+        db.commit()
+        # GET /trash/ runs the sweep → the entity and its trash row are gone.
+        listing = client.get(f"{TRASH}/", headers=h).json()
+        assert proc["id"] not in {e["entity_id"] for e in listing["data"]}
+        assert client.get(f"{API}/processes/{proc['id']}", headers=h).status_code == 404
+
+
+@pytest.fixture(scope="module")
+def victim(db: Session) -> User:
+    """An unrelated user, owner of items the attacker (normal_user) will hunt.
+
+    The victim is never authenticated (mirrors test_idor.py) — this sidesteps
+    the email whitelist that would otherwise block a second real login.
+    """
+    return crud.create_user(
+        session=db,
+        user_create=UserCreate(email=random_email(), password="VictimPass1!"),
+    )
+
+
+class TestOwnershipIsolation:
+    """The attacker is ``normal_user_token_headers``; the victim owns the rows."""
+
+    def test_cannot_trash_another_users_item(
+        self,
+        client: TestClient,
+        normal_user_token_headers: dict,
+        db: Session,
+        victim: User,
+    ) -> None:
+        victim_proc = crud.create_process(
+            session=db,
+            process_in=ProcessCreate(name=random_lower_string()),
+            owner_id=victim.id,
+        )
+        r = client.post(
+            f"{TRASH}/",
+            json={"entity_type": "process", "entity_id": str(victim_proc.id)},
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 403
+        # No trash row was created for it.
+        assert (
+            db.exec(
+                select(TrashEntry).where(TrashEntry.entity_id == victim_proc.id)
+            ).first()
+            is None
+        )
+
+    def test_trash_list_is_owner_scoped(
+        self,
+        client: TestClient,
+        normal_user_token_headers: dict,
+        db: Session,
+        victim: User,
+    ) -> None:
+        victim_proc = crud.create_process(
+            session=db,
+            process_in=ProcessCreate(name=random_lower_string()),
+            owner_id=victim.id,
+        )
+        db.add(
+            TrashEntry(
+                owner_id=victim.id,
+                entity_type="process",
+                entity_id=victim_proc.id,
+                name="victim proc",
+            )
+        )
+        db.commit()
+        attacker_list = client.get(f"{TRASH}/", headers=normal_user_token_headers).json()
+        assert str(victim_proc.id) not in {
+            e["entity_id"] for e in attacker_list["data"]
+        }
+
+    def test_cannot_purge_another_users_item(
+        self,
+        client: TestClient,
+        normal_user_token_headers: dict,
+        db: Session,
+        victim: User,
+    ) -> None:
+        victim_proc = crud.create_process(
+            session=db,
+            process_in=ProcessCreate(name=random_lower_string()),
+            owner_id=victim.id,
+        )
+        r = client.post(
+            f"{TRASH}/process/{victim_proc.id}/purge",
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 403
+        # Still there.
+        assert db.get(type(victim_proc), victim_proc.id) is not None

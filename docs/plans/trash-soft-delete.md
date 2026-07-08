@@ -1,5 +1,47 @@
 # Trash Can / Soft-Delete — Implementation Plan
 
+## Implementation status (2026-07-08)
+
+**Increment 1 — DONE & verified** (backend `pytest` green: `tests/api/routes/test_trash.py`
+10 tests + state/planes unaffected; frontend `tsc`+`biome` clean):
+
+- Backend `trash_entry` table + `TrashEntry`/`TrashEntryPublic` models (`models.py`,
+  `TRASHABLE_TYPES`).
+- `app/services/trash.py`: down/up closures, finished-upload skip, soft_delete / restore /
+  purge / empty / `sweep_expired_trash`.
+- `app/api/routes/trash.py`: `GET /trash/`, `POST /trash/`, `POST /trash/restore`,
+  `POST /trash/{type}/{id}/purge`, `POST /trash/empty` (owner-scoped).
+- `app/api/query.py` `visible()` = **the universal `FilterOutDeleted`** (owner scope + trash
+  exclusion), adopted in `GET /state/bulk`; collections filtered in `planes._populate`.
+  TTL sweep runs on the bulk bootstrap. `TRASH_TTL_DAYS=30` in config.
+- Frontend: `HttpBackend.deleteRemoved` now **soft-deletes via `POST /trash/`** instead of
+  hard `DELETE` (folders excluded → still hard-delete). This fixes the plane-reappears bug
+  (a trash row keeps the item hidden even if a stale session re-upserts it) and needs **no
+  page edits**. Adapter + `AppContext` gained `getTrash/restoreTrash/purgeTrash/emptyTrash/
+  reloadFromBackend`. New **Trash page** (`routes/Trash.page.tsx` + `_gui/trash.tsx`) and a
+  pinned bottom **trash sidebar icon** in `AppLayout.tsx`.
+
+**Design change vs. the original plan:** deletion is scattered across pages via the raw
+`setProcesses/Experiments/Results` setters (no explicit delete methods), so rather than
+"remove the diff-delete", we **kept the diff and made it soft** — objectively less churn and
+it still fixes both bugs. The universal filter is server-side (`visible()`), which is the
+"most general level" the requirement asked for; a client `filterOutDeleted` is unnecessary
+because the bulk snapshot is already filtered and local deletes remove items optimistically.
+
+**Increment 2 — TODO** (touches `Organization.page.tsx`, where another agent is active):
+- W0 extract free-field packer to `lib/gridPacking.ts`.
+- Plane-exception restore picker + free-field placement (restored items must join a collection).
+- Trash-a-plane-with-finished-uploads prompt (trash vs. move to another plane on free fields).
+- Collection trash from the UI (currently collections sync via plane replace endpoints, not
+  the diff — needs interception).
+- "Finished uploads" list on the Organization overview + read-only finished-upload rows on
+  the Trash page.
+- Enable Analyses trashing in the UI (backend already registry-ready).
+- Frontend integration tests (real-stack, serial).
+
+---
+
+
 ## Problem statement
 
 1. **Plane deletes don't stick.** Deleting a plane in the Organization flow is not

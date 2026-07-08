@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
+from app.api.query import visible
 from app.crud import create_solution, update_solution
 from app.models import (
     LabSolution,
@@ -22,11 +23,15 @@ def read_solutions(
     session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 100
 ) -> Any:
     """Retrieve solutions."""
-    base = select(LabSolution)
-    count_base = select(func.count()).select_from(LabSolution)
-    if not current_user.is_superuser:
-        base = base.where(LabSolution.owner_id == current_user.id)
-        count_base = count_base.where(LabSolution.owner_id == current_user.id)
+    base = visible(
+        select(LabSolution), LabSolution, current_user, entity_type="solution"
+    )
+    count_base = visible(
+        select(func.count()).select_from(LabSolution),
+        LabSolution,
+        current_user,
+        entity_type="solution",
+    )
     count = session.exec(count_base).one()
     statement = (
         base.order_by(col(LabSolution.created_at).desc()).offset(skip).limit(limit)
