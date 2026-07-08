@@ -53,7 +53,7 @@ import type {
   NomadConfigResponse,
   NomadUploadResponse,
 } from "../client/types.gen"
-import { useRevealForFlow } from "../lib/entityReveal"
+import { homeCollectionForEntity, useRevealForFlow } from "../lib/entityReveal"
 import { getTokenSync } from "../lib/keycloakInstance"
 import { getExperimentAllStepsDone } from "../lib/uploadFlow"
 import {
@@ -1197,8 +1197,11 @@ function ResultsDetail({
     processes,
     flushSave,
     uploadFlow,
+    startUploadFlow,
+    updateUploadFlow,
     setActiveEntity,
     updateLastSelected,
+    planes,
   } = useAppContext()
   const navigate = useNavigate()
   const revealForFlow = useRevealForFlow()
@@ -1821,6 +1824,79 @@ function ResultsDetail({
       matchGroupsToSubstrates,
       experiment.id,
       experiment.name,
+    ],
+  )
+
+  // Results-page drop ingress. Ingests locally AND syncs the ongoing-upload
+  // marker onto the experiment's home collection (Req: dropping here behaves like
+  // an Organization drop). Enforces the single-active-flow rule: a drop while a
+  // DIFFERENT experiment's upload is unfinished is refused.
+  const handleResultsDrop = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) {
+        return
+      }
+      if (uploadFlow && uploadFlow.experimentId !== experiment.id) {
+        notifications.show({
+          title: "Upload already in progress",
+          message:
+            "There's still an incomplete upload for another experiment — finish or cancel it before starting a new one.",
+          color: "red",
+        })
+        return
+      }
+      if (!experimentFullySpecified) {
+        // Stopped at the first step: the experiment must be completely specified
+        // before its results can be reviewed/uploaded (link is in the Step-1 alert).
+        notifications.show({
+          title: "Finish specifying this experiment first",
+          message:
+            "Complete its chemicals, substrates and summary before adding results.",
+          color: "red",
+        })
+        return
+      }
+      // Local ingestion (parse + auto-assign) — advances to Step 2 on success.
+      void handleDrop(files)
+      const staged = files.map((f) => ({ name: f.name, size: f.size }))
+      const home = homeCollectionForEntity(planes, "experiment", experiment.id)
+      if (!uploadFlow) {
+        // Register the flow so the Organization marker appears on the collection.
+        // Do NOT carry the File bytes: handleDrop already ingested them, and the
+        // carry-over effect ingests flow.files — passing them would double-ingest.
+        startUploadFlow({
+          origin: "add-results",
+          processId: experiment.processId,
+          experimentId: experiment.id,
+          pendingFiles: staged,
+          targetCollectionId: home?.collectionId ?? null,
+          targetPlaneId: home?.planeId ?? null,
+        })
+        return
+      }
+      // Same experiment: append to the staged list (marker + re-enable the
+      // "Import substrate names" button); again never touch flow.files.
+      updateUploadFlow({
+        pendingFiles: [...(uploadFlow.pendingFiles ?? []), ...staged],
+        substrateNamesImported: false,
+      })
+      notifications.show({
+        title: "Files added",
+        message: `${files.length} file${
+          files.length === 1 ? "" : "s"
+        } added to the current upload.`,
+        color: "blue",
+      })
+    },
+    [
+      uploadFlow,
+      experiment.id,
+      experiment.processId,
+      experimentFullySpecified,
+      handleDrop,
+      planes,
+      startUploadFlow,
+      updateUploadFlow,
     ],
   )
 
@@ -2791,24 +2867,6 @@ function ResultsDetail({
     updateLastSelected("experiment", experiment.id)
     void navigate({ to: "/experiments" })
   }
-
-  // Gate the Step 1 dropzone the same way as the "Next" button — an
-  // incompletely specified experiment can't accept results yet.
-  const handleResultsDrop = useCallback(
-    (files: File[]) => {
-      if (!experimentFullySpecified) {
-        notifications.show({
-          title: "Finish specifying this experiment first",
-          message:
-            "Complete its chemicals, substrates and summary before adding results.",
-          color: "red",
-        })
-        return
-      }
-      void handleDrop(files)
-    },
-    [experimentFullySpecified, handleDrop],
-  )
 
   return (
     <Box style={{ height: "100%", display: "flex", flexDirection: "column" }}>
