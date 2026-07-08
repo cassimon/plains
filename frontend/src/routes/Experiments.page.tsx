@@ -2021,11 +2021,13 @@ function SummaryTab({
   process,
   allExperiments,
   onUpdate,
+  onConfirmSummary,
 }: {
   experiment: Experiment
   process: Process
   allExperiments: Experiment[]
   onUpdate: (exp: Experiment) => void
+  onConfirmSummary: () => void
 }) {
   const [copied, setCopied] = useState(false)
   const [includeFullProcess, setIncludeFullProcess] = useState(false)
@@ -2180,9 +2182,7 @@ function SummaryTab({
               color="teal"
               disabled={!allFilled}
               leftSection={<IconCheck size={18} />}
-              onClick={() =>
-                onUpdate({ ...experiment, summaryConfirmed: true })
-              }
+              onClick={onConfirmSummary}
             >
               Confirm summary
             </Button>
@@ -2613,6 +2613,40 @@ export default function ExperimentsPage() {
       setExperiments((prev) => prev.map((e) => (e.id === exp.id ? exp : e)))
     },
     [setExperiments],
+  )
+
+  // Confirming the summary (Step 3) is what makes an experiment "fully
+  // specified". If files were already dropped onto this experiment's upload
+  // zone earlier (while it was still incomplete), that upload flow has been
+  // sitting idle waiting for this moment — confirming now completes the same
+  // hand-off to Results/Upload that a fresh drop would trigger once the
+  // experiment is already complete.
+  const handleConfirmSummary = useCallback(
+    (exp: Experiment) => {
+      handleUpdateExperiment({ ...exp, summaryConfirmed: true })
+      if (uploadFlow?.experimentId !== exp.id) {
+        return
+      }
+      setPendingCollectionLink({
+        collectionId: "",
+        planeId: "",
+        kind: "result",
+        selectedExperimentId: exp.id,
+        openAddResults: true,
+        requestId: crypto.randomUUID(),
+      })
+      setActiveEntity({ kind: "experiment", id: exp.id })
+      updateLastSelected("experiment", exp.id)
+      void navigate({ to: "/results" })
+    },
+    [
+      handleUpdateExperiment,
+      uploadFlow,
+      navigate,
+      setActiveEntity,
+      setPendingCollectionLink,
+      updateLastSelected,
+    ],
   )
 
   // Files dropped straight onto an experiment (the bottom drop zone). Starts a
@@ -3306,6 +3340,9 @@ export default function ExperimentsPage() {
                         process={selectedProcess}
                         allExperiments={experiments}
                         onUpdate={handleUpdateExperiment}
+                        onConfirmSummary={() =>
+                          handleConfirmSummary(selectedExperiment)
+                        }
                       />
                     </Paper>
                   )}
