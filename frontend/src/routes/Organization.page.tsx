@@ -93,6 +93,9 @@ const GRID = 20 // px – subtle grid snap
 const COLLECTION_REF_DRAG_MIME = "application/x-plains-collection-ref-drag"
 const COLLECTION_ELEMENT_DRAG_MIME =
   "application/x-plains-collection-element-drag"
+// Text / sticky-note element drag (HTML5 DnD, mirrors collection-element drag so
+// notes get the same drop-target feedback and cross-plane moves).
+const TEXT_ELEMENT_DRAG_MIME = "application/x-plains-text-element-drag"
 
 // Neutral grayish-blue for default selections
 const DEFAULT_ACCENT = "#94a3b8"
@@ -117,6 +120,18 @@ type CollectionRefDragPayload = {
 }
 
 type CollectionElementDragPayload = { collectionId: string }
+
+// Payload carried while dragging a text/note element. The grab offset (which
+// cell within the element's span the pointer grabbed) and the element's span
+// are stashed here because `dataTransfer.getData` is unreadable during
+// `dragover` — the drop-target preview needs them to place the whole footprint.
+type TextElementDragPayload = {
+  elementId: string
+  grabCol: number
+  grabRow: number
+  spanCols: number
+  spanRows: number
+}
 
 /** Approximate rendered bounding box of a CollectionEl card */
 // Chessboard grid cell dimensions
@@ -161,6 +176,49 @@ function occupiedCellKeys(
     }
   }
   return occ
+}
+
+/**
+ * True when a `spanCols × spanRows` footprint anchored at (col,row) is fully
+ * on-grid and clear of every occupied cell in `occ`.
+ */
+function spanFits(
+  occ: Set<string>,
+  col: number,
+  row: number,
+  spanCols: number,
+  spanRows: number,
+): boolean {
+  if (col < 0 || row < 0) return false
+  for (let r = 0; r < spanRows; r++) {
+    for (let c = 0; c < spanCols; c++) {
+      if (occ.has(`${col + c},${row + r}`)) return false
+    }
+  }
+  return true
+}
+
+/**
+ * First cell (reading order, wrapping at `maxCols`) where a `spanCols × spanRows`
+ * footprint fits among `elements`. Used to land a text/note element on another
+ * plane without overlapping existing content.
+ */
+function firstFreeSpanCell(
+  elements: CanvasElement[],
+  spanCols: number,
+  spanRows: number,
+  maxCols: number,
+): Vec2 {
+  const occ = occupiedCellKeys(elements, [])
+  const cols = Math.max(maxCols, spanCols)
+  for (let row = 0; row < 5000; row++) {
+    for (let col = 0; col + spanCols <= cols; col++) {
+      if (spanFits(occ, col, row, spanCols, spanRows)) {
+        return { x: col * CELL_W, y: row * CELL_H }
+      }
+    }
+  }
+  return { x: 0, y: 0 }
 }
 
 /**
@@ -506,6 +564,9 @@ function TextEl({
   onStartEdit,
   onEditEnd,
   pan,
+  isDragging,
+  onDragElStart,
+  onDragElEnd,
 }: {
   el: CanvasTextElement
   onUpdate: (e: CanvasElement) => void
@@ -513,46 +574,49 @@ function TextEl({
   onStartEdit?: () => void
   onEditEnd?: () => void
   pan: Vec2
+  isDragging: boolean
+  onDragElStart: (payload: TextElementDragPayload) => void
+  onDragElEnd: () => void
 }) {
   const [editing, setEditing] = useState(el.content === "")
-  const [dragging, setDragging] = useState(false)
   const [showFormatBar, setShowFormatBar] = useState(false)
-  const dragStart = useRef<{ mouse: Vec2; origin: Vec2 } | null>(null)
   const resizeStart = useRef<{ mouse: Vec2; size: Vec2 } | null>(null)
   const prevEditing = useRef(editing)
 
-  const startDrag = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (editing) return
-    setDragging(true)
-    dragStart.current = {
-      mouse: { x: ev.clientX, y: ev.clientY },
-      origin: { ...el.position },
+  const onDragStart = (ev: ReactDragEvent<HTMLDivElement>) => {
+    // Suppress the native drag while editing text or resizing the note.
+    if (editing || resizeStart.current) {
+      ev.preventDefault()
+      return
     }
-    ;(ev.target as HTMLElement).setPointerCapture(ev.pointerId)
-  }
-
-  const onPointerMove = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragging || !dragStart.current) return
-    const dx = ev.clientX - dragStart.current.mouse.x
-    const dy = ev.clientY - dragStart.current.mouse.y
-    onUpdate({
-      ...el,
-      position: {
-        x: Math.max(
-          0,
-          Math.round((dragStart.current.origin.x + dx) / CELL_W) * CELL_W,
-        ),
-        y: Math.max(
-          0,
-          Math.round((dragStart.current.origin.y + dy) / CELL_H) * CELL_H,
-        ),
-      },
-    })
-  }
-
-  const stopDrag = () => {
-    setDragging(false)
-    dragStart.current = null
+    const rect = ev.currentTarget.getBoundingClientRect()
+    const spanCols = Math.max(1, Math.round(el.size.x / CELL_W))
+    const spanRows = Math.max(1, Math.round(el.size.y / CELL_H))
+    const grabCol = Math.min(
+      spanCols - 1,
+      Math.max(
+        0,
+        Math.floor((ev.clientX - rect.left) / (rect.width / spanCols)),
+      ),
+    )
+    const grabRow = Math.min(
+      spanRows - 1,
+      Math.max(
+        0,
+        Math.floor((ev.clientY - rect.top) / (rect.height / spanRows)),
+      ),
+    )
+    const payload: TextElementDragPayload = {
+      elementId: el.id,
+      grabCol,
+      grabRow,
+      spanCols,
+      spanRows,
+    }
+    ev.dataTransfer.effectAllowed = "move"
+    ev.dataTransfer.setData(TEXT_ELEMENT_DRAG_MIME, JSON.stringify(payload))
+    ev.dataTransfer.setData("text/plain", JSON.stringify(payload))
+    onDragElStart(payload)
   }
 
   const startResize = (ev: ReactPointerEvent<HTMLDivElement>) => {
@@ -614,18 +678,20 @@ function TextEl({
 
   return (
     <Box
+      draggable={!editing}
+      onDragStart={onDragStart}
+      onDragEnd={onDragElEnd}
       style={{
         position: "absolute",
         left: el.position.x + pan.x,
         top: el.position.y + pan.y,
         width: el.size.x,
         minHeight: el.size.y,
-        cursor: dragging ? "grabbing" : editing ? "text" : "grab",
+        cursor: editing ? "text" : "grab",
         userSelect: "none",
+        opacity: isDragging ? 0.35 : 1,
+        transition: "opacity 80ms ease",
       }}
-      onPointerDown={startDrag}
-      onPointerMove={onPointerMove}
-      onPointerUp={stopDrag}
     >
       <div
         className="sticky-note"
@@ -767,6 +833,9 @@ function PlainTextEl({
   onStartEdit,
   onEditEnd,
   pan,
+  isDragging,
+  onDragElStart,
+  onDragElEnd,
 }: {
   el: CanvasPlainTextElement
   onUpdate: (e: CanvasElement) => void
@@ -774,49 +843,48 @@ function PlainTextEl({
   onStartEdit?: () => void
   onEditEnd?: () => void
   pan: Vec2
+  isDragging: boolean
+  onDragElStart: (payload: TextElementDragPayload) => void
+  onDragElEnd: () => void
 }) {
   const [editing, setEditing] = useState(el.content === "")
-  const [dragging, setDragging] = useState(false)
   const [hovered, setHovered] = useState(false)
-  const dragStart = useRef<{ mouse: Vec2; origin: Vec2 } | null>(null)
   const resizeStart = useRef<{ mouse: Vec2; size: Vec2 } | null>(null)
 
-  const startDrag = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (editing) {
+  const onDragStart = (ev: ReactDragEvent<HTMLDivElement>) => {
+    // Suppress the native drag while editing text or resizing.
+    if (editing || resizeStart.current) {
+      ev.preventDefault()
       return
     }
-    setDragging(true)
-    dragStart.current = {
-      mouse: { x: ev.clientX, y: ev.clientY },
-      origin: { ...el.position },
+    const rect = ev.currentTarget.getBoundingClientRect()
+    const spanCols = Math.max(1, Math.round(el.size.x / CELL_W))
+    const spanRows = Math.max(1, Math.round(el.size.y / CELL_H))
+    const grabCol = Math.min(
+      spanCols - 1,
+      Math.max(
+        0,
+        Math.floor((ev.clientX - rect.left) / (rect.width / spanCols)),
+      ),
+    )
+    const grabRow = Math.min(
+      spanRows - 1,
+      Math.max(
+        0,
+        Math.floor((ev.clientY - rect.top) / (rect.height / spanRows)),
+      ),
+    )
+    const payload: TextElementDragPayload = {
+      elementId: el.id,
+      grabCol,
+      grabRow,
+      spanCols,
+      spanRows,
     }
-    ;(ev.target as HTMLElement).setPointerCapture(ev.pointerId)
-  }
-
-  const onPointerMove = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragging || !dragStart.current) {
-      return
-    }
-    const dx = ev.clientX - dragStart.current.mouse.x
-    const dy = ev.clientY - dragStart.current.mouse.y
-    onUpdate({
-      ...el,
-      position: {
-        x: Math.max(
-          0,
-          Math.round((dragStart.current.origin.x + dx) / CELL_W) * CELL_W,
-        ),
-        y: Math.max(
-          0,
-          Math.round((dragStart.current.origin.y + dy) / CELL_H) * CELL_H,
-        ),
-      },
-    })
-  }
-
-  const stopDrag = () => {
-    setDragging(false)
-    dragStart.current = null
+    ev.dataTransfer.effectAllowed = "move"
+    ev.dataTransfer.setData(TEXT_ELEMENT_DRAG_MIME, JSON.stringify(payload))
+    ev.dataTransfer.setData("text/plain", JSON.stringify(payload))
+    onDragElStart(payload)
   }
 
   const startResize = (ev: ReactPointerEvent<HTMLDivElement>) => {
@@ -882,19 +950,21 @@ function PlainTextEl({
 
   return (
     <Box
+      draggable={!editing}
+      onDragStart={onDragStart}
+      onDragEnd={onDragElEnd}
       style={{
         position: "absolute",
         left: el.position.x + pan.x,
         top: el.position.y + pan.y,
         width: el.size.x,
         minHeight: el.size.y,
-        cursor: dragging ? "grabbing" : editing ? "text" : "grab",
+        cursor: editing ? "text" : "grab",
         userSelect: "none",
         background: "transparent",
+        opacity: isDragging ? 0.35 : 1,
+        transition: "opacity 80ms ease",
       }}
-      onPointerDown={startDrag}
-      onPointerMove={onPointerMove}
-      onPointerUp={stopDrag}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
     >
@@ -3527,7 +3597,27 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
   const [draggingCollectionId, setDraggingCollectionId] = useState<
     string | null
   >(null)
+  // Id of the text/note element currently being dragged (ghosts the source).
+  const [draggingTextElId, setDraggingTextElId] = useState<string | null>(null)
+  // Live drag metadata (grab offset + span), read during `dragover` where the
+  // DataTransfer payload is not accessible.
+  const draggingTextRef = useRef<TextElementDragPayload | null>(null)
+  // Footprint the dragged text/note element would occupy at the cursor, plus
+  // whether it fits — drives the green ("movable") / red ("blocked") overlay.
+  const [textDropPreview, setTextDropPreview] = useState<{
+    col: number
+    row: number
+    spanCols: number
+    spanRows: number
+    valid: boolean
+  } | null>(null)
   const plaintextEditingRef = useRef(false)
+
+  const clearTextDrag = () => {
+    setDraggingTextElId(null)
+    setTextDropPreview(null)
+    draggingTextRef.current = null
+  }
 
   // ── Track color scheme changes to auto-invert plain text colors ─────────
   const prevSchemeRef = useRef(colorScheme)
@@ -4426,10 +4516,10 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               const hasEl = e.dataTransfer.types.includes(
                 COLLECTION_ELEMENT_DRAG_MIME,
               )
-              if (!hasRef && !hasEl && !hasFiles) return
-              // Allow the drop (files or collection refs) and highlight the
-              // cell / collection under the cursor so the user sees the target.
-              e.preventDefault()
+              const hasText =
+                e.dataTransfer.types.includes(TEXT_ELEMENT_DRAG_MIME) &&
+                !!draggingTextRef.current
+              if (!hasRef && !hasEl && !hasFiles && !hasText) return
               const rect = containerRef.current?.getBoundingClientRect()
               if (!rect) return
               const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
@@ -4437,6 +4527,37 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               const cy = e.clientY - rect.top - childPan.y
               const col = Math.floor(cx / CELL_STRIDE_W)
               const row = Math.floor(cy / CELL_STRIDE_H)
+
+              // Text/note drag: preview the element's full footprint at the
+              // cursor and validate it against every occupied cell so the user
+              // sees whether it can land here (green) or not (red).
+              if (hasText && draggingTextRef.current) {
+                const meta = draggingTextRef.current
+                const originCol = col - meta.grabCol
+                const originRow = row - meta.grabRow
+                const occ = occupiedCellKeys(plane.elements, [meta.elementId])
+                const valid = spanFits(
+                  occ,
+                  originCol,
+                  originRow,
+                  meta.spanCols,
+                  meta.spanRows,
+                )
+                e.preventDefault()
+                e.dataTransfer.dropEffect = valid ? "move" : "none"
+                setTextDropPreview({
+                  col: originCol,
+                  row: originRow,
+                  spanCols: meta.spanCols,
+                  spanRows: meta.spanRows,
+                  valid,
+                })
+                return
+              }
+
+              // Allow the drop (files or collection refs) and highlight the
+              // cell / collection under the cursor so the user sees the target.
+              e.preventDefault()
               if (col >= 0 && row >= 0) {
                 setDragOverCellKey(`${col},${row}`)
                 setDragOverIsFiles(hasFiles)
@@ -4446,12 +4567,14 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               if (!e.currentTarget.contains(e.relatedTarget as Node)) {
                 setDragOverCellKey(null)
                 setDragOverIsFiles(false)
+                setTextDropPreview(null)
               }
             }}
             onDrop={(e: ReactDragEvent<HTMLDivElement>) => {
               setDragOverCellKey(null)
               setDragOverIsFiles(false)
               setDraggingCollectionId(null)
+              setTextDropPreview(null)
 
               const rect = containerRef.current?.getBoundingClientRect()
 
@@ -4487,6 +4610,48 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               const cy = e.clientY - rect.top - childPan.y
               const col = Math.floor(cx / CELL_STRIDE_W)
               const row = Math.floor(cy / CELL_STRIDE_H)
+
+              // Text/note element move (same plane). Land the full footprint
+              // only if it fits; otherwise the element snaps back untouched.
+              const textRaw = e.dataTransfer.getData(TEXT_ELEMENT_DRAG_MIME)
+              if (textRaw) {
+                e.preventDefault()
+                try {
+                  const payload = JSON.parse(textRaw) as TextElementDragPayload
+                  const target = plane.elements.find(
+                    (el) => el.id === payload.elementId,
+                  )
+                  if (
+                    target &&
+                    (target.type === "text" || target.type === "plaintext")
+                  ) {
+                    const originCol = col - payload.grabCol
+                    const originRow = row - payload.grabRow
+                    const occ = occupiedCellKeys(plane.elements, [
+                      payload.elementId,
+                    ])
+                    if (
+                      spanFits(
+                        occ,
+                        originCol,
+                        originRow,
+                        payload.spanCols,
+                        payload.spanRows,
+                      )
+                    ) {
+                      updateElement(plane.id, {
+                        ...target,
+                        position: {
+                          x: originCol * CELL_W,
+                          y: originRow * CELL_H,
+                        },
+                      })
+                    }
+                  }
+                } catch {}
+                return
+              }
+
               if (col < 0 || row < 0) return
 
               // Whole-collection move
@@ -4608,6 +4773,12 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                         onStartEdit={undefined}
                         onEditEnd={undefined}
                         pan={elementPan}
+                        isDragging={draggingTextElId === el.id}
+                        onDragElStart={(payload) => {
+                          draggingTextRef.current = payload
+                          setDraggingTextElId(el.id)
+                        }}
+                        onDragElEnd={clearTextDrag}
                       />,
                     )
                   } else if (el.type === "plaintext") {
@@ -4625,6 +4796,12 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                           plaintextEditingRef.current = false
                         }}
                         pan={elementPan}
+                        isDragging={draggingTextElId === el.id}
+                        onDragElStart={(payload) => {
+                          draggingTextRef.current = payload
+                          setDraggingTextElId(el.id)
+                        }}
+                        onDragElEnd={clearTextDrag}
                       />,
                     )
                   } else if (el.type === "collection") {
@@ -4675,6 +4852,45 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               onUpdate={(el) => updateElement(plane.id, el)}
               onDelete={(id) => deleteElement(plane.id, id)}
             />
+
+            {/* Drop-target footprint while a text/note element is dragged.
+                Green = fits here ("movable"), red = blocked by another element. */}
+            {textDropPreview &&
+              (() => {
+                const childPan = { x: pan.x, y: pan.y + CELL_TOP_MARGIN }
+                const accent = textDropPreview.valid
+                  ? "var(--mantine-color-teal-6)"
+                  : "var(--mantine-color-red-6)"
+                return (
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: textDropPreview.col * CELL_STRIDE_W + childPan.x,
+                      top: textDropPreview.row * CELL_STRIDE_H + childPan.y,
+                      width:
+                        textDropPreview.spanCols * CELL_STRIDE_W - CELL_GAP,
+                      height:
+                        textDropPreview.spanRows * CELL_STRIDE_H - CELL_GAP,
+                      pointerEvents: "none",
+                      zIndex: 200,
+                      borderRadius: 6,
+                      border: `3px dashed ${accent}`,
+                      background: textDropPreview.valid
+                        ? "var(--mantine-color-teal-0)"
+                        : "var(--mantine-color-red-0)",
+                      opacity: 0.7,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "left 60ms, top 60ms",
+                    }}
+                  >
+                    <Text size="xs" fw={600} c={accent}>
+                      {textDropPreview.valid ? "Movable" : "No space"}
+                    </Text>
+                  </div>
+                )
+              })()}
           </Box>
 
           {/* Horizontal scrollbar — only shown when elements overflow to the right */}
@@ -5466,6 +5682,61 @@ export function OrganizationPage() {
     }
   }
 
+  // Move a dragged text/note element (resolved by id) to another plane. Unlike
+  // collections there's no data-sharing prompt — it lands at the first free
+  // cell on the target plane so it never overlaps existing content.
+  const moveTextElementToPlane = (
+    e: ReactDragEvent<HTMLElement>,
+    targetPlaneId: string,
+  ) => {
+    const raw = e.dataTransfer.getData(TEXT_ELEMENT_DRAG_MIME)
+    if (!raw) return
+    let elementId: string
+    try {
+      const parsed = JSON.parse(raw) as TextElementDragPayload
+      if (!parsed || typeof parsed.elementId !== "string") return
+      elementId = parsed.elementId
+    } catch {
+      return
+    }
+    let source: CanvasTextElement | CanvasPlainTextElement | undefined
+    let sourcePlaneId: string | undefined
+    for (const p of planes) {
+      const found = p.elements.find(
+        (el) =>
+          el.id === elementId &&
+          (el.type === "text" || el.type === "plaintext"),
+      ) as CanvasTextElement | CanvasPlainTextElement | undefined
+      if (found) {
+        source = found
+        sourcePlaneId = p.id
+        break
+      }
+    }
+    if (!source || !sourcePlaneId || sourcePlaneId === targetPlaneId) return
+    const sourcePlane = planes.find((p) => p.id === sourcePlaneId)
+    const targetPlane = planes.find((p) => p.id === targetPlaneId)
+    if (!sourcePlane || !targetPlane) return
+
+    const spanCols = Math.max(1, Math.round(source.size.x / CELL_W))
+    const spanRows = Math.max(1, Math.round(source.size.y / CELL_H))
+    const position = firstFreeSpanCell(
+      targetPlane.elements,
+      spanCols,
+      spanRows,
+      8,
+    )
+    const moved = { ...source, id: crypto.randomUUID(), position }
+    updatePlane({
+      ...sourcePlane,
+      elements: sourcePlane.elements.filter((el) => el.id !== elementId),
+    })
+    updatePlane({
+      ...targetPlane,
+      elements: [...targetPlane.elements, moved],
+    })
+  }
+
   // Keep the user on a concrete plane; if the current plane disappears,
   // fall back to the first available plane.
   useEffect(() => {
@@ -5578,14 +5849,15 @@ export function OrganizationPage() {
                   key={p.id}
                   data-plane-tab-id={p.id}
                   onDragOver={(e: ReactDragEvent<HTMLButtonElement>) => {
-                    if (
-                      !e.dataTransfer.types.includes(
-                        COLLECTION_ELEMENT_DRAG_MIME,
-                      ) ||
-                      p.id === activePlaneId
+                    const isCollection = e.dataTransfer.types.includes(
+                      COLLECTION_ELEMENT_DRAG_MIME,
                     )
+                    const isText = e.dataTransfer.types.includes(
+                      TEXT_ELEMENT_DRAG_MIME,
+                    )
+                    if ((!isCollection && !isText) || p.id === activePlaneId)
                       return
-                    // Accept the collection-card drop and highlight this tab.
+                    // Accept the card/note drop and highlight this tab.
                     e.preventDefault()
                     e.dataTransfer.dropEffect = "move"
                     if (hoveredPlaneTabId !== p.id) setHoveredPlaneTabId(p.id)
@@ -5596,16 +5868,21 @@ export function OrganizationPage() {
                     }
                   }}
                   onDrop={(e: ReactDragEvent<HTMLButtonElement>) => {
-                    if (
-                      !e.dataTransfer.types.includes(
-                        COLLECTION_ELEMENT_DRAG_MIME,
-                      ) ||
-                      p.id === activePlaneId
+                    const isCollection = e.dataTransfer.types.includes(
+                      COLLECTION_ELEMENT_DRAG_MIME,
                     )
+                    const isText = e.dataTransfer.types.includes(
+                      TEXT_ELEMENT_DRAG_MIME,
+                    )
+                    if ((!isCollection && !isText) || p.id === activePlaneId)
                       return
                     e.preventDefault()
                     setHoveredPlaneTabId(null)
-                    openTransferForDrop(e, p.id)
+                    if (isText) {
+                      moveTextElementToPlane(e, p.id)
+                    } else {
+                      openTransferForDrop(e, p.id)
+                    }
                   }}
                   style={
                     hoveredPlaneTabId === p.id

@@ -20,6 +20,7 @@ import {
 import EChartsReact from "echarts-for-react"
 import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { ComingSoonGate } from "@/components/ComingSoonGate"
 import type { Experiment } from "../store/AppContext"
 import { useAppContext } from "../store/AppContext"
 
@@ -842,205 +843,207 @@ export function AnalysisPage() {
   }
 
   return (
-    <Box
-      style={{
-        display: "flex",
-        height: "calc(100vh - 60px)",
-        flexDirection: "column",
-      }}
-    >
-      <Box style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        {/* Main: Plot Plane */}
-        <Box
-          style={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-          }}
-        >
-          {/* Toolbar */}
-          <Group
-            p="sm"
-            style={{
-              borderBottom: "1px solid var(--mantine-color-default-border)",
-              background: "white",
-            }}
-          >
-            <Text size="sm" fw={500}>
-              Add Plot:
-            </Text>
-            <Button
-              size="xs"
-              variant="light"
-              leftSection={<IconPlus size={14} />}
-              onClick={() => addWidget("boxplot")}
-            >
-              Box Plot
-            </Button>
-            <Button
-              size="xs"
-              variant="light"
-              leftSection={<IconPlus size={14} />}
-              onClick={() => addWidget("jv-curve")}
-            >
-              J-V Curve
-            </Button>
-            <Button
-              size="xs"
-              variant="light"
-              leftSection={<IconPlus size={14} />}
-              onClick={() => addWidget("scatter")}
-            >
-              Scatter
-            </Button>
-            <Button
-              size="xs"
-              variant="light"
-              leftSection={<IconPlus size={14} />}
-              onClick={() => addWidget("bar")}
-            >
-              Bar Chart
-            </Button>
-            <Divider orientation="vertical" />
-            <Text size="xs" c="dimmed">
-              {widgets.length} plot{widgets.length !== 1 ? "s" : ""} • Drag to
-              move, corner to resize
-            </Text>
-          </Group>
-
-          {/* Plot Plane */}
+    <ComingSoonGate featureName="Analysis">
+      <Box
+        style={{
+          display: "flex",
+          height: "calc(100vh - 60px)",
+          flexDirection: "column",
+        }}
+      >
+        <Box style={{ display: "flex", flex: 1, minHeight: 0 }}>
+          {/* Main: Plot Plane */}
           <Box
-            ref={planeRef}
             style={{
               flex: 1,
-              position: "relative",
-              overflow: "auto",
-              background: `
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
+            {/* Toolbar */}
+            <Group
+              p="sm"
+              style={{
+                borderBottom: "1px solid var(--mantine-color-default-border)",
+                background: "white",
+              }}
+            >
+              <Text size="sm" fw={500}>
+                Add Plot:
+              </Text>
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconPlus size={14} />}
+                onClick={() => addWidget("boxplot")}
+              >
+                Box Plot
+              </Button>
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconPlus size={14} />}
+                onClick={() => addWidget("jv-curve")}
+              >
+                J-V Curve
+              </Button>
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconPlus size={14} />}
+                onClick={() => addWidget("scatter")}
+              >
+                Scatter
+              </Button>
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconPlus size={14} />}
+                onClick={() => addWidget("bar")}
+              >
+                Bar Chart
+              </Button>
+              <Divider orientation="vertical" />
+              <Text size="xs" c="dimmed">
+                {widgets.length} plot{widgets.length !== 1 ? "s" : ""} • Drag to
+                move, corner to resize
+              </Text>
+            </Group>
+
+            {/* Plot Plane */}
+            <Box
+              ref={planeRef}
+              style={{
+                flex: 1,
+                position: "relative",
+                overflow: "auto",
+                background: `
                 linear-gradient(to right, var(--mantine-color-gray-2) 1px, transparent 1px),
                 linear-gradient(to bottom, var(--mantine-color-gray-2) 1px, transparent 1px)
               `,
-              backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
-              backgroundColor: "var(--mantine-color-gray-0)",
-            }}
-            onClick={() => setSelectedWidgetId(null)}
-          >
-            {/* Widgets */}
-            {widgets.map((widget) => (
-              <PlotWidgetComponent
-                key={widget.id}
-                widget={widget}
-                onMouseDownDrag={(e) => handleDragStart(widget.id, e)}
-                onMouseDownResize={(e) => handleResizeStart(widget.id, e)}
-                onDelete={() => deleteWidget(widget.id)}
-                isSelected={selectedWidgetId === widget.id}
-                onSelect={() => setSelectedWidgetId(widget.id)}
-              />
-            ))}
+                backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
+                backgroundColor: "var(--mantine-color-gray-0)",
+              }}
+              onClick={() => setSelectedWidgetId(null)}
+            >
+              {/* Widgets */}
+              {widgets.map((widget) => (
+                <PlotWidgetComponent
+                  key={widget.id}
+                  widget={widget}
+                  onMouseDownDrag={(e) => handleDragStart(widget.id, e)}
+                  onMouseDownResize={(e) => handleResizeStart(widget.id, e)}
+                  onDelete={() => deleteWidget(widget.id)}
+                  isSelected={selectedWidgetId === widget.id}
+                  onSelect={() => setSelectedWidgetId(widget.id)}
+                />
+              ))}
 
-            {/* Empty state */}
-            {widgets.length === 0 && (
-              <Box
-                style={{
-                  position: "absolute",
-                  top: "50%",
-                  left: "50%",
-                  transform: "translate(-50%, -50%)",
-                  textAlign: "center",
-                }}
-              >
-                <IconChartBar size={64} color="var(--mantine-color-gray-4)" />
-                <Text size="lg" c="dimmed" mt="md">
-                  No plots yet
-                </Text>
-                <Text size="sm" c="dimmed" mt="xs">
-                  Use the toolbar above to add plots
-                </Text>
-              </Box>
-            )}
-          </Box>
-        </Box>
-
-        {/* Right Sidebar: Experiment & Configuration */}
-        <Box
-          style={{
-            width: 300,
-            borderLeft: "1px solid var(--mantine-color-default-border)",
-            display: "flex",
-            flexDirection: "column",
-            background: "white",
-            minHeight: 0,
-          }}
-        >
-          {/* Experiment List Header */}
-          <Group
-            justify="space-between"
-            p="md"
-            style={{
-              borderBottom: "1px solid var(--mantine-color-default-border)",
-              flexShrink: 0,
-            }}
-          >
-            <Text size="sm" fw={600}>
-              Experiments
-            </Text>
-          </Group>
-
-          {/* Experiment List */}
-          <ScrollArea
-            style={{
-              flex: 1,
-              borderBottom: "1px solid var(--mantine-color-default-border)",
-              minHeight: 0,
-            }}
-            p="sm"
-          >
-            <Stack gap="sm">
-              {experiments.length === 0 ? (
-                <Paper
-                  p="lg"
-                  ta="center"
-                  style={{ background: "var(--mantine-color-gray-0)" }}
+              {/* Empty state */}
+              {widgets.length === 0 && (
+                <Box
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    textAlign: "center",
+                  }}
                 >
-                  <Text size="sm" c="dimmed">
-                    No experiments
+                  <IconChartBar size={64} color="var(--mantine-color-gray-4)" />
+                  <Text size="lg" c="dimmed" mt="md">
+                    No plots yet
                   </Text>
-                </Paper>
-              ) : (
-                experiments.map((exp) => (
-                  <ExperimentListItem
-                    key={exp.id}
-                    experiment={exp}
-                    isSelected={selectedExperimentId === exp.id}
-                    onSelect={() => selectExperiment(exp.id)}
-                  />
-                ))
+                  <Text size="sm" c="dimmed" mt="xs">
+                    Use the toolbar above to add plots
+                  </Text>
+                </Box>
               )}
-            </Stack>
-          </ScrollArea>
+            </Box>
+          </Box>
 
-          {/* Data Source Configuration */}
+          {/* Right Sidebar: Experiment & Configuration */}
           <Box
             style={{
-              flexShrink: 0,
-              borderTop: "1px solid var(--mantine-color-default-border)",
-              overflow: "auto",
-              maxHeight: "40%",
+              width: 300,
+              borderLeft: "1px solid var(--mantine-color-default-border)",
+              display: "flex",
+              flexDirection: "column",
+              background: "white",
+              minHeight: 0,
             }}
-            p="sm"
           >
-            <DataSourceConfigPanel
-              mode={dataSourceMode}
-              onModeChange={setDataSourceMode}
-              experiment={selectedExperiment ?? null}
-              excludedDevices={excludedDevices}
-              onExcludedDevicesChange={setExcludedDevices}
-              excludedSubstrates={excludedSubstrates}
-              onExcludedSubstratesChange={setExcludedSubstrates}
-            />
+            {/* Experiment List Header */}
+            <Group
+              justify="space-between"
+              p="md"
+              style={{
+                borderBottom: "1px solid var(--mantine-color-default-border)",
+                flexShrink: 0,
+              }}
+            >
+              <Text size="sm" fw={600}>
+                Experiments
+              </Text>
+            </Group>
+
+            {/* Experiment List */}
+            <ScrollArea
+              style={{
+                flex: 1,
+                borderBottom: "1px solid var(--mantine-color-default-border)",
+                minHeight: 0,
+              }}
+              p="sm"
+            >
+              <Stack gap="sm">
+                {experiments.length === 0 ? (
+                  <Paper
+                    p="lg"
+                    ta="center"
+                    style={{ background: "var(--mantine-color-gray-0)" }}
+                  >
+                    <Text size="sm" c="dimmed">
+                      No experiments
+                    </Text>
+                  </Paper>
+                ) : (
+                  experiments.map((exp) => (
+                    <ExperimentListItem
+                      key={exp.id}
+                      experiment={exp}
+                      isSelected={selectedExperimentId === exp.id}
+                      onSelect={() => selectExperiment(exp.id)}
+                    />
+                  ))
+                )}
+              </Stack>
+            </ScrollArea>
+
+            {/* Data Source Configuration */}
+            <Box
+              style={{
+                flexShrink: 0,
+                borderTop: "1px solid var(--mantine-color-default-border)",
+                overflow: "auto",
+                maxHeight: "40%",
+              }}
+              p="sm"
+            >
+              <DataSourceConfigPanel
+                mode={dataSourceMode}
+                onModeChange={setDataSourceMode}
+                experiment={selectedExperiment ?? null}
+                excludedDevices={excludedDevices}
+                onExcludedDevicesChange={setExcludedDevices}
+                excludedSubstrates={excludedSubstrates}
+                onExcludedSubstratesChange={setExcludedSubstrates}
+              />
+            </Box>
           </Box>
         </Box>
       </Box>
-    </Box>
+    </ComingSoonGate>
   )
 }
