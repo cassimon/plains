@@ -90,6 +90,9 @@ class User(UserBase, table=True):
         back_populates="owner", cascade_delete=True
     )
     planes: list["Plane"] = Relationship(back_populates="owner", cascade_delete=True)
+    plane_folders: list["PlaneFolder"] = Relationship(
+        back_populates="owner", cascade_delete=True
+    )
     shared_planes: list["PlaneShare"] = Relationship(cascade_delete=True)
 
 
@@ -108,6 +111,8 @@ class UsersPublic(SQLModel):
 # ============================================================================
 class PlaneBase(SQLModel):
     name: str = Field(min_length=1, max_length=255)
+    folder_id: uuid.UUID | None = None
+    position: int = 0
 
 
 class PlaneCreate(ClientIdCreate, PlaneBase):
@@ -116,6 +121,7 @@ class PlaneCreate(ClientIdCreate, PlaneBase):
 
 class PlaneUpdate(PlaneBase):
     name: str | None = Field(default=None, min_length=1, max_length=255)
+    position: int | None = None
 
 
 class Plane(PlaneBase, table=True):
@@ -124,6 +130,10 @@ class Plane(PlaneBase, table=True):
         foreign_key="user.id", nullable=False, ondelete="CASCADE"
     )
     owner: User | None = Relationship(back_populates="planes")
+    folder_id: uuid.UUID | None = Field(
+        default=None, foreign_key="planefolder.id", ondelete="SET NULL", nullable=True
+    )
+    folder: Optional["PlaneFolder"] = Relationship(back_populates="planes")
     created_at: datetime | None = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),
@@ -296,6 +306,47 @@ class PlanePublic(PlaneBase):
 
 class PlanesPublic(SQLModel):
     data: list[PlanePublic]
+    count: int
+
+
+# --- PlaneFolder (groups planes in the Organization tab strip / overview) ---
+class PlaneFolderBase(SQLModel):
+    name: str = Field(min_length=1, max_length=255)
+    position: int = 0
+
+
+class PlaneFolderCreate(ClientIdCreate, PlaneFolderBase):
+    pass
+
+
+class PlaneFolderUpdate(PlaneFolderBase):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    position: int | None = None
+
+
+class PlaneFolder(PlaneFolderBase, table=True):
+    __tablename__ = "planefolder"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=False, ondelete="CASCADE"
+    )
+    owner: User | None = Relationship(back_populates="plane_folders")
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),
+    )
+    # Deleting a folder un-folders its planes (folder_id -> NULL); never deletes.
+    planes: list["Plane"] = Relationship(back_populates="folder")
+
+
+class PlaneFolderPublic(PlaneFolderBase):
+    id: uuid.UUID
+    owner_id: uuid.UUID
+    created_at: datetime | None = None
+
+
+class PlaneFoldersPublic(SQLModel):
+    data: list[PlaneFolderPublic]
     count: int
 
 
@@ -1281,6 +1332,7 @@ class BulkStateResponse(SQLModel):
     results: list[ExperimentResultsPublic]
     analyses: list[AnalysisPublic]
     planes: list[PlanePublic]
+    folders: list[PlaneFolderPublic] = []
 
 
 # ============================================================================

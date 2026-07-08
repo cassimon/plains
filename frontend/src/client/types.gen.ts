@@ -96,6 +96,7 @@ export type BulkStateResponse = {
     results: Array<ExperimentResultsPublic>;
     analyses: Array<AnalysisPublic>;
     planes: Array<PlanePublic>;
+    folders?: Array<PlaneFolderPublic>;
 };
 
 export type DataCollectionCreate = {
@@ -550,11 +551,39 @@ export type NomadUploadStatus = {
 
 export type PlaneCreate = {
     name: string;
+    folder_id?: (string | null);
+    position?: number;
     id?: string;
+};
+
+export type PlaneFolderCreate = {
+    name: string;
+    position?: number;
+    id?: string;
+};
+
+export type PlaneFolderPublic = {
+    name: string;
+    position?: number;
+    id: string;
+    owner_id: string;
+    created_at?: (string | null);
+};
+
+export type PlaneFoldersPublic = {
+    data: Array<PlaneFolderPublic>;
+    count: number;
+};
+
+export type PlaneFolderUpdate = {
+    name?: (string | null);
+    position?: (number | null);
 };
 
 export type PlanePublic = {
     name: string;
+    folder_id?: (string | null);
+    position?: number;
     id: string;
     owner_id: string;
     owner: UserPublic;
@@ -576,6 +605,8 @@ export type PlanesPublic = {
 
 export type PlaneUpdate = {
     name?: (string | null);
+    folder_id?: (string | null);
+    position?: (number | null);
 };
 
 export type PrivateUserCreate = {
@@ -1246,6 +1277,32 @@ export type NomadDownloadNomadUploadArchiveData = {
 };
 
 export type NomadDownloadNomadUploadArchiveResponse = (unknown);
+
+export type PlaneFoldersReadPlaneFoldersData = {
+    limit?: number;
+    skip?: number;
+};
+
+export type PlaneFoldersReadPlaneFoldersResponse = (PlaneFoldersPublic);
+
+export type PlaneFoldersCreatePlaneFolderData = {
+    requestBody: PlaneFolderCreate;
+};
+
+export type PlaneFoldersCreatePlaneFolderResponse = (PlaneFolderPublic);
+
+export type PlaneFoldersUpdatePlaneFolderData = {
+    id: string;
+    requestBody: PlaneFolderUpdate;
+};
+
+export type PlaneFoldersUpdatePlaneFolderResponse = (PlaneFolderPublic);
+
+export type PlaneFoldersDeletePlaneFolderData = {
+    id: string;
+};
+
+export type PlaneFoldersDeletePlaneFolderResponse = (unknown);
 
 export type PlanesReadPlanesData = {
     limit?: number;

@@ -1369,9 +1369,10 @@ function renderExperimentSection(
         )
       } else {
         const at = s.preparedAt ? `, prepared ${s.preparedAt}` : ""
+        const vial = s.vialLabel ? `, vial ${s.vialLabel}` : ""
         L.writeLabelValue(
           s.name,
-          `${s.volumeMl ? `${s.volumeMl} mL` : "volume not set"}${at}`,
+          `${s.volumeMl ? `${s.volumeMl} mL` : "volume not set"}${at}${vial}`,
         )
         if (s.quantities.length > 0) {
           L.drawTable(

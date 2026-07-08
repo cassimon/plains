@@ -123,6 +123,8 @@ export interface ApiPlane {
   }
   created_at: string | null
   elements: ApiCanvasElement[]
+  folder_id?: string | null
+  position?: number
   shared_with?: Array<{
     id: string
     email: string
@@ -238,6 +240,8 @@ export function apiPlaneToPlane(api: ApiPlane): Plane {
     name: api.name,
     ownerId: api.owner_id,
     owner: api.owner,
+    folderId: api.folder_id ?? null,
+    position: api.position ?? 0,
     sharedWith: api.shared_with ?? [],
     elements: api.elements.map((e) => {
       // Parse content as JSON for collection elements

@@ -6,6 +6,7 @@ from app.api.routes import (
     login,
     materials,
     nomad,
+    plane_folders,
     planes,
     private,
     processes,
@@ -28,6 +29,7 @@ api_router.include_router(experiments.router)
 api_router.include_router(results.router)
 api_router.include_router(analyses.router)
 api_router.include_router(planes.router)
+api_router.include_router(plane_folders.router)
 api_router.include_router(state.router)
 api_router.include_router(nomad.router)
 

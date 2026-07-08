@@ -24,6 +24,7 @@ import type {
   ExperimentResults,
   MeasurementFile,
   Plane,
+  PlaneFolder,
   Process,
   ProcessGeneratedStack,
   ProcessSolutionRecipe,
@@ -61,6 +62,7 @@ export type BulkState = {
   results?: ApiObj[]
   analyses?: ApiObj[]
   planes?: ApiObj[]
+  folders?: ApiObj[]
 }
 
 export type Snapshot = {
@@ -68,6 +70,7 @@ export type Snapshot = {
   processes: Process[]
   results: ExperimentResults[]
   planes: Plane[]
+  folders: PlaneFolder[]
 }
 
 export function bulkToSnapshot(bulk: BulkState): Snapshot {
@@ -97,7 +100,8 @@ export function bulkToSnapshot(bulk: BulkState): Snapshot {
   const planes = (bulk.planes ?? []).map((pl) =>
     planeFromApi(pl, refsByCollection),
   )
-  return { processes, experiments, results, planes }
+  const folders = (bulk.folders ?? []).map(folderFromApi)
+  return { processes, experiments, results, planes, folders }
 }
 
 // ── Process ──────────────────────────────────────────────────────────────────
@@ -399,6 +403,8 @@ function planeFromApi(
     id: pl.id,
     name: pl.name,
     elements,
+    folderId: pl.folder_id ?? null,
+    position: pl.position ?? 0,
     ownerId: pl.owner_id,
     owner: pl.owner
       ? {
@@ -668,7 +674,25 @@ export function deviceGroupsToApi(r: ExperimentResults): ApiObj[] {
 }
 
 export function planeToApi(pl: Plane): ApiObj {
-  return { id: pl.id, name: pl.name || "Plane" }
+  return {
+    id: pl.id,
+    name: pl.name || "Plane",
+    folder_id: pl.folderId ?? null,
+    position: pl.position ?? 0,
+  }
+}
+
+function folderFromApi(f: ApiObj): PlaneFolder {
+  return {
+    id: f.id,
+    name: f.name,
+    position: f.position ?? 0,
+    ownerId: f.owner_id,
+  }
+}
+
+export function folderToApi(f: PlaneFolder): ApiObj {
+  return { id: f.id, name: f.name || "Folder", position: f.position ?? 0 }
 }
 
 export function stickyNotesToApi(pl: Plane): ApiObj[] {

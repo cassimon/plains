@@ -21,6 +21,7 @@ import type {
   Experiment,
   ExperimentResults,
   Plane,
+  PlaneFolder,
   Process,
 } from "./AppContext"
 import * as M from "./backendMapping"
@@ -35,7 +36,12 @@ class HttpError extends Error {
   }
 }
 
-type TopEntity = "processes" | "experiments" | "results" | "planes"
+type TopEntity =
+  | "processes"
+  | "experiments"
+  | "results"
+  | "planes"
+  | "plane-folders"
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -145,6 +151,7 @@ export type AppSnapshot = {
   processes: Process[]
   results: ExperimentResults[]
   planes: Plane[]
+  folders: PlaneFolder[]
 }
 
 /**
@@ -188,6 +195,12 @@ export interface BackendAdapter {
   updatePlane(plane: Plane): Promise<Plane>
   deletePlane(id: string): Promise<void>
 
+  // ── Plane folders ────────────────────────────────────────────────────────
+  getFolders(): Promise<PlaneFolder[]>
+  createFolder(folder: PlaneFolder): Promise<PlaneFolder>
+  updateFolder(folder: PlaneFolder): Promise<PlaneFolder>
+  deleteFolder(id: string): Promise<void>
+
   createElement(planeId: string, element: CanvasElement): Promise<CanvasElement>
   updateElement(planeId: string, element: CanvasElement): Promise<CanvasElement>
   deleteElement(planeId: string, elementId: string): Promise<void>
@@ -217,6 +230,7 @@ export class InMemoryBackend implements BackendAdapter {
       processes: initial?.processes ?? [],
       results: initial?.results ?? [],
       planes: initial?.planes ?? [],
+      folders: initial?.folders ?? [],
     }
   }
 
@@ -232,6 +246,7 @@ export class InMemoryBackend implements BackendAdapter {
           processes: parsed.processes ?? this.data.processes,
           results: parsed.results ?? this.data.results,
           planes: parsed.planes ?? this.data.planes,
+          folders: parsed.folders ?? this.data.folders,
         }
       }
     } catch {
@@ -321,6 +336,21 @@ export class InMemoryBackend implements BackendAdapter {
     this.data.planes = this.data.planes.filter((x) => x.id !== id)
   }
 
+  async getFolders() {
+    return [...this.data.folders]
+  }
+  async createFolder(f: PlaneFolder) {
+    this.data.folders = [...this.data.folders, f]
+    return f
+  }
+  async updateFolder(f: PlaneFolder) {
+    this.data.folders = this.data.folders.map((x) => (x.id === f.id ? f : x))
+    return f
+  }
+  async deleteFolder(id: string) {
+    this.data.folders = this.data.folders.filter((x) => x.id !== id)
+  }
+
   async createElement(planeId: string, element: CanvasElement) {
     this.data.planes = this.data.planes.map((p) =>
       p.id === planeId ? { ...p, elements: [...p.elements, element] } : p,
@@ -356,6 +386,7 @@ const EMPTY_SNAPSHOT: AppSnapshot = {
   processes: [],
   results: [],
   planes: [],
+  folders: [],
 }
 
 /**
@@ -380,6 +411,7 @@ export class HttpBackend implements BackendAdapter {
     experiments: new Set(),
     results: new Set(),
     planes: new Set(),
+    "plane-folders": new Set(),
   }
 
   constructor(
@@ -423,6 +455,7 @@ export class HttpBackend implements BackendAdapter {
       experiments: new Set(this.data.experiments.map((e) => e.id)),
       results: new Set(this.data.results.map((r) => r.id)),
       planes: new Set(this.data.planes.map((p) => p.id)),
+      "plane-folders": new Set(this.data.folders.map((f) => f.id)),
     }
   }
 
@@ -587,6 +620,11 @@ export class HttpBackend implements BackendAdapter {
     const knownProcessIds = new Set(s.processes.map((p) => p.id))
     const knownExperimentIds = new Set(s.experiments.map((e) => e.id))
 
+    // 0. Folders first — planes carry a folder_id FK to them.
+    for (const f of s.folders) {
+      await this.upsert("plane-folders", f.id, M.folderToApi(f))
+    }
+
     // 1. Planes + canvas elements. Collections are replaced before entities set
     //    their collection_id FK below.
     for (const pl of s.planes) {
@@ -692,6 +730,11 @@ export class HttpBackend implements BackendAdapter {
       "planes",
       s.planes.map((p) => p.id),
     )
+    // Folders last — after the planes that referenced them are gone/reassigned.
+    await this.deleteRemoved(
+      "plane-folders",
+      s.folders.map((f) => f.id),
+    )
 
     // Server now matches the snapshot.
     this.captureServerIds()
@@ -761,6 +804,21 @@ export class HttpBackend implements BackendAdapter {
   }
   async deletePlane(id: string) {
     this.data.planes = this.data.planes.filter((x) => x.id !== id)
+  }
+
+  async getFolders() {
+    return [...this.data.folders]
+  }
+  async createFolder(f: PlaneFolder) {
+    this.data.folders = [...this.data.folders, f]
+    return f
+  }
+  async updateFolder(f: PlaneFolder) {
+    this.data.folders = this.data.folders.map((x) => (x.id === f.id ? f : x))
+    return f
+  }
+  async deleteFolder(id: string) {
+    this.data.folders = this.data.folders.filter((x) => x.id !== id)
   }
 
   async createElement(planeId: string, element: CanvasElement) {

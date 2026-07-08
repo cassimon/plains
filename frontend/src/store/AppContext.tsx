@@ -433,6 +433,7 @@ export type ExperimentSolutionBatch = {
   totalVolumeMl?: string // for "make" with recipe: target volume in mL
   multiplier?: string // for "make" with entity solution: scale factor (×)
   preparedAt?: string // for "make": datetime-local when this batch was prepared
+  vialLabel?: string // for "make": user-editable vial label, defaults to "{SolutionName}_{Date}"
   takenFromExpId?: string // for "take": source experiment id
   takenFromBatchId?: string // for "take": source batch key
 }
@@ -904,6 +905,23 @@ export type Plane = {
   ownerId?: string
   owner?: { id: string; email: string; full_name: string | null }
   sharedWith?: Array<{ id: string; email: string; full_name: string | null }>
+  /** Folder this plane belongs to, or null/undefined when ungrouped. */
+  folderId?: string | null
+  /** Ordering key: among top-level strip items when ungrouped, within its
+   *  folder when grouped. Lower comes first. */
+  position?: number
+}
+
+/**
+ * A PlaneFolder groups planes in the Organization tab strip (Firefox-bookmark
+ * style) and the overview. Flat — folders never nest. Every plane belongs to at
+ * most one folder.
+ */
+export type PlaneFolder = {
+  id: string
+  name: string
+  position: number
+  ownerId?: string
 }
 
 export function newPlane(name?: string, ownerId?: string): Plane {
@@ -912,6 +930,14 @@ export function newPlane(name?: string, ownerId?: string): Plane {
     name: name ?? "New Plane",
     elements: [],
     ownerId,
+  }
+}
+
+export function newPlaneFolder(name?: string, position = 0): PlaneFolder {
+  return {
+    id: crypto.randomUUID(),
+    name: name ?? "New Folder",
+    position,
   }
 }
 
@@ -1057,11 +1083,25 @@ type AppContextValue = {
   setResults: React.Dispatch<React.SetStateAction<ExperimentResults[]>>
   planes: Plane[]
   setPlanes: React.Dispatch<React.SetStateAction<Plane[]>>
+  folders: PlaneFolder[]
+  setFolders: React.Dispatch<React.SetStateAction<PlaneFolder[]>>
 
   // ── Plane repository ──────────────────────────────────────────────────────
   addPlane: (name?: string, userId?: string) => Plane
   updatePlane: (plane: Plane) => void
   deletePlane: (id: string) => void
+
+  // ── Folder repository ─────────────────────────────────────────────────────
+  addFolder: (name?: string) => PlaneFolder
+  updateFolder: (folder: PlaneFolder) => void
+  /** Delete a folder; its planes survive, un-foldered (folderId → null). */
+  deleteFolder: (id: string) => void
+  /** Move a plane into a folder (or out, with folderId=null); appends to end. */
+  assignPlaneToFolder: (planeId: string, folderId: string | null) => void
+  /** Persist a new ordering of the given ids (planes and/or folders). */
+  reorderTopLevel: (
+    orderedIds: Array<{ id: string; kind: "plane" | "folder" }>,
+  ) => void
 
   // ── Element repository (operates on a specific plane) ─────────────────────
   addTextElement: (planeId: string, position: Vec2) => CanvasTextElement
@@ -1241,6 +1281,7 @@ export function AppProvider({
   const [processes, setProcesses] = useState<Process[]>([])
   const [results, setResults] = useState<ExperimentResults[]>([])
   const [planes, setPlanes] = useState<Plane[]>(INITIAL_PLANES)
+  const [folders, setFolders] = useState<PlaneFolder[]>([])
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(
     null,
   )
@@ -1374,6 +1415,7 @@ export function AppProvider({
     processes,
     results,
     planes,
+    folders,
   })
   // Incomplete results (files uploaded but no NOMAD upload_id) must never be
   // persisted — they represent an in-progress workflow that should not survive
@@ -1387,6 +1429,7 @@ export function AppProvider({
     processes,
     results: persistableResults,
     planes,
+    folders,
   }
   const dirtyRef = useRef(false)
   const saveTimeoutRef = useRef<number | null>(null)
@@ -1465,6 +1508,7 @@ export function AppProvider({
       if (completeResults.length > 0) {
         setResults(completeResults)
       }
+      setFolders(snapshot.folders ?? [])
       if (snapshot.planes.length > 0) {
         setPlanes(snapshot.planes)
         // After planes are set, strip collection refs that pointed to stale
@@ -1514,7 +1558,7 @@ export function AppProvider({
 
   // ── Save trigger on data changes (debounced) ───────────────────────────────
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: planes/experiments/results/processes are intentional triggers — the effect body calls scheduleSave() which reads stateRef (always fresh), so values don't need to be used directly
+  // biome-ignore lint/correctness/useExhaustiveDependencies: planes/folders/experiments/results/processes are intentional triggers — the effect body calls scheduleSave() which reads stateRef (always fresh), so values don't need to be used directly
   useEffect(() => {
     if (!loaded) {
       return
@@ -1524,7 +1568,7 @@ export function AppProvider({
       return
     }
     scheduleSave()
-  }, [loaded, scheduleSave, planes, experiments, results, processes])
+  }, [loaded, scheduleSave, planes, folders, experiments, results, processes])
 
   // ── Periodic safety flush + unload / visibility watchdog ──────────────────
 
@@ -1606,7 +1650,10 @@ export function AppProvider({
 
   const addPlane = useCallback((name?: string, userId?: string): Plane => {
     const p = newPlane(name, userId)
-    setPlanes((prev) => [...prev, p])
+    setPlanes((prev) => {
+      const maxPos = prev.reduce((m, x) => Math.max(m, x.position ?? 0), -1)
+      return [...prev, { ...p, position: maxPos + 1 }]
+    })
     return p
   }, [])
 
@@ -1620,6 +1667,66 @@ export function AppProvider({
       return prev.filter((p) => p.id !== id)
     })
   }, [])
+
+  // ── Folder mutations ─────────────────────────────────────────────────────
+  const addFolder = useCallback((name?: string): PlaneFolder => {
+    const f = newPlaneFolder(name)
+    setFolders((prev) => {
+      const maxPos = prev.reduce((m, x) => Math.max(m, x.position ?? 0), -1)
+      return [...prev, { ...f, position: maxPos + 1 }]
+    })
+    return f
+  }, [])
+
+  const updateFolder = useCallback((folder: PlaneFolder) => {
+    setFolders((prev) => prev.map((f) => (f.id === folder.id ? folder : f)))
+  }, [])
+
+  const deleteFolder = useCallback((id: string) => {
+    // Planes in the folder survive as ungrouped.
+    setPlanes((prev) =>
+      prev.map((p) => (p.folderId === id ? { ...p, folderId: null } : p)),
+    )
+    setFolders((prev) => prev.filter((f) => f.id !== id))
+  }, [])
+
+  const assignPlaneToFolder = useCallback(
+    (planeId: string, folderId: string | null) => {
+      setPlanes((prev) => {
+        // Append to the end of the destination context (folder or top-level).
+        const siblings = prev.filter((p) =>
+          folderId ? p.folderId === folderId : !p.folderId && p.id !== planeId,
+        )
+        const maxPos = siblings.reduce(
+          (m, x) => Math.max(m, x.position ?? 0),
+          -1,
+        )
+        return prev.map((p) =>
+          p.id === planeId ? { ...p, folderId, position: maxPos + 1 } : p,
+        )
+      })
+    },
+    [],
+  )
+
+  const reorderTopLevel = useCallback(
+    (orderedIds: Array<{ id: string; kind: "plane" | "folder" }>) => {
+      const posById = new Map(orderedIds.map((it, idx) => [it.id, idx]))
+      setPlanes((prev) =>
+        prev.map((p) =>
+          posById.has(p.id) ? { ...p, position: posById.get(p.id) } : p,
+        ),
+      )
+      setFolders((prev) =>
+        prev.map((f) =>
+          posById.has(f.id)
+            ? { ...f, position: posById.get(f.id) ?? f.position }
+            : f,
+        ),
+      )
+    },
+    [],
+  )
 
   // ── Element mutations ──────────────────────────────────────────────────────
 
@@ -1831,9 +1938,16 @@ export function AppProvider({
         setResults,
         planes,
         setPlanes,
+        folders,
+        setFolders,
         addPlane,
         updatePlane,
         deletePlane,
+        addFolder,
+        updateFolder,
+        deleteFolder,
+        assignPlaneToFolder,
+        reorderTopLevel,
         addTextElement,
         addPlainTextElement,
         addLineElement,

@@ -16,6 +16,8 @@ from app.models import (
     LabMaterial,
     LabSolution,
     Plane,
+    PlaneFolder,
+    PlaneFolderPublic,
     PlaneShare,
     Process,
     UiPrefsUpdate,
@@ -73,6 +75,7 @@ def get_bulk_state(session: SessionDep, current_user: CurrentUser) -> Any:
         .where(or_(Plane.owner_id == uid, PlaneShare.user_id == uid))
         .distinct()
     ).all()
+    folders = session.exec(select(PlaneFolder).where(PlaneFolder.owner_id == uid)).all()
     return BulkStateResponse(
         materials=session.exec(
             select(LabMaterial).where(LabMaterial.owner_id == uid)
@@ -89,4 +92,5 @@ def get_bulk_state(session: SessionDep, current_user: CurrentUser) -> Any:
         ).all(),
         analyses=session.exec(select(Analysis).where(Analysis.owner_id == uid)).all(),
         planes=[_populate_plane(p) for p in planes],
+        folders=[PlaneFolderPublic.model_validate(f) for f in folders],
     )

@@ -46,6 +46,8 @@ def _populate(plane: Plane) -> PlanePublic:
     return PlanePublic(
         id=plane.id,
         name=plane.name,
+        folder_id=plane.folder_id,
+        position=plane.position,
         owner_id=plane.owner_id,
         owner=UserPublic.model_validate(plane.owner),
         created_at=plane.created_at,
@@ -64,7 +66,7 @@ def read_planes(
         count = session.exec(select(func.count()).select_from(Plane)).one()
         statement = (
             select(Plane)
-            .order_by(col(Plane.created_at).desc())
+            .order_by(col(Plane.position), col(Plane.created_at).desc())
             .offset(skip)
             .limit(limit)
         )
@@ -84,7 +86,7 @@ def read_planes(
             select(Plane)
             .outerjoin(PlaneShare, Plane.id == PlaneShare.plane_id)
             .where(cond)
-            .order_by(col(Plane.created_at).desc())
+            .order_by(col(Plane.position), col(Plane.created_at).desc())
             .offset(skip)
             .limit(limit)
         )

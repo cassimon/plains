@@ -1856,33 +1856,42 @@ function ExperimentTimeline({
 // ─────────────────────────────────────────────────────────────────────────────
 // Experiment-level result drop zone (shown on every tab, at the bottom)
 //
-// A second ingress into the upload flow: drop result files straight onto an
-// experiment. Neutral when idle; red when an upload is already in progress
-// (for this experiment → drop adds to it; for another → refused). Uses native
-// DOM drag handlers, never a Mantine Dropzone, to avoid merged-ref render loops.
+// The single ingress into the upload flow — dropping files here starts it
+// directly (there is no separate "Add Results" button). Neutral gray while
+// the experiment is still incomplete; teal once it is fully specified, to
+// invite the drop; red when an upload is already in progress (for this
+// experiment → drop adds to it; for another → refused). Uses native DOM drag
+// handlers, never a Mantine Dropzone, to avoid merged-ref render loops.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ExperimentUploadDropZone({
   belongsToThisExperiment,
   hasOtherUpload,
+  fullySpecified,
   onFiles,
 }: {
   belongsToThisExperiment: boolean
   hasOtherUpload: boolean
+  fullySpecified: boolean
   onFiles: (files: File[]) => void
 }) {
   const [dragOver, setDragOver] = useState(false)
-  const active = belongsToThisExperiment || hasOtherUpload
+  const blocked = belongsToThisExperiment || hasOtherUpload
+  const ready = !blocked && fullySpecified
   const borderColor = dragOver
     ? "var(--mantine-color-blue-5)"
-    : active
+    : blocked
       ? "var(--mantine-color-red-4)"
-      : "var(--mantine-color-gray-4)"
+      : ready
+        ? "var(--mantine-color-teal-4)"
+        : "var(--mantine-color-gray-4)"
   const label = belongsToThisExperiment
     ? "Upload in progress for this experiment — drop more files to add them to the archive."
     : hasOtherUpload
       ? "Another upload is still in progress — finish or cancel it before starting a new one."
-      : "Drag & drop result files here to start an upload."
+      : ready
+        ? "Experiment completely specified: Drop Results"
+        : "Drag & drop result files here to start an upload."
   return (
     <Box
       mt="xl"
@@ -1915,9 +1924,11 @@ function ExperimentUploadDropZone({
         textAlign: "center",
         background: dragOver
           ? "var(--mantine-color-blue-0)"
-          : active
+          : blocked
             ? "var(--mantine-color-red-0)"
-            : "transparent",
+            : ready
+              ? "var(--mantine-color-teal-0)"
+              : "transparent",
         transition: "border 120ms ease, background 120ms ease",
       }}
     >
@@ -1925,12 +1936,18 @@ function ExperimentUploadDropZone({
         <IconCloudUpload
           size={20}
           color={
-            active
+            blocked
               ? "var(--mantine-color-red-6)"
-              : "var(--mantine-color-gray-6)"
+              : ready
+                ? "var(--mantine-color-teal-6)"
+                : "var(--mantine-color-gray-6)"
           }
         />
-        <Text size="sm" c={active ? "red.7" : "dimmed"} fw={active ? 600 : 500}>
+        <Text
+          size="sm"
+          c={blocked ? "red.7" : ready ? "teal.7" : "dimmed"}
+          fw={blocked || ready ? 600 : 500}
+        >
           {label}
         </Text>
       </Group>
@@ -1985,8 +2002,9 @@ function buildExportText(
         )
       } else {
         const at = s.preparedAt ? `, prepared ${s.preparedAt}` : ""
+        const vial = s.vialLabel ? `, vial ${s.vialLabel}` : ""
         lines.push(
-          `  ${s.name}${s.volumeMl ? ` (${s.volumeMl} mL)` : ""}${at}:`,
+          `  ${s.name}${s.volumeMl ? ` (${s.volumeMl} mL)` : ""}${at}${vial}:`,
         )
         for (const q of s.quantities) {
           lines.push(`    - ${q.name}: ${q.amount} ${q.unit}`)
@@ -2266,7 +2284,7 @@ function SummaryTab({
                         {s.mode === "take"
                           ? `reused from ${s.reusedFromName ?? "another experiment"}`
                           : s.volumeMl
-                            ? `${s.volumeMl} mL${s.preparedAt ? ` · ${s.preparedAt}` : ""}`
+                            ? `${s.volumeMl} mL${s.preparedAt ? ` · ${s.preparedAt}` : ""}${s.vialLabel ? ` · ${s.vialLabel}` : ""}`
                             : "Not set"}
                       </Text>
                     </Group>
@@ -2428,21 +2446,6 @@ export default function ExperimentsPage() {
     }))
   }, [selectedProcess])
 
-  const allExpStepsDone = React.useMemo(() => {
-    if (!selectedExperiment || !selectedProcess) return false
-    const { materialItems, solutionItems } = collectChemicals(selectedProcess)
-    const chemDone = computeChemsDone(
-      selectedExperiment.chemicalsPrep,
-      materialItems,
-      solutionItems,
-    )
-    const procDone = experimentProcessingDone(
-      selectedExperiment,
-      selectedProcess,
-    )
-    return chemDone && procDone && experimentSummaryDone(selectedExperiment)
-  }, [selectedExperiment, selectedProcess])
-
   const expAllStepsDoneMap = React.useMemo(() => {
     const map = new Map<string, boolean>()
     for (const exp of experiments) {
@@ -2584,12 +2587,24 @@ export default function ExperimentsPage() {
     ],
   )
 
-  const handleAddResultsForSelectedExperiment = useCallback(() => {
-    if (!selectedExperiment || !allExpStepsDone) {
-      return
-    }
-    handleAddResultsForExperiment(selectedExperiment)
-  }, [handleAddResultsForExperiment, selectedExperiment, allExpStepsDone])
+  // Results already exist for this experiment — just select it on the
+  // Results page rather than starting a new upload flow.
+  const handleGoToResultsForExperiment = useCallback(
+    (exp: Experiment) => {
+      setPendingCollectionLink({
+        collectionId: "",
+        planeId: "",
+        kind: "result",
+        selectedExperimentId: exp.id,
+        openAddResults: false,
+        requestId: crypto.randomUUID(),
+      })
+      setActiveEntity({ kind: "experiment", id: exp.id })
+      updateLastSelected("experiment", exp.id)
+      void navigate({ to: "/results" })
+    },
+    [navigate, setActiveEntity, setPendingCollectionLink, updateLastSelected],
+  )
 
   // Update experiment
   const handleUpdateExperiment = useCallback(
@@ -2973,21 +2988,36 @@ export default function ExperimentsPage() {
                             {isComplete ? "Complete" : "Incomplete"}
                           </Badge>
                           <Group gap={2} wrap="nowrap">
-                            {expAllStepsDoneMap.get(exp.id) && (
-                              <Tooltip label="Add Results" withArrow>
-                                <ActionIcon
-                                  size="sm"
-                                  variant="subtle"
-                                  color="green"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleAddResultsForExperiment(exp)
-                                  }}
-                                >
-                                  <IconDownload size={14} />
-                                </ActionIcon>
-                              </Tooltip>
-                            )}
+                            {expAllStepsDoneMap.get(exp.id) &&
+                              (exp.hasResults ? (
+                                <Tooltip label="Go to Results" withArrow>
+                                  <ActionIcon
+                                    size="sm"
+                                    variant="subtle"
+                                    color="blue"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleGoToResultsForExperiment(exp)
+                                    }}
+                                  >
+                                    <IconArrowRight size={14} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              ) : (
+                                <Tooltip label="Add Results" withArrow>
+                                  <ActionIcon
+                                    size="sm"
+                                    variant="subtle"
+                                    color="green"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleAddResultsForExperiment(exp)
+                                    }}
+                                  >
+                                    <IconDownload size={14} />
+                                  </ActionIcon>
+                                </Tooltip>
+                              ))}
                             <ActionIcon
                               size="sm"
                               variant="subtle"
@@ -3269,19 +3299,6 @@ export default function ExperimentsPage() {
                         allExperiments={experiments}
                         onUpdate={handleUpdateExperiment}
                       />
-                      {allStepsDone && (
-                        <Group justify="center" mt="xl">
-                          <Button
-                            size="lg"
-                            color="green"
-                            variant="subtle"
-                            leftSection={<IconDownload size={20} />}
-                            onClick={handleAddResultsForSelectedExperiment}
-                          >
-                            Add Results
-                          </Button>
-                        </Group>
-                      )}
                     </Paper>
                   )}
 
@@ -3294,6 +3311,7 @@ export default function ExperimentsPage() {
                       uploadFlow != null &&
                       uploadFlow.experimentId !== selectedExperiment.id
                     }
+                    fullySpecified={allStepsDone}
                     onFiles={(files) =>
                       handleExperimentFilesDrop(selectedExperiment, files)
                     }

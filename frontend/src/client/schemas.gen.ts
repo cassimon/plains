@@ -528,6 +528,14 @@ export const BulkStateResponseSchema = {
             },
             type: 'array',
             title: 'Planes'
+        },
+        folders: {
+            items: {
+                '$ref': '#/components/schemas/PlaneFolderPublic'
+            },
+            type: 'array',
+            title: 'Folders',
+            default: []
         }
     },
     type: 'object',
@@ -3984,6 +3992,23 @@ export const PlaneCreateSchema = {
             minLength: 1,
             title: 'Name'
         },
+        folder_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Folder Id'
+        },
+        position: {
+            type: 'integer',
+            title: 'Position',
+            default: 0
+        },
         id: {
             type: 'string',
             format: 'uuid',
@@ -3995,6 +4020,121 @@ export const PlaneCreateSchema = {
     title: 'PlaneCreate'
 } as const;
 
+export const PlaneFolderCreateSchema = {
+    properties: {
+        name: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Name'
+        },
+        position: {
+            type: 'integer',
+            title: 'Position',
+            default: 0
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        }
+    },
+    type: 'object',
+    required: ['name'],
+    title: 'PlaneFolderCreate'
+} as const;
+
+export const PlaneFolderPublicSchema = {
+    properties: {
+        name: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Name'
+        },
+        position: {
+            type: 'integer',
+            title: 'Position',
+            default: 0
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        owner_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Owner Id'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: ['name', 'id', 'owner_id'],
+    title: 'PlaneFolderPublic'
+} as const;
+
+export const PlaneFolderUpdateSchema = {
+    properties: {
+        name: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 255,
+                    minLength: 1
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Name'
+        },
+        position: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Position'
+        }
+    },
+    type: 'object',
+    title: 'PlaneFolderUpdate'
+} as const;
+
+export const PlaneFoldersPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/PlaneFolderPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'PlaneFoldersPublic'
+} as const;
+
 export const PlanePublicSchema = {
     properties: {
         name: {
@@ -4002,6 +4142,23 @@ export const PlanePublicSchema = {
             maxLength: 255,
             minLength: 1,
             title: 'Name'
+        },
+        folder_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Folder Id'
+        },
+        position: {
+            type: 'integer',
+            title: 'Position',
+            default: 0
         },
         id: {
             type: 'string',
@@ -4093,6 +4250,29 @@ export const PlaneUpdateSchema = {
                 }
             ],
             title: 'Name'
+        },
+        folder_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Folder Id'
+        },
+        position: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Position'
         }
     },
     type: 'object',

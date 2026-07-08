@@ -154,7 +154,9 @@ export function computeChemsDone(
     if (!batch) return false
     if (batch.mode === "take") return Boolean(batch.takenFromExpId)
     return (
-      parseFloat(batch.totalVolumeMl ?? "0") > 0 && Boolean(batch.preparedAt)
+      parseFloat(batch.totalVolumeMl ?? "0") > 0 &&
+      Boolean(batch.preparedAt) &&
+      Boolean(batch.vialLabel)
     )
   })
   return allMatsDone && allSolsDone
@@ -194,9 +196,18 @@ function scaleRecipeQuantities(
 function solutionBatchSummary(batch?: ExperimentSolutionBatch): string {
   if (!batch) return "Not set"
   if (batch.mode === "take") return batch.takenFromExpId ? "Reused" : "Not set"
-  return parseFloat(batch.totalVolumeMl ?? "0") > 0
-    ? `${batch.totalVolumeMl} mL`
-    : "Not set"
+  if (parseFloat(batch.totalVolumeMl ?? "0") <= 0) return "Not set"
+  return batch.vialLabel
+    ? `${batch.totalVolumeMl} mL — ${batch.vialLabel}`
+    : `${batch.totalVolumeMl} mL`
+}
+
+// Default "Vial Label" for a freshly made solution: "{SolutionName}_{Date}",
+// date-only (no time) even though `preparedAt` is a datetime-local value.
+function buildDefaultVialLabel(name: string, preparedAt: string): string {
+  const namePart = name.trim().replace(/\s+/g, "_")
+  const datePart = (preparedAt || new Date().toISOString()).slice(0, 10)
+  return `${namePart}_${datePart}`
 }
 
 function buildExpLocationMap(planes: Plane[]): Map<
@@ -325,6 +336,7 @@ export type SolutionExportRow = {
   mode: "make" | "take"
   volumeMl?: string
   preparedAt?: string
+  vialLabel?: string
   reusedFromName?: string
   quantities: Array<{ name: string; amount: string; unit: string }>
 }
@@ -366,6 +378,7 @@ export function buildChemicalsExport(
       mode,
       volumeMl: b?.totalVolumeMl,
       preparedAt: b?.preparedAt,
+      vialLabel: b?.vialLabel,
       reusedFromName:
         mode === "take" && b?.takenFromExpId
           ? (expNameById.get(b.takenFromExpId) ?? "another experiment")
@@ -641,6 +654,13 @@ function SolutionQueryCard({
   const [preparedAt, setPreparedAt] = useState<string>(
     batch?.preparedAt ?? defaultPreparedAt ?? "",
   )
+  const [vialLabel, setVialLabel] = useState<string>(
+    batch?.vialLabel ??
+      buildDefaultVialLabel(
+        item.label,
+        batch?.preparedAt ?? defaultPreparedAt ?? "",
+      ),
+  )
   const [sourceExpId, setSourceExpId] = useState<string | null>(
     batch?.takenFromExpId ?? null,
   )
@@ -676,16 +696,17 @@ function SolutionQueryCard({
 
   const answered =
     choice === "make"
-      ? volumeNum > 0 && preparedAt !== ""
+      ? volumeNum > 0 && preparedAt !== "" && vialLabel.trim() !== ""
       : choice === "take"
         ? Boolean(sourceExpId)
         : false
 
-  const commitMake = (v: number, at: string) => {
+  const commitMake = (v: number, at: string, label?: string) => {
     onCommit({
       mode: "make",
       totalVolumeMl: String(v),
       preparedAt: at || undefined,
+      vialLabel: (label ?? vialLabel) || undefined,
       takenFromExpId: undefined,
       takenFromBatchId: undefined,
     })
@@ -717,7 +738,12 @@ function SolutionQueryCard({
 
   const handlePreparedAt = (value: string) => {
     setPreparedAt(value)
-    if (volumeNum > 0) commitMake(volumeNum, value)
+    if (volumeNum > 0) commitMake(volumeNum, value, vialLabel)
+  }
+
+  const handleVialLabel = (value: string) => {
+    setVialLabel(value)
+    if (volumeNum > 0) commitMake(volumeNum, preparedAt, value)
   }
 
   const commitAndContinue = () => {
@@ -809,6 +835,14 @@ function SolutionQueryCard({
                 withAsterisk
                 value={preparedAt}
                 onChange={(e) => handlePreparedAt(e.currentTarget.value)}
+                style={{ width: 240 }}
+              />
+              <TextInput
+                size="md"
+                label="Vial Label"
+                value={vialLabel}
+                onChange={(e) => handleVialLabel(e.currentTarget.value)}
+                onFocus={(e) => e.currentTarget.select()}
                 style={{ width: 240 }}
               />
             </Group>
@@ -1078,7 +1112,11 @@ export function ChemicalsTab({
     const b = prep.solutionBatches?.[qi.item.key]
     if (!b) return false
     if (b.mode === "take") return Boolean(b.takenFromExpId)
-    return parseFloat(b.totalVolumeMl ?? "0") > 0 && Boolean(b.preparedAt)
+    return (
+      parseFloat(b.totalVolumeMl ?? "0") > 0 &&
+      Boolean(b.preparedAt) &&
+      Boolean(b.vialLabel)
+    )
   }
 
   const doneCount = queue.filter(isDone).length

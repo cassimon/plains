@@ -8,6 +8,7 @@ import {
   Divider,
   FileButton,
   Group,
+  HoverCard,
   Loader,
   Modal,
   Paper,
@@ -30,14 +31,17 @@ import {
   IconBold,
   IconChartBar,
   IconCheck,
+  IconChevronDown,
   IconCloudUpload,
   IconCopy,
   IconDownload,
+  IconFolder,
   IconFolderPlus,
   IconItalic,
   IconLetterT,
   IconMinus,
   IconNote,
+  IconPencil,
   IconPlayerPlay,
   IconPlus,
   IconSeparatorVertical,
@@ -78,6 +82,7 @@ import {
   getExperimentStatus,
   getProcessStatus,
   type Plane,
+  type PlaneFolder,
   type Process,
   type TextFormatting,
   useAppContext,
@@ -96,6 +101,61 @@ const COLLECTION_ELEMENT_DRAG_MIME =
 // Text / sticky-note element drag (HTML5 DnD, mirrors collection-element drag so
 // notes get the same drop-target feedback and cross-plane moves).
 const TEXT_ELEMENT_DRAG_MIME = "application/x-plains-text-element-drag"
+// Top-level strip item drag: a plane tab or a folder pill. Reorders within the
+// strip, or (plane onto folder pill) files the plane into that folder.
+const PLANE_TAB_DRAG_MIME = "application/x-plains-plane-tab-drag"
+
+type PlaneTabDragPayload = { id: string; kind: "plane" | "folder" }
+
+/**
+ * Build the ordered top-level items for the tab strip / overview: loose planes
+ * (no folder) interleaved with folders, sorted by their shared `position`.
+ * Ties break folders-before-planes then by name for a stable order.
+ */
+type TopLevelItem =
+  | { kind: "plane"; id: string; position: number; plane: Plane }
+  | { kind: "folder"; id: string; position: number; folder: PlaneFolder }
+
+function buildTopLevel(
+  planes: Plane[],
+  folders: PlaneFolder[],
+): TopLevelItem[] {
+  const items: TopLevelItem[] = [
+    ...folders.map(
+      (f): TopLevelItem => ({
+        kind: "folder",
+        id: f.id,
+        position: f.position ?? 0,
+        folder: f,
+      }),
+    ),
+    ...planes
+      .filter((p) => !p.folderId)
+      .map(
+        (p): TopLevelItem => ({
+          kind: "plane",
+          id: p.id,
+          position: p.position ?? 0,
+          plane: p,
+        }),
+      ),
+  ]
+  items.sort((a, b) => {
+    if (a.position !== b.position) return a.position - b.position
+    if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1
+    const an = a.kind === "folder" ? a.folder.name : a.plane.name
+    const bn = b.kind === "folder" ? b.folder.name : b.plane.name
+    return an.localeCompare(bn)
+  })
+  return items
+}
+
+/** Planes belonging to a folder, ordered by position. */
+function planesInFolder(planes: Plane[], folderId: string): Plane[] {
+  return planes
+    .filter((p) => p.folderId === folderId)
+    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+}
 
 // Neutral grayish-blue for default selections
 const DEFAULT_ACCENT = "#94a3b8"
@@ -2378,9 +2438,10 @@ function CollectionEl({
                 )
               })}
 
-            {/* "+" add slots — always to the right of filled items, shown on hover (or always if empty) */}
+            {/* "+" add slots — shown on hover only, for empty and filled cards
+                alike. An idle empty collection stays clean (just its name). */}
             {!markerOnly &&
-              (isCardHovered || el.refs.length === 0) &&
+              isCardHovered &&
               SIX_KINDS.filter(
                 ({ kind }) =>
                   !el.refs.some((r) => r.kind === kind) && unlocked.has(kind),
@@ -2490,8 +2551,10 @@ function CollectionEl({
               </FileButton>
             )}
 
-            {/* Note + textfield add buttons — same size/style, only when collection is fully empty */}
-            {!markerOnly && el.refs.length === 0 && (
+            {/* Note + textfield add buttons — same size/style, only when the
+                collection is fully empty AND the card is hovered (idle empty
+                cards stay clean). */}
+            {!markerOnly && isCardHovered && el.refs.length === 0 && (
               <>
                 <Tooltip
                   label="Add sticky note"
@@ -5132,12 +5195,217 @@ function PlaneTabLabel({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Folder pill (tab strip) — Firefox-bookmark-style: hover deploys a dropdown
+// listing the planes inside; a plane tab dropped on it files into the folder.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function FolderPill({
+  folder,
+  childPlanes,
+  activePlaneId,
+  isActive,
+  isDropTarget,
+  editing,
+  onRename,
+  onStartEdit,
+  onDelete,
+  onSelectPlane,
+  onDragStart,
+  onDragEnd,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+}: {
+  folder: PlaneFolder
+  childPlanes: Plane[]
+  activePlaneId: string | null
+  isActive: boolean
+  isDropTarget: boolean
+  editing: boolean
+  onRename: (name: string) => void
+  onStartEdit: () => void
+  onDelete: () => void
+  onSelectPlane: (id: string) => void
+  onDragStart: (e: ReactDragEvent<HTMLElement>) => void
+  onDragEnd: () => void
+  onDragOver: (e: ReactDragEvent<HTMLElement>) => void
+  onDragLeave: (e: ReactDragEvent<HTMLElement>) => void
+  onDrop: (e: ReactDragEvent<HTMLElement>) => void
+}) {
+  const [buf, setBuf] = useState(folder.name)
+  useEffect(() => {
+    if (!editing) setBuf(folder.name)
+  }, [folder.name, editing])
+
+  const activePlane = childPlanes.find((p) => p.id === activePlaneId)
+  const label =
+    isActive && activePlane
+      ? `${folder.name} • ${activePlane.name}`
+      : folder.name
+
+  if (editing) {
+    const commit = () => onRename(buf.trim() || folder.name)
+    return (
+      <TextInput
+        size="xs"
+        value={buf}
+        autoFocus
+        onFocus={(e) => e.currentTarget?.select()}
+        onChange={(e) => setBuf(e.currentTarget.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit()
+          if (e.key === "Escape") {
+            setBuf(folder.name)
+            onRename(folder.name)
+          }
+        }}
+        style={{ width: rem(120), alignSelf: "center", margin: "0 4px" }}
+        onClick={(e) => e.stopPropagation()}
+      />
+    )
+  }
+
+  return (
+    <HoverCard
+      openDelay={80}
+      closeDelay={150}
+      position="bottom-start"
+      withinPortal
+      shadow="md"
+    >
+      <HoverCard.Target>
+        <Box
+          draggable
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "6px 10px",
+            margin: "0 2px",
+            cursor: "grab",
+            borderRadius: "var(--mantine-radius-sm)",
+            alignSelf: "center",
+            border: isDropTarget
+              ? "2px dashed var(--mantine-color-blue-5)"
+              : "1px solid var(--mantine-color-default-border)",
+            background: isActive
+              ? "var(--mantine-color-blue-1)"
+              : isDropTarget
+                ? "var(--mantine-color-blue-0)"
+                : "var(--mantine-color-default)",
+            transition: "background 0.15s ease, border 0.15s ease",
+          }}
+        >
+          <IconFolder
+            size={15}
+            color={
+              isActive
+                ? "var(--mantine-color-blue-7)"
+                : "var(--mantine-color-yellow-7)"
+            }
+          />
+          <Text
+            size="sm"
+            fw={isActive ? 600 : 400}
+            style={{ maxWidth: 180 }}
+            truncate
+          >
+            {label}
+          </Text>
+          <Badge size="xs" variant="light" color="gray" circle>
+            {childPlanes.length}
+          </Badge>
+          <IconChevronDown size={12} />
+        </Box>
+      </HoverCard.Target>
+      <HoverCard.Dropdown p={6} style={{ minWidth: 200 }}>
+        <Group justify="space-between" mb={6} gap={4} wrap="nowrap">
+          <Text size="xs" fw={700} c="dimmed" truncate>
+            {folder.name}
+          </Text>
+          <Group gap={2} wrap="nowrap">
+            <Tooltip label="Rename folder" withArrow>
+              <ActionIcon
+                size="xs"
+                variant="subtle"
+                color="gray"
+                onClick={onStartEdit}
+              >
+                <IconPencil size={12} />
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label="Delete folder (planes are kept)" withArrow>
+              <ActionIcon
+                size="xs"
+                variant="subtle"
+                color="red"
+                onClick={onDelete}
+              >
+                <IconTrash size={12} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
+        </Group>
+        <Divider mb={6} />
+        <Stack gap={2}>
+          {childPlanes.length === 0 && (
+            <Text size="xs" c="dimmed" ta="center" py={4}>
+              Empty — drag a plane tab here
+            </Text>
+          )}
+          {childPlanes.map((p) => (
+            <Group
+              key={p.id}
+              gap={6}
+              wrap="nowrap"
+              onClick={() => onSelectPlane(p.id)}
+              style={{
+                cursor: "pointer",
+                padding: "4px 6px",
+                borderRadius: "var(--mantine-radius-sm)",
+                background:
+                  p.id === activePlaneId
+                    ? "var(--mantine-color-blue-1)"
+                    : "transparent",
+              }}
+            >
+              <IconPlayerPlay size={12} color="var(--mantine-color-grape-6)" />
+              <Text size="sm" truncate style={{ flex: 1 }}>
+                {p.name}
+              </Text>
+            </Group>
+          ))}
+        </Stack>
+      </HoverCard.Dropdown>
+    </HoverCard>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Welcome / General plane overview
 // ─────────────────────────────────────────────────────────────────────────────
 
 function WelcomePlaneView() {
-  const { planes, addPlane, setActivePlaneId, setPlanes, flushSave } =
-    useAppContext()
+  const {
+    planes,
+    folders,
+    addPlane,
+    addFolder,
+    deleteFolder,
+    assignPlaneToFolder,
+    setActivePlaneId,
+    setPlanes,
+    flushSave,
+  } = useAppContext()
+  // Folder group highlighted while a plane card is dragged over it
+  // (id, or "__ungrouped__" for the loose section).
+  const [cardDropTarget, setCardDropTarget] = useState<string | null>(null)
   const { user } = useAuth()
   const [sharingPlaneId, setSharingPlaneId] = useState<string | null>(null)
   const [newPlaneEditingId, setNewPlaneEditingId] = useState<string | null>(
@@ -5207,6 +5475,8 @@ function WelcomePlaneView() {
                 full_name: apiPlane.owner.full_name ?? null,
               },
               created_at: apiPlane.created_at ?? null,
+              folder_id: apiPlane.folder_id ?? null,
+              position: apiPlane.position ?? 0,
               elements: [
                 ...(apiPlane.sticky_notes ?? []).map((sn) => ({
                   id: sn.id,
@@ -5355,6 +5625,12 @@ function WelcomePlaneView() {
         withBorder
         shadow="sm"
         p="md"
+        draggable={isOwner(plane) && !isNewlyCreated}
+        onDragStart={(e: ReactDragEvent<HTMLDivElement>) => {
+          const payload: PlaneTabDragPayload = { id: plane.id, kind: "plane" }
+          e.dataTransfer.setData(PLANE_TAB_DRAG_MIME, JSON.stringify(payload))
+          e.dataTransfer.effectAllowed = "move"
+        }}
         style={{
           width: 220,
           cursor: "pointer",
@@ -5466,6 +5742,56 @@ function WelcomePlaneView() {
     return groups
   }, [])
 
+  const sortedFolders = [...folders].sort(
+    (a, b) => (a.position ?? 0) - (b.position ?? 0),
+  )
+  const ungroupedOwned = ownedPlanes.filter((p) => !p.folderId)
+  const handleAddFolder = () => addFolder(`Folder ${folders.length + 1}`)
+
+  // Drop-target props for a folder group box / the ungrouped section. Reads the
+  // dragged plane id and files it into (or out of) the target folder.
+  const cardDropProps = (targetId: string, folderId: string | null) => ({
+    onDragOver: (e: ReactDragEvent<HTMLDivElement>) => {
+      if (!e.dataTransfer.types.includes(PLANE_TAB_DRAG_MIME)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = "move"
+      if (cardDropTarget !== targetId) setCardDropTarget(targetId)
+    },
+    onDragLeave: (e: ReactDragEvent<HTMLDivElement>) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+        setCardDropTarget((c) => (c === targetId ? null : c))
+      }
+    },
+    onDrop: (e: ReactDragEvent<HTMLDivElement>) => {
+      setCardDropTarget(null)
+      const raw = e.dataTransfer.getData(PLANE_TAB_DRAG_MIME)
+      if (!raw) return
+      e.preventDefault()
+      try {
+        const parsed = JSON.parse(raw) as PlaneTabDragPayload
+        if (parsed?.kind === "plane" && typeof parsed.id === "string") {
+          assignPlaneToFolder(parsed.id, folderId)
+        }
+      } catch {
+        /* ignore malformed payload */
+      }
+    },
+  })
+
+  const groupBoxStyle = (targetId: string) => ({
+    border:
+      cardDropTarget === targetId
+        ? "2px dashed var(--mantine-color-blue-5)"
+        : "1px solid var(--mantine-color-default-border)",
+    borderRadius: "var(--mantine-radius-md)",
+    background:
+      cardDropTarget === targetId
+        ? "var(--mantine-color-blue-0)"
+        : "transparent",
+    padding: "var(--mantine-spacing-sm)",
+    transition: "background 0.15s ease, border 0.15s ease",
+  })
+
   return (
     <Box p="xl">
       <Text size="xl" fw={700} mb="lg">
@@ -5477,13 +5803,89 @@ function WelcomePlaneView() {
       </Text>
       <Stack gap="xl" mb="lg">
         {ownedPlanes.length > 0 && (
-          <Stack gap="sm">
-            <Text size="sm" fw={600} c="dimmed">
-              My planes
-            </Text>
-            <Group gap="md" wrap="wrap">
-              {ownedPlanes.map(renderPlaneCard)}
+          <Stack gap="md">
+            <Group justify="space-between">
+              <Text size="sm" fw={600} c="dimmed">
+                My planes
+              </Text>
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconFolderPlus size={14} />}
+                onClick={handleAddFolder}
+              >
+                New folder
+              </Button>
             </Group>
+
+            {/* One box per folder — drop a plane card here to file it in. */}
+            {sortedFolders.map((folder) => {
+              const inFolder = planesInFolder(ownedPlanes, folder.id)
+              return (
+                <Box
+                  key={folder.id}
+                  {...cardDropProps(folder.id, folder.id)}
+                  style={groupBoxStyle(folder.id)}
+                >
+                  <Group justify="space-between" mb="xs" gap={6}>
+                    <Group gap={6}>
+                      <IconFolder
+                        size={16}
+                        color="var(--mantine-color-yellow-7)"
+                      />
+                      <Text size="sm" fw={600}>
+                        {folder.name}
+                      </Text>
+                      <Badge size="xs" variant="light" color="gray">
+                        {inFolder.length}
+                      </Badge>
+                    </Group>
+                    <Tooltip label="Delete folder (planes are kept)" withArrow>
+                      <ActionIcon
+                        size="sm"
+                        variant="subtle"
+                        color="red"
+                        onClick={() => deleteFolder(folder.id)}
+                      >
+                        <IconTrash size={14} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </Group>
+                  {inFolder.length === 0 ? (
+                    <Text size="xs" c="dimmed" py="sm" ta="center">
+                      Drag a plane here to add it to this folder
+                    </Text>
+                  ) : (
+                    <Group gap="md" wrap="wrap">
+                      {inFolder.map(renderPlaneCard)}
+                    </Group>
+                  )}
+                </Box>
+              )
+            })}
+
+            {/* Ungrouped planes — also a drop target (to remove from a folder). */}
+            <Box
+              {...cardDropProps("__ungrouped__", null)}
+              style={groupBoxStyle("__ungrouped__")}
+            >
+              {sortedFolders.length > 0 && (
+                <Text size="xs" fw={600} c="dimmed" mb="xs">
+                  Ungrouped
+                </Text>
+              )}
+              {ungroupedOwned.length === 0 ? (
+                <Text size="xs" c="dimmed" py="sm" ta="center">
+                  {sortedFolders.length > 0
+                    ? "Drag a plane here to remove it from its folder"
+                    : "No planes yet"}
+                </Text>
+              ) : (
+                <Group gap="md" wrap="wrap">
+                  {ungroupedOwned.map(renderPlaneCard)}
+                </Group>
+              )}
+            </Box>
           </Stack>
         )}
 
@@ -5624,9 +6026,15 @@ function WelcomePlaneView() {
 export function OrganizationPage() {
   const {
     planes,
+    folders,
     addPlane,
     updatePlane,
     deletePlane,
+    addFolder,
+    updateFolder,
+    deleteFolder,
+    assignPlaneToFolder,
+    reorderTopLevel,
     activePlaneId,
     setActivePlaneId,
     copyElementToPlane,
@@ -5634,10 +6042,33 @@ export function OrganizationPage() {
   } = useAppContext()
   const { user } = useAuth()
 
+  const topLevel = useMemo(
+    () => buildTopLevel(planes, folders),
+    [planes, folders],
+  )
+  // The folder that currently contains the active plane (for pill highlight).
+  const activeFolderId = useMemo(() => {
+    if (!activePlaneId) return null
+    return planes.find((p) => p.id === activePlaneId)?.folderId ?? null
+  }, [planes, activePlaneId])
+
   // Highlighted tab while a collection card is dragged over it.
   const [hoveredPlaneTabId, setHoveredPlaneTabId] = useState<string | null>(
     null,
   )
+  // Folder pill highlighted while a plane tab is dragged over it.
+  const [dropFolderId, setDropFolderId] = useState<string | null>(null)
+  // Reorder insertion indicator: index into `topLevel` a dragged tab would land.
+  const [reorderIndex, setReorderIndex] = useState<number | null>(null)
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
+  // The item currently being dragged in the strip — read during dragover (where
+  // dataTransfer payloads are unreadable) to decide reorder-vs-assign.
+  const tabDragRef = useRef<PlaneTabDragPayload | null>(null)
+  const clearTabDrag = () => {
+    tabDragRef.current = null
+    setDropFolderId(null)
+    setReorderIndex(null)
+  }
   // Transfer (move/copy) a collection dropped onto another plane's tab.
   const [transferDialog, setTransferDialog] = useState<{
     element: CanvasCollectionElement
@@ -5751,6 +6182,50 @@ export function OrganizationPage() {
     setNewPlaneEditingId(p.id)
   }
 
+  const handleAddFolder = () => {
+    const f = addFolder(`Folder ${folders.length + 1}`)
+    setEditingFolderId(f.id)
+  }
+
+  // Read the dragged top-level item (plane/folder) from a drop event.
+  const readTabDrag = (
+    e: ReactDragEvent<HTMLElement>,
+  ): PlaneTabDragPayload | null => {
+    const raw = e.dataTransfer.getData(PLANE_TAB_DRAG_MIME)
+    if (!raw) return null
+    try {
+      const parsed = JSON.parse(raw) as PlaneTabDragPayload
+      if (!parsed || typeof parsed.id !== "string") return null
+      return parsed
+    } catch {
+      return null
+    }
+  }
+
+  // Reorder a dragged plane/folder to land before top-level slot `insertBefore`.
+  // A plane coming from inside a folder becomes loose in the process.
+  const dropTabAtTopLevel = (
+    payload: PlaneTabDragPayload,
+    insertBefore: number,
+  ) => {
+    const ids = topLevel.map((it) => ({ id: it.id, kind: it.kind }))
+    const curIdx = ids.findIndex((x) => x.id === payload.id)
+    let idx = insertBefore
+    if (curIdx !== -1) {
+      ids.splice(curIdx, 1)
+      if (curIdx < insertBefore) idx -= 1
+    }
+    idx = Math.max(0, Math.min(idx, ids.length))
+    ids.splice(idx, 0, { id: payload.id, kind: payload.kind })
+    if (
+      payload.kind === "plane" &&
+      planes.find((p) => p.id === payload.id)?.folderId
+    ) {
+      assignPlaneToFolder(payload.id, null)
+    }
+    reorderTopLevel(ids)
+  }
+
   const handleDeletePlane = (id: string) => {
     const target = planes.find((p) => p.id === id)
     if (!target) return
@@ -5843,78 +6318,216 @@ export function OrganizationPage() {
               <Tabs.Tab value="__general__">
                 <Text size="sm">Overview & Data Sharing</Text>
               </Tabs.Tab>
-              {planes.map((p) => (
-                <Tabs.Tab
-                  value={p.id}
-                  key={p.id}
-                  data-plane-tab-id={p.id}
-                  onDragOver={(e: ReactDragEvent<HTMLButtonElement>) => {
-                    const isCollection = e.dataTransfer.types.includes(
-                      COLLECTION_ELEMENT_DRAG_MIME,
-                    )
-                    const isText = e.dataTransfer.types.includes(
-                      TEXT_ELEMENT_DRAG_MIME,
-                    )
-                    if ((!isCollection && !isText) || p.id === activePlaneId)
-                      return
-                    // Accept the card/note drop and highlight this tab.
-                    e.preventDefault()
-                    e.dataTransfer.dropEffect = "move"
-                    if (hoveredPlaneTabId !== p.id) setHoveredPlaneTabId(p.id)
-                  }}
-                  onDragLeave={(e: ReactDragEvent<HTMLButtonElement>) => {
-                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                      setHoveredPlaneTabId((cur) => (cur === p.id ? null : cur))
+              {topLevel.map((item, idx) =>
+                item.kind === "folder" ? (
+                  <FolderPill
+                    key={item.id}
+                    folder={item.folder}
+                    childPlanes={planesInFolder(planes, item.id)}
+                    activePlaneId={activePlaneId}
+                    isActive={activeFolderId === item.id}
+                    isDropTarget={
+                      dropFolderId === item.id || reorderIndex === idx
                     }
-                  }}
-                  onDrop={(e: ReactDragEvent<HTMLButtonElement>) => {
-                    const isCollection = e.dataTransfer.types.includes(
-                      COLLECTION_ELEMENT_DRAG_MIME,
-                    )
-                    const isText = e.dataTransfer.types.includes(
-                      TEXT_ELEMENT_DRAG_MIME,
-                    )
-                    if ((!isCollection && !isText) || p.id === activePlaneId)
-                      return
-                    e.preventDefault()
-                    setHoveredPlaneTabId(null)
-                    if (isText) {
-                      moveTextElementToPlane(e, p.id)
-                    } else {
-                      openTransferForDrop(e, p.id)
-                    }
-                  }}
-                  style={
-                    hoveredPlaneTabId === p.id
-                      ? {
-                          background: "var(--mantine-color-blue-1)",
-                          outline: "2px solid var(--mantine-color-blue-4)",
-                          outlineOffset: -2,
-                          borderRadius: "var(--mantine-radius-sm)",
-                          transition:
-                            "background 0.15s ease, outline 0.15s ease",
-                        }
-                      : {
-                          transition:
-                            "background 0.15s ease, outline 0.15s ease",
-                        }
-                  }
-                >
-                  <PlaneTabLabel
-                    plane={p}
-                    onRename={(name) => updatePlane({ ...p, name })}
-                    onClose={() => handleDeletePlane(p.id)}
-                    canClose={
-                      !p.ownerId || p.ownerId === user?.id
-                        ? planes.filter(
-                            (q) => !q.ownerId || q.ownerId === user?.id,
-                          ).length > 1
-                        : true // non-owner can always leave
-                    }
-                    autoStartEdit={newPlaneEditingId === p.id}
+                    editing={editingFolderId === item.id}
+                    onRename={(name) => {
+                      updateFolder({ ...item.folder, name })
+                      setEditingFolderId(null)
+                    }}
+                    onStartEdit={() => setEditingFolderId(item.id)}
+                    onDelete={() => deleteFolder(item.id)}
+                    onSelectPlane={(id) => setActivePlaneId(id)}
+                    onDragStart={(e) => {
+                      const payload: PlaneTabDragPayload = {
+                        id: item.id,
+                        kind: "folder",
+                      }
+                      tabDragRef.current = payload
+                      e.dataTransfer.setData(
+                        PLANE_TAB_DRAG_MIME,
+                        JSON.stringify(payload),
+                      )
+                      e.dataTransfer.effectAllowed = "move"
+                    }}
+                    onDragEnd={clearTabDrag}
+                    onDragOver={(e) => {
+                      const drag = tabDragRef.current
+                      if (!drag) return
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = "move"
+                      // Plane onto folder → assign; folder onto folder → reorder.
+                      if (drag.kind === "plane") {
+                        setReorderIndex(null)
+                        if (dropFolderId !== item.id) setDropFolderId(item.id)
+                      } else {
+                        setDropFolderId(null)
+                        if (reorderIndex !== idx) setReorderIndex(idx)
+                      }
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        setDropFolderId((c) => (c === item.id ? null : c))
+                        setReorderIndex((c) => (c === idx ? null : c))
+                      }
+                    }}
+                    onDrop={(e) => {
+                      const drag = readTabDrag(e)
+                      if (!drag) return
+                      e.preventDefault()
+                      if (drag.kind === "plane") {
+                        assignPlaneToFolder(drag.id, item.id)
+                      } else {
+                        dropTabAtTopLevel(drag, idx)
+                      }
+                      clearTabDrag()
+                    }}
                   />
-                </Tabs.Tab>
-              ))}
+                ) : (
+                  <Tabs.Tab
+                    value={item.id}
+                    key={item.id}
+                    data-plane-tab-id={item.id}
+                    draggable
+                    onDragStart={(e: ReactDragEvent<HTMLButtonElement>) => {
+                      const payload: PlaneTabDragPayload = {
+                        id: item.id,
+                        kind: "plane",
+                      }
+                      tabDragRef.current = payload
+                      e.dataTransfer.setData(
+                        PLANE_TAB_DRAG_MIME,
+                        JSON.stringify(payload),
+                      )
+                      e.dataTransfer.effectAllowed = "move"
+                    }}
+                    onDragEnd={clearTabDrag}
+                    onDragOver={(e: ReactDragEvent<HTMLButtonElement>) => {
+                      const isTabReorder =
+                        e.dataTransfer.types.includes(PLANE_TAB_DRAG_MIME)
+                      const isCollection = e.dataTransfer.types.includes(
+                        COLLECTION_ELEMENT_DRAG_MIME,
+                      )
+                      const isText = e.dataTransfer.types.includes(
+                        TEXT_ELEMENT_DRAG_MIME,
+                      )
+                      if (isTabReorder) {
+                        // Reordering: insert before this tab.
+                        e.preventDefault()
+                        e.dataTransfer.dropEffect = "move"
+                        setDropFolderId(null)
+                        if (reorderIndex !== idx) setReorderIndex(idx)
+                        return
+                      }
+                      if (
+                        (!isCollection && !isText) ||
+                        item.id === activePlaneId
+                      )
+                        return
+                      // Accept the card/note drop and highlight this tab.
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = "move"
+                      if (hoveredPlaneTabId !== item.id)
+                        setHoveredPlaneTabId(item.id)
+                    }}
+                    onDragLeave={(e: ReactDragEvent<HTMLButtonElement>) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        setHoveredPlaneTabId((cur) =>
+                          cur === item.id ? null : cur,
+                        )
+                        setReorderIndex((c) => (c === idx ? null : c))
+                      }
+                    }}
+                    onDrop={(e: ReactDragEvent<HTMLButtonElement>) => {
+                      const drag = readTabDrag(e)
+                      if (drag) {
+                        e.preventDefault()
+                        dropTabAtTopLevel(drag, idx)
+                        clearTabDrag()
+                        return
+                      }
+                      const isCollection = e.dataTransfer.types.includes(
+                        COLLECTION_ELEMENT_DRAG_MIME,
+                      )
+                      const isText = e.dataTransfer.types.includes(
+                        TEXT_ELEMENT_DRAG_MIME,
+                      )
+                      if (
+                        (!isCollection && !isText) ||
+                        item.id === activePlaneId
+                      )
+                        return
+                      e.preventDefault()
+                      setHoveredPlaneTabId(null)
+                      if (isText) {
+                        moveTextElementToPlane(e, item.id)
+                      } else {
+                        openTransferForDrop(e, item.id)
+                      }
+                    }}
+                    style={
+                      reorderIndex === idx
+                        ? {
+                            borderLeft: "3px solid var(--mantine-color-blue-5)",
+                            transition: "background 0.15s ease",
+                          }
+                        : hoveredPlaneTabId === item.id
+                          ? {
+                              background: "var(--mantine-color-blue-1)",
+                              outline: "2px solid var(--mantine-color-blue-4)",
+                              outlineOffset: -2,
+                              borderRadius: "var(--mantine-radius-sm)",
+                              transition:
+                                "background 0.15s ease, outline 0.15s ease",
+                            }
+                          : {
+                              transition:
+                                "background 0.15s ease, outline 0.15s ease",
+                            }
+                    }
+                  >
+                    <PlaneTabLabel
+                      plane={item.plane}
+                      onRename={(name) => updatePlane({ ...item.plane, name })}
+                      onClose={() => handleDeletePlane(item.id)}
+                      canClose={
+                        !item.plane.ownerId || item.plane.ownerId === user?.id
+                          ? planes.filter(
+                              (q) => !q.ownerId || q.ownerId === user?.id,
+                            ).length > 1
+                          : true // non-owner can always leave
+                      }
+                      autoStartEdit={newPlaneEditingId === item.id}
+                    />
+                  </Tabs.Tab>
+                ),
+              )}
+              {/* Trailing append zone: drop a tab/folder here to move it last. */}
+              <Box
+                onDragOver={(e: ReactDragEvent<HTMLDivElement>) => {
+                  if (!e.dataTransfer.types.includes(PLANE_TAB_DRAG_MIME))
+                    return
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = "move"
+                  setDropFolderId(null)
+                  if (reorderIndex !== topLevel.length)
+                    setReorderIndex(topLevel.length)
+                }}
+                onDrop={(e: ReactDragEvent<HTMLDivElement>) => {
+                  const drag = readTabDrag(e)
+                  if (!drag) return
+                  e.preventDefault()
+                  dropTabAtTopLevel(drag, topLevel.length)
+                  clearTabDrag()
+                }}
+                style={{
+                  alignSelf: "stretch",
+                  minWidth: 24,
+                  borderLeft:
+                    reorderIndex === topLevel.length
+                      ? "3px solid var(--mantine-color-blue-5)"
+                      : "3px solid transparent",
+                }}
+              />
             </Tabs.List>
           </ScrollArea>
           <Tooltip label="Add plane">
@@ -5926,6 +6539,17 @@ export function OrganizationPage() {
               onClick={handleAddPlane}
             >
               <IconPlus size={14} />
+            </ActionIcon>
+          </Tooltip>
+          <Tooltip label="Add folder">
+            <ActionIcon
+              variant="subtle"
+              size="sm"
+              mb={4}
+              ml={2}
+              onClick={handleAddFolder}
+            >
+              <IconFolderPlus size={14} />
             </ActionIcon>
           </Tooltip>
         </Group>

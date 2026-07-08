@@ -32,6 +32,9 @@ from app.models import (
     NomadUploadLog,
     Plane,
     PlaneCreate,
+    PlaneFolder,
+    PlaneFolderCreate,
+    PlaneFolderUpdate,
     PlaneUpdate,
     Process,
     ProcessCreate,
@@ -284,6 +287,22 @@ def create_plane(
 
 def update_plane(*, session: Session, db_plane: Plane, plane_in: PlaneUpdate) -> Plane:
     return _apply_update(session, db_plane, plane_in)
+
+
+def create_plane_folder(
+    *, session: Session, folder_in: PlaneFolderCreate, owner_id: uuid.UUID
+) -> PlaneFolder:
+    db_folder = PlaneFolder.model_validate(folder_in, update={"owner_id": owner_id})
+    session.add(db_folder)
+    session.commit()
+    session.refresh(db_folder)
+    return db_folder
+
+
+def update_plane_folder(
+    *, session: Session, db_folder: PlaneFolder, folder_in: PlaneFolderUpdate
+) -> PlaneFolder:
+    return _apply_update(session, db_folder, folder_in)
 
 
 # ============================================================================
