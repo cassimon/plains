@@ -72,6 +72,13 @@ export type UploadFlow = {
    *  names can be listed and deleted from the picker. */
   autoCreatedSubstrateIds?: string[]
   /**
+   * True once the user has run "Import substrate names" for the current set of
+   * staged files, so the button can disable itself. Reset to false whenever new
+   * files are appended to the same flow (see `addFilesToUploadFlow`) so the
+   * newly-dropped names can be imported too.
+   */
+  substrateNamesImported?: boolean
+  /**
    * Exported Process/Experiment PDFs pulled out of a drop, awaiting digestion.
    * While non-empty the flow's target picker is BLOCKED and the digest view is
    * shown instead (see UploadFlowPanel): each doc is resolved into a selected or

@@ -38,6 +38,7 @@ import * as React from "react"
 import { useCallback, useRef, useState } from "react"
 import { autoResolveCollection } from "@/lib/autoResolveCollection"
 import { filesFromDataTransfer } from "@/lib/dropFiles"
+import { homeCollectionForEntity } from "@/lib/entityReveal"
 import { exportExperimentSummaryAsPdf } from "@/lib/processExport"
 import {
   buildSubstratesFromNames,
@@ -2645,12 +2646,18 @@ export default function ExperimentsPage() {
       }
       const process = processes.find((p) => p.id === exp.processId)
       const fullySpecified = getExperimentAllStepsDone(exp, process)
+      // Register the ongoing upload on the experiment's home collection so the
+      // Organization canvas shows the "incomplete upload" marker there — exactly
+      // as if the files had been dropped onto that collection.
+      const home = homeCollectionForEntity(planes, "experiment", exp.id)
       const started = startUploadFlow({
         origin: "add-results",
         processId: exp.processId,
         experimentId: exp.id,
         files,
         pendingFiles: files.map((f) => ({ name: f.name, size: f.size })),
+        targetCollectionId: home?.collectionId ?? null,
+        targetPlaneId: home?.planeId ?? null,
       })
       if (!started) {
         return
@@ -2682,6 +2689,7 @@ export default function ExperimentsPage() {
       uploadFlow,
       addFilesToUploadFlow,
       processes,
+      planes,
       startUploadFlow,
       setPendingCollectionLink,
       setActiveEntity,

@@ -2,8 +2,8 @@ import {
   ActionIcon,
   Badge,
   Button,
-  Divider,
   Group,
+  Paper,
   Popover,
   Stack,
   Text,
@@ -12,13 +12,7 @@ import {
 } from "@mantine/core"
 import { modals } from "@mantine/modals"
 import { notifications } from "@mantine/notifications"
-import {
-  IconAlertTriangle,
-  IconCheck,
-  IconCloudUpload,
-  IconLoader2,
-  IconX,
-} from "@tabler/icons-react"
+import { IconCheck, IconCloudUpload, IconX } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRevealForFlow } from "@/lib/entityReveal"
@@ -26,8 +20,6 @@ import {
   countDoneSteps,
   getUploadFlowSteps,
   isUploadFlowComplete,
-  type StepState,
-  type UploadFlowStep,
 } from "@/lib/uploadFlow"
 import { useAppContext } from "@/store/AppContext"
 import { PdfDigestView } from "./PdfDigestView"
@@ -51,47 +43,15 @@ if (
   document.head.appendChild(style)
 }
 
-const STEP_LABELS: Record<UploadFlowStep, string> = {
-  process: "Process",
-  experiment: "Experiment",
-  upload: "Upload",
-}
-
-function StepIcon({ state }: { state: StepState }) {
-  if (state === "done") {
-    return (
-      <ThemeIcon size="sm" radius="xl" color="green">
-        <IconCheck size={14} />
-      </ThemeIcon>
-    )
-  }
-  if (state === "error") {
-    return (
-      <ThemeIcon size="sm" radius="xl" color="red">
-        <IconAlertTriangle size={14} />
-      </ThemeIcon>
-    )
-  }
-  if (state === "active") {
-    return (
-      <ThemeIcon size="sm" radius="xl" color="red" variant="filled">
-        <IconLoader2 size={14} />
-      </ThemeIcon>
-    )
-  }
-  return (
-    <ThemeIcon size="sm" radius="xl" color="gray" variant="light">
-      <IconLoader2 size={14} opacity={0.4} />
-    </ThemeIcon>
-  )
-}
-
 /**
- * The full body of the upload flow — 3-step tracker, Process/Experiment target
- * picker, and the "Go to results & upload" action. This is the single source of
- * truth for what the flow window looks like: it is rendered both inside the
- * top-bar badge's popover (the canonical presentation) and inside the modal
- * opened right after files are dropped, so the two are always identical.
+ * The full body of the upload flow — the Process/Experiment/Upload "boxes" (which
+ * turn green as each step completes) and the "Go to results & upload" action. This
+ * is the single source of truth for what the flow window looks like: it is rendered
+ * both inside the top-bar badge's popover (the canonical presentation) and inside
+ * the modal opened right after files are dropped, so the two are always identical.
+ *
+ * The Process and Experiment boxes live in `UploadFlowTargetPicker`; the Upload box
+ * is here because it is only ever an action (jump to Results), never a selector.
  *
  * `onClose` is invoked whenever an action navigates away or the flow is aborted,
  * so the host (popover or modal) can dismiss itself.
@@ -120,8 +80,6 @@ export function UploadFlowPanel({ onClose }: { onClose: () => void }) {
   if (!uploadFlow || !steps) {
     return null
   }
-
-  const stepOrder: UploadFlowStep[] = ["process", "experiment", "upload"]
 
   const handleGoToResults = () => {
     if (!uploadFlow.experimentId) {
@@ -164,6 +122,9 @@ export function UploadFlowPanel({ onClose }: { onClose: () => void }) {
     })
   }
 
+  const uploadDone = steps.upload === "done"
+  const canGoToResults = steps.experiment === "done" && !uploadDone
+
   return (
     <Stack gap="sm">
       <Group justify="space-between">
@@ -183,46 +144,70 @@ export function UploadFlowPanel({ onClose }: { onClose: () => void }) {
         </Tooltip>
       </Group>
 
-      {/* 3-step tracker */}
-      <Stack gap={6}>
-        {stepOrder.map((step) => (
-          <Group key={step} gap="xs" wrap="nowrap">
-            <StepIcon state={steps[step]} />
-            <Text
-              size="sm"
-              fw={steps[step] === "active" ? 600 : 400}
-              c={steps[step] === "pending" ? "dimmed" : undefined}
-            >
-              {STEP_LABELS[step]}
-            </Text>
-          </Group>
-        ))}
-      </Stack>
-
-      <Divider />
-
       {(uploadFlow.pendingDigests?.length ?? 0) > 0 ? (
         // A Process/Experiment PDF was dropped: digestion BLOCKS the target
         // picker and shows a different view until every doc is resolved into a
-        // selected / newly-created entity (issue 3).
+        // selected / newly-created entity.
         <PdfDigestView />
       ) : (
         <>
-          {/* Process / Experiment selection + create. Creating an experiment here
-              navigates to /experiments; the picker resets to General view itself
-              (see handleCreateExperiment) so this only needs to dismiss the host. */}
+          {/* Process + Experiment boxes (turn green when complete). Creating an
+              entity here navigates to its page; the picker settles the view
+              itself, so this only needs to dismiss the host. */}
           <UploadFlowTargetPicker onNavigateAway={onClose} />
 
-          {/* Jump to Results to perform the upload */}
-          {steps.experiment === "done" && steps.upload !== "done" && (
-            <Button
-              size="xs"
-              leftSection={<IconCloudUpload size={14} />}
-              onClick={handleGoToResults}
-            >
-              Go to results & upload
-            </Button>
-          )}
+          {/* Upload box — the results link is blocked until the experiment (and
+              therefore the process) is complete and correct. */}
+          <Paper
+            withBorder
+            p="sm"
+            radius="md"
+            style={{
+              borderColor: uploadDone
+                ? "var(--mantine-color-teal-5)"
+                : undefined,
+              background: uploadDone
+                ? "var(--mantine-color-teal-0)"
+                : undefined,
+              transition: "background 150ms, border-color 150ms",
+            }}
+          >
+            <Group gap="xs" mb={8} wrap="nowrap">
+              <ThemeIcon
+                size="sm"
+                radius="xl"
+                color={uploadDone ? "teal" : "gray"}
+                variant={uploadDone ? "filled" : "light"}
+              >
+                <IconCheck size={14} opacity={uploadDone ? 1 : 0.4} />
+              </ThemeIcon>
+              <Text
+                size="sm"
+                fw={700}
+                c={steps.experiment === "done" ? undefined : "dimmed"}
+              >
+                Upload
+              </Text>
+            </Group>
+            {uploadDone ? (
+              <Text size="xs" c="dimmed">
+                Uploaded to NOMAD.
+              </Text>
+            ) : canGoToResults ? (
+              <Button
+                fullWidth
+                size="xs"
+                leftSection={<IconCloudUpload size={14} />}
+                onClick={handleGoToResults}
+              >
+                Go to results &amp; upload
+              </Button>
+            ) : (
+              <Text size="xs" c="dimmed">
+                Complete the process and experiment to upload results.
+              </Text>
+            )}
+          </Paper>
         </>
       )}
     </Stack>
@@ -272,7 +257,7 @@ export function UploadFlowStatus() {
     <Popover
       opened={opened}
       onChange={setOpened}
-      width={320}
+      width={340}
       position="bottom"
       shadow="md"
       withArrow

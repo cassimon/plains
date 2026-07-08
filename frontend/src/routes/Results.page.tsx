@@ -37,7 +37,7 @@ import {
   IconUpload,
   IconX,
 } from "@tabler/icons-react"
-import { useBlocker } from "@tanstack/react-router"
+import { useBlocker, useNavigate } from "@tanstack/react-router"
 import {
   type CSSProperties,
   Fragment,
@@ -53,7 +53,9 @@ import type {
   NomadConfigResponse,
   NomadUploadResponse,
 } from "../client/types.gen"
+import { useRevealForFlow } from "../lib/entityReveal"
 import { getTokenSync } from "../lib/keycloakInstance"
+import { getExperimentAllStepsDone } from "../lib/uploadFlow"
 import {
   type CanvasCollectionElement,
   type DeviceGroup,
@@ -1191,7 +1193,15 @@ function ResultsDetail({
   const [batchAssignTargetSubstrateId, setBatchAssignTargetSubstrateId] =
     useState<string | null>(null)
   const seenUnmatchedGroupIdsRef = useRef<Set<string>>(new Set())
-  const { processes, flushSave, uploadFlow } = useAppContext()
+  const {
+    processes,
+    flushSave,
+    uploadFlow,
+    setActiveEntity,
+    updateLastSelected,
+  } = useAppContext()
+  const navigate = useNavigate()
+  const revealForFlow = useRevealForFlow()
   const theme = useMantineTheme()
   // Guards ingestion of an active upload flow's carried files: which flow has
   // been consumed, and how many of its files, so Strict Mode's double-invoke
@@ -1199,15 +1209,27 @@ function ResultsDetail({
   const consumedFlowRef = useRef<string | null>(null)
   const consumedCountRef = useRef(0)
 
+  const linkedProcess = useMemo(
+    () => processes.find((p) => p.id === experiment.processId),
+    [processes, experiment.processId],
+  )
+
+  // Whether the experiment is "completely specified" (chemicals + substrates +
+  // processing times + confirmed summary). Uploading its results is blocked until
+  // this holds — the same gate the upload flow enforces.
+  const experimentFullySpecified = useMemo(
+    () => getExperimentAllStepsDone(experiment, linkedProcess),
+    [experiment, linkedProcess],
+  )
+
   // Build a map from inline substrate id → spec for the linked process
   const substrateSpecMap = useMemo(() => {
-    const linkedProcess = processes.find((p) => p.id === experiment.processId)
     const map = new Map<string, { name: string; rigidity?: string }>()
     for (const spec of linkedProcess?.inlineSubstrates ?? []) {
       map.set(spec.id, { name: spec.name, rigidity: spec.rigidity })
     }
     return map
-  }, [processes, experiment.processId])
+  }, [linkedProcess])
 
   // NOMAD upload state
   const [nomadConfig, setNomadConfig] = useState<NomadConfigResponse | null>(
@@ -2717,7 +2739,8 @@ function ResultsDetail({
   )
   const allFilesMatched =
     results.files.length > 0 && unmatchedGroups.length === 0
-  const canOpenUpload = allFilesMatched && reviewConfirmed
+  const canOpenUpload =
+    allFilesMatched && reviewConfirmed && experimentFullySpecified
 
   useEffect(() => {
     if (results.files.length > 0) {
@@ -2747,7 +2770,9 @@ function ResultsDetail({
       return
     }
     if (step === 2) {
-      if (results.files.length > 0) {
+      // Blocked until the experiment is completely specified (Req: stop at the
+      // first step and finish the experiment before reviewing/uploading).
+      if (results.files.length > 0 && experimentFullySpecified) {
         setWorkflowStep(2)
       }
       return
@@ -2756,6 +2781,34 @@ function ResultsDetail({
       setWorkflowStep(3)
     }
   }
+
+  // Jump to the Experiments page with this experiment selected so the user can
+  // finish specifying it. Keeps it visible (reveal) without discarding plane
+  // context — see `computeRevealView`.
+  const goToCompleteExperiment = () => {
+    revealForFlow("experiment", experiment.id)
+    setActiveEntity({ kind: "experiment", id: experiment.id })
+    updateLastSelected("experiment", experiment.id)
+    void navigate({ to: "/experiments" })
+  }
+
+  // Gate the Step 1 dropzone the same way as the "Next" button — an
+  // incompletely specified experiment can't accept results yet.
+  const handleResultsDrop = useCallback(
+    (files: File[]) => {
+      if (!experimentFullySpecified) {
+        notifications.show({
+          title: "Finish specifying this experiment first",
+          message:
+            "Complete its chemicals, substrates and summary before adding results.",
+          color: "red",
+        })
+        return
+      }
+      void handleDrop(files)
+    },
+    [experimentFullySpecified, handleDrop],
+  )
 
   return (
     <Box style={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -2771,6 +2824,12 @@ function ResultsDetail({
           <Title order={4}>Results for {experiment.name}</Title>
           <Badge color="blue" variant="light">
             {experiment.substrates.length} substrates
+          </Badge>
+          <Badge
+            color={experimentFullySpecified ? "green" : "red"}
+            variant="dot"
+          >
+            {experimentFullySpecified ? "Complete" : "Incomplete"}
           </Badge>
         </Group>
         {results.files.length > 0 && (
@@ -2915,7 +2974,9 @@ function ResultsDetail({
                           label: "Step 2",
                           sublabel: "Review",
                           done: canOpenUpload,
-                          disabled: results.files.length === 0,
+                          disabled:
+                            results.files.length === 0 ||
+                            !experimentFullySpecified,
                         },
                         {
                           step: 3 as const,
@@ -3025,7 +3086,10 @@ function ResultsDetail({
                         {workflowStep === 1 && (
                           <Button
                             size="xs"
-                            disabled={results.files.length === 0}
+                            disabled={
+                              results.files.length === 0 ||
+                              !experimentFullySpecified
+                            }
                             onClick={() => goToStep(2)}
                           >
                             Next
@@ -3088,8 +3152,34 @@ function ResultsDetail({
                   <Box style={{ flex: 1, minWidth: 0 }}>
                     {workflowStep === 1 && (
                       <Stack gap="xs">
+                        {!experimentFullySpecified && (
+                          <Alert
+                            variant="light"
+                            color="red"
+                            icon={<IconAlertTriangle size={18} />}
+                            title="Finish specifying this experiment first"
+                          >
+                            <Stack gap="xs" align="flex-start">
+                              <Text size="sm">
+                                This experiment isn't completely specified yet
+                                (chemicals, substrates and a confirmed summary).
+                                Complete it before reviewing and uploading its
+                                results.
+                              </Text>
+                              <Button
+                                size="xs"
+                                variant="white"
+                                color="red"
+                                rightSection={<IconExternalLink size={14} />}
+                                onClick={goToCompleteExperiment}
+                              >
+                                Complete experiment
+                              </Button>
+                            </Stack>
+                          </Alert>
+                        )}
                         <Dropzone
-                          onDrop={handleDrop}
+                          onDrop={handleResultsDrop}
                           accept={[
                             MIME_TYPES.png,
                             MIME_TYPES.jpeg,

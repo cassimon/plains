@@ -1366,6 +1366,9 @@ export function AppProvider({
           ...(prev.pendingFiles ?? []),
           ...files.map((f) => ({ name: f.name, size: f.size })),
         ],
+        // New files may carry new device-group names — re-enable the
+        // "Import substrate names" button so they can be imported.
+        substrateNamesImported: false,
         lastActivityAt: Date.now(),
       }
     })
