@@ -388,6 +388,100 @@ export const PEROVSKITE_MATERIAL_SUGGESTIONS: ReadonlyArray<{
     type: "p-type (HTL)",
     pubchemCid: "179931",
   },
+  // ── Self-assembled monolayer (SAM) hole-transport materials (Ossila) ──
+  // Carbazole/acridine phosphonic- and carboxylic-acid anchored SAMs. CIDs
+  // verified against PubChem; entries without a PubChem match omit pubchemCid.
+  {
+    abbr: "2PACz",
+    name: "[2-(9H-carbazol-9-yl)ethyl]phosphonic acid",
+    searchQuery: "2PACz",
+    type: "p-type (HTL)",
+    pubchemCid: "154704302",
+  },
+  {
+    abbr: "MeO-2PACz",
+    name: "[2-(3,6-dimethoxy-9H-carbazol-9-yl)ethyl]phosphonic acid",
+    searchQuery: "MeO-2PACz",
+    type: "p-type (HTL)",
+    pubchemCid: "154704514",
+  },
+  {
+    abbr: "Br-2PACz",
+    name: "[2-(3,6-dibromo-9H-carbazol-9-yl)ethyl]phosphonic acid",
+    searchQuery: "Br-2PACz",
+    type: "p-type (HTL)",
+    pubchemCid: "170305233",
+  },
+  {
+    abbr: "Cl-2PACz",
+    name: "[2-(3,6-dichloro-9H-carbazol-9-yl)ethyl]phosphonic acid",
+    searchQuery: "2-(3,6-dichlorocarbazol-9-yl)ethylphosphonic acid",
+    type: "p-type (HTL)",
+    pubchemCid: "172214721",
+  },
+  {
+    abbr: "4PACz",
+    name: "[4-(9H-carbazol-9-yl)butyl]phosphonic acid",
+    searchQuery: "4PACz",
+    type: "p-type (HTL)",
+    pubchemCid: "168435005",
+  },
+  {
+    abbr: "Me-4PACz",
+    name: "[4-(3,6-dimethyl-9H-carbazol-9-yl)butyl]phosphonic acid",
+    searchQuery: "Me-4PACz",
+    type: "p-type (HTL)",
+    pubchemCid: "164186534",
+  },
+  {
+    abbr: "MeO-4PACz",
+    name: "[4-(3,6-dimethoxy-9H-carbazol-9-yl)butyl]phosphonic acid",
+    searchQuery: "MeO-4PACz",
+    type: "p-type (HTL)",
+    pubchemCid: "166171249",
+  },
+  {
+    abbr: "Ph-4PACz",
+    name: "[4-(3,6-diphenyl-9H-carbazol-9-yl)butyl]phosphonic acid",
+    searchQuery: "Ph-4PACz",
+    type: "p-type (HTL)",
+    pubchemCid: "169550445",
+  },
+  {
+    abbr: "4PADCB",
+    name: "[4-(7H-dibenzo[c,g]carbazol-7-yl)butyl]phosphonic acid",
+    searchQuery: "4PADCB",
+    type: "p-type (HTL)",
+    pubchemCid: "169408671",
+  },
+  {
+    // No PubChem match by name; falls back to manual entry.
+    abbr: "MeO-4PADBC",
+    name: "Methoxylated dibenzo[c,g]carbazole butylphosphonic acid",
+    searchQuery: "MeO-4PADBC",
+    type: "p-type (HTL)",
+  },
+  {
+    abbr: "DMAcPA",
+    name: "[4-(2,7-dibromo-9,9-dimethylacridin-10-yl)butyl]phosphonic acid",
+    searchQuery: "DMAcPA",
+    type: "p-type (HTL)",
+    pubchemCid: "172227235",
+  },
+  {
+    abbr: "9CAA",
+    name: "2-(9H-carbazol-9-yl)acetic acid",
+    searchQuery: "9-Carbazoleacetic acid",
+    type: "p-type (HTL)",
+    pubchemCid: "2815870",
+  },
+  {
+    abbr: "9CPA",
+    name: "3-(9H-carbazol-9-yl)propanoic acid",
+    searchQuery: "3-(9H-carbazol-9-yl)propanoic acid",
+    type: "p-type (HTL)",
+    pubchemCid: "219301",
+  },
   {
     abbr: "LiTFSI",
     name: "Lithium bis(trifluoromethanesulfonyl)imide",
@@ -2063,7 +2157,156 @@ function SolutionCard({
                     <Text size="sm" fw={600}>
                       Solvents
                     </Text>
-                    <Group gap="sm" align="center">
+                  </Group>
+
+                  <Group align="flex-start" gap="xs" wrap="nowrap">
+                    <Box style={{ flex: 1, minWidth: 0 }}>
+                      {recipe.solvents.length > 0 && (
+                        <Group gap="xs" style={{ paddingLeft: 20 }} mb={4}>
+                          <Text size="xs" c="dimmed" style={{ flex: 2 }}>
+                            Name
+                          </Text>
+                          <Text size="xs" c="dimmed" style={{ width: 110 }}>
+                            PubChem CID
+                          </Text>
+                          <Text size="xs" c="dimmed" style={{ width: 80 }}>
+                            ρ (g/mL)
+                          </Text>
+                          <Text size="xs" c="dimmed" style={{ width: 80 }}>
+                            M (g/mol)
+                          </Text>
+                          <Box style={{ width: 24 }} />
+                        </Group>
+                      )}
+                      {recipe.solvents.length > 0 && (
+                        <Stack gap={4}>
+                          {recipe.solvents.map((s) => (
+                            <Group
+                              key={s.id}
+                              gap="xs"
+                              align="center"
+                              wrap="nowrap"
+                            >
+                              <ColorDot
+                                color={s.color}
+                                onChange={(c) =>
+                                  updateSolvent(s.id, { color: c })
+                                }
+                              />
+                              <TextInput
+                                size="xs"
+                                value={s.name}
+                                placeholder="Name"
+                                onChange={(e) =>
+                                  updateSolvent(s.id, {
+                                    name: e.currentTarget.value,
+                                  })
+                                }
+                                style={{ flex: 2 }}
+                              />
+                              <Group
+                                gap={2}
+                                style={{ width: 110 }}
+                                wrap="nowrap"
+                              >
+                                <TextInput
+                                  size="xs"
+                                  value={s.pubchemCid}
+                                  placeholder="CID"
+                                  onChange={(e) =>
+                                    updateSolvent(s.id, {
+                                      pubchemCid: e.currentTarget.value,
+                                    })
+                                  }
+                                  style={{ flex: 1 }}
+                                />
+                                <Tooltip label="Search PubChem">
+                                  <ActionIcon
+                                    size="xs"
+                                    variant="subtle"
+                                    onClick={() =>
+                                      setSearch({
+                                        role: "solvent",
+                                        ingredientId: s.id,
+                                      })
+                                    }
+                                  >
+                                    <IconSearch size={10} />
+                                  </ActionIcon>
+                                </Tooltip>
+                                {s.pubchemCid && (
+                                  <Tooltip label="Open in PubChem">
+                                    <ActionIcon
+                                      size="xs"
+                                      variant="subtle"
+                                      component="a"
+                                      href={`https://pubchem.ncbi.nlm.nih.gov/compound/${s.pubchemCid}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <IconExternalLink size={10} />
+                                    </ActionIcon>
+                                  </Tooltip>
+                                )}
+                              </Group>
+                              <NumberInput
+                                size="xs"
+                                value={s.density ?? ""}
+                                placeholder="—"
+                                min={0}
+                                decimalScale={3}
+                                onChange={(v) =>
+                                  updateSolvent(s.id, {
+                                    density: v !== "" ? Number(v) : undefined,
+                                  })
+                                }
+                                style={{ width: 80 }}
+                              />
+                              <NumberInput
+                                size="xs"
+                                value={s.molarMass ?? ""}
+                                placeholder="—"
+                                min={0}
+                                decimalScale={2}
+                                onChange={(v) =>
+                                  updateSolvent(s.id, {
+                                    molarMass: v !== "" ? Number(v) : undefined,
+                                  })
+                                }
+                                style={{ width: 80 }}
+                              />
+                              <ActionIcon
+                                size="xs"
+                                variant="subtle"
+                                color="red"
+                                onClick={() =>
+                                  update({
+                                    solvents: recipe.solvents.filter(
+                                      (x) => x.id !== s.id,
+                                    ),
+                                  })
+                                }
+                              >
+                                <IconX size={12} />
+                              </ActionIcon>
+                            </Group>
+                          ))}
+                        </Stack>
+                      )}
+                    </Box>
+
+                    {/* Boxed column: total solvent volume feeds the per-solvent ratios below it */}
+                    <Box
+                      style={{
+                        width: 100,
+                        flexShrink: 0,
+                        border: "1px solid var(--mantine-color-blue-3)",
+                        borderRadius: 8,
+                        background: "var(--mantine-color-blue-0)",
+                        padding: 6,
+                      }}
+                    >
                       <NumberInput
                         label={
                           <Text size="xs" c="blue.6" fw={700}>
@@ -2083,7 +2326,6 @@ function SolutionCard({
                         }
                         min={0}
                         size="xs"
-                        style={{ width: 140 }}
                         styles={{
                           input: {
                             borderColor: "var(--mantine-color-blue-4)",
@@ -2091,170 +2333,37 @@ function SolutionCard({
                           },
                         }}
                       />
-                      <Button
-                        size="xs"
-                        variant="subtle"
-                        leftSection={<IconPlus size={12} />}
-                        onClick={() =>
-                          setSearch({ role: "solvent", ingredientId: null })
-                        }
-                        style={{ marginTop: 18 }}
-                      >
-                        Add Solvent
-                      </Button>
-                    </Group>
-                  </Group>
-
-                  {recipe.solvents.length > 0 && (
-                    <Stack gap={4}>
-                      <Group gap="xs" style={{ paddingLeft: 20 }}>
-                        <Text size="xs" c="dimmed" style={{ flex: 2 }}>
-                          Name
-                        </Text>
-                        <Text size="xs" c="dimmed" style={{ width: 110 }}>
-                          PubChem CID
-                        </Text>
-                        {!recipe.isCommercial && (
-                          <Text
-                            size="xs"
-                            c="blue.6"
-                            fw={600}
-                            style={{ width: 80 }}
-                          >
+                      {!recipe.isCommercial && recipe.solvents.length > 0 && (
+                        <>
+                          <Text size="xs" c="blue.6" fw={600} mt={8} mb={4}>
                             Vol. ratio ★
                           </Text>
-                        )}
-                        <Text size="xs" c="dimmed" style={{ width: 80 }}>
-                          ρ (g/mL)
-                        </Text>
-                        <Text size="xs" c="dimmed" style={{ width: 80 }}>
-                          M (g/mol)
-                        </Text>
-                        <Box style={{ width: 24 }} />
-                      </Group>
-                      {recipe.solvents.map((s) => (
-                        <Group key={s.id} gap="xs" align="center" wrap="nowrap">
-                          <ColorDot
-                            color={s.color}
-                            onChange={(c) => updateSolvent(s.id, { color: c })}
-                          />
-                          <TextInput
-                            size="xs"
-                            value={s.name}
-                            placeholder="Name"
-                            onChange={(e) =>
-                              updateSolvent(s.id, {
-                                name: e.currentTarget.value,
-                              })
-                            }
-                            style={{ flex: 2 }}
-                          />
-                          <Group gap={2} style={{ width: 110 }} wrap="nowrap">
-                            <TextInput
-                              size="xs"
-                              value={s.pubchemCid}
-                              placeholder="CID"
-                              onChange={(e) =>
-                                updateSolvent(s.id, {
-                                  pubchemCid: e.currentTarget.value,
-                                })
-                              }
-                              style={{ flex: 1 }}
-                            />
-                            <Tooltip label="Search PubChem">
-                              <ActionIcon
+                          <Stack gap={4}>
+                            {recipe.solvents.map((s) => (
+                              <NumberInput
+                                key={s.id}
                                 size="xs"
-                                variant="subtle"
-                                onClick={() =>
-                                  setSearch({
-                                    role: "solvent",
-                                    ingredientId: s.id,
+                                value={s.volumeRatio}
+                                min={0}
+                                step={0.5}
+                                onChange={(v) =>
+                                  updateSolvent(s.id, {
+                                    volumeRatio: Number(v) || 0,
                                   })
                                 }
-                              >
-                                <IconSearch size={10} />
-                              </ActionIcon>
-                            </Tooltip>
-                            {s.pubchemCid && (
-                              <Tooltip label="Open in PubChem">
-                                <ActionIcon
-                                  size="xs"
-                                  variant="subtle"
-                                  component="a"
-                                  href={`https://pubchem.ncbi.nlm.nih.gov/compound/${s.pubchemCid}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <IconExternalLink size={10} />
-                                </ActionIcon>
-                              </Tooltip>
-                            )}
-                          </Group>
-                          {!recipe.isCommercial && (
-                            <NumberInput
-                              size="xs"
-                              value={s.volumeRatio}
-                              min={0}
-                              step={0.5}
-                              onChange={(v) =>
-                                updateSolvent(s.id, {
-                                  volumeRatio: Number(v) || 0,
-                                })
-                              }
-                              style={{ width: 80 }}
-                              styles={{
-                                input: {
-                                  borderColor: "var(--mantine-color-blue-4)",
-                                  borderWidth: "1.5px",
-                                },
-                              }}
-                            />
-                          )}
-                          <NumberInput
-                            size="xs"
-                            value={s.density ?? ""}
-                            placeholder="—"
-                            min={0}
-                            decimalScale={3}
-                            onChange={(v) =>
-                              updateSolvent(s.id, {
-                                density: v !== "" ? Number(v) : undefined,
-                              })
-                            }
-                            style={{ width: 80 }}
-                          />
-                          <NumberInput
-                            size="xs"
-                            value={s.molarMass ?? ""}
-                            placeholder="—"
-                            min={0}
-                            decimalScale={2}
-                            onChange={(v) =>
-                              updateSolvent(s.id, {
-                                molarMass: v !== "" ? Number(v) : undefined,
-                              })
-                            }
-                            style={{ width: 80 }}
-                          />
-                          <ActionIcon
-                            size="xs"
-                            variant="subtle"
-                            color="red"
-                            onClick={() =>
-                              update({
-                                solvents: recipe.solvents.filter(
-                                  (x) => x.id !== s.id,
-                                ),
-                              })
-                            }
-                          >
-                            <IconX size={12} />
-                          </ActionIcon>
-                        </Group>
-                      ))}
-                    </Stack>
-                  )}
+                                styles={{
+                                  input: {
+                                    borderColor: "var(--mantine-color-blue-4)",
+                                    borderWidth: "1.5px",
+                                  },
+                                }}
+                              />
+                            ))}
+                          </Stack>
+                        </>
+                      )}
+                    </Box>
+                  </Group>
 
                   {search?.role === "solvent" && (
                     <Box mt={6}>
@@ -2265,6 +2374,19 @@ function SolutionCard({
                       />
                     </Box>
                   )}
+
+                  <Group justify="flex-start" mt={6}>
+                    <Button
+                      size="xs"
+                      variant="subtle"
+                      leftSection={<IconPlus size={12} />}
+                      onClick={() =>
+                        setSearch({ role: "solvent", ingredientId: null })
+                      }
+                    >
+                      Add Solvent
+                    </Button>
+                  </Group>
                 </Box>
 
                 {/* Solutes */}
@@ -2273,16 +2395,6 @@ function SolutionCard({
                     <Text size="sm" fw={600}>
                       Solutes
                     </Text>
-                    <Button
-                      size="xs"
-                      variant="subtle"
-                      leftSection={<IconPlus size={12} />}
-                      onClick={() =>
-                        setSearch({ role: "solute", ingredientId: null })
-                      }
-                    >
-                      Add Solute
-                    </Button>
                   </Group>
 
                   {recipe.solutes.length === 0 && !search ? (
@@ -2485,6 +2597,19 @@ function SolutionCard({
                       />
                     </Box>
                   )}
+
+                  <Group justify="flex-start" mt={6}>
+                    <Button
+                      size="xs"
+                      variant="subtle"
+                      leftSection={<IconPlus size={12} />}
+                      onClick={() =>
+                        setSearch({ role: "solute", ingredientId: null })
+                      }
+                    >
+                      Add Solute
+                    </Button>
+                  </Group>
                 </Box>
 
                 {/* Solutions — mix in other process solutions (non-commercial only) */}
@@ -2511,19 +2636,6 @@ function SolutionCard({
                           )}
                         </Text>
                       </Box>
-                      {availableToAdd.length > 0 && (
-                        <Button
-                          size="xs"
-                          variant="subtle"
-                          leftSection={<IconPlus size={12} />}
-                          onClick={() => {
-                            setNewSolutionId(availableToAdd[0]?.id ?? "")
-                            setAddingSolution(true)
-                          }}
-                        >
-                          Add Solution
-                        </Button>
-                      )}
                     </Group>
 
                     {addedSolutions.length > 0 && (
@@ -2645,6 +2757,22 @@ function SolutionCard({
                           No other solutions defined in this process yet.
                         </Text>
                       )}
+
+                    {availableToAdd.length > 0 && !addingSolution && (
+                      <Group justify="flex-start" mt={4}>
+                        <Button
+                          size="xs"
+                          variant="subtle"
+                          leftSection={<IconPlus size={12} />}
+                          onClick={() => {
+                            setNewSolutionId(availableToAdd[0]?.id ?? "")
+                            setAddingSolution(true)
+                          }}
+                        >
+                          Add Solution
+                        </Button>
+                      </Group>
+                    )}
                   </Box>
                 )}
                 {/* end !isCommercial Solutions */}

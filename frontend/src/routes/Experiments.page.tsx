@@ -40,6 +40,17 @@ import { autoResolveCollection } from "@/lib/autoResolveCollection"
 import { filesFromDataTransfer } from "@/lib/dropFiles"
 import { homeCollectionForEntity } from "@/lib/entityReveal"
 import { exportExperimentSummaryAsPdf } from "@/lib/processExport"
+import {
+  buildProcessingStacks,
+  computeProcessingTimeRange,
+  findDecisiveStageIndices,
+  findDivergeIdx,
+  findProcessingTimeRegressions,
+  processingAsAboveKey,
+  processingTimeKey,
+  resolveProcessingTime,
+  stackRowLabel,
+} from "@/lib/processingTimes"
 import { buildStageStepOptions } from "@/lib/stageStepChoices"
 import {
   buildSubstratesFromNames,
@@ -1045,6 +1056,45 @@ function ExperimentGrid({
     [experiment, onUpdate],
   )
 
+  // ── Processing-time "stacks" ────────────────────────────────────────────
+  // Substrates that follow different alternatives at some stage need their
+  // own timing from the moment they diverge; before that, timing is shared.
+  const processingStacks = React.useMemo(
+    () => buildProcessingStacks(experiment, process),
+    [experiment, process],
+  )
+  const processingDivergeIdx = React.useMemo(
+    () => findDivergeIdx(processingStacks),
+    [processingStacks],
+  )
+  const processingDecisiveStageIndices = React.useMemo(
+    () => findDecisiveStageIndices(processingStacks, processingDivergeIdx),
+    [processingStacks, processingDivergeIdx],
+  )
+  const processingCtx = React.useMemo(
+    () => ({
+      processingTimes: experiment.processingTimes ?? {},
+      divergeIdx: processingDivergeIdx,
+      stackOrder: processingStacks.map((s) => s.key),
+    }),
+    [experiment.processingTimes, processingDivergeIdx, processingStacks],
+  )
+  const processingRegressions = React.useMemo(
+    () =>
+      findProcessingTimeRegressions(
+        process,
+        processingStacks,
+        processingDivergeIdx,
+        processingCtx.processingTimes,
+      ),
+    [process, processingStacks, processingDivergeIdx, processingCtx],
+  )
+  const handleProcessingAsAboveToggle = useCallback(
+    (key: string, checked: boolean) =>
+      handleProcessingTimeChange(key, checked ? "true" : ""),
+    [handleProcessingTimeChange],
+  )
+
   const handleVariationValueChange = useCallback(
     (
       substrateId: string,
@@ -1552,66 +1602,205 @@ function ExperimentGrid({
             </td>
           </tr>
 
-          {experiment.substrates.length > 0 && (
-            <tr style={{ background: "var(--mantine-color-gray-0)" }}>
-              <td
-                style={{ borderTop: "2px solid var(--mantine-color-gray-2)" }}
-              />
-              <td
-                style={{
-                  padding: "10px 8px",
-                  fontWeight: 600,
-                  borderTop: "2px solid var(--mantine-color-gray-2)",
-                }}
-              >
-                Processing Times{" "}
-                <Text component="span" c="red.6" fw={700}>
-                  *
-                </Text>
-              </td>
-              <td
-                style={{ borderTop: "2px solid var(--mantine-color-gray-2)" }}
-              />
-              {process.stages.map((stage, idx) => {
-                const processingKey = `stage:${idx}`
-                const stageVarCols = variationColumnsByStageIdx.get(idx) ?? []
-                return (
-                  <React.Fragment key={`processing-time-${stage.index}-${idx}`}>
-                    <td
-                      style={{
-                        padding: "8px 4px",
-                        borderTop: "2px solid var(--mantine-color-gray-2)",
-                      }}
-                    >
-                      <DeferredTextInput
-                        size="xs"
-                        type="datetime-local"
-                        pulseWhenEmpty
-                        value={
-                          experiment.processingTimes?.[processingKey] ?? ""
-                        }
-                        onBlur={(value) =>
-                          handleProcessingTimeChange(processingKey, value)
-                        }
-                      />
-                    </td>
-                    {stageVarCols.map((col) => (
-                      <td
-                        key={`processing-var-${col.stepId}-${col.paramKey}`}
-                        style={{
-                          borderTop: "2px solid var(--mantine-color-gray-2)",
-                          background: "var(--mantine-color-blue-0)",
-                        }}
-                      />
-                    ))}
-                  </React.Fragment>
-                )
-              })}
-              <td
-                style={{ borderTop: "2px solid var(--mantine-color-gray-2)" }}
-              />
-            </tr>
-          )}
+          {experiment.substrates.length > 0 &&
+            (() => {
+              const hasDivergence =
+                processingDivergeIdx >= 0 && processingStacks.length > 1
+              const rows: Array<{
+                rowKey: string
+                stackKey: string | null
+                isShared: boolean
+                rowIndexAmongStacks: number
+                ownFrom: number
+                ownTo: number
+              }> = hasDivergence
+                ? [
+                    {
+                      rowKey: "shared",
+                      stackKey: null,
+                      isShared: true,
+                      rowIndexAmongStacks: -1,
+                      ownFrom: 0,
+                      ownTo: processingDivergeIdx,
+                    },
+                    ...processingStacks.map((stack, rowIndexAmongStacks) => ({
+                      rowKey: stack.key,
+                      stackKey: stack.key,
+                      isShared: false,
+                      rowIndexAmongStacks,
+                      ownFrom: processingDivergeIdx,
+                      ownTo: process.stages.length,
+                    })),
+                  ]
+                : [
+                    {
+                      rowKey: "shared",
+                      stackKey: null,
+                      isShared: true,
+                      rowIndexAmongStacks: -1,
+                      ownFrom: 0,
+                      ownTo: process.stages.length,
+                    },
+                  ]
+
+              return rows.map((row) => (
+                <tr
+                  key={row.rowKey}
+                  style={{ background: "var(--mantine-color-gray-0)" }}
+                >
+                  <td
+                    style={{
+                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                    }}
+                  />
+                  <td
+                    style={{
+                      padding: "10px 8px",
+                      fontWeight: row.isShared ? 600 : 500,
+                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                    }}
+                  >
+                    {row.isShared ? (
+                      <>
+                        Processing Times{" "}
+                        <Text component="span" c="red.6" fw={700}>
+                          *
+                        </Text>
+                      </>
+                    ) : (
+                      <Group gap={4} wrap="nowrap">
+                        <Text size="xs" c="dimmed">
+                          ↳
+                        </Text>
+                        <Text size="xs" fw={600}>
+                          {stackRowLabel(
+                            processingStacks[row.rowIndexAmongStacks],
+                            process,
+                            processingDecisiveStageIndices,
+                          )}
+                        </Text>
+                        <Text component="span" c="red.6" fw={700} size="xs">
+                          *
+                        </Text>
+                      </Group>
+                    )}
+                  </td>
+                  <td
+                    style={{
+                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                    }}
+                  />
+                  {process.stages.map((stage, idx) => {
+                    const stageVarCols =
+                      variationColumnsByStageIdx.get(idx) ?? []
+                    const owned = idx >= row.ownFrom && idx < row.ownTo
+                    const resolvedValue = resolveProcessingTime(
+                      idx,
+                      row.stackKey,
+                      processingCtx,
+                    )
+
+                    let cellContent: React.ReactNode
+                    if (!owned) {
+                      // Handled by a different row (shared row above, or a
+                      // sibling stack row) — show it read-only for context.
+                      cellContent = (
+                        <Text size="xs" c="dimmed" ta="center">
+                          {resolvedValue
+                            ? resolvedValue.replace("T", " ")
+                            : "—"}
+                        </Text>
+                      )
+                    } else {
+                      const cellKey = processingTimeKey(idx, row.stackKey)
+                      const asAboveKey = row.stackKey
+                        ? processingAsAboveKey(idx, row.stackKey)
+                        : null
+                      const canUseAsAbove =
+                        asAboveKey !== null && row.rowIndexAmongStacks > 0
+                      const isAsAbove =
+                        canUseAsAbove &&
+                        processingCtx.processingTimes[asAboveKey!] === "true"
+                      const isFlagged = processingRegressions.has(cellKey)
+                      cellContent = (
+                        <Stack gap={2}>
+                          <DeferredTextInput
+                            size="xs"
+                            type="datetime-local"
+                            pulseWhenEmpty={!isAsAbove}
+                            disabled={isAsAbove}
+                            value={resolvedValue}
+                            onBlur={(value) =>
+                              handleProcessingTimeChange(cellKey, value)
+                            }
+                            styles={
+                              isFlagged
+                                ? {
+                                    input: {
+                                      borderColor: "var(--mantine-color-red-5)",
+                                    },
+                                  }
+                                : undefined
+                            }
+                          />
+                          {isFlagged && (
+                            <Text size="10px" c="red.6">
+                              Earlier than the previous step
+                            </Text>
+                          )}
+                          {canUseAsAbove && (
+                            <Checkbox
+                              size="xs"
+                              label="As above"
+                              checked={isAsAbove}
+                              onChange={(e) =>
+                                handleProcessingAsAboveToggle(
+                                  asAboveKey!,
+                                  e.currentTarget.checked,
+                                )
+                              }
+                            />
+                          )}
+                        </Stack>
+                      )
+                    }
+
+                    return (
+                      <React.Fragment
+                        key={`processing-time-${row.rowKey}-${stage.index}-${idx}`}
+                      >
+                        <td
+                          style={{
+                            padding: "8px 4px",
+                            borderTop: "2px solid var(--mantine-color-gray-2)",
+                            background: owned
+                              ? undefined
+                              : "var(--mantine-color-gray-1)",
+                          }}
+                        >
+                          {cellContent}
+                        </td>
+                        {stageVarCols.map((col) => (
+                          <td
+                            key={`processing-var-${col.stepId}-${col.paramKey}`}
+                            style={{
+                              borderTop:
+                                "2px solid var(--mantine-color-gray-2)",
+                              background: "var(--mantine-color-blue-0)",
+                            }}
+                          />
+                        ))}
+                      </React.Fragment>
+                    )
+                  })}
+                  <td
+                    style={{
+                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                    }}
+                  />
+                </tr>
+              ))
+            })()}
         </tbody>
 
         {/* Variation hint — same action as + buttons in the step column headers */}
@@ -1990,6 +2179,15 @@ function SummaryTab({
     [experiment, process, allExperiments],
   )
 
+  // Derived from the Processing tab's times — offered as one-click suggestions
+  // rather than silently auto-filled, so a real user action still commits them.
+  const processingRange = React.useMemo(
+    () => computeProcessingTimeRange(experiment, process),
+    [experiment, process],
+  )
+  const suggestedStart = processingRange?.start.slice(0, 10)
+  const suggestedEnd = processingRange?.end.slice(0, 10)
+
   const exportPdf = async () => {
     try {
       setIsExportingPdf(true)
@@ -2061,6 +2259,22 @@ function SummaryTab({
               }
             />
           </Box>
+          {!experiment.date && suggestedStart && (
+            <Group gap={4} mt={4}>
+              <Text size="xs" c="dimmed">
+                Suggested from processing times: {suggestedStart}
+              </Text>
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                onClick={() =>
+                  onUpdate({ ...experiment, date: suggestedStart })
+                }
+              >
+                Use
+              </Button>
+            </Group>
+          )}
         </Box>
         <Box>
           {requiredLabel("End Date", Boolean(experiment.endDate))}
@@ -2073,6 +2287,22 @@ function SummaryTab({
               }
             />
           </Box>
+          {!experiment.endDate && suggestedEnd && (
+            <Group gap={4} mt={4}>
+              <Text size="xs" c="dimmed">
+                Suggested from processing times: {suggestedEnd}
+              </Text>
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                onClick={() =>
+                  onUpdate({ ...experiment, endDate: suggestedEnd })
+                }
+              >
+                Use
+              </Button>
+            </Group>
+          )}
         </Box>
       </SimpleGrid>
 
@@ -2696,6 +2926,7 @@ export default function ExperimentsPage() {
     const created = buildSubstratesFromNames(
       selectedExperiment.substrates,
       names,
+      substrateMaterialOptions[0]?.value,
     )
     if (created.length === 0) {
       notifications.show({
@@ -2720,7 +2951,12 @@ export default function ExperimentsPage() {
       } from the uploaded files.`,
       color: "green",
     })
-  }, [selectedExperiment, uploadFlow, handleUpdateExperiment])
+  }, [
+    selectedExperiment,
+    uploadFlow,
+    handleUpdateExperiment,
+    substrateMaterialOptions,
+  ])
 
   const handleUpdateProcess = useCallback(
     (updatedProcess: Process) => {

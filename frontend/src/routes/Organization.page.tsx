@@ -1812,6 +1812,14 @@ function CollectionEl({
   }
 
   const handleDeleteCollection = () => {
+    // An empty collection has nothing to lose and no dependents — remove it
+    // immediately without the confirmation prompt.
+    if (el.refs.length === 0) {
+      setIsExpanded(false)
+      onDelete()
+      return
+    }
+
     const collectionRefIds = new Set(el.refs.map((r) => r.id))
 
     // Find blocking external dependencies (items outside this collection that reference items inside it)
@@ -2312,6 +2320,56 @@ function CollectionEl({
             setActiveCollectionId(el.id)
           }}
         >
+          {/* Divide + delete actions — top-right, revealed on hover so idle
+              cards stay clean. Available without expanding the card. */}
+          {!markerOnly && isCardHovered && (
+            <Group
+              gap={2}
+              wrap="nowrap"
+              style={{
+                position: "absolute",
+                top: 4,
+                right: 4,
+                zIndex: 3,
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              {el.refs.length > 0 && (
+                <Tooltip label="Divide collection" withArrow openDelay={400}>
+                  <ActionIcon
+                    size="xs"
+                    variant="light"
+                    color="violet"
+                    onPointerDown={(e) => {
+                      e.stopPropagation()
+                      e.preventDefault()
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onStartDivide()
+                    }}
+                  >
+                    <IconSeparatorVertical size={10} />
+                  </ActionIcon>
+                </Tooltip>
+              )}
+              <Tooltip label="Delete collection" withArrow openDelay={400}>
+                <ActionIcon
+                  size="xs"
+                  variant="light"
+                  color="red"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDeleteCollection()
+                  }}
+                >
+                  <IconTrash size={10} />
+                </ActionIcon>
+              </Tooltip>
+            </Group>
+          )}
+
           {/* Name */}
           <Text
             fw={600}
@@ -2755,22 +2813,20 @@ function CollectionEl({
                   </ActionIcon>
                 </Tooltip>
               )}
-              {el.refs.length > 0 && (
-                <Tooltip label="Delete collection" withArrow openDelay={400}>
-                  <ActionIcon
-                    size="xs"
-                    variant="subtle"
-                    color="red"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleDeleteCollection()
-                    }}
-                  >
-                    <IconTrash size={10} />
-                  </ActionIcon>
-                </Tooltip>
-              )}
+              <Tooltip label="Delete collection" withArrow openDelay={400}>
+                <ActionIcon
+                  size="xs"
+                  variant="subtle"
+                  color="red"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDeleteCollection()
+                  }}
+                >
+                  <IconTrash size={10} />
+                </ActionIcon>
+              </Tooltip>
               <ActionIcon
                 size="xs"
                 variant="subtle"
@@ -3614,7 +3670,6 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     addPlainTextElement,
     updatePlane,
     setActiveCollectionId,
-    activeCollectionId,
     planes,
     uploadFlow,
   } = useAppContext()
@@ -4304,20 +4359,11 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     setDividingCollection(null)
   }
 
-  // Auto-cleanup: remove empty collections when the user clicks away
-  const prevActiveIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    const prevId = prevActiveIdRef.current
-    prevActiveIdRef.current = activeCollectionId
-    if (prevId && prevId !== activeCollectionId) {
-      const prevEl = plane.elements.find(
-        (e) => e.id === prevId && e.type === "collection",
-      ) as CanvasCollectionElement | undefined
-      if (prevEl && prevEl.refs.length === 0) {
-        deleteElement(plane.id, prevId)
-      }
-    }
-  }, [activeCollectionId, plane.elements, plane.id, deleteElement])
+  // Empty collections are kept intentionally: when every element in a
+  // collection is deleted the collection stays put, and the user removes it
+  // explicitly via its delete icon (just like a populated collection). The only
+  // implicit removal is drag-and-drop fusion, which deletes the source
+  // collection when it is merged into another (see the merge branch above).
 
   // ── X-axis overflow scrolling (backup for elements beyond viewport) ─────────
   // Compute the rightmost canvas coordinate of all elements

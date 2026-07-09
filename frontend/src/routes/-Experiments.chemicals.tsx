@@ -289,6 +289,41 @@ function buildGroupedCandidates(
   return results
 }
 
+type MaterialOverride = NonNullable<
+  ExperimentChemicalsPrep["materialOverrides"]
+>[string]
+
+// Experiments (for the same process, visible via the same priority rules used
+// for solution reuse) that have at least one inventory label already set —
+// candidates for the bulk "Import values from" action.
+function buildImportCandidates(candidates: CandidateExp[]): CandidateExp[] {
+  return candidates.filter((c) => {
+    const overrides = c.exp.chemicalsPrep?.materialOverrides
+    return (
+      overrides !== undefined &&
+      Object.values(overrides).some((o) => Boolean(o?.inventoryLabel))
+    )
+  })
+}
+
+// Most relevant/recent prior experiment (by the same priority order as the
+// solution-reuse candidates) that already answered this exact material.
+function findDefaultMaterialOverride(
+  candidates: CandidateExp[],
+  stepId: string,
+): { override: MaterialOverride; source: CandidateExp } | undefined {
+  for (const c of candidates) {
+    const override = c.exp.chemicalsPrep?.materialOverrides?.[stepId]
+    if (override?.inventoryLabel) return { override, source: c }
+  }
+  return undefined
+}
+
+function candidateLabel(c: CandidateExp): string {
+  const name = c.exp.name || "Untitled"
+  return c.exp.date ? `${name} (${c.exp.date})` : name
+}
+
 function buildReuseSelectData(candidates: CandidateExp[], itemKey: string) {
   const groups = new Map<
     string,
@@ -437,6 +472,8 @@ function MaterialQueryCard({
   material,
   sourceRecipeName,
   override,
+  defaultOverride,
+  defaultSourceLabel,
   positionLabel,
   canGoBack,
   onCommit,
@@ -445,12 +482,11 @@ function MaterialQueryCard({
 }: {
   material: ProcessStepInlineMaterial
   sourceRecipeName?: string
-  override?: {
-    inventoryLabel?: string
-    purity?: string
-    supplier?: string
-    productId?: string
-  }
+  override?: MaterialOverride
+  /** Prior experiment's answer for this exact material, used to pre-fill when unset */
+  defaultOverride?: MaterialOverride
+  /** Display name of the experiment `defaultOverride` came from */
+  defaultSourceLabel?: string
   positionLabel: string
   canGoBack: boolean
   onCommit: (patch: {
@@ -462,12 +498,33 @@ function MaterialQueryCard({
   onDone: () => void
   onBack: () => void
 }) {
-  const [label, setLabel] = useState(override?.inventoryLabel ?? "")
-  const [purity, setPurity] = useState(override?.purity ?? "")
-  const [supplier, setSupplier] = useState(override?.supplier ?? "")
-  const [productId, setProductId] = useState(override?.productId ?? "")
+  // Pre-fill from the previous experiment's answer when this one hasn't been
+  // answered yet — same UX as the auto-generated vial label: the field starts
+  // green/valid so the user can just confirm if nothing changed.
+  const usingDefault =
+    !override?.inventoryLabel && Boolean(defaultOverride?.inventoryLabel)
+  const [label, setLabel] = useState(
+    override?.inventoryLabel ?? defaultOverride?.inventoryLabel ?? "",
+  )
+  const [purity, setPurity] = useState(
+    override?.purity ?? defaultOverride?.purity ?? "",
+  )
+  const [supplier, setSupplier] = useState(
+    override?.supplier ?? defaultOverride?.supplier ?? "",
+  )
+  const [productId, setProductId] = useState(
+    override?.productId ?? defaultOverride?.productId ?? "",
+  )
   const [showDetails, setShowDetails] = useState(
-    Boolean(override?.purity || override?.supplier || override?.productId),
+    Boolean(
+      override?.purity ||
+        override?.supplier ||
+        override?.productId ||
+        (usingDefault &&
+          (defaultOverride?.purity ||
+            defaultOverride?.supplier ||
+            defaultOverride?.productId)),
+    ),
   )
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -549,6 +606,13 @@ function MaterialQueryCard({
             if (e.key === "Enter") commitAndContinue()
           }}
         />
+
+        {usingDefault && (
+          <Text size="xs" c="teal.7">
+            Same as last time ({defaultSourceLabel}) — press Enter to keep, or
+            edit above.
+          </Text>
+        )}
 
         {showDetails ? (
           <Group gap="sm" grow>
@@ -1125,6 +1189,47 @@ export function ChemicalsTab({
   const firstIncomplete = queue.findIndex((qi) => !isDone(qi))
   const materialCount = materialItems.length
 
+  // Experiments (for this process) that already have inventory labels set —
+  // offered as one-click "Import values from" buttons.
+  const importCandidates = useMemo(
+    () => buildImportCandidates(candidates),
+    [candidates],
+  )
+
+  // Per-material default answer pulled from the most relevant/recent prior
+  // experiment, used to pre-fill (and auto-validate) each question below.
+  const materialDefaults = useMemo(() => {
+    const map = new Map<
+      string,
+      { override: MaterialOverride; source: CandidateExp }
+    >()
+    for (const item of materialItems) {
+      const found = findDefaultMaterialOverride(candidates, item.stepId)
+      if (found) map.set(item.stepId, found)
+    }
+    return map
+  }, [materialItems, candidates])
+
+  // Bulk-import every material's inventory label (+ purity/supplier/product
+  // ID) from a previously prepared experiment in one shot, then jump the
+  // guided flow straight to "Solutions & recipes" — those are still walked
+  // through individually since "make fresh vs. reuse" needs a fresh answer.
+  const importMaterialsFrom = (source: Experiment) => {
+    const sourceOverrides = source.chemicalsPrep?.materialOverrides ?? {}
+    const merged = { ...(prep.materialOverrides ?? {}) }
+    for (const item of materialItems) {
+      const ovr = sourceOverrides[item.stepId]
+      if (ovr) merged[item.stepId] = { ...ovr }
+    }
+    updatePrep({ materialOverrides: merged })
+    setActiveIndex(() => {
+      for (let i = materialCount; i < queue.length; i += 1) {
+        if (!isDone(queue[i])) return i
+      }
+      return queue.length
+    })
+  }
+
   // Which question the guided flow is currently showing. It is an *explicit*
   // pointer that only moves on a deliberate user action (Confirm & continue,
   // Back, or an Edit click) — never automatically when the current item becomes
@@ -1173,6 +1278,32 @@ export function ChemicalsTab({
 
   return (
     <Stack gap="md">
+      {/* Bulk-import inventory labels from a previously prepared experiment */}
+      {materialItems.length > 0 && importCandidates.length > 0 && (
+        <Paper withBorder radius="md" p="sm">
+          <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={8}>
+            Import values from
+          </Text>
+          <Group gap="xs">
+            {importCandidates.map((c) => (
+              <Button
+                key={c.exp.id}
+                size="xs"
+                variant="light"
+                onClick={() => importMaterialsFrom(c.exp)}
+              >
+                {candidateLabel(c)}
+              </Button>
+            ))}
+          </Group>
+          <Text size="xs" c="dimmed" mt={6}>
+            Fills in every inventory chemical from that experiment, then
+            continues to Solutions &amp; recipes. Overwrites any labels already
+            entered above.
+          </Text>
+        </Paper>
+      )}
+
       {/* Top: collapsible "Chemicals" overview */}
       <Paper
         withBorder
@@ -1296,12 +1427,17 @@ export function ChemicalsTab({
           const qi = queue[displayIndex]
           if (qi.kind === "material") {
             const positionLabel = `Chemical ${displayIndex + 1} of ${materialCount}`
+            const def = materialDefaults.get(qi.stepId)
             return (
               <MaterialQueryCard
                 key={qi.key}
                 material={qi.material}
                 sourceRecipeName={qi.sourceRecipeName}
                 override={prep.materialOverrides?.[qi.stepId]}
+                defaultOverride={def?.override}
+                defaultSourceLabel={
+                  def ? candidateLabel(def.source) : undefined
+                }
                 positionLabel={positionLabel}
                 canGoBack={displayIndex > 0}
                 onCommit={(patch) => updateMaterialOverride(qi.stepId, patch)}

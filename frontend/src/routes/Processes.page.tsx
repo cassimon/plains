@@ -1893,6 +1893,72 @@ const THICKNESS_UNKNOWN = "unknown"
 const DEFAULT_PIXEL_AREA_CM2 = "0.09"
 const DEFAULT_NUMBER_OF_PIXELS = "4"
 
+// Compact chemical labels for the generated stack view. Known materials collapse
+// to the app's search abbreviation (e.g. the full IUPAC SAM name → "MeO-2PACz");
+// anything else is truncated. The full name is preserved for a hover tooltip.
+const MAX_STACK_LAYER_LABEL_CHARS = 16
+
+// Full material name (lowercased) → abbreviation, built once from the shared
+// suggestion library so the stack view stays in sync with chemical search.
+const LAYER_LABEL_ABBREVIATIONS: ReadonlyMap<string, string> = (() => {
+  const map = new Map<string, string>()
+  for (const s of PEROVSKITE_MATERIAL_SUGGESTIONS) {
+    const nameKey = s.name.trim().toLowerCase()
+    // First registration wins, so canonical entries take precedence over aliases.
+    if (nameKey && !map.has(nameKey)) map.set(nameKey, s.abbr.trim())
+  }
+  return map
+})()
+
+function getStackLayerLabel(name: string): {
+  display: string
+  full: string
+  shortened: boolean
+} {
+  const full = name.trim() || "Unnamed"
+  const abbr = LAYER_LABEL_ABBREVIATIONS.get(full.toLowerCase())
+  if (abbr && abbr.length < full.length) {
+    return { display: abbr, full, shortened: true }
+  }
+  if (full.length > MAX_STACK_LAYER_LABEL_CHARS) {
+    return {
+      display: `${full.slice(0, MAX_STACK_LAYER_LABEL_CHARS - 1)}…`,
+      full,
+      shortened: true,
+    }
+  }
+  return { display: full, full, shortened: false }
+}
+
+// Layer name rendered inside a stack bar: abbreviated/truncated, with the full
+// chemical name shown on hover when it was shortened.
+function StackLayerLabel({ name }: { name: string }) {
+  const { display, full, shortened } = getStackLayerLabel(name)
+  const label = (
+    <Text
+      size="sm"
+      c="white"
+      fw={600}
+      ta="center"
+      style={{
+        width: "100%",
+        textShadow: "0 1px 2px rgba(0,0,0,0.3)",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+      }}
+    >
+      {display}
+    </Text>
+  )
+  if (!shortened) return label
+  return (
+    <Tooltip label={full} withArrow multiline w={300} position="top">
+      {label}
+    </Tooltip>
+  )
+}
+
 function isAbsorberLayer(
   layer: Pick<StackLayer, "layerType" | "name">,
 ): boolean {
@@ -2855,18 +2921,7 @@ function ResultingStacks({
                                   />
                                 </Box>
                               ) : (
-                                <Text
-                                  size="sm"
-                                  c="white"
-                                  fw={600}
-                                  ta="center"
-                                  style={{
-                                    width: "100%",
-                                    textShadow: "0 1px 2px rgba(0,0,0,0.3)",
-                                  }}
-                                >
-                                  {layer.name || "Unnamed"}
-                                </Text>
+                                <StackLayerLabel name={layer.name} />
                               )}
                             </Box>
                             <Box style={{ width: 92, flexShrink: 0 }} />
@@ -3404,18 +3459,7 @@ function ResultingStacks({
                                       />
                                     </Box>
                                   ) : (
-                                    <Text
-                                      size="sm"
-                                      c="white"
-                                      fw={600}
-                                      ta="center"
-                                      style={{
-                                        width: "100%",
-                                        textShadow: "0 1px 2px rgba(0,0,0,0.3)",
-                                      }}
-                                    >
-                                      {layer.name || "Unnamed"}
-                                    </Text>
+                                    <StackLayerLabel name={layer.name} />
                                   )}
                                 </Box>
 
@@ -3722,9 +3766,6 @@ export function ProcessesPage() {
     stepId: string
     fromStagePos: number
   } | null>(null)
-  const [pendingFocusStepId, setPendingFocusStepId] = useState<string | null>(
-    null,
-  )
   const [noteEditorStepId, setNoteEditorStepId] = useState<string | null>(null)
   const [dropStagePos, setDropStagePos] = useState<number | null>(null)
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null)
@@ -4426,7 +4467,6 @@ export function ProcessesPage() {
     )
     setActiveEntity({ kind: "process", id: updated.id })
     setSelectedStepId(step.id)
-    setPendingFocusStepId(step.id)
     if (!method || !METHODS_WITHOUT_MATERIAL.has(method)) {
       setMaterialModalStepId(step.id)
     }
@@ -4458,7 +4498,6 @@ export function ProcessesPage() {
     )
     selectProcess(updated.id)
     setSelectedStepId(step.id)
-    setPendingFocusStepId(step.id)
     if (!method || !METHODS_WITHOUT_MATERIAL.has(method)) {
       setMaterialModalStepId(step.id)
     }
@@ -4483,7 +4522,6 @@ export function ProcessesPage() {
     )
     setActiveEntity({ kind: "process", id: updated.id })
     setSelectedStepId(step.id)
-    setPendingFocusStepId(step.id)
   }
 
   const handleImportAlternativeStep = (
@@ -4508,7 +4546,6 @@ export function ProcessesPage() {
     )
     selectProcess(updated.id)
     setSelectedStepId(step.id)
-    setPendingFocusStepId(step.id)
   }
 
   const handleChangeStepCategory = useCallback(
@@ -7026,70 +7063,15 @@ export function ProcessesPage() {
                                                           )}
                                                         </Text>
                                                       )}
-                                                      {selectedStepId ===
-                                                      step.id ? (
-                                                        <TextInput
-                                                          size="xs"
-                                                          placeholder={
-                                                            step.stepCategory ===
-                                                            "substrate_preparation"
-                                                              ? "Cleaning method"
-                                                              : "Deposition method"
-                                                          }
-                                                          autoFocus={
-                                                            pendingFocusStepId ===
-                                                            step.id
-                                                          }
-                                                          value={
-                                                            step
-                                                              .depositionMethod
-                                                              ?.value ?? ""
-                                                          }
-                                                          onClick={(e) =>
-                                                            e.stopPropagation()
-                                                          }
-                                                          onFocus={(e) => {
-                                                            e.currentTarget.select()
-                                                            if (
-                                                              pendingFocusStepId ===
-                                                              step.id
-                                                            ) {
-                                                              setPendingFocusStepId(
-                                                                null,
-                                                              )
-                                                            }
-                                                          }}
-                                                          onChange={(e) =>
-                                                            handleUpdateStepParam(
-                                                              step.id,
-                                                              "depositionMethod",
-                                                              {
-                                                                value:
-                                                                  e
-                                                                    .currentTarget
-                                                                    .value,
-                                                                mode: "constant",
-                                                              },
-                                                            )
-                                                          }
-                                                          styles={{
-                                                            input: {
-                                                              fontWeight: 700,
-                                                            },
-                                                          }}
-                                                          style={{ flex: 1 }}
-                                                        />
-                                                      ) : (
-                                                        <Text
-                                                          size="sm"
-                                                          fw={700}
-                                                          truncate
-                                                        >
-                                                          {getStepSourceLabel(
-                                                            step,
-                                                          )}
-                                                        </Text>
-                                                      )}
+                                                      <Text
+                                                        size="sm"
+                                                        fw={700}
+                                                        truncate
+                                                      >
+                                                        {getStepSourceLabel(
+                                                          step,
+                                                        )}
+                                                      </Text>
                                                     </Group>
                                                     <Group
                                                       gap={6}
@@ -7140,9 +7122,7 @@ export function ProcessesPage() {
                                                   <Box>
                                                     {(() => {
                                                       // Header shows the material; this sub-line shows the
-                                                      // deposition method (material is edited in the detail panel).
-                                                      // While selected, the header is the editable method input,
-                                                      // so surface the material here instead.
+                                                      // deposition method, edited only in the detail panel.
                                                       return (
                                                         <Stack gap={2}>
                                                           <Group
@@ -7158,14 +7138,9 @@ export function ProcessesPage() {
                                                                 flex: 1,
                                                               }}
                                                             >
-                                                              {selectedStepId ===
-                                                              step.id
-                                                                ? getStepSourceLabel(
-                                                                    step,
-                                                                  )
-                                                                : step.depositionMethod?.value?.trim() ||
-                                                                  step.name ||
-                                                                  "Unnamed"}
+                                                              {step.depositionMethod?.value?.trim() ||
+                                                                step.name ||
+                                                                "Unnamed"}
                                                             </Text>
                                                             {parameterLines[0] !==
                                                               "No parameters set" && (

@@ -24,6 +24,9 @@ import {
   type Substrate,
 } from "@/store/AppContext"
 import type { DigestDoc } from "./pdfDigest"
+import { experimentProcessingDone } from "./processingTimes"
+
+export { experimentProcessingDone } from "./processingTimes"
 
 /** The three ordered steps of an upload flow. */
 export type UploadFlowStep = "process" | "experiment" | "upload"
@@ -117,24 +120,6 @@ export function experimentSummaryDone(exp: Experiment): boolean {
     Boolean(exp.date) &&
     Boolean(exp.endDate) &&
     Boolean(exp.summaryConfirmed)
-  )
-}
-
-/**
- * Step 2 (Processing) is finished only when the experiment has at least one
- * substrate AND every process stage has its execution time filled in. The
- * per-step times are obligatory — this is what turns the processing layout
- * green and unlocks Step 3. Times are stored per stage under `stage:${idx}`.
- */
-export function experimentProcessingDone(
-  exp: Experiment,
-  process: Process | undefined,
-): boolean {
-  if (!process || exp.substrates.length === 0) {
-    return false
-  }
-  return process.stages.every((_stage, idx) =>
-    Boolean(exp.processingTimes?.[`stage:${idx}`]?.trim()),
   )
 }
 
@@ -313,10 +298,15 @@ export function recognizeGroupNames(fileNames: string[]): string[] {
  * exists (case-insensitive) among `existing`. Shared by the upload-flow target
  * picker's auto-create checkbox and the Experiments "Import from Upload" button
  * so both derive substrates from recognized file-name groups identically.
+ *
+ * `defaultMaterialId` mirrors the "Add substrate" button's default (the
+ * process's first provided substrate material) — without it, imported
+ * substrates silently had no material set, unlike manually-added ones.
  */
 export function buildSubstratesFromNames(
   existing: Substrate[],
   names: string[],
+  defaultMaterialId?: string,
 ): Substrate[] {
   const taken = new Set(existing.map((sub) => sub.name.toLowerCase()))
   const created: Substrate[] = []
@@ -326,7 +316,11 @@ export function buildSubstratesFromNames(
       continue
     }
     taken.add(key)
-    created.push({ id: crypto.randomUUID(), name })
+    created.push({
+      id: crypto.randomUUID(),
+      name,
+      substrateMaterialId: defaultMaterialId,
+    })
   }
   return created
 }

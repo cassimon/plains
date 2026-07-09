@@ -141,6 +141,11 @@ export function UploadFlowTargetPicker({
     [uploadFlow?.pendingFiles],
   )
 
+  // Mirrors the Experiments page's `substrateMaterialOptions[0]` — the
+  // process's first provided substrate material, used as the default for
+  // substrates created here via "Import substrate names".
+  const defaultSubstrateMaterialId = selectedProcess?.inlineSubstrates?.[0]?.id
+
   const processOptions = useMemo(
     () =>
       processes.map((p) => ({
@@ -280,6 +285,7 @@ export function UploadFlowTargetPicker({
     const created = buildSubstratesFromNames(
       selectedExperiment.substrates,
       names,
+      defaultSubstrateMaterialId,
     )
     if (created.length === 0) {
       notifications.show({
