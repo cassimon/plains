@@ -549,7 +549,9 @@ class TestOwnershipIsolation:
             )
         )
         db.commit()
-        attacker_list = client.get(f"{TRASH}/", headers=normal_user_token_headers).json()
+        attacker_list = client.get(
+            f"{TRASH}/", headers=normal_user_token_headers
+        ).json()
         assert str(victim_proc.id) not in {
             e["entity_id"] for e in attacker_list["data"]
         }
@@ -573,3 +575,283 @@ class TestOwnershipIsolation:
         assert r.status_code == 403
         # Still there.
         assert db.get(type(victim_proc), victim_proc.id) is not None
+
+
+# ── Round-trip equality (the acceptance gate for server-atomic restore) ───────
+
+# Keys whose value legitimately changes between two otherwise-identical
+# snapshots (bookkeeping, not user-visible state).
+_VOLATILE_KEYS = {"updated_at"}
+
+
+def _normalise(value: object) -> object:
+    """Canonical form of a /state/bulk payload: volatile keys dropped, every
+    list of identified objects sorted, so two snapshots compare by value."""
+    if isinstance(value, dict):
+        return {
+            k: _normalise(v)
+            for k, v in sorted(value.items())
+            if k not in _VOLATILE_KEYS
+        }
+    if isinstance(value, list):
+        items = [_normalise(v) for v in value]
+        if all(isinstance(i, dict) and "id" in i for i in items):
+            return sorted(items, key=lambda i: str(i["id"]))  # type: ignore[index]
+        return items
+    return value
+
+
+def _restore_to(
+    client: TestClient,
+    headers: dict,
+    etype: str,
+    eid: str,
+    destination_plane_id: str | None = None,
+) -> dict:
+    body: dict = {"entity_type": etype, "entity_id": eid}
+    if destination_plane_id is not None:
+        body["destination_plane_id"] = destination_plane_id
+    r = client.post(f"{TRASH}/restore", json=body, headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _collection_ids(client: TestClient, headers: dict) -> set[str]:
+    """Every collection id visible to the user, across all planes."""
+    return {c["id"] for p in _bulk(client, headers)["planes"] for c in p["collections"]}
+
+
+def _place(client: TestClient, headers: dict, path: str, body: dict) -> dict:
+    r = client.post(f"{API}/{path}", json=body, headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _branch(client: TestClient, headers: dict) -> dict:
+    """A full dependency branch: plane → collection → process → experiment → result."""
+    plane = _create_plane(client, headers)
+    collection = _create_collection(client, headers, plane["id"])
+    placement = {"plane_id": plane["id"], "collection_id": collection["id"]}
+    proc = _place(
+        client,
+        headers,
+        "processes/",
+        {"name": random_lower_string(), "skip_chemistry": True, **placement},
+    )
+    exp = _place(
+        client,
+        headers,
+        "experiments/",
+        {"name": random_lower_string(), "process_id": proc["id"], **placement},
+    )
+    res = _place(
+        client,
+        headers,
+        f"results/?experiment_id={exp['id']}",
+        {"notes": random_lower_string(), **placement},
+    )
+    return {
+        "plane": plane,
+        "collection": collection,
+        "process": proc,
+        "experiment": exp,
+        "result": res,
+    }
+
+
+class TestRestoreRoundTripEquality:
+    """Delete → restore must return /state/bulk to *exactly* its former value.
+
+    This pins the server-atomic guarantee: a plain reload renders the restored
+    dependency branch, with no client-side placement writes.
+    """
+
+    @pytest.mark.parametrize(
+        "root", ["result", "experiment", "process", "collection", "plane"]
+    )
+    def test_bulk_snapshot_is_unchanged(
+        self, client: TestClient, normal_user_token_headers: dict, root: str
+    ) -> None:
+        h = normal_user_token_headers
+        branch = _branch(client, h)
+        before = _normalise(_bulk(client, h))
+
+        _trash(client, h, root, branch[root]["id"])
+        assert _normalise(_bulk(client, h)) != before  # the delete really happened
+
+        _restore(client, h, root, branch[root]["id"])
+        assert _normalise(_bulk(client, h)) == before
+
+    def test_restore_survives_a_stale_canvas_save(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        """The F1/F2 trap: a client save carrying the pre-restore canvas must not
+        unplace what the server just restored."""
+        h = normal_user_token_headers
+        branch = _branch(client, h)
+        plane, coll = branch["plane"], branch["collection"]
+        before = _normalise(_bulk(client, h))
+
+        _trash(client, h, "process", branch["process"]["id"])
+        _restore(client, h, "process", branch["process"]["id"])
+
+        # A stale canvas save: the collection is unchanged, the restored members
+        # are absent from the body (the client had dropped them at delete time).
+        r = client.put(
+            f"{API}/planes/{plane['id']}/collections",
+            json=[
+                {"id": coll["id"], "i": coll["i"], "j": coll["j"], "name": coll["name"]}
+            ],
+            headers=h,
+        )
+        assert r.status_code == 200, r.text
+
+        assert _normalise(_bulk(client, h)) == before
+
+
+class TestRestorePlacementLadder:
+    def test_collection_gone_lands_in_restored_bucket_on_original_plane(
+        self, client: TestClient, normal_user_token_headers: dict, db: Session
+    ) -> None:
+        """Plane alive, collection gone → server creates "Restored: <root>" on it.
+
+        The item comes back visible (attached to a collection) — not a floating
+        row with a bare plane_id that the canvas cannot render.
+        """
+        from app.models import DataCollection
+
+        h = normal_user_token_headers
+        branch = _branch(client, h)
+        proc = branch["process"]
+        _trash(client, h, "process", proc["id"])
+        # The user then deletes the collection outright (hard delete).
+        db.delete(db.get(DataCollection, uuid.UUID(branch["collection"]["id"])))
+        db.commit()
+
+        restored = _restore(client, h, "process", proc["id"])["restored"]
+        item = next(i for i in restored if i["entity_id"] == proc["id"])
+        assert item["needs_placement"] is False
+        assert item["plane_id"] == branch["plane"]["id"]
+        assert item["collection_id"] is not None
+        assert item["position_fixup"] is True
+
+        bulk = _bulk(client, h)
+        plane = next(p for p in bulk["planes"] if p["id"] == branch["plane"]["id"])
+        bucket = next(
+            c for c in plane["collections"] if c["id"] == item["collection_id"]
+        )
+        assert bucket["name"].startswith("Restored: ")
+        # One bucket for the whole batch — not one per restored entity.
+        assert len({i["collection_id"] for i in restored if i["collection_id"]}) == 1
+
+    def test_destination_plane_rehomes_the_collection_row(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        """Original plane gone → the *same* collection (id, name, members) moves
+        to the destination plane, rather than its members being dumped loose."""
+        h = normal_user_token_headers
+        branch = _branch(client, h)
+        other = _create_plane(client, h)
+
+        _trash(client, h, "collection", branch["collection"]["id"])
+        _trash(client, h, "plane", branch["plane"]["id"])
+
+        restored = _restore_to(
+            client, h, "collection", branch["collection"]["id"], other["id"]
+        )["restored"]
+        item = next(i for i in restored if i["entity_id"] == branch["collection"]["id"])
+        assert item["plane_id"] == other["id"]
+
+        bulk = _bulk(client, h)
+        dest = next(p for p in bulk["planes"] if p["id"] == other["id"])
+        moved = next(
+            c for c in dest["collections"] if c["id"] == branch["collection"]["id"]
+        )
+        assert moved["name"] == branch["collection"]["name"]  # identity preserved
+        # Members came with it.
+        proc = next(p for p in bulk["processes"] if p["id"] == branch["process"]["id"])
+        assert proc["collection_id"] == branch["collection"]["id"]
+        assert proc["plane_id"] == other["id"]
+
+    def test_no_destination_leaves_item_unplaced(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        h = normal_user_token_headers
+        branch = _branch(client, h)
+        _trash(client, h, "process", branch["process"]["id"])
+        _trash(client, h, "plane", branch["plane"]["id"])
+
+        restored = _restore(client, h, "process", branch["process"]["id"])["restored"]
+        item = next(i for i in restored if i["entity_id"] == branch["process"]["id"])
+        assert item["needs_placement"] is True
+        assert item["plane_id"] is None
+        # The row itself is alive and visible again, just unplaced.
+        bulk = _bulk(client, h)
+        assert any(p["id"] == branch["process"]["id"] for p in bulk["processes"])
+
+    def test_destination_plane_places_loose_entity(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        h = normal_user_token_headers
+        branch = _branch(client, h)
+        other = _create_plane(client, h)
+        _trash(client, h, "process", branch["process"]["id"])
+        _trash(client, h, "plane", branch["plane"]["id"])
+
+        restored = _restore_to(
+            client, h, "process", branch["process"]["id"], other["id"]
+        )["restored"]
+        item = next(i for i in restored if i["entity_id"] == branch["process"]["id"])
+        assert item["needs_placement"] is False
+        assert item["plane_id"] == other["id"]
+        assert item["position_fixup"] is True
+
+        bulk = _bulk(client, h)
+        dest = next(p for p in bulk["planes"] if p["id"] == other["id"])
+        assert any(c["id"] == item["collection_id"] for c in dest["collections"])
+
+    def test_unplaced_entity_stays_unplaced(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        """A process that never sat on a canvas must not gain a placement."""
+        h = normal_user_token_headers
+        proc = _create_process(client, h)  # no plane_id / collection_id
+        before = _collection_ids(client, h)
+        _trash(client, h, "process", proc["id"])
+        restored = _restore(client, h, "process", proc["id"])["restored"]
+        item = next(i for i in restored if i["entity_id"] == proc["id"])
+        assert item["needs_placement"] is False
+        assert item["plane_id"] is None
+        assert item["collection_id"] is None
+        # No stray "Restored: …" collection was invented for it.
+        assert _collection_ids(client, h) == before
+
+
+class TestTrashReturnsCascadedBatch:
+    def test_post_trash_returns_every_cascaded_id(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        """The client prunes exactly these ids from its local arrays/selections."""
+        h = normal_user_token_headers
+        proc = _create_process(client, h)
+        exp = _create_experiment(client, h, proc["id"])
+        res = _create_result(client, h, exp["id"])
+
+        body = _trash(client, h, "process", proc["id"])
+        trashed = {(t["entity_type"], t["entity_id"]) for t in body["trashed"]}
+        assert trashed == {
+            ("process", proc["id"]),
+            ("experiment", exp["id"]),
+            ("result", res["id"]),
+        }
+
+    def test_batch_is_reported_even_when_already_trashed(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        h = normal_user_token_headers
+        proc = _create_process(client, h)
+        exp = _create_experiment(client, h, proc["id"])
+        _trash(client, h, "process", proc["id"])
+        again = _trash(client, h, "process", proc["id"])
+        ids = {t["entity_id"] for t in again["trashed"]}
+        assert ids == {proc["id"], exp["id"]}  # closure, not just new rows

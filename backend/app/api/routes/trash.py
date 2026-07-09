@@ -9,6 +9,8 @@ from app.models import (
     DataCollection,
     Message,
     Plane,
+    TrashDeleteResult,
+    TrashedRef,
     TrashListPublic,
     TrashRestore,
     TrashRestoreResult,
@@ -62,29 +64,50 @@ def list_trash(session: SessionDep, current_user: CurrentUser) -> Any:
     return TrashListPublic(data=roots, count=len(roots))
 
 
-@router.post("/", response_model=TrashListPublic)
+@router.post("/", response_model=TrashDeleteResult)
 def trash_entity(
     *, session: SessionDep, current_user: CurrentUser, body: TrashRestore
 ) -> Any:
     """Soft-delete an entity + its downward closure (finished uploads skipped)."""
     _validate_type(body.entity_type)
     _verify_owner(session, current_user, body.entity_type, body.entity_id)
-    trash_svc.soft_delete(session, current_user, body.entity_type, body.entity_id)
+    batch = trash_svc.soft_delete(
+        session, current_user, body.entity_type, body.entity_id
+    )
     # Return the full root list so the caller can refresh its trash state (and
-    # badge count) in one round-trip.
+    # badge count) in one round-trip, plus the exact ids this delete cascaded to
+    # so the client can prune them from its local arrays and selections.
     roots = trash_svc.list_roots(session, current_user)
-    return TrashListPublic(data=roots, count=len(roots))
+    return TrashDeleteResult(
+        data=roots,
+        count=len(roots),
+        trashed=[TrashedRef(entity_type=t, entity_id=i) for t, i in batch],
+    )
 
 
 @router.post("/restore", response_model=TrashRestoreResult)
 def restore_entity(
     *, session: SessionDep, current_user: CurrentUser, body: TrashRestore
 ) -> Any:
-    """Restore an entity + its upward closure. Returns the un-trashed ids so the
-    frontend can re-place them on a plane."""
+    """Restore an entity + its whole deletion batch, re-attached to the
+    dependency branch it came from.
+
+    ``destination_plane_id`` re-homes items whose original plane is gone; items
+    that still cannot be placed come back with ``needs_placement`` so the client
+    can ask the user where to put them.
+    """
     _validate_type(body.entity_type)
     _verify_owner(session, current_user, body.entity_type, body.entity_id)
-    removed = trash_svc.restore(session, current_user, body.entity_type, body.entity_id)
+    if body.destination_plane_id is not None:
+        _verify_owner(session, current_user, "plane", body.destination_plane_id)
+    removed = trash_svc.restore(
+        session,
+        current_user,
+        body.entity_type,
+        body.entity_id,
+        destination_plane_id=body.destination_plane_id,
+        destination_collection_id=body.destination_collection_id,
+    )
     return TrashRestoreResult(restored=removed)
 
 

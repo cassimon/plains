@@ -602,3 +602,117 @@ class TestCollections:
             headers=normal_user_token_headers,
         )
         assert r.status_code == 404
+
+
+class TestReplaceCollectionsIsInPlace:
+    """``PUT /planes/{id}/collections`` must diff, never delete-and-recreate.
+
+    Re-inserting a row under the same id would ``SET NULL`` the ``collection_id``
+    of every member entity. Members are not part of this request body, so nothing
+    would ever re-attach them — the corruption that silently unplaced restored
+    Trash items (docs/plans/trash-restore-fix.md, F2).
+    """
+
+    @staticmethod
+    def _put(client: TestClient, headers: dict, plane_id: str, body: list) -> list:
+        r = client.put(f"{BASE}/{plane_id}/collections", json=body, headers=headers)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    @staticmethod
+    def _member_process(
+        client: TestClient, headers: dict, plane_id: str, collection_id: str
+    ) -> dict:
+        r = client.post(
+            f"{settings.API_V1_STR}/processes/",
+            json={
+                "name": random_lower_string(),
+                "skip_chemistry": True,
+                "plane_id": plane_id,
+                "collection_id": collection_id,
+            },
+            headers=headers,
+        )
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_same_id_keeps_member_collection_id(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        h = normal_user_token_headers
+        plane = create_plane(client, h)
+        cid = str(uuid.uuid4())
+        self._put(client, h, plane["id"], [{"id": cid, "i": 0, "j": 0, "name": "C"}])
+        proc = self._member_process(client, h, plane["id"], cid)
+
+        # A routine canvas save: same collection id, moved and renamed.
+        self._put(client, h, plane["id"], [{"id": cid, "i": 2, "j": 3, "name": "C!"}])
+
+        got = client.get(f"{settings.API_V1_STR}/processes/{proc['id']}", headers=h)
+        assert got.status_code == 200, got.text
+        assert got.json()["collection_id"] == cid  # FK survived the save
+        assert got.json()["plane_id"] == plane["id"]
+
+    def test_same_id_updates_in_place(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        h = normal_user_token_headers
+        plane = create_plane(client, h)
+        cid = str(uuid.uuid4())
+        self._put(client, h, plane["id"], [{"id": cid, "i": 0, "j": 0, "name": "C"}])
+        out = self._put(
+            client, h, plane["id"], [{"id": cid, "i": 5, "j": 6, "name": "Renamed"}]
+        )
+        assert len(out) == 1
+        assert out[0]["id"] == cid
+        assert (out[0]["i"], out[0]["j"], out[0]["name"]) == (5, 6, "Renamed")
+
+    def test_removed_id_is_deleted(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        h = normal_user_token_headers
+        plane = create_plane(client, h)
+        keep, drop = str(uuid.uuid4()), str(uuid.uuid4())
+        self._put(
+            client,
+            h,
+            plane["id"],
+            [
+                {"id": keep, "i": 0, "j": 0, "name": "keep"},
+                {"id": drop, "i": 1, "j": 0, "name": "drop"},
+            ],
+        )
+        out = self._put(
+            client, h, plane["id"], [{"id": keep, "i": 0, "j": 0, "name": "keep"}]
+        )
+        assert {c["id"] for c in out} == {keep}
+        listed = client.get(f"{BASE}/{plane['id']}", headers=h).json()["collections"]
+        assert {c["id"] for c in listed} == {keep}
+
+    def test_trashed_collection_is_preserved(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        h = normal_user_token_headers
+        plane = create_plane(client, h)
+        cid = str(uuid.uuid4())
+        self._put(client, h, plane["id"], [{"id": cid, "i": 0, "j": 0, "name": "C"}])
+        proc = self._member_process(client, h, plane["id"], cid)
+        r = client.post(
+            f"{settings.API_V1_STR}/trash/",
+            json={"entity_type": "collection", "entity_id": cid},
+            headers=h,
+        )
+        assert r.status_code == 200, r.text
+
+        # The client no longer sends the trashed collection; its row must stay
+        # (restorable) and its member must keep pointing at it.
+        self._put(client, h, plane["id"], [])
+
+        restored = client.post(
+            f"{settings.API_V1_STR}/trash/restore",
+            json={"entity_type": "collection", "entity_id": cid},
+            headers=h,
+        )
+        assert restored.status_code == 200, restored.text
+        got = client.get(f"{settings.API_V1_STR}/processes/{proc['id']}", headers=h)
+        assert got.json()["collection_id"] == cid

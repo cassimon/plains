@@ -16,7 +16,9 @@ import {
   type BackendAdapter,
   HttpBackend,
   InMemoryBackend,
+  type RestoredItem,
   type TrashEntry,
+  type TrashedRef,
   UNLOAD_BACKUP_KEY,
 } from "./backend"
 
@@ -1230,19 +1232,24 @@ type AppContextValue = {
   /** Soft-delete an entity now (explicit path): trashes it + its closure on the
    *  backend and updates local trash state immediately. */
   trashEntity: (entityType: string, id: string) => Promise<void>
-  /** Restore a deletion root (+ its whole batch), placing items back where they
-   *  were; `destinationPlaneId` re-homes items whose original plane is gone. */
+  /** Restore a deletion root (+ its whole batch). The server re-attaches the
+   *  dependency branch; `destinationPlaneId` re-homes items whose original plane
+   *  is gone. Resolves with the items it still could not place. */
   restoreTrash: (
     entityType: string,
     id: string,
     destinationPlaneId?: string,
-  ) => Promise<void>
+  ) => Promise<RestoredItem[]>
+  /** Safety net: drop restored items the server could not place onto a plane. */
+  placeRestoredItems: (planeId: string, items: RestoredItem[]) => void
   /** Permanently delete a single trashed item. */
   purgeTrash: (entityType: string, id: string) => Promise<void>
   /** Permanently delete everything in trash. */
   emptyTrash: () => Promise<void>
-  /** Re-apply the authoritative server snapshot (replaces local arrays). */
-  reloadFromBackend: () => Promise<void>
+  /** Re-apply the authoritative server snapshot (replaces local arrays).
+   *  Pass `{ flush: false }` after a server-side mutation (e.g. trash restore)
+   *  so the stale local snapshot is never pushed over it. */
+  reloadFromBackend: (opts?: { flush?: boolean }) => Promise<AppSnapshot>
 
   // ── Upload flow ("File Upload" critical status) ───────────────────────────
   /** The single active upload flow, or null. Only one may exist at a time. */
@@ -1286,6 +1293,20 @@ function readPersistedActivePlaneId(): string | null {
 /** Auto-save interval in milliseconds */
 const SAVE_INTERVAL_MS = 30_000
 const SAVE_DEBOUNCE_MS = 2_500
+
+/** Shape of the test-only `window.__plainsSnapshot()` probe (see below). */
+export type PlainsSnapshotProbe = {
+  processes: Process[]
+  experiments: Experiment[]
+  results: ExperimentResults[]
+  planes: Plane[]
+  trashCount: number
+}
+type PlainsProbeWindow = {
+  __plainsSnapshot?: () => PlainsSnapshotProbe
+}
+const SNAPSHOT_PROBE_ENABLED =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_TEST_AUTH === "true"
 
 export function AppProvider({
   children,
@@ -1501,42 +1522,60 @@ export function AppProvider({
   // ── Trash (soft-delete) ────────────────────────────────────────────────────
   // Authoritatively re-apply the server snapshot. Used after a trash
   // restore/purge/empty, where local arrays must be replaced (not merged) so
-  // restored items appear and purged ones stay gone. Pending edits are flushed
-  // first so nothing is lost.
-  const reloadFromBackend = useCallback(async () => {
-    dirtyRef.current = true
-    await persistDirtyState()
-    const snapshot = await backend.load()
-    setExperiments(snapshot.experiments)
-    setProcesses(snapshot.processes)
-    const staleResultIds = new Set(
-      snapshot.results
-        .filter((r) => r.files.length > 0 && !r.nomad?.upload_id)
-        .map((r) => r.id),
-    )
-    setResults(snapshot.results.filter((r) => !staleResultIds.has(r.id)))
-    setFolders(snapshot.folders ?? [])
-    setPlanes(
-      snapshot.planes.map((plane) => ({
-        ...plane,
-        elements: plane.elements.map((el) => {
-          if (el.type !== "collection") return el
-          const col = el as CanvasCollectionElement
-          const nextRefs = col.refs.filter(
-            (ref) => !(ref.kind === "result" && staleResultIds.has(ref.id)),
-          )
-          return nextRefs.length === col.refs.length
-            ? el
-            : { ...col, refs: nextRefs }
-        }),
-      })),
-    )
-    setActivePlaneId((current) =>
-      current && snapshot.planes.some((p) => p.id === current)
-        ? current
-        : (snapshot.planes[0]?.id ?? null),
-    )
-  }, [backend, persistDirtyState])
+  // restored items appear and purged ones stay gone.
+  //
+  // `flush` (default true) force-saves local state first, so a plain reload
+  // loses nothing. **A restore must pass `flush: false`**: local state is the
+  // *pre-restore* world, and pushing it over the server's freshly re-attached
+  // placement is exactly what broke restore before (docs/plans/trash-restore-fix.md,
+  // F1). Either way we cancel the pending debounce and clear the dirty flag, so
+  // no queued stale save can fire between the awaits below (F4).
+  const reloadFromBackend = useCallback(
+    async (opts?: { flush?: boolean }) => {
+      if (saveTimeoutRef.current !== null) {
+        window.clearTimeout(saveTimeoutRef.current)
+        saveTimeoutRef.current = null
+      }
+      if (opts?.flush === false) {
+        dirtyRef.current = false
+      } else {
+        dirtyRef.current = true
+        await persistDirtyState()
+      }
+      const snapshot = await backend.load()
+      setExperiments(snapshot.experiments)
+      setProcesses(snapshot.processes)
+      const staleResultIds = new Set(
+        snapshot.results
+          .filter((r) => r.files.length > 0 && !r.nomad?.upload_id)
+          .map((r) => r.id),
+      )
+      setResults(snapshot.results.filter((r) => !staleResultIds.has(r.id)))
+      setFolders(snapshot.folders ?? [])
+      setPlanes(
+        snapshot.planes.map((plane) => ({
+          ...plane,
+          elements: plane.elements.map((el) => {
+            if (el.type !== "collection") return el
+            const col = el as CanvasCollectionElement
+            const nextRefs = col.refs.filter(
+              (ref) => !(ref.kind === "result" && staleResultIds.has(ref.id)),
+            )
+            return nextRefs.length === col.refs.length
+              ? el
+              : { ...col, refs: nextRefs }
+          }),
+        })),
+      )
+      setActivePlaneId((current) =>
+        current && snapshot.planes.some((p) => p.id === current)
+          ? current
+          : (snapshot.planes[0]?.id ?? null),
+      )
+      return snapshot
+    },
+    [backend, persistDirtyState],
+  )
 
   const getTrash = useCallback(() => backend.getTrash(), [backend])
 
@@ -1548,19 +1587,137 @@ export function AppProvider({
     }
   }, [backend])
 
-  // Explicit soft-delete: trash on the backend NOW and update local trash state
-  // so the sidebar badge / Trash page reflect it immediately (no debounce wait).
+  // Prune everything a server-side delete cascaded to, out of local state:
+  // arrays, canvas refs, and any selection pointing at a removed id. Without
+  // this, a deleted experiment's results (trashed server-side by the down
+  // closure) linger in pickers and lists until the next full reload.
+  const applyLocalTrashCascade = useCallback((trashed: TrashedRef[]) => {
+    if (trashed.length === 0) return
+    const byType = (t: string) =>
+      new Set(trashed.filter((x) => x.entityType === t).map((x) => x.entityId))
+    const gone = {
+      process: byType("process"),
+      experiment: byType("experiment"),
+      result: byType("result"),
+      analysis: byType("analysis"),
+      plane: byType("plane"),
+      collection: byType("collection"),
+    }
+    const isGoneRef = (ref: CollectionRef) =>
+      gone[ref.kind as keyof typeof gone]?.has(ref.id) ?? false
+
+    setProcesses((prev) => prev.filter((p) => !gone.process.has(p.id)))
+    setExperiments((prev) => prev.filter((e) => !gone.experiment.has(e.id)))
+    setResults((prev) => prev.filter((r) => !gone.result.has(r.id)))
+    setPlanes((prev) =>
+      prev
+        .filter((p) => !gone.plane.has(p.id))
+        .map((plane) => ({
+          ...plane,
+          elements: plane.elements
+            .filter(
+              (el) => !(el.type === "collection" && gone.collection.has(el.id)),
+            )
+            .map((el) => {
+              if (el.type !== "collection") return el
+              const col = el as CanvasCollectionElement
+              const refs = col.refs.filter((ref) => !isGoneRef(ref))
+              return refs.length === col.refs.length ? el : { ...col, refs }
+            }),
+        })),
+    )
+
+    // Selections must never point at a trashed id — the user would otherwise
+    // land on a detail view for something that no longer exists.
+    setActiveCollectionId((cur) =>
+      cur && gone.collection.has(cur) ? null : cur,
+    )
+    if (gone.plane.size > 0) {
+      // stateRef is always fresh, so it is safe to read outside the updater.
+      const survivor = stateRef.current.planes.find(
+        (p) => !gone.plane.has(p.id),
+      )
+      setActivePlaneId((cur) =>
+        cur && gone.plane.has(cur) ? (survivor?.id ?? null) : cur,
+      )
+    }
+    setActiveEntity((cur) =>
+      cur && gone[cur.kind as "process" | "experiment"].has(cur.id)
+        ? null
+        : cur,
+    )
+    setLastSelectedByKind((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const kind of ["process", "experiment"] as const) {
+        const id = next[kind]
+        if (id && gone[kind].has(id)) {
+          delete next[kind]
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [])
+
+  // Explicit soft-delete: trash on the backend NOW, prune exactly what the
+  // server cascaded to, and update local trash state so the sidebar badge /
+  // Trash page reflect it immediately (no debounce wait).
   const trashEntity = useCallback(
     async (entityType: string, id: string) => {
-      const roots = await backend.softDelete(entityType, id)
+      const { roots, trashed } = await backend.softDelete(entityType, id)
+      applyLocalTrashCascade(trashed)
       setTrashEntries(roots)
     },
-    [backend],
+    [backend, applyLocalTrashCascade],
+  )
+
+  // A restored collection the server had to create (or re-home) is parked on
+  // the 0,0 sentinel cell. Nudge it to a free cell so it does not sit on top of
+  // an existing element. Purely cosmetic — placement itself is already correct.
+  const applyPositionFixup = useCallback(
+    (restored: RestoredItem[]): boolean => {
+      const needsFixup = new Set(
+        restored
+          .filter((r) => r.positionFixup)
+          .map((r) =>
+            r.entityType === "collection" ? r.entityId : r.collectionId,
+          )
+          .filter((cid): cid is string => !!cid),
+      )
+      if (needsFixup.size === 0) return false
+
+      // Functional update: this is queued behind reloadFromBackend's setPlanes,
+      // so `prev` is the freshly loaded server snapshot, not the pre-restore one.
+      setPlanes((prev) =>
+        prev.map((plane) => {
+          const targets = plane.elements.filter(
+            (el): el is CanvasCollectionElement =>
+              el.type === "collection" && needsFixup.has(el.id),
+          )
+          if (targets.length === 0) return plane
+          let elements = plane.elements
+          for (const target of targets) {
+            const others = elements.filter((el) => el.id !== target.id)
+            const pos = firstFreeSpanCell(others, 1, 1, 6)
+            if (pos.x === target.position.x && pos.y === target.position.y)
+              continue
+            elements = elements.map((el) =>
+              el.id === target.id ? { ...el, position: pos } : el,
+            )
+          }
+          return elements === plane.elements ? plane : { ...plane, elements }
+        }),
+      )
+      return true
+    },
+    [],
   )
 
   // Drop a set of loose entities onto a plane by creating one collection on its
-  // first free grid cell and adding their refs. Used to re-home restored items
-  // whose original plane/collection is gone (`needs_placement`).
+  // first free grid cell and adding their refs. Safety net only: the server
+  // places restored items itself, so this runs solely when it could not (the
+  // original plane is gone and no destination was picked up-front).
   const placeItemsOnPlane = useCallback(
     (planeId: string, refs: CollectionRef[]) => {
       if (refs.length === 0) return
@@ -1586,37 +1743,80 @@ export function AppProvider({
           return { ...p, elements: [...p.elements, el] }
         }),
       )
+      scheduleSave()
     },
-    [],
+    [scheduleSave],
   )
 
+  /**
+   * Restore a deletion root and its whole batch.
+   *
+   * The server is the single authority on placement: it re-attaches the whole
+   * dependency branch (plane → collection → process → experiment → result) and
+   * a plain reload renders it. The client must therefore NOT push its own state
+   * afterwards — local state is the pre-restore world, and flushing it over the
+   * server's work is precisely what used to make restored items vanish from
+   * their plane (docs/plans/trash-restore-fix.md, F1/F2/F4).
+   *
+   * Returns the items the server could not place, so the caller can ask the
+   * user for a destination plane and fall back to `placeRestoredItems`.
+   */
   const restoreTrash = useCallback(
-    async (entityType: string, id: string, destinationPlaneId?: string) => {
-      const restored = await backend.restoreTrash(entityType, id)
-      await reloadFromBackend()
-      await refreshTrash()
-      // Items whose original plane/collection is gone come back unplaced; drop
-      // them onto the chosen destination plane's free cells, in a collection.
-      const orphans = restored.filter(
-        (r) =>
-          r.needsPlacement &&
-          (r.entityType === "process" ||
-            r.entityType === "experiment" ||
-            r.entityType === "result" ||
-            r.entityType === "analysis"),
-      )
-      if (orphans.length > 0 && destinationPlaneId) {
-        placeItemsOnPlane(
-          destinationPlaneId,
-          orphans.map((o) => ({
-            kind: o.entityType as CollectionRef["kind"],
-            id: o.entityId,
-          })),
-        )
-        scheduleSave()
+    async (
+      entityType: string,
+      id: string,
+      destinationPlaneId?: string,
+    ): Promise<RestoredItem[]> => {
+      // 1. Flush genuinely pending edits and cancel the debounce timer, so no
+      //    stale save can fire between the awaits below.
+      if (saveTimeoutRef.current !== null) {
+        window.clearTimeout(saveTimeoutRef.current)
+        saveTimeoutRef.current = null
       }
+      await persistDirtyState()
+
+      // 2. Server-atomic restore (placement included).
+      const restored = await backend.restoreTrash(
+        entityType,
+        id,
+        destinationPlaneId,
+      )
+
+      // 3. Adopt the server snapshot without flushing over it.
+      await reloadFromBackend({ flush: false })
+      await refreshTrash()
+
+      // 4. Cosmetic grid fixup; persist it if anything could have moved.
+      if (applyPositionFixup(restored)) scheduleSave()
+
+      return restored.filter((r) => r.needsPlacement && r.planeId === null)
     },
-    [backend, reloadFromBackend, refreshTrash, placeItemsOnPlane, scheduleSave],
+    [
+      backend,
+      persistDirtyState,
+      reloadFromBackend,
+      refreshTrash,
+      applyPositionFixup,
+      scheduleSave,
+    ],
+  )
+
+  // Safety net for items the server could not place (their plane was gone and
+  // no destination was supplied): drop them onto the plane the user picked.
+  // Runs post-reload, on clean state.
+  const placeRestoredItems = useCallback(
+    (planeId: string, items: RestoredItem[]) => {
+      const refs = items
+        .filter(
+          (i) => i.entityType !== "plane" && i.entityType !== "collection",
+        )
+        .map((i) => ({
+          kind: i.entityType as CollectionRef["kind"],
+          id: i.entityId,
+        }))
+      placeItemsOnPlane(planeId, refs)
+    },
+    [placeItemsOnPlane],
   )
 
   const purgeTrash = useCallback(
@@ -1633,6 +1833,25 @@ export function AppProvider({
   }, [backend, refreshTrash])
 
   const trashCount = trashEntries.length
+
+  // ── Test-only state probe ──────────────────────────────────────────────────
+  // Exposes the live app state so integration tests can assert that a
+  // delete → restore round-trip leaves the GUI byte-for-byte where it started.
+  // Gated exactly like the test-auth bypass in `lib/keycloakInstance.ts`: dev
+  // builds and the integration image only, never production.
+  useEffect(() => {
+    if (!SNAPSHOT_PROBE_ENABLED) return
+    ;(window as unknown as PlainsProbeWindow).__plainsSnapshot = () => ({
+      processes,
+      experiments,
+      results,
+      planes,
+      trashCount,
+    })
+    return () => {
+      ;(window as unknown as PlainsProbeWindow).__plainsSnapshot = undefined
+    }
+  }, [processes, experiments, results, planes, trashCount])
 
   // ── Load persisted state on mount ──────────────────────────────────────────
 
@@ -2159,6 +2378,7 @@ export function AppProvider({
         getTrash,
         trashEntity,
         restoreTrash,
+        placeRestoredItems,
         purgeTrash,
         emptyTrash,
         reloadFromBackend,

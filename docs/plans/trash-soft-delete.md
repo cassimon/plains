@@ -1,5 +1,10 @@
 # Trash Can / Soft-Delete — Implementation Plan
 
+> **2026-07-09:** Restore turned out to be broken in the field (restored collections/
+> processes/experiments never reappear on their plane). Root-cause analysis and the
+> revised Increment 2 plan live in **`docs/plans/trash-restore-fix.md`** — it supersedes
+> W5 of this document.
+
 ## Implementation status (2026-07-08)
 
 **Increment 1 — DONE & verified** (backend `pytest` green: `tests/api/routes/test_trash.py`

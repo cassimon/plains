@@ -455,6 +455,19 @@ def replace_text_fields(
     return created
 
 
+def _adoptable_collection(
+    session: SessionDep, current_user: CurrentUser, collection_id: uuid.UUID
+) -> DataCollection | None:
+    """An existing collection row of the caller's, living on another plane."""
+    collection = session.get(DataCollection, collection_id)
+    if collection is None:
+        return None
+    plane = session.get(Plane, collection.plane_id)
+    if plane is None or not _has_plane_access(plane, current_user):
+        return None
+    return collection
+
+
 @router.put("/{plane_id}/collections", response_model=list[DataCollectionPublic])
 def replace_collections(
     *,
@@ -463,11 +476,17 @@ def replace_collections(
     plane_id: uuid.UUID,
     body: list[DataCollectionCreate],
 ) -> Any:
-    """Replace all data collections of a plane.
+    """Reconcile the data collections of a plane against the request body.
 
-    Trashed collections are preserved (not deleted and not re-created here) so
-    they stay restorable — deleting the row would ``SET NULL`` its members'
-    ``collection_id`` and lose the placement the Trash restore relies on.
+    This is an **in-place diff**, never a delete-and-recreate: a collection id
+    present in both the DB and the body is UPDATED. Deleting and re-inserting a
+    row under the same id would ``SET NULL`` the ``collection_id`` of every
+    member entity (processes/experiments/results/analyses), silently unplacing
+    anything the client did not re-upsert in the same save — the corruption that
+    made Trash restore lose its placement (see docs/plans/trash-restore-fix.md).
+
+    Trashed collections are preserved (neither updated nor deleted) so they stay
+    restorable, and rows genuinely dropped from the body are deleted.
     """
     plane = _owned_plane(session, current_user, plane_id)
     trashed_ids = set(
@@ -478,18 +497,31 @@ def replace_collections(
             )
         ).all()
     )
-    for collection in list(plane.collections):
-        if collection.id not in trashed_ids:
+    existing = {c.id: c for c in plane.collections}
+    body_by_id = {c.id: c for c in body if c.id not in trashed_ids}
+
+    # Rows only in the DB (and not trashed) were removed by the client.
+    for cid, collection in existing.items():
+        if cid not in body_by_id and cid not in trashed_ids:
             session.delete(collection)
-    session.flush()
-    created = [
-        DataCollection(**c.model_dump(), plane_id=plane_id)
-        for c in body
-        if c.id not in trashed_ids
-    ]
-    for collection in created:
-        session.add(collection)
+
+    out: list[DataCollection] = []
+    for cid, payload in body_by_id.items():
+        # A row may already live on another of the caller's planes (a restore
+        # re-homed it): adopt it rather than colliding on its primary key.
+        found: DataCollection | None = existing.get(cid) or _adoptable_collection(
+            session, current_user, cid
+        )
+        if found is None:
+            found = DataCollection(**payload.model_dump(), plane_id=plane_id)
+        else:
+            for field, value in payload.model_dump(exclude={"id"}).items():
+                setattr(found, field, value)
+            found.plane_id = plane_id
+        session.add(found)
+        out.append(found)
+
     session.commit()
-    for collection in created:
+    for collection in out:
         session.refresh(collection)
-    return created
+    return out

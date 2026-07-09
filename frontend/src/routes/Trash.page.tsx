@@ -66,6 +66,7 @@ export function TrashPage() {
     trashEntries,
     refreshTrash,
     restoreTrash,
+    placeRestoredItems,
     purgeTrash,
     emptyTrash,
     reloadFromBackend,
@@ -99,7 +100,18 @@ export function TrashPage() {
     async (entry: TrashEntry, destinationPlaneId?: string) => {
       setBusyId(entry.entityId)
       try {
-        await restoreTrash(entry.entityType, entry.entityId, destinationPlaneId)
+        const unplaced = await restoreTrash(
+          entry.entityType,
+          entry.entityId,
+          destinationPlaneId,
+        )
+        // Safety net: the prediction below missed (e.g. the original plane was
+        // trashed by another session), so the server had nowhere to put these.
+        // State is post-reload clean now, so placing them client-side is safe.
+        if (unplaced.length > 0) {
+          const fallback = destinationPlaneId ?? planes[0]?.id
+          if (fallback) placeRestoredItems(fallback, unplaced)
+        }
         notifications.show({
           color: "green",
           title: "Restored",
@@ -118,15 +130,18 @@ export function TrashPage() {
         setBusyId(null)
       }
     },
-    [restoreTrash, refresh],
+    [restoreTrash, placeRestoredItems, planes, refresh],
   )
 
   const handleRestore = useCallback(
     (entry: TrashEntry) => {
-      // A loose item (or a collection) whose original plane is gone needs a
-      // destination plane. Planes restore whole, so they never need a picker.
+      // Ask for a destination only when the item *had* a plane and that plane is
+      // gone. Everything else the server re-attaches on its own: an item whose
+      // collection vanished lands in a "Restored: …" collection on its original
+      // plane, and an item that never sat on a canvas stays unplaced (asking
+      // would invent a placement it never had). Planes restore whole.
       const originalPlaneGone =
-        !entry.originalPlaneId ||
+        !!entry.originalPlaneId &&
         !planes.some((p) => p.id === entry.originalPlaneId)
       const needsDestination =
         entry.entityType !== "plane" &&
@@ -155,8 +170,10 @@ export function TrashPage() {
           <Stack gap="xs">
             <Text size="sm">
               The plane this item lived on no longer exists. Pick a plane to
-              restore it onto — it will be placed in a new collection on free
-              cells.
+              restore it onto —{" "}
+              {entry.entityType === "collection"
+                ? "the collection moves there with everything in it."
+                : "it will be placed in a collection on free cells."}
             </Text>
             <Select
               data={planes.map((p) => ({ value: p.id, label: p.name }))}
@@ -298,8 +315,9 @@ export function TrashPage() {
           <Text size="sm" c="dimmed">
             Deleted items are kept for 30 days, then removed automatically. Only
             the top-level item you deleted is shown; restoring it brings back
-            everything it contained, placed back where it was. If its original
-            plane is gone, you'll be asked where to put it.
+            everything it contained, back in the collection and plane it came
+            from. If its original plane is gone, you'll be asked where to put
+            it.
           </Text>
         </div>
         <Button

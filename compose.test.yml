@@ -13,6 +13,9 @@ services:
       - NOMAD_MOCK_MODE=true
       - EMAILS_ENABLED=false
       - POSTGRES_SERVER=db
+      # Disable the access whitelist: global-setup provisions a random
+      # integration-<ts>@test.plains user, which no real whitelist would contain.
+      - ALLOWED_EMAILS=
     # The production image only copies ./backend/app, not the tests. Mount the
     # test suite so `pytest tests/integration/` can find it inside the container.
     volumes:

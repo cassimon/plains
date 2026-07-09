@@ -1288,6 +1288,21 @@ class TrashListPublic(SQLModel):
     count: int
 
 
+class TrashedRef(SQLModel):
+    """One entity that a delete cascaded to."""
+
+    entity_type: str
+    entity_id: uuid.UUID
+
+
+class TrashDeleteResult(TrashListPublic):
+    """The refreshed root list plus the exact batch this call trashed, so the
+    client can prune the same ids from its local arrays, canvas refs and
+    selections without waiting for a reload."""
+
+    trashed: list[TrashedRef] = Field(default_factory=list)
+
+
 class TrashCreate(SQLModel):
     entity_type: str = Field(max_length=32)
     entity_id: uuid.UUID
@@ -1296,11 +1311,16 @@ class TrashCreate(SQLModel):
 class TrashRestore(SQLModel):
     entity_type: str = Field(max_length=32)
     entity_id: uuid.UUID
+    # Where to put items whose original plane is gone. When absent, such items
+    # are restored unplaced and the frontend is asked to pick a destination.
+    destination_plane_id: uuid.UUID | None = None
+    # Optional finer-grained target: drop loose restored entities straight into
+    # this collection instead of a freshly created "Restored: …" one.
+    destination_collection_id: uuid.UUID | None = None
 
 
 class TrashRestoredItem(SQLModel):
-    """A restored entity plus its current placement, so the frontend can
-    re-attach its canvas collection-ref (placement lives in the canvas layer)."""
+    """A restored entity plus the placement the server re-attached it to."""
 
     entity_type: str
     entity_id: uuid.UUID
@@ -1308,14 +1328,19 @@ class TrashRestoredItem(SQLModel):
     collection_id: uuid.UUID | None = None
     original_plane_id: uuid.UUID | None = None
     original_collection_id: uuid.UUID | None = None
-    # True when the original plane/collection is gone, so the frontend must ask
-    # the user for a destination plane before placing this restored item.
+    # True when the server could not place the item at all (its original plane
+    # is gone and no destination was supplied) — the frontend must ask the user
+    # for a destination plane and restore again / place it.
     needs_placement: bool = False
+    # True when the item landed on a freshly created collection parked on the
+    # 0,0 sentinel cell: it is visible and correctly attached, but the frontend
+    # should move that collection to a free grid cell (cosmetic).
+    position_fixup: bool = False
 
 
 class TrashRestoreResult(SQLModel):
-    """Ids that were un-trashed so the frontend can re-place the restored
-    entities onto a plane (placement lives in the canvas layer)."""
+    """What the restore re-attached, so the frontend can reload and (only for
+    genuinely unplaceable items) prompt for a destination."""
 
     restored: list[TrashRestoredItem]
 

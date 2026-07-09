@@ -3297,6 +3297,7 @@ export default function ExperimentsPage() {
                               size="sm"
                               variant="subtle"
                               color="red"
+                              aria-label="Delete experiment"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 handleDeleteExperiment(exp.id)

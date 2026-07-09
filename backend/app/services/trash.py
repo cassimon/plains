@@ -6,9 +6,13 @@ cascades DOWN (process → experiments → results); restoring cascades UP
 (`ExperimentResults.has_completed_upload`) are never trashed — the caller
 (frontend) detaches and surfaces them instead.
 
-Placement on the canvas (which plane/collection a restored entity lands on) is
-NOT decided here — that lives in the frontend collection-ref layer. This module
-only tracks which ids are trashed and applies the dependency closures.
+Placement on the canvas (which plane/collection a restored entity lands on) IS
+decided here: ``restore`` re-attaches the whole dependency branch server-side so
+a plain ``/state/bulk`` reload renders it, with no client-side placement writes.
+The client only picks a destination plane when the original one is gone, and
+nudges freshly created collections onto a free grid cell (cosmetic). Restore used
+to be a client concern; that is what made it lose placement — see
+``docs/plans/trash-restore-fix.md``.
 """
 
 import uuid
@@ -194,19 +198,26 @@ def _existing_entry(
 
 def soft_delete(
     session: Session, user: User, entity_type: str, entity_id: uuid.UUID
-) -> list[TrashEntry]:
+) -> list[tuple[str, uuid.UUID]]:
     """Trash an entity and its downward closure. Finished uploads are skipped.
 
     Idempotent: re-trashing an already-trashed id is a no-op for that id.
+
+    Returns **every** (entity_type, entity_id) now trashed as part of this
+    cascade — including ids that were already trashed — so the caller can prune
+    exactly those from its local state. (Callers need the closure, not just the
+    rows this call happened to insert.)
     """
     model = MODEL_BY_TYPE[entity_type]
     obj = session.get(model, entity_id)
     if not obj:
         return []
+    batch: list[tuple[str, uuid.UUID]] = []
     created: list[TrashEntry] = []
     for t, o in downward_closure(session, entity_type, obj):
         if is_finished_upload(o):
             continue
+        batch.append((t, o.id))
         if _existing_entry(session, user, t, o.id):
             continue
         entry = TrashEntry(
@@ -226,19 +237,38 @@ def soft_delete(
     session.commit()
     for entry in created:
         session.refresh(entry)
-    return created
+    return batch
 
 
 def restore(
-    session: Session, user: User, entity_type: str, entity_id: uuid.UUID
+    session: Session,
+    user: User,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    destination_plane_id: uuid.UUID | None = None,
+    destination_collection_id: uuid.UUID | None = None,
 ) -> list[TrashRestoredItem]:
-    """Un-trash a deletion root along with its whole batch.
+    """Un-trash a deletion root along with its whole batch, **atomically
+    re-attaching the dependency branch it came from**.
 
     Restoring the root brings back everything that was trashed together with it
     (its downward closure, recorded via ``root_entity_id`` at delete time) so a
     plane/collection revives all its contents at once. The upward closure is
-    also cleared so a restored child always has the ancestors it needs. Returns
-    the restored entities with their current placement for canvas re-attachment.
+    also cleared so a restored child always has the ancestors it needs.
+
+    Placement is decided here, not on the client: a plain ``/state/bulk`` reload
+    must render the restored branch with zero client-side placement writes. The
+    ladder per restored entity is
+
+    1. its original collection is alive (or coming back in this batch) → re-point;
+    2. the collection is gone but its plane is alive → a ``"Restored: <root>"``
+       collection is created on that plane (once per plane per call);
+    3. the plane is gone too and ``destination_plane_id`` is given → restored
+       collection rows are re-homed onto it (keeping their identity, name and
+       members), loose entities land in a ``"Restored: <root>"`` collection there;
+    4. otherwise → left unplaced with ``needs_placement=True``.
+
+    Entities that carried no placement before being trashed stay unplaced.
     """
     entries = _batch_entries(session, user, entity_type, entity_id)
 
@@ -255,29 +285,46 @@ def restore(
     # container is itself being restored (so it counts as "available").
     leaving = {(e.entity_type, e.entity_id) for e in entries}
 
+    root_entry = _existing_entry(session, user, entity_type, entity_id)
+    ctx = _Placement(
+        session=session,
+        user=user,
+        leaving=leaving,
+        destination_plane_id=destination_plane_id,
+        destination_collection_id=destination_collection_id,
+        root_name=root_entry.name if root_entry else _entity_name(entity_type, obj),
+    )
+
+    # Pass 1: collections first, so the entities that live in them (pass 2) see
+    # a collection that already sits on a live plane.
+    fixups: dict[uuid.UUID, bool] = {}
+    for entry in entries:
+        if entry.entity_type != "collection":
+            continue
+        coll = session.get(DataCollection, entry.entity_id)
+        if coll is not None:
+            fixups[entry.entity_id] = ctx.rehome_collection(coll)
+
+    # Pass 2: everything that carries a collection_id / plane_id.
+    placeable_types = {t for t, _ in _PLACEABLE}
     restored: list[TrashRestoredItem] = []
     for entry in entries:
         emodel = MODEL_BY_TYPE.get(entry.entity_type)
         eobj = session.get(emodel, entry.entity_id) if emodel else None
         needs_placement = False
-        if eobj is not None and entry.entity_type in {
-            "process",
-            "experiment",
-            "result",
-            "analysis",
-        }:
-            needs_placement = _reattach_placement(session, user, entry, eobj, leaving)
+        position_fixup = fixups.get(entry.entity_id, False)
+        if eobj is not None and entry.entity_type in placeable_types:
+            needs_placement, position_fixup = ctx.reattach(entry, eobj)
         restored.append(
             TrashRestoredItem(
                 entity_type=entry.entity_type,
                 entity_id=entry.entity_id,
                 plane_id=getattr(eobj, "plane_id", None) if eobj else None,
-                collection_id=getattr(eobj, "collection_id", None)
-                if eobj
-                else None,
+                collection_id=getattr(eobj, "collection_id", None) if eobj else None,
                 original_plane_id=entry.original_plane_id,
                 original_collection_id=entry.original_collection_id,
                 needs_placement=needs_placement,
+                position_fixup=position_fixup,
             )
         )
         session.delete(entry)
@@ -298,56 +345,134 @@ def _is_trashed(
     return _existing_entry(session, user, entity_type, entity_id) is not None
 
 
-def _reattach_placement(
-    session: Session,
-    user: User,
-    entry: TrashEntry,
-    eobj: Any,
-    leaving: set[tuple[str, uuid.UUID]],
-) -> bool:
-    """Restore the entity to where it was, if that place still exists.
+class _Placement:
+    """Per-restore-call placement authority (the ladder in ``restore``).
 
-    ``replace_collections`` nulls a member's ``collection_id`` while it is
-    trashed, so we re-point it at its original collection/plane here. Returns
-    True when the original home is gone/trashed and the frontend must ask the
-    user for a new destination plane.
+    Holds the lazily-created ``"Restored: <root>"`` collections so one restore
+    never scatters its items across several new buckets on the same plane.
     """
-    coll_id = entry.original_collection_id
-    plane_id = entry.original_plane_id
-    if coll_id is not None:
-        coll = session.get(DataCollection, coll_id)
-        if (
-            coll is not None
-            and not _is_trashed(session, user, "collection", coll_id, leaving)
-            and _plane_available(session, user, coll.plane_id, leaving)
-        ):
-            eobj.collection_id = coll_id
-            eobj.plane_id = coll.plane_id
-            session.add(eobj)
+
+    def __init__(
+        self,
+        session: Session,
+        user: User,
+        leaving: set[tuple[str, uuid.UUID]],
+        destination_plane_id: uuid.UUID | None,
+        destination_collection_id: uuid.UUID | None,
+        root_name: str,
+    ) -> None:
+        self.session = session
+        self.user = user
+        self.leaving = leaving
+        self.destination_plane_id = destination_plane_id
+        self.destination_collection_id = destination_collection_id
+        self.root_name = root_name
+        self._buckets: dict[uuid.UUID, DataCollection] = {}
+
+    # ── availability ─────────────────────────────────────────────────────────
+
+    def plane_available(self, plane_id: uuid.UUID | None) -> bool:
+        if plane_id is None:
             return False
-    if plane_id is not None and _plane_available(session, user, plane_id, leaving):
-        # Plane survives but the collection is gone — land on the plane; the
-        # frontend will drop it into a (new) collection on free cells.
-        eobj.plane_id = plane_id
-        eobj.collection_id = None
-        session.add(eobj)
+        plane = self.session.get(Plane, plane_id)
+        return plane is not None and not _is_trashed(
+            self.session, self.user, "plane", plane_id, self.leaving
+        )
+
+    def collection_available(self, coll_id: uuid.UUID | None) -> DataCollection | None:
+        """The collection, iff it exists, is not trashed, and sits on a live plane."""
+        if coll_id is None:
+            return None
+        coll = self.session.get(DataCollection, coll_id)
+        if coll is None:
+            return None
+        if _is_trashed(self.session, self.user, "collection", coll_id, self.leaving):
+            return None
+        return coll if self.plane_available(coll.plane_id) else None
+
+    def destination(self) -> uuid.UUID | None:
+        return (
+            self.destination_plane_id
+            if self.plane_available(self.destination_plane_id)
+            else None
+        )
+
+    # ── placement ────────────────────────────────────────────────────────────
+
+    def bucket_for(self, plane_id: uuid.UUID) -> DataCollection:
+        """The (lazily created) "Restored: <root>" collection on a given plane.
+
+        Parked on the ``0,0`` sentinel cell; the client moves it to a free cell
+        as a purely cosmetic fixup (``position_fixup``).
+        """
+        existing = self._buckets.get(plane_id)
+        if existing is not None:
+            return existing
+        coll = DataCollection(
+            plane_id=plane_id,
+            i=0,
+            j=0,
+            name=f"Restored: {self.root_name}"[:255],
+        )
+        self.session.add(coll)
+        self.session.flush()
+        self._buckets[plane_id] = coll
+        return coll
+
+    def rehome_collection(self, coll: DataCollection) -> bool:
+        """Make sure a restored collection sits on a live plane.
+
+        Keeps the row's identity (id, name, members) — re-homing beats dumping
+        its members into an anonymous bucket. Returns True when its grid
+        position needs a client-side fixup (it may collide on the new plane).
+        """
+        if self.plane_available(coll.plane_id):
+            return False
+        dest = self.destination()
+        if dest is None:
+            return False  # nowhere to go; members fall through to needs_placement
+        coll.plane_id = dest
+        self.session.add(coll)
         return True
-    # Nowhere to go — frontend must prompt for a destination plane.
-    return True
 
+    def reattach(self, entry: TrashEntry, eobj: Any) -> tuple[bool, bool]:
+        """Place one restored entity. Returns (needs_placement, position_fixup)."""
+        # It was never on a canvas — restoring must not invent a placement.
+        if entry.original_plane_id is None and entry.original_collection_id is None:
+            return False, False
 
-def _plane_available(
-    session: Session,
-    user: User,
-    plane_id: uuid.UUID | None,
-    leaving: set[tuple[str, uuid.UUID]],
-) -> bool:
-    if plane_id is None:
-        return False
-    plane = session.get(Plane, plane_id)
-    return plane is not None and not _is_trashed(
-        session, user, "plane", plane_id, leaving
-    )
+        # 1. Original collection alive (or coming back with us).
+        coll = self.collection_available(entry.original_collection_id)
+        if coll is not None:
+            eobj.collection_id = coll.id
+            eobj.plane_id = coll.plane_id
+            self.session.add(eobj)
+            return False, False
+
+        # 2/3. Collection gone → a "Restored: …" bucket on the original plane if
+        # it survives, else on the destination plane the user picked.
+        target_plane = (
+            entry.original_plane_id
+            if self.plane_available(entry.original_plane_id)
+            else self.destination()
+        )
+        if target_plane is not None:
+            explicit = self.collection_available(self.destination_collection_id)
+            bucket = (
+                explicit
+                if explicit is not None and explicit.plane_id == target_plane
+                else self.bucket_for(target_plane)
+            )
+            eobj.collection_id = bucket.id
+            eobj.plane_id = bucket.plane_id
+            self.session.add(eobj)
+            return False, explicit is None
+
+        # 4. Nowhere to go — the frontend must prompt for a destination plane.
+        eobj.collection_id = None
+        eobj.plane_id = None
+        self.session.add(eobj)
+        return True, False
 
 
 def _batch_entries(

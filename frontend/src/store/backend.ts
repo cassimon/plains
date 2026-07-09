@@ -69,7 +69,25 @@ export type RestoredItem = {
   collectionId: string | null
   originalPlaneId: string | null
   originalCollectionId: string | null
+  /** The server could not place it — ask the user for a destination plane. */
   needsPlacement: boolean
+  /** It landed on a collection parked at the 0,0 sentinel cell: attached and
+   *  visible, but the canvas should move that collection to a free cell. */
+  positionFixup: boolean
+}
+
+/** One entity a delete cascaded to, as reported by `POST /trash/`. */
+export type TrashedRef = {
+  entityType: string
+  entityId: string
+}
+
+/** What `softDelete` returns: the refreshed roots plus the cascaded batch. */
+export type TrashDeleteResult = {
+  roots: TrashEntry[]
+  /** Every id the delete trashed (root + downward closure) — prune exactly
+   *  these from local arrays, canvas refs and selections. */
+  trashed: TrashedRef[]
 }
 
 /**
@@ -250,11 +268,16 @@ export interface BackendAdapter {
   /** List the current user's trashed items (one row per deletion root). */
   getTrash(): Promise<TrashEntry[]>
   /** Soft-delete an entity + its downward closure. Returns the refreshed root
-   *  list so callers can update their local trash state immediately. */
-  softDelete(entityType: string, id: string): Promise<TrashEntry[]>
-  /** Restore a deletion root (and its whole batch) from trash. Returns the
-   *  restored entities with their re-attached placement. */
-  restoreTrash(entityType: string, id: string): Promise<RestoredItem[]>
+   *  list (for the badge) and the cascaded batch (to prune local state). */
+  softDelete(entityType: string, id: string): Promise<TrashDeleteResult>
+  /** Restore a deletion root (and its whole batch) from trash. The server
+   *  re-attaches the dependency branch; `destinationPlaneId` re-homes items
+   *  whose original plane is gone. Returns the restored entities. */
+  restoreTrash(
+    entityType: string,
+    id: string,
+    destinationPlaneId?: string,
+  ): Promise<RestoredItem[]>
   /** Permanently delete a single trashed item. */
   purgeTrash(entityType: string, id: string): Promise<void>
   /** Permanently delete everything in trash. */
@@ -437,12 +460,16 @@ export class InMemoryBackend implements BackendAdapter {
   async getTrash(): Promise<TrashEntry[]> {
     return []
   }
-  async softDelete(_entityType: string, _id: string): Promise<TrashEntry[]> {
-    return []
+  async softDelete(
+    _entityType: string,
+    _id: string,
+  ): Promise<TrashDeleteResult> {
+    return { roots: [], trashed: [] }
   }
   async restoreTrash(
     _entityType: string,
     _id: string,
+    _destinationPlaneId?: string,
   ): Promise<RestoredItem[]> {
     return []
   }
@@ -726,19 +753,35 @@ export class HttpBackend implements BackendAdapter {
     return this.mapTrashRows(await this.request("GET", "/trash/"))
   }
 
-  async softDelete(entityType: string, id: string): Promise<TrashEntry[]> {
-    return this.mapTrashRows(
-      await this.request("POST", "/trash/", {
-        entity_type: entityType,
-        entity_id: id,
-      }),
-    )
+  async softDelete(entityType: string, id: string): Promise<TrashDeleteResult> {
+    const res = await this.request("POST", "/trash/", {
+      entity_type: entityType,
+      entity_id: id,
+    })
+    const trashed = (res?.trashed ?? []) as Array<{
+      entity_type: string
+      entity_id: string
+    }>
+    return {
+      roots: this.mapTrashRows(res),
+      trashed: trashed.map((t) => ({
+        entityType: t.entity_type,
+        entityId: t.entity_id,
+      })),
+    }
   }
 
-  async restoreTrash(entityType: string, id: string): Promise<RestoredItem[]> {
+  async restoreTrash(
+    entityType: string,
+    id: string,
+    destinationPlaneId?: string,
+  ): Promise<RestoredItem[]> {
     const res = await this.request("POST", "/trash/restore", {
       entity_type: entityType,
       entity_id: id,
+      ...(destinationPlaneId
+        ? { destination_plane_id: destinationPlaneId }
+        : {}),
     })
     const items = (res?.restored ?? []) as Array<{
       entity_type: string
@@ -748,6 +791,7 @@ export class HttpBackend implements BackendAdapter {
       original_plane_id: string | null
       original_collection_id: string | null
       needs_placement: boolean
+      position_fixup?: boolean
     }>
     return items.map((i) => ({
       entityType: i.entity_type,
@@ -757,6 +801,7 @@ export class HttpBackend implements BackendAdapter {
       originalPlaneId: i.original_plane_id,
       originalCollectionId: i.original_collection_id,
       needsPlacement: i.needs_placement,
+      positionFixup: i.position_fixup ?? false,
     }))
   }
 
