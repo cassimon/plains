@@ -7,14 +7,24 @@ interface LogoProps {
   variant?: "full" | "icon" | "responsive"
   className?: string
   asLink?: boolean
+  fillSpace?: boolean
 }
 
 export function Logo({
   variant = "full",
   className,
   asLink = true,
+  fillSpace = false,
 }: LogoProps) {
-  const content = (
+  const content = fillSpace ? (
+    <div className="flex h-full w-full items-center justify-center bg-white">
+      <img
+        src={logo}
+        alt="Plains"
+        className="h-auto w-auto max-h-full max-w-full object-contain p-8"
+      />
+    </div>
+  ) : (
     <img
       src={logo}
       alt="Plains"
