@@ -62,9 +62,8 @@ const byString = (a: string, b: string) => a.localeCompare(b)
 
 async function guiState(page: Page): Promise<GuiState> {
   const probe = await page.evaluate(() => {
-    const fn = (
-      window as unknown as { __plainsSnapshot?: () => unknown }
-    ).__plainsSnapshot
+    const fn = (window as unknown as { __plainsSnapshot?: () => unknown })
+      .__plainsSnapshot
     if (!fn) throw new Error("__plainsSnapshot probe missing (non-test build?)")
     return fn() as unknown
   })
@@ -96,18 +95,40 @@ async function guiState(page: Page): Promise<GuiState> {
 }
 
 type Bulk = {
-  processes: Array<{ id: string; plane_id: string | null; collection_id: string | null }>
-  experiments: Array<{ id: string; plane_id: string | null; collection_id: string | null }>
-  results: Array<{ id: string; plane_id: string | null; collection_id: string | null }>
-  planes: Array<{ id: string; collections: Array<{ id: string; name: string }> }>
+  processes: Array<{
+    id: string
+    plane_id: string | null
+    collection_id: string | null
+  }>
+  experiments: Array<{
+    id: string
+    plane_id: string | null
+    collection_id: string | null
+  }>
+  results: Array<{
+    id: string
+    plane_id: string | null
+    collection_id: string | null
+  }>
+  planes: Array<{
+    id: string
+    collections: Array<{ id: string; name: string }>
+  }>
 }
 
 /** Backend truth: which entity sits in which collection on which plane. */
 async function backendState(token: string) {
   const bulk = await apiClient(token).get<Bulk>("/state/bulk")
   const place = (
-    rows: Array<{ id: string; plane_id: string | null; collection_id: string | null }>,
-  ) => rows.map((r) => `${r.id}@${r.plane_id ?? "-"}/${r.collection_id ?? "-"}`).sort(byString)
+    rows: Array<{
+      id: string
+      plane_id: string | null
+      collection_id: string | null
+    }>,
+  ) =>
+    rows
+      .map((r) => `${r.id}@${r.plane_id ?? "-"}/${r.collection_id ?? "-"}`)
+      .sort(byString)
   return {
     processes: place(bulk.processes),
     experiments: place(bulk.experiments),
@@ -196,7 +217,11 @@ async function seedBranch(token: string, label: string) {
   }
 }
 
-async function trashViaApi(token: string, entityType: string, entityId: string) {
+async function trashViaApi(
+  token: string,
+  entityType: string,
+  entityId: string,
+) {
   await apiClient(token).post("/trash/", {
     entity_type: entityType,
     entity_id: entityId,
@@ -225,8 +250,9 @@ test("process round-trip: restores into its original collection", async ({
 
   const guiBefore = await guiState(page)
   const backendBefore = await backendState(authToken)
-  expect(guiBefore.planes.find((p) => p.id === seed.planeId)?.collections[0]?.refs)
-    .toContain(`process:${seed.processId}`)
+  expect(
+    guiBefore.planes.find((p) => p.id === seed.planeId)?.collections[0]?.refs,
+  ).toContain(`process:${seed.processId}`)
 
   await trashViaApi(authToken, "process", seed.processId)
   await restoreFromTrashPage(page, seed.names.process)
@@ -264,7 +290,10 @@ test("collection round-trip: reappears on its plane with all members", async ({
   const collection = guiAfter.planes
     .find((p) => p.id === seed.planeId)
     ?.collections.find((c) => c.id === seed.collectionId)
-  expect(collection, "restored collection is missing from its plane").toBeTruthy()
+  expect(
+    collection,
+    "restored collection is missing from its plane",
+  ).toBeTruthy()
   expect(collection?.refs).toEqual(
     expect.arrayContaining([
       `process:${seed.processId}`,
@@ -321,7 +350,9 @@ test("deleting an experiment in the UI hides it and its results everywhere", asy
   await waitForApp(page, seed.planeId)
 
   const guiBefore = await guiState(page)
-  expect(guiBefore.experiments.some((e) => e.startsWith(seed.experimentId))).toBe(true)
+  expect(
+    guiBefore.experiments.some((e) => e.startsWith(seed.experimentId)),
+  ).toBe(true)
   expect(guiBefore.results).toContain(seed.resultId)
 
   // Delete through the real UI so the local down-cascade runs. Scope to the
@@ -342,12 +373,13 @@ test("deleting an experiment in the UI hides it and its results everywhere", asy
     })
     .toBe(guiBefore.experiments.length - 1)
   const afterDelete = await guiState(page)
-  expect(afterDelete.experiments.some((e) => e.startsWith(seed.experimentId))).toBe(
-    false,
-  )
-  expect(afterDelete.results, "cascaded result still in local state").not.toContain(
-    seed.resultId,
-  )
+  expect(
+    afterDelete.experiments.some((e) => e.startsWith(seed.experimentId)),
+  ).toBe(false)
+  expect(
+    afterDelete.results,
+    "cascaded result still in local state",
+  ).not.toContain(seed.resultId)
   const refsAfterDelete = afterDelete.planes
     .find((p) => p.id === seed.planeId)
     ?.collections.find((c) => c.id === seed.collectionId)?.refs
@@ -391,12 +423,29 @@ test("orphan restore: original plane gone → user picks a destination", async (
   await row.getByRole("button", { name: "Restore" }).click()
 
   // The destination picker appears because the original plane is gone. Pick the
-  // destination explicitly — the Select defaults to the first plane, not ours.
+  // destination explicitly — the Select defaults to planes[0], which after the
+  // earlier tests in this serial file is some other accumulated plane, not ours.
   const dialog = page.getByRole("dialog")
   await expect(dialog.getByText("Choose a plane")).toBeVisible()
-  await dialog.locator("input").click()
-  await page.getByRole("option", { name: destinationName, exact: true }).click()
-  await dialog.getByRole("button", { name: "Restore here" }).click()
+  const selectInput = dialog.locator("input:not([type=hidden])")
+  // The dropdown renders over the modal footer and fades in, so a single click
+  // on the option can be swallowed mid-transition (the option ends up covered by
+  // the Cancel button). Retry open→select until the value actually sticks —
+  // otherwise the restore silently lands on the default plane and the re-home
+  // assertion below fails intermittently.
+  await expect(async () => {
+    await selectInput.click()
+    await page
+      .getByRole("option", { name: destinationName, exact: true })
+      .click({ force: true })
+    await expect(selectInput).toHaveValue(destinationName, { timeout: 2_000 })
+  }).toPass({ timeout: 15_000 })
+  // Let the dropdown close and the modal layout settle before confirming, else
+  // the footer button re-renders mid-click and detaches.
+  await expect(page.getByRole("listbox")).toBeHidden()
+  await dialog
+    .getByRole("button", { name: "Restore here" })
+    .click({ force: true })
   await expect(page.getByText("Restored", { exact: false })).toBeVisible({
     timeout: 15_000,
   })
@@ -406,7 +455,10 @@ test("orphan restore: original plane gone → user picks a destination", async (
   const rehomed = afterRestore.planes
     .find((p) => p.id === destinationId)
     ?.collections.find((c) => c.id === seed.collectionId)
-  expect(rehomed, "collection was not re-homed onto the chosen plane").toBeTruthy()
+  expect(
+    rehomed,
+    "collection was not re-homed onto the chosen plane",
+  ).toBeTruthy()
   expect(rehomed?.refs).toEqual(
     expect.arrayContaining([
       `process:${seed.processId}`,
