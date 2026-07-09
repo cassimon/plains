@@ -26,6 +26,7 @@ from app.models import (
     TextFieldCreate,
     TextFieldPublic,
     TextFieldUpdate,
+    TrashEntry,
     User,
     UserPublic,
 )
@@ -462,12 +463,30 @@ def replace_collections(
     plane_id: uuid.UUID,
     body: list[DataCollectionCreate],
 ) -> Any:
-    """Replace all data collections of a plane."""
+    """Replace all data collections of a plane.
+
+    Trashed collections are preserved (not deleted and not re-created here) so
+    they stay restorable — deleting the row would ``SET NULL`` its members'
+    ``collection_id`` and lose the placement the Trash restore relies on.
+    """
     plane = _owned_plane(session, current_user, plane_id)
+    trashed_ids = set(
+        session.exec(
+            select(TrashEntry.entity_id).where(
+                TrashEntry.owner_id == current_user.id,
+                TrashEntry.entity_type == "collection",
+            )
+        ).all()
+    )
     for collection in list(plane.collections):
-        session.delete(collection)
+        if collection.id not in trashed_ids:
+            session.delete(collection)
     session.flush()
-    created = [DataCollection(**c.model_dump(), plane_id=plane_id) for c in body]
+    created = [
+        DataCollection(**c.model_dump(), plane_id=plane_id)
+        for c in body
+        if c.id not in trashed_ids
+    ]
     for collection in created:
         session.add(collection)
     session.commit()

@@ -37,6 +37,27 @@ def init_db(session: Session) -> None:
                 "ADD COLUMN IF NOT EXISTS step_ref VARCHAR(64)"
             )
         )
+        # Trash batch-tracking columns added after trash_entry shipped
+        # (create_all never alters existing tables). These let the Trash page
+        # show one row per deletion and re-place restored items.
+        conn.execute(
+            text(
+                "ALTER TABLE trash_entry "
+                "ADD COLUMN IF NOT EXISTS original_collection_id UUID"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE trash_entry "
+                "ADD COLUMN IF NOT EXISTS root_entity_type VARCHAR(32) "
+                "NOT NULL DEFAULT ''"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE trash_entry ADD COLUMN IF NOT EXISTS root_entity_id UUID"
+            )
+        )
 
     user = session.exec(
         select(User).where(User.email == settings.FIRST_SUPERUSER)

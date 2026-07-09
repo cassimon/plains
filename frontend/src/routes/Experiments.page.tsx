@@ -2514,6 +2514,8 @@ export default function ExperimentsPage() {
     planes,
     updateElement,
     removeCollectionRefs,
+    trashEntity,
+    flushSave,
     activeCollectionId,
     activePlaneId,
     setActivePlaneId,
@@ -2549,6 +2551,10 @@ export default function ExperimentsPage() {
   // newly added substrates start unnamed so their name fields buzz to prompt
   // manual entry rather than silently receiving an auto-generated name.
   const [advancedConsulted, setAdvancedConsulted] = useState(false)
+
+  const experimentNameInputRef = useRef<HTMLInputElement | null>(null)
+  const [pendingSelectExperimentNameId, setPendingSelectExperimentNameId] =
+    useState<string | null>(null)
 
   /** Select an experiment as a direct result of a user action, keeping the
    *  app-wide activeEntity and last-selected bookkeeping in sync. */
@@ -2593,6 +2599,7 @@ export default function ExperimentsPage() {
     setExperiments((prev) => [...prev, newExp])
     selectExperiment(newExp.id)
     setActiveExpTab("chemicals")
+    setPendingSelectExperimentNameId(newExp.id)
 
     // Link back to collection
     const plane = planesRef.current.find((p) => p.id === planeId)
@@ -2613,6 +2620,23 @@ export default function ExperimentsPage() {
     updateElement,
     selectExperiment,
   ])
+
+  // Focus and select the name field whenever a fresh experiment (created or
+  // copied) becomes selected, so the placeholder name is ready for the user
+  // to type over immediately.
+  React.useEffect(() => {
+    if (!selectedExpId || pendingSelectExperimentNameId !== selectedExpId) {
+      return
+    }
+    const raf = window.requestAnimationFrame(() => {
+      const input = experimentNameInputRef.current
+      if (!input) return
+      input.focus()
+      input.select()
+    })
+    setPendingSelectExperimentNameId(null)
+    return () => window.cancelAnimationFrame(raf)
+  }, [pendingSelectExperimentNameId, selectedExpId])
 
   const selectedExperiment = experiments.find((e) => e.id === selectedExpId)
   const selectedProcess =
@@ -2684,6 +2708,7 @@ export default function ExperimentsPage() {
     const newExp = newExperiment(newExperimentProcessId)
     setExperiments((prev) => [...prev, newExp])
     selectExperiment(newExp.id)
+    setPendingSelectExperimentNameId(newExp.id)
     updateElement(planeId, {
       ...collection,
       refs: [
@@ -3020,13 +3045,21 @@ export default function ExperimentsPage() {
       title: "Delete Experiment?",
       children: (
         <Text size="sm">
-          Are you sure you want to delete this experiment? This action cannot be
-          undone.
+          This experiment (and its results) will be moved to the Trash. You can
+          restore it from there.
         </Text>
       ),
       labels: { confirm: "Delete", cancel: "Cancel" },
       confirmProps: { color: "red" },
-      onConfirm: () => {
+      onConfirm: async () => {
+        // Flush first so the backend has the experiment's current placement,
+        // then soft-delete it (records where to restore it to).
+        try {
+          await flushSave()
+          await trashEntity("experiment", expId)
+        } catch (err) {
+          console.error("[Experiments] trash failed:", err)
+        }
         setExperiments((prev) => prev.filter((e) => e.id !== expId))
         removeCollectionRefs("experiment", [expId])
         setSelectedExpId(null)
@@ -3051,6 +3084,7 @@ export default function ExperimentsPage() {
 
     setExperiments((prev) => [...prev, copy])
     selectExperiment(copy.id)
+    setPendingSelectExperimentNameId(copy.id)
 
     // Keep copied experiment inside the same collection(s) as the source.
     for (const plane of planes) {
@@ -3328,6 +3362,7 @@ export default function ExperimentsPage() {
               <Paper withBorder p="sm" radius="md" style={{ flex: 1 }}>
                 <SimpleGrid cols={2} spacing="sm">
                   <TextInput
+                    ref={experimentNameInputRef}
                     label="Experiment Name"
                     placeholder="Name"
                     size="sm"

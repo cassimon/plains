@@ -17,6 +17,7 @@ import {
 import { IconCheck, IconChevronDown, IconChevronUp } from "@tabler/icons-react"
 import * as React from "react"
 import { useMemo, useRef, useState } from "react"
+import { parseQuenchingPairs } from "@/components/QuenchingModal"
 import type {
   CanvasCollectionElement,
   Experiment,
@@ -83,12 +84,41 @@ export function collectChemicals(process: Process): {
 
   for (const stage of process.stages) {
     for (const step of stage.alternatives) {
-      if (step.stepCategory === "substrate_preparation") continue
       if (step.inlineMaterial && !seenStepIds.has(step.id)) {
         seenStepIds.add(step.id)
         materialItems.push({ stepId: step.id, material: step.inlineMaterial })
       }
       if (step.chemRecipeId) recIds.add(step.chemRecipeId)
+
+      // Antisolvent quenching media (e.g. chlorobenzene) is chosen via
+      // QuenchingModal, packed into step.dryingMethod rather than
+      // inlineMaterial/chemRecipeId — surface it as its own chemical unless
+      // it just references a recipe (already tracked above via chemRecipeId).
+      if (step.dryingMethod?.value) {
+        const pairs = parseQuenchingPairs(step.dryingMethod.value)
+        if (pairs.type === "Antisolvent") {
+          const media = pairs.media || pairs.material
+          if (media?.startsWith("recipe:")) {
+            recIds.add(media.slice("recipe:".length))
+          } else if (
+            media &&
+            !media.startsWith("material:") &&
+            !media.startsWith("solution:")
+          ) {
+            const key = `drying:${step.id}`
+            if (!seenStepIds.has(key)) {
+              seenStepIds.add(key)
+              materialItems.push({
+                stepId: key,
+                material: {
+                  name: media,
+                  pubchemCid: pairs.mediaCid || undefined,
+                },
+              })
+            }
+          }
+        }
+      }
     }
   }
 

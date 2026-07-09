@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { firstFreeSpanCell } from "../lib/gridPacking"
 import { getTokenSync } from "../lib/keycloakInstance"
 import type { UploadFlow } from "../lib/uploadFlow"
 import {
@@ -1217,10 +1218,25 @@ type AppContextValue = {
   flushSave: () => Promise<void>
 
   // ── Trash (soft-delete) ────────────────────────────────────────────────────
+  /** Live list of the current user's trashed items (one row per deletion root).
+   *  Kept in sync locally so the sidebar badge and Trash page update instantly. */
+  trashEntries: TrashEntry[]
+  /** Number of trashed deletion roots (drives the sidebar badge). */
+  trashCount: number
+  /** Re-fetch the trash list from the backend into `trashEntries`. */
+  refreshTrash: () => Promise<void>
   /** Fetch the current user's trashed items. */
   getTrash: () => Promise<TrashEntry[]>
-  /** Restore an item (+ its upward dependency closure), then reload state. */
-  restoreTrash: (entityType: string, id: string) => Promise<void>
+  /** Soft-delete an entity now (explicit path): trashes it + its closure on the
+   *  backend and updates local trash state immediately. */
+  trashEntity: (entityType: string, id: string) => Promise<void>
+  /** Restore a deletion root (+ its whole batch), placing items back where they
+   *  were; `destinationPlaneId` re-homes items whose original plane is gone. */
+  restoreTrash: (
+    entityType: string,
+    id: string,
+    destinationPlaneId?: string,
+  ) => Promise<void>
   /** Permanently delete a single trashed item. */
   purgeTrash: (entityType: string, id: string) => Promise<void>
   /** Permanently delete everything in trash. */
@@ -1295,6 +1311,7 @@ export function AppProvider({
   const [results, setResults] = useState<ExperimentResults[]>([])
   const [planes, setPlanes] = useState<Plane[]>(INITIAL_PLANES)
   const [folders, setFolders] = useState<PlaneFolder[]>([])
+  const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([])
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(
     null,
   )
@@ -1523,24 +1540,99 @@ export function AppProvider({
 
   const getTrash = useCallback(() => backend.getTrash(), [backend])
 
-  const restoreTrash = useCallback(
+  const refreshTrash = useCallback(async () => {
+    try {
+      setTrashEntries(await backend.getTrash())
+    } catch (err) {
+      console.error("[AppContext] refreshTrash failed:", err)
+    }
+  }, [backend])
+
+  // Explicit soft-delete: trash on the backend NOW and update local trash state
+  // so the sidebar badge / Trash page reflect it immediately (no debounce wait).
+  const trashEntity = useCallback(
     async (entityType: string, id: string) => {
-      await backend.restoreTrash(entityType, id)
-      await reloadFromBackend()
+      const roots = await backend.softDelete(entityType, id)
+      setTrashEntries(roots)
     },
-    [backend, reloadFromBackend],
+    [backend],
+  )
+
+  // Drop a set of loose entities onto a plane by creating one collection on its
+  // first free grid cell and adding their refs. Used to re-home restored items
+  // whose original plane/collection is gone (`needs_placement`).
+  const placeItemsOnPlane = useCallback(
+    (planeId: string, refs: CollectionRef[]) => {
+      if (refs.length === 0) return
+      setPlanes((prev) =>
+        prev.map((p) => {
+          if (p.id !== planeId) return p
+          const pos = firstFreeSpanCell(p.elements, 1, 1, 6)
+          const existingNames = new Set(
+            p.elements
+              .filter((e) => e.type === "collection")
+              .map((e) => (e as CanvasCollectionElement).name),
+          )
+          let name = "Restored items"
+          let counter = 2
+          while (existingNames.has(name)) {
+            name = `Restored items ${counter++}`
+          }
+          const el: CanvasCollectionElement = {
+            ...newCollectionElement(pos),
+            name,
+            refs,
+          }
+          return { ...p, elements: [...p.elements, el] }
+        }),
+      )
+    },
+    [],
+  )
+
+  const restoreTrash = useCallback(
+    async (entityType: string, id: string, destinationPlaneId?: string) => {
+      const restored = await backend.restoreTrash(entityType, id)
+      await reloadFromBackend()
+      await refreshTrash()
+      // Items whose original plane/collection is gone come back unplaced; drop
+      // them onto the chosen destination plane's free cells, in a collection.
+      const orphans = restored.filter(
+        (r) =>
+          r.needsPlacement &&
+          (r.entityType === "process" ||
+            r.entityType === "experiment" ||
+            r.entityType === "result" ||
+            r.entityType === "analysis"),
+      )
+      if (orphans.length > 0 && destinationPlaneId) {
+        placeItemsOnPlane(
+          destinationPlaneId,
+          orphans.map((o) => ({
+            kind: o.entityType as CollectionRef["kind"],
+            id: o.entityId,
+          })),
+        )
+        scheduleSave()
+      }
+    },
+    [backend, reloadFromBackend, refreshTrash, placeItemsOnPlane, scheduleSave],
   )
 
   const purgeTrash = useCallback(
     async (entityType: string, id: string) => {
       await backend.purgeTrash(entityType, id)
+      await refreshTrash()
     },
-    [backend],
+    [backend, refreshTrash],
   )
 
   const emptyTrash = useCallback(async () => {
     await backend.emptyTrash()
-  }, [backend])
+    await refreshTrash()
+  }, [backend, refreshTrash])
+
+  const trashCount = trashEntries.length
 
   // ── Load persisted state on mount ──────────────────────────────────────────
 
@@ -1627,11 +1719,13 @@ export function AppProvider({
         })
       }
       setLoaded(true)
+      // Load the trash list so the sidebar badge count is correct on entry.
+      void refreshTrash()
     })
     return () => {
       cancelled = true
     }
-  }, [backend])
+  }, [backend, refreshTrash])
 
   // ── Save trigger on data changes (debounced) ───────────────────────────────
 
@@ -1738,12 +1832,20 @@ export function AppProvider({
     setPlanes((prev) => prev.map((p) => (p.id === plane.id ? plane : p)))
   }, [])
 
-  const deletePlane = useCallback((id: string) => {
-    setPlanes((prev) => {
-      if (prev.length <= 1) return prev // never delete the last plane
-      return prev.filter((p) => p.id !== id)
-    })
-  }, [])
+  const deletePlane = useCallback(
+    (id: string) => {
+      // Never delete the last plane. stateRef is always fresh, so it is a safe
+      // guard to read outside the setState updater.
+      if (stateRef.current.planes.length <= 1) return
+      setPlanes((prev) => prev.filter((p) => p.id !== id))
+      // Trash on the backend immediately so the sidebar badge / Trash page
+      // update now (the debounced diff-delete would otherwise lag behind).
+      void trashEntity("plane", id).catch((err) =>
+        console.error("[AppContext] trash plane failed:", err),
+      )
+    },
+    [trashEntity],
+  )
 
   // ── Folder mutations ─────────────────────────────────────────────────────
   const addFolder = useCallback((name?: string): PlaneFolder => {
@@ -2051,7 +2153,11 @@ export function AppProvider({
           await persistDirtyState()
           console.log("[AppContext] flushSave complete")
         },
+        trashEntries,
+        trashCount,
+        refreshTrash,
         getTrash,
+        trashEntity,
         restoreTrash,
         purgeTrash,
         emptyTrash,

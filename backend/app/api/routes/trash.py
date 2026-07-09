@@ -9,7 +9,6 @@ from app.models import (
     DataCollection,
     Message,
     Plane,
-    TrashEntryPublic,
     TrashListPublic,
     TrashRestore,
     TrashRestoreResult,
@@ -55,13 +54,12 @@ def _verify_owner(
 
 @router.get("/", response_model=TrashListPublic)
 def list_trash(session: SessionDep, current_user: CurrentUser) -> Any:
-    """List the user's trashed items (also runs the TTL sweep)."""
+    """List the user's trashed items — one row per deletion action (the root),
+    each with a summary of the descendants trashed with it. Also runs the TTL
+    sweep."""
     trash_svc.sweep_expired_trash(session, current_user)
-    entries = trash_svc.list_trash(session, current_user)
-    return TrashListPublic(
-        data=[TrashEntryPublic.model_validate(e) for e in entries],
-        count=len(entries),
-    )
+    roots = trash_svc.list_roots(session, current_user)
+    return TrashListPublic(data=roots, count=len(roots))
 
 
 @router.post("/", response_model=TrashListPublic)
@@ -71,13 +69,11 @@ def trash_entity(
     """Soft-delete an entity + its downward closure (finished uploads skipped)."""
     _validate_type(body.entity_type)
     _verify_owner(session, current_user, body.entity_type, body.entity_id)
-    created = trash_svc.soft_delete(
-        session, current_user, body.entity_type, body.entity_id
-    )
-    return TrashListPublic(
-        data=[TrashEntryPublic.model_validate(e) for e in created],
-        count=len(created),
-    )
+    trash_svc.soft_delete(session, current_user, body.entity_type, body.entity_id)
+    # Return the full root list so the caller can refresh its trash state (and
+    # badge count) in one round-trip.
+    roots = trash_svc.list_roots(session, current_user)
+    return TrashListPublic(data=roots, count=len(roots))
 
 
 @router.post("/restore", response_model=TrashRestoreResult)

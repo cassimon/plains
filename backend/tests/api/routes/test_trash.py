@@ -253,11 +253,13 @@ class TestPlaneCascade:
 
         # It is all restorable together by restoring the plane.
         _restore(client, h, "plane", plane["id"])
+        # Restoring the deletion root revives its whole batch at once — the plane
+        # and every member/collection trashed with it come back together.
+        bulk = _bulk(client, h)
+        assert any(p["id"] == plane["id"] for p in bulk["planes"])
+        assert any(p["id"] == proc["id"] for p in bulk["processes"])
         listing = client.get(f"{TRASH}/", headers=h).json()
-        # Restoring the plane alone does not force the members back (they are its
-        # downward closure, not its upward one) — only the plane leaves trash.
-        remaining = {e["entity_id"] for e in listing["data"]}
-        assert plane["id"] not in remaining
+        assert listing["count"] == 0
 
     def test_original_plane_recorded(
         self, client: TestClient, normal_user_token_headers: dict
@@ -324,13 +326,141 @@ class TestIdempotency:
     ) -> None:
         h = normal_user_token_headers
         proc = _create_process(client, h)
-        first = _trash(client, h, "process", proc["id"])
-        assert first["count"] >= 1
-        second = _trash(client, h, "process", proc["id"])
-        assert second["count"] == 0  # already trashed → nothing new created
+        _trash(client, h, "process", proc["id"])
+        _trash(client, h, "process", proc["id"])  # second call must not duplicate
         listing = client.get(f"{TRASH}/", headers=h).json()
         matches = [e for e in listing["data"] if e["entity_id"] == proc["id"]]
         assert len(matches) == 1  # no duplicate trash row
+
+
+class TestRootListingAndSummary:
+    def test_only_root_listed_with_summary(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        h = normal_user_token_headers
+        proc = _create_process(client, h)
+        exp = _create_experiment(client, h, proc["id"])
+        _create_result(client, h, exp["id"])
+        _create_result(client, h, exp["id"])
+        exp2 = _create_experiment(client, h, proc["id"])  # noqa: F841 (extra child)
+        _trash(client, h, "process", proc["id"])
+
+        listing = client.get(f"{TRASH}/", headers=h).json()
+        # The deleted root (the process) is listed with a content summary.
+        root = next(e for e in listing["data"] if e["entity_id"] == proc["id"])
+        assert root["entity_type"] == "process"
+        assert root["child_count"] == 4  # 2 experiments + 2 results
+        assert root["child_counts"] == {"experiment": 2, "result": 2}
+        assert "experiments" in root["summary"]
+        assert "results" in root["summary"]
+        # This deletion's descendants are not separate top-level rows.
+        listed_ids = {e["entity_id"] for e in listing["data"]}
+        assert exp["id"] not in listed_ids
+
+    def test_list_sorted_by_category(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        h = normal_user_token_headers
+        proc = _create_process(client, h)
+        plane = _create_plane(client, h)
+        _trash(client, h, "process", proc["id"])
+        _trash(client, h, "plane", plane["id"])
+        listing = client.get(f"{TRASH}/", headers=h).json()
+        types = [e["entity_type"] for e in listing["data"]]
+        # process sorts before plane in the category order.
+        assert types.index("process") < types.index("plane")
+
+    def test_restore_reattaches_nulled_placement(
+        self, client: TestClient, normal_user_token_headers: dict, db: Session
+    ) -> None:
+        """After trash, a save nulls the member's collection_id (SET NULL when the
+        collection is replaced). Restore must re-point it at its original home."""
+        from app.models import Process
+
+        h = normal_user_token_headers
+        plane = _create_plane(client, h)
+        collection = _create_collection(client, h, plane["id"])
+        r = client.post(
+            f"{API}/processes/",
+            json={
+                "name": random_lower_string(),
+                "skip_chemistry": True,
+                "plane_id": plane["id"],
+                "collection_id": collection["id"],
+            },
+            headers=h,
+        )
+        proc = r.json()
+        _trash(client, h, "process", proc["id"])
+        # Simulate the destructive collections-replace nulling the member FK.
+        db_proc = db.get(Process, uuid.UUID(proc["id"]))
+        assert db_proc is not None
+        db_proc.collection_id = None
+        db_proc.plane_id = None
+        db.add(db_proc)
+        db.commit()
+
+        restored = _restore(client, h, "process", proc["id"])["restored"]
+        item = next(i for i in restored if i["entity_id"] == proc["id"])
+        assert item["collection_id"] == collection["id"]
+        assert item["plane_id"] == plane["id"]
+        assert item["needs_placement"] is False
+
+    def test_restore_needs_placement_when_plane_gone(
+        self, client: TestClient, normal_user_token_headers: dict, db: Session
+    ) -> None:
+        from app.models import Process
+
+        h = normal_user_token_headers
+        plane = _create_plane(client, h)
+        r = client.post(
+            f"{API}/processes/",
+            json={
+                "name": random_lower_string(),
+                "skip_chemistry": True,
+                "plane_id": plane["id"],
+            },
+            headers=h,
+        )
+        proc = r.json()
+        _trash(client, h, "process", proc["id"])
+        # Original plane hard-deleted → nowhere to put the restored item.
+        db_plane_proc = db.get(Process, uuid.UUID(proc["id"]))
+        assert db_plane_proc is not None
+        db_plane_proc.plane_id = None
+        db.add(db_plane_proc)
+        from app.models import Plane as PlaneModel
+
+        db.delete(db.get(PlaneModel, uuid.UUID(plane["id"])))
+        db.commit()
+        restored = _restore(client, h, "process", proc["id"])["restored"]
+        item = next(i for i in restored if i["entity_id"] == proc["id"])
+        assert item["needs_placement"] is True
+
+    def test_restore_returns_placement(
+        self, client: TestClient, normal_user_token_headers: dict
+    ) -> None:
+        h = normal_user_token_headers
+        plane = _create_plane(client, h)
+        collection = _create_collection(client, h, plane["id"])
+        r = client.post(
+            f"{API}/processes/",
+            json={
+                "name": random_lower_string(),
+                "skip_chemistry": True,
+                "plane_id": plane["id"],
+                "collection_id": collection["id"],
+            },
+            headers=h,
+        )
+        proc = r.json()
+        _trash(client, h, "process", proc["id"])
+        restored = _restore(client, h, "process", proc["id"])["restored"]
+        item = next(i for i in restored if i["entity_id"] == proc["id"])
+        assert item["plane_id"] == plane["id"]
+        assert item["collection_id"] == collection["id"]
+        assert item["original_plane_id"] == plane["id"]
+        assert item["original_collection_id"] == collection["id"]
 
 
 class TestTTLSweep:

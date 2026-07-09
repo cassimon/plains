@@ -1242,6 +1242,15 @@ class TrashEntryBase(SQLModel):
     # Plane the entity was on when trashed — drives the restore plane-exception
     # prompt (a member restored off a trashed plane needs a new destination).
     original_plane_id: uuid.UUID | None = None
+    # Collection the entity was in when trashed — used to re-attach the canvas
+    # ref on restore (placement lives in the frontend collection-ref layer).
+    original_collection_id: uuid.UUID | None = None
+    # The originally-deleted (root) entity of this deletion batch. Every entry in
+    # a downward closure points back to its root so the Trash page can list one
+    # row per user action (the root) and summarise its descendants. The root's
+    # own root_* equal its own (entity_type, entity_id).
+    root_entity_type: str = Field(default="", max_length=32, index=True)
+    root_entity_id: uuid.UUID | None = Field(default=None, index=True)
 
 
 class TrashEntry(TrashEntryBase, table=True):
@@ -1263,8 +1272,19 @@ class TrashEntryPublic(TrashEntryBase):
     deleted_at: datetime
 
 
+class TrashRootPublic(TrashEntryPublic):
+    """One row per user delete action (the root of a deletion batch). Carries a
+    human summary of what the deletion contained so the Trash page can show only
+    the top item plus a description of its contents."""
+
+    # Descendant counts by entity_type, e.g. {"experiment": 2, "result": 3}.
+    child_counts: dict[str, int] = Field(default_factory=dict)
+    child_count: int = 0
+    summary: str = ""
+
+
 class TrashListPublic(SQLModel):
-    data: list[TrashEntryPublic]
+    data: list[TrashRootPublic]
     count: int
 
 
@@ -1278,11 +1298,26 @@ class TrashRestore(SQLModel):
     entity_id: uuid.UUID
 
 
-class TrashRestoreResult(SQLModel):
-    """Ids that were un-trashed, grouped by type, so the frontend can re-place
-    the restored entities onto a plane (placement lives in the canvas layer)."""
+class TrashRestoredItem(SQLModel):
+    """A restored entity plus its current placement, so the frontend can
+    re-attach its canvas collection-ref (placement lives in the canvas layer)."""
 
-    restored: list[TrashEntryPublic]
+    entity_type: str
+    entity_id: uuid.UUID
+    plane_id: uuid.UUID | None = None
+    collection_id: uuid.UUID | None = None
+    original_plane_id: uuid.UUID | None = None
+    original_collection_id: uuid.UUID | None = None
+    # True when the original plane/collection is gone, so the frontend must ask
+    # the user for a destination plane before placing this restored item.
+    needs_placement: bool = False
+
+
+class TrashRestoreResult(SQLModel):
+    """Ids that were un-trashed so the frontend can re-place the restored
+    entities onto a plane (placement lives in the canvas layer)."""
+
+    restored: list[TrashRestoredItem]
 
 
 # ============================================================================

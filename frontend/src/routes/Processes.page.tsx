@@ -3740,6 +3740,8 @@ export function ProcessesPage() {
     planes,
     updateElement,
     removeCollectionRefs,
+    trashEntity,
+    flushSave,
     pendingCollectionLink,
     setPendingCollectionLink,
     activeCollectionId,
@@ -4274,12 +4276,22 @@ export function ProcessesPage() {
       return
     }
 
-    setProcesses((prev) => prev.filter((p) => p.id !== id))
-    removeCollectionRefs("process", [id])
-    if (selectedProcess?.id === id) {
-      selectProcess(null)
-      setSelectedStepId(null)
-    }
+    void (async () => {
+      // Flush first so the backend has the process's current placement, then
+      // soft-delete it (+ its experiments/results) into the Trash.
+      try {
+        await flushSave()
+        await trashEntity("process", id)
+      } catch (err) {
+        console.error("[Processes] trash failed:", err)
+      }
+      setProcesses((prev) => prev.filter((p) => p.id !== id))
+      removeCollectionRefs("process", [id])
+      if (selectedProcess?.id === id) {
+        selectProcess(null)
+        setSelectedStepId(null)
+      }
+    })()
   }
 
   const handleCopyProcess = (process: Process) => {
@@ -4308,6 +4320,7 @@ export function ProcessesPage() {
     }
     selectProcess(copy.id)
     setSelectedStepId(null)
+    setPendingSelectProcessNameId(copy.id)
   }
 
   const commitProcessUpdate = useCallback(

@@ -5,6 +5,7 @@ import {
   Badge,
   ColorSwatch,
   Group,
+  Indicator,
   Menu,
   rem,
   Stack,
@@ -63,6 +64,7 @@ export function AppLayout() {
     flushSave,
     uploadFlow,
     cancelUploadFlow,
+    trashCount,
   } = useAppContext()
 
   const currentPage =
@@ -506,30 +508,52 @@ export function AppLayout() {
           })}
 
           {/* Trash — pinned to the bottom, always visible. Not part of `pages`
-              so it is excluded from the collection-dimming logic above. */}
+              so it is excluded from the collection-dimming logic above. When it
+              holds items, the icon fills, goes bold, and shows a count badge. */}
           <div style={{ marginTop: "auto" }}>
-            <Tooltip label="Trash" position="right">
-              <ActionIcon
-                variant={
-                  location.pathname.startsWith("/trash") ? "filled" : "subtle"
-                }
-                size="lg"
-                radius="md"
-                onClick={() => navigate({ to: "/trash" })}
-                aria-label="Trash"
-                style={{
-                  width: rem(48),
-                  height: rem(48),
-                  background: location.pathname.startsWith("/trash")
-                    ? accentColor
-                    : undefined,
-                  color: location.pathname.startsWith("/trash")
-                    ? "white"
-                    : "var(--mantine-color-gray-6)",
-                }}
+            <Tooltip
+              label={
+                trashCount > 0
+                  ? `Trash — ${trashCount} item${trashCount === 1 ? "" : "s"}`
+                  : "Trash"
+              }
+              position="right"
+            >
+              <Indicator
+                label={trashCount > 99 ? "99+" : trashCount}
+                size={18}
+                offset={6}
+                color="red"
+                disabled={trashCount === 0}
+                aria-label={`Trash contains ${trashCount} items`}
               >
-                <TrashIcon size={28} />
-              </ActionIcon>
+                <ActionIcon
+                  variant={
+                    location.pathname.startsWith("/trash") || trashCount > 0
+                      ? "filled"
+                      : "subtle"
+                  }
+                  size="lg"
+                  radius="md"
+                  onClick={() => navigate({ to: "/trash" })}
+                  aria-label="Trash"
+                  style={{
+                    width: rem(48),
+                    height: rem(48),
+                    background: location.pathname.startsWith("/trash")
+                      ? accentColor
+                      : trashCount > 0
+                        ? "var(--mantine-color-red-6)"
+                        : undefined,
+                    color:
+                      location.pathname.startsWith("/trash") || trashCount > 0
+                        ? "white"
+                        : "var(--mantine-color-gray-6)",
+                  }}
+                >
+                  <TrashIcon size={28} stroke={trashCount > 0 ? 2.6 : 1.8} />
+                </ActionIcon>
+              </Indicator>
             </Tooltip>
           </div>
         </Stack>
