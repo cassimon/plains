@@ -469,10 +469,12 @@ function QuantityTable({
   return (
     <Box
       style={{
-        background: "var(--mantine-color-gray-0)",
+        background:
+          "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
         borderRadius: 6,
         padding: "6px 10px",
-        border: "1px solid var(--mantine-color-gray-2)",
+        border:
+          "1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
       }}
     >
       <Text size="10px" c="dimmed" tt="uppercase" fw={600} mb={4}>
@@ -593,7 +595,9 @@ function MaterialQueryCard({
         borderColor: answered
           ? "var(--mantine-color-teal-4)"
           : "var(--mantine-color-blue-4)",
-        background: answered ? "var(--mantine-color-teal-0)" : undefined,
+        background: answered
+          ? "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))"
+          : undefined,
         transition: "background 150ms, border-color 150ms",
       }}
     >
@@ -864,7 +868,9 @@ function SolutionQueryCard({
         borderColor: answered
           ? "var(--mantine-color-teal-4)"
           : "var(--mantine-color-blue-4)",
-        background: answered ? "var(--mantine-color-teal-0)" : undefined,
+        background: answered
+          ? "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))"
+          : undefined,
         transition: "background 150ms, border-color 150ms",
       }}
     >
@@ -1042,8 +1048,8 @@ function SummaryItemRow({
         padding: "6px 10px",
         borderRadius: 6,
         background: done
-          ? "var(--mantine-color-teal-0)"
-          : "var(--mantine-color-gray-0)",
+          ? "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))"
+          : "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
       }}
     >
       <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>

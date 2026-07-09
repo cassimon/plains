@@ -1191,13 +1191,19 @@ function ExperimentGrid({
         }}
       >
         <thead>
-          <tr style={{ background: "var(--mantine-color-gray-1)" }}>
+          <tr
+            style={{
+              background:
+                "light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))",
+            }}
+          >
             <th
               style={{
                 padding: "12px 8px",
                 textAlign: "center",
                 fontWeight: 600,
-                borderBottom: "2px solid var(--mantine-color-gray-3)",
+                borderBottom:
+                  "2px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                 minWidth: "46px",
               }}
             >
@@ -1219,7 +1225,8 @@ function ExperimentGrid({
                 padding: "12px 8px",
                 textAlign: "left",
                 fontWeight: 600,
-                borderBottom: "2px solid var(--mantine-color-gray-3)",
+                borderBottom:
+                  "2px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                 minWidth: "150px",
               }}
             >
@@ -1230,7 +1237,8 @@ function ExperimentGrid({
                 padding: "12px 8px",
                 textAlign: "left",
                 fontWeight: 600,
-                borderBottom: "2px solid var(--mantine-color-gray-3)",
+                borderBottom:
+                  "2px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                 minWidth: "170px",
               }}
             >
@@ -1250,7 +1258,8 @@ function ExperimentGrid({
                       padding: "12px 8px",
                       textAlign: "left",
                       fontWeight: 600,
-                      borderBottom: "2px solid var(--mantine-color-gray-3)",
+                      borderBottom:
+                        "2px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                       minWidth: "180px",
                     }}
                   >
@@ -1338,9 +1347,11 @@ function ExperimentGrid({
                         padding: "12px 8px",
                         textAlign: "left",
                         fontWeight: 600,
-                        borderBottom: "2px solid var(--mantine-color-gray-3)",
+                        borderBottom:
+                          "2px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                         minWidth: "190px",
-                        background: "var(--mantine-color-blue-0)",
+                        background:
+                          "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
                       }}
                     >
                       <Group justify="space-between" gap="xs" wrap="nowrap">
@@ -1366,7 +1377,8 @@ function ExperimentGrid({
                 padding: "12px 8px",
                 textAlign: "center",
                 fontWeight: 600,
-                borderBottom: "2px solid var(--mantine-color-gray-3)",
+                borderBottom:
+                  "2px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                 minWidth: "80px",
               }}
             >
@@ -1379,14 +1391,16 @@ function ExperimentGrid({
             <tr
               key={substrate.id}
               style={{
-                borderBottom: "1px solid var(--mantine-color-gray-2)",
+                borderBottom:
+                  "1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
               }}
             >
               <td
                 style={{
                   padding: "8px 8px",
                   textAlign: "center",
-                  background: "var(--mantine-color-gray-0)",
+                  background:
+                    "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
                 }}
               >
                 <Checkbox
@@ -1404,7 +1418,8 @@ function ExperimentGrid({
                 style={{
                   padding: "12px 8px",
                   fontWeight: 500,
-                  background: "var(--mantine-color-gray-0)",
+                  background:
+                    "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
                 }}
               >
                 <DeferredTextInput
@@ -1461,7 +1476,8 @@ function ExperimentGrid({
               <td
                 style={{
                   padding: "8px 4px",
-                  background: "var(--mantine-color-gray-0)",
+                  background:
+                    "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
                 }}
               >
                 <Select
@@ -1505,7 +1521,8 @@ function ExperimentGrid({
                           key={`${substrate.id}-${key}`}
                           style={{
                             padding: "8px 4px",
-                            background: "var(--mantine-color-blue-0)",
+                            background:
+                              "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
                           }}
                         >
                           <DeferredTextInput
@@ -1572,10 +1589,10 @@ function ExperimentGrid({
             style={{
               cursor: "pointer",
               background: addRowHovered
-                ? "var(--mantine-color-blue-0)"
+                ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                 : undefined,
               transition: "background 100ms",
-              borderTop: `1px dashed ${addRowHovered ? "var(--mantine-color-blue-3)" : "var(--mantine-color-gray-3)"}`,
+              borderTop: `1px dashed ${addRowHovered ? "var(--mantine-color-blue-3)" : "light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))"}`,
             }}
           >
             <td style={{ padding: "10px 8px", textAlign: "center" }}>
@@ -1646,18 +1663,23 @@ function ExperimentGrid({
               return rows.map((row) => (
                 <tr
                   key={row.rowKey}
-                  style={{ background: "var(--mantine-color-gray-0)" }}
+                  style={{
+                    background:
+                      "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+                  }}
                 >
                   <td
                     style={{
-                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                      borderTop:
+                        "2px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
                     }}
                   />
                   <td
                     style={{
                       padding: "10px 8px",
                       fontWeight: row.isShared ? 600 : 500,
-                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                      borderTop:
+                        "2px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
                     }}
                   >
                     {row.isShared ? (
@@ -1687,7 +1709,8 @@ function ExperimentGrid({
                   </td>
                   <td
                     style={{
-                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                      borderTop:
+                        "2px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
                     }}
                   />
                   {process.stages.map((stage, idx) => {
@@ -1772,10 +1795,11 @@ function ExperimentGrid({
                         <td
                           style={{
                             padding: "8px 4px",
-                            borderTop: "2px solid var(--mantine-color-gray-2)",
+                            borderTop:
+                              "2px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
                             background: owned
                               ? undefined
-                              : "var(--mantine-color-gray-1)",
+                              : "light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))",
                           }}
                         >
                           {cellContent}
@@ -1785,8 +1809,9 @@ function ExperimentGrid({
                             key={`processing-var-${col.stepId}-${col.paramKey}`}
                             style={{
                               borderTop:
-                                "2px solid var(--mantine-color-gray-2)",
-                              background: "var(--mantine-color-blue-0)",
+                                "2px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
+                              background:
+                                "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
                             }}
                           />
                         ))}
@@ -1795,7 +1820,8 @@ function ExperimentGrid({
                   })}
                   <td
                     style={{
-                      borderTop: "2px solid var(--mantine-color-gray-2)",
+                      borderTop:
+                        "2px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
                     }}
                   />
                 </tr>
@@ -1811,8 +1837,10 @@ function ExperimentGrid({
                 colSpan={999}
                 style={{
                   padding: "8px 12px",
-                  background: "var(--mantine-color-gray-0)",
-                  borderTop: "1px solid var(--mantine-color-gray-3)",
+                  background:
+                    "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+                  borderTop:
+                    "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                 }}
               >
                 <Group gap="xs" align="center" wrap="wrap">
@@ -1940,7 +1968,7 @@ function ExperimentTimeline({
                     ? "var(--mantine-color-teal-6)"
                     : activeTab === step.id
                       ? "var(--mantine-color-blue-6)"
-                      : "var(--mantine-color-gray-3)",
+                      : "light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                   boxShadow:
                     activeTab === step.id
                       ? done[step.id]
@@ -1984,7 +2012,8 @@ function ExperimentTimeline({
               style={{
                 flex: 1,
                 height: 2,
-                background: "var(--mantine-color-gray-3)",
+                background:
+                  "light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                 margin: "0 12px",
               }}
             />
@@ -2065,11 +2094,11 @@ function ExperimentUploadDropZone({
         padding: "20px 16px",
         textAlign: "center",
         background: dragOver
-          ? "var(--mantine-color-blue-0)"
+          ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
           : blocked
-            ? "var(--mantine-color-red-0)"
+            ? "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))"
             : ready
-              ? "var(--mantine-color-teal-0)"
+              ? "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))"
               : "transparent",
         transition: "border 120ms ease, background 120ms ease",
       }}
@@ -2330,7 +2359,8 @@ function SummaryTab({
           p="sm"
           style={{
             borderColor: "var(--mantine-color-teal-4)",
-            background: "var(--mantine-color-teal-0)",
+            background:
+              "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))",
           }}
         >
           <Group gap="sm" wrap="nowrap">
@@ -2350,7 +2380,7 @@ function SummaryTab({
           style={{
             borderColor: allFilled
               ? "var(--mantine-color-blue-4)"
-              : "var(--mantine-color-gray-3)",
+              : "light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
           }}
         >
           <Group justify="space-between" wrap="wrap" gap="sm">
@@ -3170,8 +3200,10 @@ export default function ExperimentsPage() {
         style={{
           width: 250,
           minWidth: 250,
-          background: "var(--mantine-color-gray-0)",
-          borderRight: "1px solid var(--mantine-color-gray-2)",
+          background:
+            "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+          borderRight:
+            "1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
           display: "flex",
           flexDirection: "column",
           height: "100%",
@@ -3226,7 +3258,7 @@ export default function ExperimentsPage() {
                       style={{
                         cursor: "pointer",
                         background: isSelected
-                          ? "var(--mantine-color-blue-0)"
+                          ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                           : undefined,
                         borderLeft: isSelected
                           ? "4px solid var(--mantine-color-blue-4)"
@@ -3380,7 +3412,10 @@ export default function ExperimentsPage() {
                     withBorder
                     p="xs"
                     radius="sm"
-                    style={{ background: "var(--mantine-color-blue-0)" }}
+                    style={{
+                      background:
+                        "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
+                    }}
                   >
                     <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
                       Recipe / Process
@@ -3461,7 +3496,8 @@ export default function ExperimentsPage() {
                           procDone
                             ? {
                                 borderColor: "var(--mantine-color-teal-5)",
-                                background: "var(--mantine-color-teal-0)",
+                                background:
+                                  "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))",
                                 transition:
                                   "background 150ms, border-color 150ms",
                               }

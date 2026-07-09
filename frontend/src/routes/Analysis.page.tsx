@@ -10,6 +10,7 @@ import {
   Select,
   Stack,
   Text,
+  useComputedColorScheme,
 } from "@mantine/core"
 import {
   IconChartBar,
@@ -78,12 +79,25 @@ const PLOT_COLORS = {
 
 const COLOR_ARRAY = Object.values(PLOT_COLORS)
 
+// Chart chrome (axis / grid / tooltip / text) colors. Light values are the
+// original design; dark values are the inverse so ECharts (canvas-rendered,
+// can't read CSS light-dark()) stays legible on a dark card.
+function chartChrome(isDark: boolean) {
+  return {
+    text: isDark ? "#c1c2c5" : "#333",
+    grid: isDark ? "#373a40" : "#e9ecef",
+    axisLine: isDark ? "#5c5f66" : "#868e96",
+    tooltipBg: isDark ? "rgba(36,37,38,0.95)" : "rgba(255,255,255,0.9)",
+    tooltipBorder: isDark ? "#5c5f66" : "#ccc",
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Example Plot Data Generators
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Generate example box plot data for PCE by layer parameter */
-function generateBoxPlotOption(paramName: string) {
+function generateBoxPlotOption(paramName: string, isDark: boolean) {
   const categories = ["100°C", "120°C", "140°C", "160°C"]
 
   const data: number[][] = categories.map((_, idx) => {
@@ -94,17 +108,20 @@ function generateBoxPlotOption(paramName: string) {
     )
   })
 
+  const c = chartChrome(isDark)
   return {
+    darkMode: isDark,
+    textStyle: { color: c.text },
     title: {
       text: `PCE vs ${paramName}`,
       left: "center",
-      textStyle: { fontSize: 14 },
+      textStyle: { fontSize: 14, color: c.text },
     },
     tooltip: {
       trigger: "item",
-      borderColor: "#ccc",
-      backgroundColor: "rgba(255,255,255,0.9)",
-      textStyle: { color: "#333" },
+      borderColor: c.tooltipBorder,
+      backgroundColor: c.tooltipBg,
+      textStyle: { color: c.text },
     },
     grid: {
       left: 50,
@@ -121,7 +138,7 @@ function generateBoxPlotOption(paramName: string) {
     yAxis: {
       type: "value",
       name: "PCE (%)",
-      splitLine: { lineStyle: { color: "#e9ecef" } },
+      splitLine: { lineStyle: { color: c.grid } },
     },
     series: data.map((values, idx) => ({
       name: categories[idx],
@@ -135,7 +152,7 @@ function generateBoxPlotOption(paramName: string) {
 }
 
 /** Generate example JV curve data */
-function generateJVCurveOption() {
+function generateJVCurveOption(isDark: boolean) {
   const generateJVCurve = (
     voc: number,
     jsc: number,
@@ -169,17 +186,20 @@ function generateJVCurveOption() {
     }
   }
 
+  const c = chartChrome(isDark)
   return {
+    darkMode: isDark,
+    textStyle: { color: c.text },
     title: {
       text: "J-V Characteristics",
       left: "center",
-      textStyle: { fontSize: 14 },
+      textStyle: { fontSize: 14, color: c.text },
     },
     tooltip: {
       trigger: "axis",
-      borderColor: "#ccc",
-      backgroundColor: "rgba(255,255,255,0.9)",
-      textStyle: { color: "#333" },
+      borderColor: c.tooltipBorder,
+      backgroundColor: c.tooltipBg,
+      textStyle: { color: c.text },
     },
     legend: {
       top: "bottom",
@@ -199,14 +219,14 @@ function generateJVCurveOption() {
     xAxis: {
       type: "value",
       name: "Voltage (V)",
-      splitLine: { lineStyle: { color: "#e9ecef" } },
-      axisLine: { onZero: true, lineStyle: { color: "#868e96" } },
+      splitLine: { lineStyle: { color: c.grid } },
+      axisLine: { onZero: true, lineStyle: { color: c.axisLine } },
     },
     yAxis: {
       type: "value",
       name: "Current Density (mA/cm²)",
-      splitLine: { lineStyle: { color: "#e9ecef" } },
-      axisLine: { onZero: true, lineStyle: { color: "#868e96" } },
+      splitLine: { lineStyle: { color: c.grid } },
+      axisLine: { onZero: true, lineStyle: { color: c.axisLine } },
     },
     series: [
       generateJVCurve(1.1, 22, "Device A (PCE: 18.9%)", PLOT_COLORS.primary),
@@ -222,7 +242,7 @@ function generateJVCurveOption() {
 }
 
 /** Generate example scatter plot for parameter correlation */
-function generateScatterPlotOption() {
+function generateScatterPlotOption(isDark: boolean) {
   const n = 30
   const x = Array.from({ length: n }, () => 100 + Math.random() * 60)
   const data = x.map((xi) => [
@@ -230,17 +250,20 @@ function generateScatterPlotOption() {
     12 + (xi - 100) * 0.08 + (Math.random() - 0.5) * 3,
   ])
 
+  const c = chartChrome(isDark)
   return {
+    darkMode: isDark,
+    textStyle: { color: c.text },
     title: {
       text: "Annealing Temp vs PCE",
       left: "center",
-      textStyle: { fontSize: 14 },
+      textStyle: { fontSize: 14, color: c.text },
     },
     tooltip: {
       trigger: "item",
-      borderColor: "#ccc",
-      backgroundColor: "rgba(255,255,255,0.9)",
-      textStyle: { color: "#333" },
+      borderColor: c.tooltipBorder,
+      backgroundColor: c.tooltipBg,
+      textStyle: { color: c.text },
     },
     visualMap: {
       min: Math.min(...data.map((d) => d[1])),
@@ -249,7 +272,7 @@ function generateScatterPlotOption() {
       inRange: {
         color: ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"],
       },
-      textStyle: { color: "#333" },
+      textStyle: { color: c.text },
     },
     grid: {
       left: 50,
@@ -261,12 +284,12 @@ function generateScatterPlotOption() {
     xAxis: {
       type: "value",
       name: "Annealing Temperature (°C)",
-      splitLine: { lineStyle: { color: "#e9ecef" } },
+      splitLine: { lineStyle: { color: c.grid } },
     },
     yAxis: {
       type: "value",
       name: "PCE (%)",
-      splitLine: { lineStyle: { color: "#e9ecef" } },
+      splitLine: { lineStyle: { color: c.grid } },
     },
     series: [
       {
@@ -282,21 +305,24 @@ function generateScatterPlotOption() {
 }
 
 /** Generate example bar chart for layer comparison */
-function generateBarChartOption() {
+function generateBarChartOption(isDark: boolean) {
   const layers = ["ETL", "Perovskite", "HTL", "Metal"]
   const pceContribution = [2.1, 12.5, 3.2, 0.8]
 
+  const c = chartChrome(isDark)
   return {
+    darkMode: isDark,
+    textStyle: { color: c.text },
     title: {
       text: "Layer Contribution to PCE",
       left: "center",
-      textStyle: { fontSize: 14 },
+      textStyle: { fontSize: 14, color: c.text },
     },
     tooltip: {
       trigger: "axis",
-      borderColor: "#ccc",
-      backgroundColor: "rgba(255,255,255,0.9)",
-      textStyle: { color: "#333" },
+      borderColor: c.tooltipBorder,
+      backgroundColor: c.tooltipBg,
+      textStyle: { color: c.text },
     },
     grid: {
       left: 50,
@@ -313,7 +339,7 @@ function generateBarChartOption() {
     yAxis: {
       type: "value",
       name: "PCE Contribution (%)",
-      splitLine: { lineStyle: { color: "#e9ecef" } },
+      splitLine: { lineStyle: { color: c.grid } },
     },
     series: [
       {
@@ -349,7 +375,9 @@ function ExperimentListItem({
       radius="md"
       style={{
         cursor: "pointer",
-        background: isSelected ? "var(--mantine-color-blue-0)" : undefined,
+        background: isSelected
+          ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
+          : undefined,
         borderColor: isSelected ? "var(--mantine-color-blue-4)" : undefined,
       }}
       onClick={onSelect}
@@ -405,7 +433,10 @@ function DataSourceConfigPanel({
       <Paper
         withBorder
         p="sm"
-        style={{ background: "var(--mantine-color-gray-0)" }}
+        style={{
+          background:
+            "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+        }}
       >
         <Text size="xs" c="dimmed" ta="center">
           Select an experiment to configure data sources
@@ -433,7 +464,10 @@ function DataSourceConfigPanel({
     <Paper
       withBorder
       p="sm"
-      style={{ background: "var(--mantine-color-gray-0)" }}
+      style={{
+        background:
+          "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+      }}
     >
       <Stack gap="xs">
         <div>
@@ -527,21 +561,23 @@ function PlotWidgetComponent({
 }) {
   const chartRef = useRef<EChartsReact>(null)
 
+  const isDark = useComputedColorScheme("light") === "dark"
+
   // Generate plot data based on type
   const chartOption = useMemo(() => {
     switch (widget.type) {
       case "boxplot":
-        return generateBoxPlotOption("Annealing Temp")
+        return generateBoxPlotOption("Annealing Temp", isDark)
       case "jv-curve":
-        return generateJVCurveOption()
+        return generateJVCurveOption(isDark)
       case "scatter":
-        return generateScatterPlotOption()
+        return generateScatterPlotOption(isDark)
       case "bar":
-        return generateBarChartOption()
+        return generateBarChartOption(isDark)
       default:
-        return generateBoxPlotOption("Parameter")
+        return generateBoxPlotOption("Parameter", isDark)
     }
-  }, [widget.type])
+  }, [widget.type, isDark])
 
   useEffect(() => {
     // Resize chart when widget dimensions change
@@ -562,7 +598,7 @@ function PlotWidgetComponent({
         borderColor: isSelected ? "var(--mantine-color-blue-5)" : undefined,
         borderWidth: isSelected ? 2 : 1,
         overflow: "hidden",
-        background: "white",
+        background: "light-dark(white, var(--mantine-color-dark-6))",
         display: "flex",
         flexDirection: "column",
       }}
@@ -577,8 +613,10 @@ function PlotWidgetComponent({
         px="xs"
         py={4}
         style={{
-          background: "var(--mantine-color-gray-0)",
-          borderBottom: "1px solid var(--mantine-color-gray-3)",
+          background:
+            "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+          borderBottom:
+            "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
           cursor: "grab",
           flexShrink: 0,
         }}
@@ -866,7 +904,7 @@ export function AnalysisPage() {
               p="sm"
               style={{
                 borderBottom: "1px solid var(--mantine-color-default-border)",
-                background: "white",
+                background: "light-dark(white, var(--mantine-color-dark-6))",
               }}
             >
               <Text size="sm" fw={500}>
@@ -919,11 +957,12 @@ export function AnalysisPage() {
                 position: "relative",
                 overflow: "auto",
                 background: `
-                linear-gradient(to right, var(--mantine-color-gray-2) 1px, transparent 1px),
-                linear-gradient(to bottom, var(--mantine-color-gray-2) 1px, transparent 1px)
+                linear-gradient(to right, light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4)) 1px, transparent 1px),
+                linear-gradient(to bottom, light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4)) 1px, transparent 1px)
               `,
                 backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
-                backgroundColor: "var(--mantine-color-gray-0)",
+                backgroundColor:
+                  "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
               }}
               onClick={() => setSelectedWidgetId(null)}
             >
@@ -970,7 +1009,7 @@ export function AnalysisPage() {
               borderLeft: "1px solid var(--mantine-color-default-border)",
               display: "flex",
               flexDirection: "column",
-              background: "white",
+              background: "light-dark(white, var(--mantine-color-dark-6))",
               minHeight: 0,
             }}
           >
@@ -1002,7 +1041,10 @@ export function AnalysisPage() {
                   <Paper
                     p="lg"
                     ta="center"
-                    style={{ background: "var(--mantine-color-gray-0)" }}
+                    style={{
+                      background:
+                        "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+                    }}
                   >
                     <Text size="sm" c="dimmed">
                       No experiments

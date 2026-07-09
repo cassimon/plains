@@ -248,7 +248,7 @@ export function SelectCollectionModal({
                   cursor: "pointer",
                   background:
                     chosenPlaneId === p.id && !createNewPlane
-                      ? "var(--mantine-color-blue-0)"
+                      ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                       : undefined,
                   borderColor:
                     chosenPlaneId === p.id && !createNewPlane
@@ -278,7 +278,7 @@ export function SelectCollectionModal({
                 cursor: "pointer",
                 borderStyle: "dashed",
                 background: createNewPlane
-                  ? "var(--mantine-color-green-0)"
+                  ? "light-dark(var(--mantine-color-green-0), var(--mantine-color-green-9))"
                   : undefined,
                 borderColor: createNewPlane
                   ? "var(--mantine-color-green-4)"
@@ -352,7 +352,7 @@ export function SelectCollectionModal({
                   cursor: "pointer",
                   background:
                     selectedCollectionId === col.id && !createNewCollection
-                      ? "var(--mantine-color-blue-0)"
+                      ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                       : undefined,
                   borderColor:
                     selectedCollectionId === col.id && !createNewCollection
@@ -387,7 +387,7 @@ export function SelectCollectionModal({
                 cursor: "pointer",
                 borderStyle: "dashed",
                 background: createNewCollection
-                  ? "var(--mantine-color-green-0)"
+                  ? "light-dark(var(--mantine-color-green-0), var(--mantine-color-green-9))"
                   : undefined,
                 borderColor: createNewCollection
                   ? "var(--mantine-color-green-4)"

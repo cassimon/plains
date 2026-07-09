@@ -1077,7 +1077,8 @@ function AntisolventForm({
             {showSuggestions && (
               <Box
                 style={{
-                  border: "1px solid var(--mantine-color-gray-3)",
+                  border:
+                    "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                   borderRadius: 6,
                   overflow: "hidden",
                   boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
@@ -1092,7 +1093,7 @@ function AntisolventForm({
                       padding: "5px 10px",
                       background:
                         idx === highlightedIdx
-                          ? "var(--mantine-color-blue-0)"
+                          ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                           : "white",
                       cursor: "pointer",
                       display: "flex",
@@ -1100,7 +1101,7 @@ function AntisolventForm({
                       gap: 8,
                       borderBottom:
                         idx < filteredSuggestions.length - 1
-                          ? "1px solid var(--mantine-color-gray-1)"
+                          ? "1px solid light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))"
                           : "none",
                     }}
                   >
@@ -1135,9 +1136,11 @@ function AntisolventForm({
                     style={{
                       padding: "5px 8px",
                       borderRadius: 5,
-                      border: "1px solid var(--mantine-color-gray-3)",
+                      border:
+                        "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                       cursor: "pointer",
-                      background: "white",
+                      background:
+                        "light-dark(white, var(--mantine-color-dark-6))",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",

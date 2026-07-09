@@ -185,7 +185,7 @@ export function UploadFlowPanel({ onClose }: { onClose: () => void }) {
                 ? "var(--mantine-color-teal-5)"
                 : undefined,
               background: uploadDone
-                ? "var(--mantine-color-teal-0)"
+                ? "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))"
                 : undefined,
               transition: "background 150ms, border-color 150ms",
             }}

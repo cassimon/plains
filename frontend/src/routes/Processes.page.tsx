@@ -1211,7 +1211,8 @@ function MaterialParamsPanel({
               {showSuggestions && (
                 <Box
                   style={{
-                    border: "1px solid var(--mantine-color-gray-3)",
+                    border:
+                      "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                     borderRadius: 6,
                     overflow: "hidden",
                     boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
@@ -1226,7 +1227,7 @@ function MaterialParamsPanel({
                         padding: "5px 10px",
                         background:
                           idx === highlightedIdx
-                            ? "var(--mantine-color-blue-0)"
+                            ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                             : "white",
                         cursor: "pointer",
                         display: "flex",
@@ -1234,7 +1235,7 @@ function MaterialParamsPanel({
                         gap: 8,
                         borderBottom:
                           idx < filteredSuggestions.length - 1
-                            ? "1px solid var(--mantine-color-gray-1)"
+                            ? "1px solid light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))"
                             : "none",
                       }}
                     >
@@ -1267,11 +1268,12 @@ function MaterialParamsPanel({
                       style={{
                         padding: "5px 8px",
                         borderRadius: 5,
-                        border: "1px solid var(--mantine-color-gray-3)",
+                        border:
+                          "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                         cursor: mode.fetchingCid ? "not-allowed" : "pointer",
                         background:
                           mode.fetchingCid === hit.cid
-                            ? "var(--mantine-color-blue-0)"
+                            ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                             : "white",
                         display: "flex",
                         alignItems: "center",
@@ -2478,7 +2480,7 @@ function ResultingStacks({
 
   const addParamButtonStyle: React.CSSProperties = {
     background: "none",
-    border: "1px dashed #ced4da",
+    border: "1px dashed light-dark(#ced4da, var(--mantine-color-dark-4))",
     borderRadius: 4,
     color: "#868e96",
     fontSize: 9,
@@ -2491,11 +2493,11 @@ function ResultingStacks({
 
   const sideInputStyle: React.CSSProperties = {
     fontSize: 11,
-    border: "1px solid #dee2e6",
+    border: "1px solid light-dark(#dee2e6, var(--mantine-color-dark-4))",
     borderRadius: 4,
     padding: "2px 4px",
-    background: "white",
-    color: "#333",
+    background: "light-dark(white, var(--mantine-color-dark-6))",
+    color: "light-dark(#333, #c1c2c5)",
     width: "100%",
     outline: "none",
   }
@@ -2583,7 +2585,7 @@ function ResultingStacks({
                   : undefined,
                 borderWidth: isComplete ? 2 : undefined,
                 background: isComplete
-                  ? "var(--mantine-color-teal-0)"
+                  ? "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))"
                   : undefined,
                 transition: "background 0.2s, border-color 0.2s",
               }}
@@ -2607,8 +2609,8 @@ function ResultingStacks({
                 p="xs"
                 style={{
                   background: isComplete
-                    ? "var(--mantine-color-teal-0)"
-                    : "var(--mantine-color-gray-0)",
+                    ? "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))"
+                    : "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
                   borderRadius: 6,
                 }}
               >
@@ -2707,8 +2709,9 @@ function ResultingStacks({
                             : "1px solid #dee2e6",
                         borderRadius: 4,
                         padding: "4px 6px",
-                        background: "white",
-                        color: "#333",
+                        background:
+                          "light-dark(white, var(--mantine-color-dark-6))",
+                        color: "light-dark(#333, #c1c2c5)",
                         outline: "none",
                       }}
                     >
@@ -2753,11 +2756,13 @@ function ResultingStacks({
                         style={{
                           width: "100%",
                           fontSize: 11,
-                          border: "1px solid #dee2e6",
+                          border:
+                            "1px solid light-dark(#dee2e6, var(--mantine-color-dark-4))",
                           borderRadius: 4,
                           padding: "4px 6px",
-                          background: "white",
-                          color: "#333",
+                          background:
+                            "light-dark(white, var(--mantine-color-dark-6))",
+                          color: "light-dark(#333, #c1c2c5)",
                           outline: "none",
                           textAlign: "right",
                         }}
@@ -2787,11 +2792,13 @@ function ResultingStacks({
                         style={{
                           width: "100%",
                           fontSize: 11,
-                          border: "1px solid #dee2e6",
+                          border:
+                            "1px solid light-dark(#dee2e6, var(--mantine-color-dark-4))",
                           borderRadius: 4,
                           padding: "4px 6px",
-                          background: "white",
-                          color: "#333",
+                          background:
+                            "light-dark(white, var(--mantine-color-dark-6))",
+                          color: "light-dark(#333, #c1c2c5)",
                           outline: "none",
                           textAlign: "right",
                         }}
@@ -2833,7 +2840,8 @@ function ResultingStacks({
                           width: 160,
                           flexShrink: 0,
                           paddingLeft: 10,
-                          borderLeft: "1px solid var(--mantine-color-gray-2)",
+                          borderLeft:
+                            "1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
                         }}
                       >
                         <Text size="10px" c="dimmed" fw={600} tt="uppercase">
@@ -2932,7 +2940,7 @@ function ResultingStacks({
                                   flexShrink: 0,
                                   paddingLeft: 10,
                                   borderLeft:
-                                    "1px solid var(--mantine-color-gray-2)",
+                                    "1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
                                   alignSelf: "flex-start",
                                 }}
                               >
@@ -3479,10 +3487,12 @@ function ResultingStacks({
                                         alignItems: "center",
                                         justifyContent: "space-between",
                                         gap: 2,
-                                        border: "1px solid #dee2e6",
+                                        border:
+                                          "1px solid light-dark(#dee2e6, var(--mantine-color-dark-4))",
                                         borderRadius: 4,
                                         padding: "1px 2px 1px 6px",
-                                        background: "#f8f9fa",
+                                        background:
+                                          "light-dark(#f8f9fa, var(--mantine-color-dark-6))",
                                       }}
                                     >
                                       <Text size="10px" c="dimmed" fs="italic">
@@ -3572,7 +3582,7 @@ function ResultingStacks({
                                       flexShrink: 0,
                                       paddingLeft: 10,
                                       borderLeft:
-                                        "1px solid var(--mantine-color-gray-2)",
+                                        "1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
                                       alignSelf: "flex-start",
                                     }}
                                   >
@@ -3661,7 +3671,10 @@ function ResultingStacks({
         <Box
           mt="lg"
           pt="sm"
-          style={{ borderTop: "1px dashed var(--mantine-color-gray-3)" }}
+          style={{
+            borderTop:
+              "1px dashed light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
+          }}
         >
           <Text size="xs" c="dimmed" mb="xs">
             Deleted combinations — click to restore
@@ -5303,7 +5316,8 @@ export function ProcessesPage() {
       radius="md"
       withBorder
       style={{
-        backgroundColor: "var(--mantine-color-gray-0)",
+        backgroundColor:
+          "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
       }}
     >
       <Stack gap="md">
@@ -5465,7 +5479,10 @@ export function ProcessesPage() {
       <Paper
         p="md"
         radius={0}
-        style={{ borderRight: "1px solid var(--mantine-color-gray-3)" }}
+        style={{
+          borderRight:
+            "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
+        }}
       >
         <Stack gap="md" style={{ height: "100%" }}>
           <TextInput
@@ -5489,7 +5506,10 @@ export function ProcessesPage() {
                 <Paper
                   p="lg"
                   ta="center"
-                  style={{ background: "var(--mantine-color-gray-0)" }}
+                  style={{
+                    background:
+                      "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+                  }}
                 >
                   <Text size="sm" c="dimmed">
                     No processes yet
@@ -5547,7 +5567,7 @@ export function ProcessesPage() {
                             style={{
                               cursor: "pointer",
                               backgroundColor: isSelected
-                                ? "var(--mantine-color-blue-0)"
+                                ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                                 : "transparent",
                               borderLeft: collectionColor
                                 ? `3px solid ${collectionColor}`
@@ -5655,7 +5675,7 @@ export function ProcessesPage() {
                             style={{
                               cursor: "pointer",
                               backgroundColor: isSelected
-                                ? "var(--mantine-color-blue-0)"
+                                ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                                 : "transparent",
                               borderLeft: collectionColor
                                 ? `3px solid ${collectionColor}`
@@ -5755,7 +5775,7 @@ export function ProcessesPage() {
                       style={{
                         cursor: "pointer",
                         background: isSelected
-                          ? "var(--mantine-color-blue-0)"
+                          ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                           : undefined,
                         borderLeft: isSelected
                           ? "4px solid var(--mantine-color-blue-4)"
@@ -5939,7 +5959,7 @@ export function ProcessesPage() {
                                 ? "var(--mantine-color-teal-6)"
                                 : isActive
                                   ? "var(--mantine-color-blue-6)"
-                                  : "var(--mantine-color-gray-3)",
+                                  : "light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                               boxShadow: isActive
                                 ? step.done
                                   ? "0 0 0 3px var(--mantine-color-teal-2)"
@@ -5982,7 +6002,8 @@ export function ProcessesPage() {
                           style={{
                             flex: 1,
                             height: 2,
-                            background: "var(--mantine-color-gray-3)",
+                            background:
+                              "light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                             margin: "0 12px",
                           }}
                         />
@@ -6240,7 +6261,7 @@ export function ProcessesPage() {
                                             background: `linear-gradient(90deg, ${SUBSTRATE_COLOR}2E 0%, transparent 100%)`,
                                             border: isActive
                                               ? `2px solid ${SUBSTRATE_COLOR}`
-                                              : "1px solid var(--mantine-color-gray-3)",
+                                              : "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                                           }}
                                         >
                                           <Stack gap={6}>
@@ -6504,7 +6525,7 @@ export function ProcessesPage() {
                                               border:
                                                 expandedInlineSubId === sub.id
                                                   ? `2px solid ${SUBSTRATE_COLOR}`
-                                                  : "1px solid var(--mantine-color-gray-3)",
+                                                  : "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                                             }}
                                           >
                                             <Group
@@ -6874,7 +6895,7 @@ export function ProcessesPage() {
                                       padding: "8px 12px",
                                       background:
                                         dropStagePos === stagePos
-                                          ? "var(--mantine-color-blue-0)"
+                                          ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                                           : "transparent",
                                     }}
                                     onDragOver={(e) => {
@@ -6974,7 +6995,7 @@ export function ProcessesPage() {
                                                   border:
                                                     selectedStepId === step.id
                                                       ? `2px solid ${step.color}`
-                                                      : "1px solid var(--mantine-color-gray-3)",
+                                                      : "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                                                 }}
                                               >
                                                 <Stack gap={6}>
@@ -7145,10 +7166,11 @@ export function ProcessesPage() {
                                                           >
                                                             <Text
                                                               size="xs"
-                                                              c="black"
                                                               truncate
                                                               style={{
                                                                 flex: 1,
+                                                                color:
+                                                                  "light-dark(black, var(--mantine-color-gray-3))",
                                                               }}
                                                             >
                                                               {step.depositionMethod?.value?.trim() ||

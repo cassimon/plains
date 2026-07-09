@@ -1023,7 +1023,8 @@ function VialWidget({
           overflow: "hidden",
           display: "flex",
           flexDirection: "column-reverse",
-          background: "var(--mantine-color-gray-1)",
+          background:
+            "light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))",
         }}
       >
         {totalVol > 0 &&
@@ -1293,8 +1294,10 @@ function InlineSearch({
     return (
       <Box
         style={{
-          background: "var(--mantine-color-gray-0)",
-          border: "1px solid var(--mantine-color-gray-3)",
+          background:
+            "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+          border:
+            "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
           borderRadius: 8,
           padding: "10px 12px",
         }}
@@ -1378,8 +1381,10 @@ function InlineSearch({
     return (
       <Box
         style={{
-          background: "var(--mantine-color-gray-0)",
-          border: "1px solid var(--mantine-color-gray-3)",
+          background:
+            "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+          border:
+            "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
           borderRadius: 8,
           padding: "10px 12px",
         }}
@@ -1535,8 +1540,10 @@ function InlineSearch({
   return (
     <Box
       style={{
-        background: "var(--mantine-color-gray-0)",
-        border: "1px solid var(--mantine-color-gray-3)",
+        background:
+          "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+        border:
+          "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
         borderRadius: 8,
         padding: "10px 12px",
       }}
@@ -1595,7 +1602,8 @@ function InlineSearch({
         {showSuggestions && (
           <Box
             style={{
-              border: "1px solid var(--mantine-color-gray-3)",
+              border:
+                "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
               borderRadius: 6,
               overflow: "hidden",
               boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
@@ -1610,7 +1618,7 @@ function InlineSearch({
                   padding: "5px 10px",
                   background:
                     idx === highlightedIdx
-                      ? "var(--mantine-color-blue-0)"
+                      ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                       : "white",
                   cursor: "pointer",
                   display: "flex",
@@ -1618,7 +1626,7 @@ function InlineSearch({
                   gap: 8,
                   borderBottom:
                     idx < filteredSuggestions.length - 1
-                      ? "1px solid var(--mantine-color-gray-1)"
+                      ? "1px solid light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))"
                       : "none",
                 }}
               >
@@ -1653,11 +1661,12 @@ function InlineSearch({
                 style={{
                   padding: "6px 8px",
                   borderRadius: 5,
-                  border: "1px solid var(--mantine-color-gray-3)",
+                  border:
+                    "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                   cursor: fetchingCid ? "not-allowed" : "pointer",
                   background:
                     fetchingCid === hit.cid
-                      ? "var(--mantine-color-blue-0)"
+                      ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                       : "white",
                   display: "flex",
                   alignItems: "center",
@@ -1948,7 +1957,7 @@ function SolutionCard({
           ? "1.5px solid var(--mantine-color-green-5)"
           : expanded
             ? "1.5px solid var(--mantine-color-blue-4)"
-            : "1px solid var(--mantine-color-gray-3)",
+            : "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
         borderRadius: 10,
         overflow: "hidden",
         transition: "border-color 150ms",
@@ -1963,10 +1972,10 @@ function SolutionCard({
           padding: "10px 14px",
           cursor: "pointer",
           background: isComplete
-            ? "var(--mantine-color-green-0)"
+            ? "light-dark(var(--mantine-color-green-0), var(--mantine-color-green-9))"
             : expanded
-              ? "var(--mantine-color-blue-0)"
-              : "var(--mantine-color-gray-0)",
+              ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
+              : "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
         }}
         onClick={onToggle}
       >
@@ -2046,7 +2055,10 @@ function SolutionCard({
       {expanded && (
         <Box
           p="md"
-          style={{ borderTop: "1px solid var(--mantine-color-gray-3)" }}
+          style={{
+            borderTop:
+              "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
+          }}
           onClick={(e) => e.stopPropagation()}
         >
           <Group align="flex-start" gap="md" wrap="nowrap">
@@ -2303,7 +2315,8 @@ function SolutionCard({
                         flexShrink: 0,
                         border: "1px solid var(--mantine-color-blue-3)",
                         borderRadius: 8,
-                        background: "var(--mantine-color-blue-0)",
+                        background:
+                          "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
                         padding: 6,
                       }}
                     >
@@ -2785,7 +2798,8 @@ function SolutionCard({
         <Box
           p="xs"
           style={{
-            background: "var(--mantine-color-teal-0)",
+            background:
+              "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))",
             borderTop: "1px solid var(--mantine-color-teal-2)",
           }}
           onClick={(e) => e.stopPropagation()}
@@ -2989,7 +3003,8 @@ export function ChemistryTab({
         border: "1px solid var(--mantine-color-blue-3)",
         borderRadius: 8,
         padding: "12px 14px",
-        background: "var(--mantine-color-blue-0)",
+        background:
+          "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
       }}
     >
       <Text size="sm" fw={600} mb="xs">

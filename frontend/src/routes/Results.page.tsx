@@ -608,7 +608,9 @@ function ExperimentListItem({
       radius="md"
       style={{
         cursor: "pointer",
-        background: isSelected ? "var(--mantine-color-blue-0)" : undefined,
+        background: isSelected
+          ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
+          : undefined,
         borderColor: isSelected ? "var(--mantine-color-blue-4)" : undefined,
         borderLeft: collectionColor
           ? `4px solid ${collectionColor}`
@@ -742,7 +744,9 @@ function SubstrateCard({
       }}
       style={{
         borderColor: isDropTarget ? "var(--mantine-color-green-5)" : undefined,
-        background: isDropTarget ? "var(--mantine-color-green-0)" : undefined,
+        background: isDropTarget
+          ? "light-dark(var(--mantine-color-green-0), var(--mantine-color-green-9))"
+          : undefined,
       }}
     >
       <Group justify="space-between" mb="xs">
@@ -3068,7 +3072,7 @@ function ResultsDetail({
                                   ? "var(--mantine-color-teal-6)"
                                   : workflowStep === s.step
                                     ? "var(--mantine-color-blue-6)"
-                                    : "var(--mantine-color-gray-3)",
+                                    : "light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                                 boxShadow:
                                   workflowStep === s.step
                                     ? s.done
@@ -3112,7 +3116,8 @@ function ResultsDetail({
                             style={{
                               flex: 1,
                               height: 2,
-                              background: "var(--mantine-color-gray-3)",
+                              background:
+                                "light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
                               margin: "0 12px",
                             }}
                           />
@@ -3126,7 +3131,10 @@ function ResultsDetail({
                     p="xs"
                     radius="md"
                     mb="md"
-                    style={{ background: "var(--mantine-color-gray-0)" }}
+                    style={{
+                      background:
+                        "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+                    }}
                   >
                     <Group justify="space-between" align="center">
                       <Text
@@ -3259,10 +3267,10 @@ function ResultsDetail({
                                 ? "var(--mantine-color-green-4)"
                                 : "var(--mantine-color-gray-4)",
                               background: hasProvidedFiles
-                                ? "var(--mantine-color-green-0)"
-                                : "var(--mantine-color-gray-0)",
+                                ? "light-dark(var(--mantine-color-green-0), var(--mantine-color-green-9))"
+                                : "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
                               "--dropzone-reject-bg":
-                                "var(--mantine-color-green-0)",
+                                "light-dark(var(--mantine-color-green-0), var(--mantine-color-green-9))",
                               "--dropzone-reject-color":
                                 "var(--mantine-color-green-9)",
                             } as CSSProperties
@@ -3354,7 +3362,8 @@ function ResultsDetail({
                             flex: 2,
                             minWidth: 0,
                             borderColor: "var(--mantine-color-red-4)",
-                            background: "var(--mantine-color-red-0)",
+                            background:
+                              "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))",
                           }}
                         >
                           <Stack gap="sm">
@@ -4465,7 +4474,10 @@ export function ResultsPage() {
                 <Paper
                   p="lg"
                   ta="center"
-                  style={{ background: "var(--mantine-color-gray-0)" }}
+                  style={{
+                    background:
+                      "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+                  }}
                 >
                   <IconFlask size={32} color="var(--mantine-color-gray-5)" />
                   <Text size="sm" c="dimmed" mt="sm">
@@ -4578,7 +4590,8 @@ export function ResultsPage() {
         style={{
           flex: 1,
           minWidth: 0,
-          background: "var(--mantine-color-gray-0)",
+          background:
+            "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
         }}
       >
         {selectedExperiment ? (

@@ -960,7 +960,7 @@ function PlainTextEl({
               right: -8,
               opacity: 0.7,
               zIndex: 1,
-              background: "white",
+              background: "light-dark(white, var(--mantine-color-dark-6))",
               borderRadius: "50%",
             }}
             onPointerDown={(e) => e.stopPropagation()}
@@ -1324,7 +1324,9 @@ function EmptyCellEl({
             ? "2px dashed var(--mantine-color-gray-4)"
             : "2px dashed transparent",
         borderRadius: 8,
-        background: isDragOver ? "var(--mantine-color-blue-0)" : "transparent",
+        background: isDragOver
+          ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
+          : "transparent",
         cursor: "pointer",
         boxSizing: "border-box",
         transition: "border 80ms, background 80ms",
@@ -1408,7 +1410,8 @@ function EmptyCellEl({
                 cursor: "pointer",
                 borderRadius: 4,
                 padding: "4px 5px",
-                background: "var(--mantine-color-yellow-1)",
+                background:
+                  "light-dark(var(--mantine-color-yellow-1), var(--mantine-color-yellow-9))",
               }}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
@@ -1440,7 +1443,8 @@ function EmptyCellEl({
                 cursor: "pointer",
                 borderRadius: 4,
                 padding: "4px 5px",
-                background: "var(--mantine-color-gray-1)",
+                background:
+                  "light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))",
               }}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
@@ -2222,9 +2226,9 @@ function CollectionEl({
                 ? `0 0 0 3px ${el.color || DEFAULT_ACCENT}33, 0 0 14px 4px ${el.color || DEFAULT_ACCENT}1a`
                 : undefined,
             background: isFileDragOver
-              ? "var(--mantine-color-red-0)"
+              ? "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))"
               : isDragOver
-                ? "var(--mantine-color-blue-0)"
+                ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                 : "var(--mantine-color-body)",
             cursor: "pointer",
             overflow: "hidden",
@@ -2331,7 +2335,8 @@ function CollectionEl({
                     cursor: "pointer",
                     borderRadius: 4,
                     padding: "4px 5px",
-                    background: "var(--mantine-color-red-1)",
+                    background:
+                      "light-dark(var(--mantine-color-red-1), var(--mantine-color-red-9))",
                     outline: "2px solid var(--mantine-color-red-5)",
                     outlineOffset: 1,
                   }}
@@ -2495,7 +2500,8 @@ function CollectionEl({
                         cursor: "pointer",
                         borderRadius: 4,
                         padding: "4px 5px",
-                        background: "var(--mantine-color-red-0)",
+                        background:
+                          "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))",
                         outline: "1px dashed var(--mantine-color-red-4)",
                         outlineOffset: 1,
                       }}
@@ -2545,7 +2551,8 @@ function CollectionEl({
                       cursor: "pointer",
                       borderRadius: 4,
                       padding: "4px 5px",
-                      background: "var(--mantine-color-yellow-1)",
+                      background:
+                        "light-dark(var(--mantine-color-yellow-1), var(--mantine-color-yellow-9))",
                     }}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
@@ -2577,7 +2584,8 @@ function CollectionEl({
                       cursor: "pointer",
                       borderRadius: 4,
                       padding: "4px 5px",
-                      background: "var(--mantine-color-gray-1)",
+                      background:
+                        "light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))",
                     }}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
@@ -2612,7 +2620,8 @@ function CollectionEl({
             inset: 4,
             border: "2px dashed var(--mantine-color-blue-5)",
             borderRadius: 8,
-            background: "var(--mantine-color-blue-0)",
+            background:
+              "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
             pointerEvents: "none",
           }}
         />
@@ -2631,7 +2640,8 @@ function CollectionEl({
             gap: 4,
             border: "2px dashed var(--mantine-color-red-6)",
             borderRadius: 8,
-            background: "var(--mantine-color-red-0)",
+            background:
+              "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))",
             pointerEvents: "none",
             zIndex: 5,
           }}
@@ -3049,14 +3059,14 @@ function DetailedDivisionModal({
             flex: 1,
             background:
               hoverSide === "left"
-                ? "var(--mantine-color-teal-0)"
-                : "var(--mantine-color-gray-0)",
+                ? "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))"
+                : "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
             borderRadius: 6,
             padding: 8,
             border:
               hoverSide === "left"
                 ? "2px dashed var(--mantine-color-teal-5)"
-                : "2px dashed var(--mantine-color-gray-3)",
+                : "2px dashed light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
             transition: "background 100ms, border 100ms",
           }}
         >
@@ -3093,14 +3103,14 @@ function DetailedDivisionModal({
             flex: 1,
             background:
               hoverSide === "right"
-                ? "var(--mantine-color-blue-0)"
-                : "var(--mantine-color-gray-0)",
+                ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
+                : "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
             borderRadius: 6,
             padding: 8,
             border:
               hoverSide === "right"
                 ? "2px dashed var(--mantine-color-blue-5)"
-                : "2px dashed var(--mantine-color-gray-3)",
+                : "2px dashed light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
             transition: "background 100ms, border 100ms",
           }}
         >
@@ -3376,8 +3386,8 @@ function DivisionOverlay({
             flex: 1,
             background:
               hoverSide === "left"
-                ? "var(--mantine-color-teal-0)"
-                : "var(--mantine-color-gray-0)",
+                ? "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))"
+                : "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
             borderRadius: 6,
             padding: 8,
             border:
@@ -3435,13 +3445,13 @@ function DivisionOverlay({
               : "center",
             background:
               hoverSide === "center"
-                ? "var(--mantine-color-violet-1)"
+                ? "light-dark(var(--mantine-color-violet-1), var(--mantine-color-violet-9))"
                 : "transparent",
             borderRadius: 6,
             border:
               hoverSide === "center"
                 ? "2px dashed var(--mantine-color-violet-5)"
-                : "2px dashed var(--mantine-color-gray-3)",
+                : "2px dashed light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
             margin: "0 6px",
             padding: 6,
             transition: "background 100ms, border 100ms",
@@ -3466,7 +3476,8 @@ function DivisionOverlay({
                         flexDirection: "column",
                         alignItems: "center",
                         gap: 2,
-                        background: "var(--mantine-color-violet-0)",
+                        background:
+                          "light-dark(var(--mantine-color-violet-0), var(--mantine-color-violet-9))",
                       }}
                       onClick={() => openDetailedDialog(k)}
                       title="Click to edit division"
@@ -3504,8 +3515,8 @@ function DivisionOverlay({
             flex: 1,
             background:
               hoverSide === "right"
-                ? "var(--mantine-color-blue-0)"
-                : "var(--mantine-color-gray-0)",
+                ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
+                : "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
             borderRadius: 6,
             padding: 8,
             border:
@@ -4529,7 +4540,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               cursor: "default",
               background: isDark
                 ? "var(--mantine-color-dark-7)"
-                : "var(--mantine-color-gray-0)",
+                : "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
             }}
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
@@ -4902,8 +4913,8 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                       borderRadius: 6,
                       border: `3px dashed ${accent}`,
                       background: textDropPreview.valid
-                        ? "var(--mantine-color-teal-0)"
-                        : "var(--mantine-color-red-0)",
+                        ? "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))"
+                        : "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))",
                       opacity: 0.7,
                       display: "flex",
                       alignItems: "center",
@@ -4942,7 +4953,8 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               style={{
                 height: 10,
                 flexShrink: 0,
-                background: "var(--mantine-color-gray-1)",
+                background:
+                  "light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))",
                 borderTop: "1px solid var(--mantine-color-default-border)",
                 position: "relative",
                 cursor: "default",
@@ -5006,7 +5018,8 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
           style={{
             width: 10,
             flexShrink: 0,
-            background: "var(--mantine-color-gray-1)",
+            background:
+              "light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))",
             borderLeft: "1px solid var(--mantine-color-default-border)",
             position: "relative",
             cursor: "default",
@@ -5260,7 +5273,7 @@ function FolderPill({
             background: isActive
               ? "var(--mantine-color-blue-1)"
               : isDropTarget
-                ? "var(--mantine-color-blue-0)"
+                ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
                 : "var(--mantine-color-default)",
             transition: "background 0.15s ease, border 0.15s ease",
           }}
@@ -5749,7 +5762,7 @@ function WelcomePlaneView() {
     borderRadius: "var(--mantine-radius-md)",
     background:
       cardDropTarget === targetId
-        ? "var(--mantine-color-blue-0)"
+        ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
         : "transparent",
     padding: "var(--mantine-spacing-sm)",
     transition: "background 0.15s ease, border 0.15s ease",
@@ -6440,7 +6453,8 @@ export function OrganizationPage() {
                           }
                         : hoveredPlaneTabId === item.id
                           ? {
-                              background: "var(--mantine-color-blue-1)",
+                              background:
+                                "light-dark(var(--mantine-color-blue-1), var(--mantine-color-blue-9))",
                               outline: "2px solid var(--mantine-color-blue-4)",
                               outlineOffset: -2,
                               borderRadius: "var(--mantine-radius-sm)",

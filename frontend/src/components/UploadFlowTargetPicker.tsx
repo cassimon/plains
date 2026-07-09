@@ -61,7 +61,9 @@ function FlowBox({
       radius="md"
       style={{
         borderColor: done ? "var(--mantine-color-teal-5)" : undefined,
-        background: done ? "var(--mantine-color-teal-0)" : undefined,
+        background: done
+          ? "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))"
+          : undefined,
         transition: "background 150ms, border-color 150ms",
       }}
     >
