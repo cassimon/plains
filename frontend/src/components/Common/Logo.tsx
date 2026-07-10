@@ -17,7 +17,8 @@ export function Logo({
   fillSpace = false,
 }: LogoProps) {
   const content = fillSpace ? (
-    <div className="flex h-full w-full items-center justify-center bg-white">
+    // #f9fafa is the logo PNG's own canvas colour; anything else seams at its edge.
+    <div className="flex h-full w-full items-center justify-center bg-[#f9fafa]">
       <img
         src={logo}
         alt="Plains"
