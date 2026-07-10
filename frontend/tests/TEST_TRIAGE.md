@@ -23,12 +23,13 @@ runs `29086904730` and `29087999169`): 13 pass, 3 fail, 1–2 flaky, 3 skipped
 because the run aborts. **None of the three is a confirmed P0 product bug** —
 see per-test verdicts.
 
-### 1. `nomad-upload-flows.spec.ts:785` — "flow 1: GUI-created process + experiment → NOMAD upload"
-- **Bucket: P2 (test drift).**
+### 1. `nomad-upload-flows.spec.ts` flows 1 & 2 — GUI process + experiment → NOMAD upload
+- **Bucket: P2 (test drift).** Quarantined: `flow 1` (line 787) and `flow 2` (line 834).
 - **Symptom:** `table input[value^='substrate']` resolves to 0 elements (expected 2) at `completeExperimentInGui` (line 288).
 - **Root cause:** the *"Redesign Experiments Step 2 into three guided sub-boxes"* change (commit `5425ddd`) now creates new substrates with a **blank name** until advanced settings are consulted (`Experiments.page.tsx:3080-3090`, `name: advancedConsulted ? buildGeneratedSubstrateName(...) : ""`). Substrates still render correctly — they are just no longer auto-named `substrate…`, so the selector no longer matches.
+- **Shared helper:** both flows go through `completeExperimentInGui`; flow 3 seeds via the API and flow 4 uses the auto-create path, so they are **not** affected — they previously only showed as "did not run" because the file is `test.describe.configure({ mode: "serial" })` and an earlier flow's failure skips the rest.
 - **Not a data bug:** nothing is lost or mis-uploaded; the test's assumption about default naming is stale.
-- **Fix later:** update the helper to add substrates and read the name inputs by structure (e.g. `table tbody tr input`) rather than by the `substrate`-prefixed value, and set names explicitly.
+- **Fix later:** update `completeExperimentInGui` to read the name inputs by structure (e.g. `table input[placeholder="Name Substrate..."]`, indexed by `nth`) rather than by the `substrate`-prefixed value, and set names explicitly. Un-fixme flows 1 & 2 together.
 
 ### 2. `create-objects-loops.spec.ts:215` — "header picker create does not render-loop"
 - **Bucket: P2 (needs a trace to fully confirm), but treated as non-critical.**
@@ -59,10 +60,15 @@ surface a `Maximum update depth exceeded` / crash:
 
 ## Status: Option 2 applied (2026-07-10)
 
-The three drifted tests above are now `test.fixme(...)` with an inline comment
+The drifted tests above are now `test.fixme(...)` with an inline comment
 linking this file, so the `integration` suite stops aborting CI. **These are
 parked, not resolved** — each still needs the "fix later" work described above.
-The two genuinely-flaky trash-restore tests are left as-is (they pass on retry).
+Quarantined: `create-objects-loops` header-picker test, `nomad-upload-flows`
+flows 1 & 2, and `trash-restore-roundtrip` orphan-destination. The two
+genuinely-flaky trash-restore tests are left as-is (they pass on retry).
+
+Note: `nomad-upload-flows` is `mode: "serial"`, so quarantining must be done a
+flow at a time — a still-failing early flow masks later ones as "did not run".
 
 Remaining backlog options for a real fix:
 1. Adapt tests 1–3 to the redesigned Step-2 UI and re-enable them (removes the
