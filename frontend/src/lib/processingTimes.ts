@@ -12,7 +12,39 @@
 // shared since they are, by definition, identical up to that point.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { Experiment, Process } from "@/store/AppContext"
+import {
+  type Experiment,
+  PROCESS_PARAMETER_DEFINITIONS,
+  type Process,
+} from "@/store/AppContext"
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Date / time helpers for processing-time cells
+//
+// A processing time is stored as a `datetime-local` string ("YYYY-MM-DDTHH:mm").
+// The Processing box splits every cell into a date part and a time part: the
+// date auto-fills (cascades) from the previous step so the user only has to
+// pick the time, and a cell only counts as *complete* once it carries a time —
+// which is what keeps the field "buzzing" until the user specifies the hour.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The "YYYY-MM-DD" portion of a stored value (or "" when absent). */
+export function datePart(value: string): string {
+  return value ? value.split("T")[0] : ""
+}
+
+/** The "HH:mm" portion of a stored value (or "" when only a date is present). */
+export function timePart(value: string): string {
+  return value?.includes("T") ? value.split("T")[1] : ""
+}
+
+/** Whether a stored value specifies a time (not just a date). */
+export function hasTime(value: string): boolean {
+  return datePart(value) !== "" && timePart(value) !== ""
+}
+
+/** The reserved `processingTimes` key holding the parameter-variation Yes/No. */
+export const VARIATION_CHOICE_KEY = "__variationChoice"
 
 export type ProcessingStack = {
   /** Stable identity = every stage's selected step id (or "SKIP"), joined. */
@@ -93,14 +125,17 @@ export function stackRowLabel(
   const parts = decisiveStageIndices
     .map((idx) => {
       const stepId = stack.selections[idx]
-      if (!stepId || stepId === "SKIP") return null
-      return (
-        process.stages[idx]?.alternatives.find((a) => a.id === stepId)?.name ||
-        null
-      )
+      const stepLabel = `#${idx + 1} Step`
+      if (!stepId || stepId === "SKIP") return `${stepLabel}: Skip`
+      const optionName = process.stages[idx]?.alternatives.find(
+        (a) => a.id === stepId,
+      )?.name
+      // Always name the step the option belongs to, then the option itself, so
+      // a diverged process history reads e.g. "#2 Step: Spin Coating".
+      return optionName ? `${stepLabel}: ${optionName}` : stepLabel
     })
     .filter((s): s is string => Boolean(s))
-  return parts.length > 0 ? parts.join(" / ") : "Skip"
+  return parts.length > 0 ? parts.join(" · ") : "Skip"
 }
 
 export function processingTimeKey(
@@ -157,7 +192,10 @@ export function resolveProcessingTime(
       : "")
   if (own) return own
 
-  return resolveProcessingTime(stageIdx - 1, stackKey, ctx)
+  // No own value: auto-fill only the *date* from the previous step, never the
+  // time. The blank time is what keeps the cell buzzing so the user knows a
+  // time still has to be entered for this step.
+  return datePart(resolveProcessingTime(stageIdx - 1, stackKey, ctx))
 }
 
 function rowKeysFor(stacks: ProcessingStack[], divergeIdx: number) {
@@ -167,10 +205,12 @@ function rowKeysFor(stacks: ProcessingStack[], divergeIdx: number) {
 }
 
 /**
- * Composite keys whose own explicit value is earlier than the resolved time
- * of the previous stage in the same row — i.e. times that don't increase.
- * A defaulted/inherited cell can never trip this (it equals the previous
- * resolved value by construction), so only genuine typos are flagged.
+ * Composite keys whose fully-specified (date + time) value is *strictly*
+ * earlier than the previous fully-specified step in the same row — i.e. a step
+ * that starts before the one before it. Only complete times participate:
+ * date-only auto-fills are skipped entirely, so they never false-flag. Equal
+ * times are allowed on purpose — steps may be initiated at the same moment even
+ * when they come later in the process history.
  */
 export function findProcessingTimeRegressions(
   process: Process,
@@ -190,10 +230,11 @@ export function findProcessingTimeRegressions(
       const effectiveStackKey =
         divergeIdx >= 0 && idx >= divergeIdx ? rowKey : null
       const value = resolveProcessingTime(idx, rowKey, ctx)
-      if (value && prev && value < prev) {
+      if (!hasTime(value)) continue
+      if (prev && value < prev) {
         flagged.add(processingTimeKey(idx, effectiveStackKey))
       }
-      if (value) prev = value
+      prev = value
     }
   }
   return flagged
@@ -221,34 +262,106 @@ function isStackCellSeeded(
     const aboveKey = rowIdx > 0 ? ctx.stackOrder[rowIdx - 1] : null
     return aboveKey ? isStackCellSeeded(stageIdx, aboveKey, ctx) : false
   }
-  if (ctx.processingTimes[processingTimeKey(stageIdx, stackKey)]) return true
-  return isStackCellSeeded(stageIdx - 1, stackKey, ctx)
+  // Each diverged step needs its own explicit time — a cascaded date alone
+  // (no time) is deliberately not enough, so the cell keeps buzzing.
+  return hasTime(ctx.processingTimes[processingTimeKey(stageIdx, stackKey)])
 }
 
 /**
- * Step 2 (Processing) is done only once every stage resolves to a non-empty
- * time: the shared prefix (which may cascade from an earlier shared stage),
- * plus — for every diverged stack — a value the user actually seeded for
- * that row (see `isStackCellSeeded`).
+ * Step 2's Processing-times sub-box is done only once *every* step carries a
+ * full date **and** time: the shared prefix, plus — for every diverged stack —
+ * a value the user actually seeded for that row (see `isStackCellSeeded`).
  */
-export function experimentProcessingDone(
+export function experimentProcessingTimesDone(
   exp: Experiment,
   process: Process | undefined,
 ): boolean {
   if (!process || exp.substrates.length === 0) return false
   const stacks = buildProcessingStacks(exp, process)
   const divergeIdx = findDivergeIdx(stacks)
+  const processingTimes = exp.processingTimes ?? {}
   const ctx: ProcessingTimesCtx = {
-    processingTimes: exp.processingTimes ?? {},
+    processingTimes,
     divergeIdx,
     stackOrder: stacks.map((s) => s.key),
   }
   return process.stages.every((_stage, idx) => {
     if (divergeIdx < 0 || idx < divergeIdx) {
-      return resolveProcessingTime(idx, null, ctx).trim() !== ""
+      return hasTime(processingTimes[processingTimeKey(idx, null)])
     }
     return stacks.every((stack) => isStackCellSeeded(idx, stack.key, ctx))
   })
+}
+
+/** Substrates sub-box: at least one substrate carries a (trimmed) name. */
+export function experimentSubstratesDone(exp: Experiment): boolean {
+  return exp.substrates.some((s) => s.name.trim() !== "")
+}
+
+/** Whether any process-parameter variation column exists for this experiment. */
+export function hasAnyVariationColumn(
+  exp: Experiment,
+  process: Process,
+): boolean {
+  for (const substrate of exp.substrates) {
+    for (const key of Object.keys(substrate.parameterValues ?? {})) {
+      if (key.startsWith("stageSelection:")) continue
+      const [stepId, rawParamKey] = key.split(":")
+      if (!stepId || !rawParamKey) continue
+      if (!PROCESS_PARAMETER_DEFINITIONS.some((d) => d.key === rawParamKey)) {
+        continue
+      }
+      if (
+        process.stages.some((stage) =>
+          stage.alternatives.some((alt) => alt.id === stepId),
+        )
+      ) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+/** The stored Yes/No answer to "did you vary a process parameter?" (or null). */
+export function variationChoiceOf(exp: Experiment): "yes" | "no" | null {
+  const stored = exp.processingTimes?.[VARIATION_CHOICE_KEY]
+  return stored === "yes" || stored === "no" ? stored : null
+}
+
+/**
+ * Parameter-variation sub-box: done when the user answered "No", or answered
+ * "Yes" *and* provided at least one variation column.
+ */
+export function experimentVariationDone(
+  exp: Experiment,
+  process: Process | undefined,
+): boolean {
+  if (!process) return false
+  const choice = variationChoiceOf(exp)
+  if (choice === "no") return true
+  // "Yes" (explicit, or inferred because variation columns already exist) is
+  // done only once at least one variation column is present.
+  if (choice === "yes" || hasAnyVariationColumn(exp, process)) {
+    return hasAnyVariationColumn(exp, process)
+  }
+  return false
+}
+
+/**
+ * Step 2 (Processing) as a whole is done once all three sub-boxes are green:
+ * substrates named, processing times complete, and the parameter-variation
+ * question resolved.
+ */
+export function experimentProcessingDone(
+  exp: Experiment,
+  process: Process | undefined,
+): boolean {
+  return (
+    experimentSubstratesDone(exp) &&
+    experimentProcessingTimesDone(exp, process) &&
+    experimentVariationDone(exp, process)
+  )
 }
 
 /**

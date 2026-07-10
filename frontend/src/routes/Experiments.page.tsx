@@ -9,7 +9,6 @@ import {
   Group,
   Modal,
   Paper,
-  Popover,
   Select,
   SimpleGrid,
   Stack,
@@ -43,6 +42,10 @@ import { exportExperimentSummaryAsPdf } from "@/lib/processExport"
 import {
   buildProcessingStacks,
   computeProcessingTimeRange,
+  datePart,
+  experimentProcessingTimesDone,
+  experimentSubstratesDone,
+  experimentVariationDone,
   findDecisiveStageIndices,
   findDivergeIdx,
   findProcessingTimeRegressions,
@@ -50,6 +53,9 @@ import {
   processingTimeKey,
   resolveProcessingTime,
   stackRowLabel,
+  timePart,
+  VARIATION_CHOICE_KEY,
+  variationChoiceOf,
 } from "@/lib/processingTimes"
 import { buildStageStepOptions } from "@/lib/stageStepChoices"
 import {
@@ -438,6 +444,61 @@ function ProcessStepSelector({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Processing sub-box — one of the three guided sections (Substrates, Processing
+// times, Parameter variation). Turns green once `done`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ProcessingSubBox({
+  index,
+  title,
+  subtitle,
+  done,
+  children,
+}: {
+  index: number
+  title: string
+  subtitle: string
+  done: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <Paper
+      withBorder
+      p="md"
+      radius="md"
+      style={{
+        borderColor: done ? "var(--mantine-color-teal-5)" : undefined,
+        background: done
+          ? "light-dark(var(--mantine-color-teal-0), var(--mantine-color-teal-9))"
+          : undefined,
+        transition: "background 150ms, border-color 150ms",
+      }}
+    >
+      <Group gap="sm" mb="sm" wrap="nowrap" align="flex-start">
+        <ThemeIcon
+          radius="xl"
+          size={28}
+          color={done ? "teal" : "blue"}
+          variant={done ? "filled" : "light"}
+          style={{ flexShrink: 0 }}
+        >
+          {done ? <IconCheck size={16} /> : <Text fw={700}>{index}</Text>}
+        </ThemeIcon>
+        <Box>
+          <Text size="sm" fw={700}>
+            {title}
+          </Text>
+          <Text size="xs" c="dimmed">
+            {subtitle}
+          </Text>
+        </Box>
+      </Group>
+      {children}
+    </Paper>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main Experiment Grid View
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -464,13 +525,6 @@ function ExperimentGrid({
   onUpdateProcess: (process: Process) => void
   onAddSingleSubstrate: () => void
 }) {
-  const [variationPopoverStageIdx, setVariationPopoverStageIdx] = useState<
-    number | null
-  >(null)
-  const [variationAltStepId, setVariationAltStepId] = useState<string | null>(
-    null,
-  )
-  const [variationParam, setVariationParam] = useState<string | null>(null)
   const [selectedSubstrateIds, setSelectedSubstrateIds] = useState<Set<string>>(
     new Set(),
   )
@@ -623,32 +677,6 @@ function ExperimentGrid({
       return a.paramKey.localeCompare(b.paramKey)
     })
   }, [experiment.substrates, process.stages, stepDisplayById])
-
-  const selectedVariationStep = React.useMemo(() => {
-    if (variationPopoverStageIdx === null || !variationAltStepId) return null
-    return (
-      process.stages[variationPopoverStageIdx]?.alternatives.find(
-        (step) => step.id === variationAltStepId,
-      ) ?? null
-    )
-  }, [process.stages, variationPopoverStageIdx, variationAltStepId])
-
-  const variationParamOptions = React.useMemo(() => {
-    if (!selectedVariationStep) {
-      return []
-    }
-    return PROCESS_PARAMETER_DEFINITIONS.filter(({ key }) => {
-      if (
-        key === "depositionMethod" ||
-        key === "depositionStartTime" ||
-        key === "annealingStartTime"
-      ) {
-        return false
-      }
-      const param = selectedVariationStep[key as ProcessParameterKey]
-      return !!param?.value?.trim()
-    }).map(({ key, label }) => ({ value: key, label }))
-  }, [selectedVariationStep])
 
   const hintStageOptions = React.useMemo(
     () =>
@@ -951,23 +979,6 @@ function ExperimentGrid({
     onUpdate(updatedExperiment)
   }
 
-  const handleAddVariation = () => {
-    if (
-      variationPopoverStageIdx === null ||
-      !variationAltStepId ||
-      !variationParam
-    )
-      return
-    doAddVariation(
-      variationPopoverStageIdx,
-      variationAltStepId,
-      variationParam as ProcessParameterKey,
-    )
-    setVariationPopoverStageIdx(null)
-    setVariationAltStepId(null)
-    setVariationParam(null)
-  }
-
   const handleAddVariationFromHint = () => {
     if (hintStageIdx === null || !hintAltStepId || !hintParam) return
     doAddVariation(
@@ -1095,6 +1106,25 @@ function ExperimentGrid({
     [handleProcessingTimeChange],
   )
 
+  // Combine a date part and a time part back into a stored `datetime-local`
+  // value: keep the date alone while the time is still missing (so the cell
+  // stays "incomplete" and keeps buzzing), and only join them once both exist.
+  const handleProcessingDateTimeChange = useCallback(
+    (cellKey: string, date: string, time: string) => {
+      const combined = date && time ? `${date}T${time}` : date ? date : ""
+      handleProcessingTimeChange(cellKey, combined)
+    },
+    [handleProcessingTimeChange],
+  )
+
+  // ── Parameter-variation Yes/No ───────────────────────────────────────────
+  const storedVariationChoice = variationChoiceOf(experiment)
+  const handleVariationChoice = useCallback(
+    (choice: "yes" | "no" | null) =>
+      handleProcessingTimeChange(VARIATION_CHOICE_KEY, choice ?? ""),
+    [handleProcessingTimeChange],
+  )
+
   const handleVariationValueChange = useCallback(
     (
       substrateId: string,
@@ -1137,365 +1167,224 @@ function ExperimentGrid({
     )
   const partiallySelected = selectedSubstrateIds.size > 0 && !allSelected
 
-  // Group variation columns by stage index so they render right after their stage column
-  const variationColumnsByStageIdx = React.useMemo(() => {
-    const map = new Map<number, (typeof variationColumns)[number][]>()
-    for (const col of variationColumns) {
-      if (!map.has(col.stageIndex)) map.set(col.stageIndex, [])
-      map.get(col.stageIndex)!.push(col)
-    }
-    return map
-  }, [variationColumns])
+  // ── Three-sub-box completion flags (Substrates → Times → Variation) ───────
+  const substratesDone = experimentSubstratesDone(experiment)
+  const timesDone = experimentProcessingTimesDone(experiment, process)
+  const variationDone = experimentVariationDone(experiment, process)
+  const hasVariations = variationColumns.length > 0
+  // Existing experiments that already have variation columns are treated as an
+  // implicit "Yes" so they show the editor without re-asking the question.
+  const variationChoice: "yes" | "no" | null =
+    storedVariationChoice ?? (hasVariations ? "yes" : null)
+
+  const thStyle: React.CSSProperties = {
+    padding: "12px 8px",
+    textAlign: "left",
+    fontWeight: 600,
+    borderBottom:
+      "2px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
+  }
 
   return (
-    <Box mb="lg" style={{ overflowX: "auto" }}>
-      {experiment.substrates.length > 0 && (
-        <Group justify="space-between" mb="xs">
-          <Group gap="xs">
-            <Button
-              size="xs"
-              variant="light"
-              onClick={handleSelectAllSubstrates}
-            >
-              Select All
-            </Button>
-            <Button
-              size="xs"
-              variant="default"
-              onClick={handleSelectNoSubstrates}
-            >
-              Select None
-            </Button>
-          </Group>
-          <Group gap="xs">
-            <Text size="xs" c="dimmed">
-              {selectedSubstrateIds.size} selected
-            </Text>
-            <Button
-              size="xs"
-              color="red"
-              variant="light"
-              disabled={selectedSubstrateIds.size === 0}
-              onClick={handleDeleteSelectedSubstrates}
-            >
-              Delete Selected
-            </Button>
-          </Group>
-        </Group>
-      )}
-      <table
-        style={{
-          borderCollapse: "collapse",
-          width: "100%",
-          fontSize: "14px",
-        }}
+    <Stack gap="md">
+      {/* ── Sub-box 1: Substrates ───────────────────────────────────────── */}
+      <ProcessingSubBox
+        index={1}
+        title="Substrates"
+        subtitle="Name at least one substrate and choose the process step it followed."
+        done={substratesDone}
       >
-        <thead>
-          <tr
+        <Box style={{ overflowX: "auto" }}>
+          {experiment.substrates.length > 0 && (
+            <Group justify="space-between" mb="xs">
+              <Group gap="xs">
+                <Button
+                  size="xs"
+                  variant="light"
+                  onClick={handleSelectAllSubstrates}
+                >
+                  Select All
+                </Button>
+                <Button
+                  size="xs"
+                  variant="default"
+                  onClick={handleSelectNoSubstrates}
+                >
+                  Select None
+                </Button>
+              </Group>
+              <Group gap="xs">
+                <Text size="xs" c="dimmed">
+                  {selectedSubstrateIds.size} selected
+                </Text>
+                <Button
+                  size="xs"
+                  color="red"
+                  variant="light"
+                  disabled={selectedSubstrateIds.size === 0}
+                  onClick={handleDeleteSelectedSubstrates}
+                >
+                  Delete Selected
+                </Button>
+              </Group>
+            </Group>
+          )}
+          <table
             style={{
-              background:
-                "light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))",
+              borderCollapse: "collapse",
+              width: "100%",
+              fontSize: "14px",
             }}
           >
-            <th
-              style={{
-                padding: "12px 8px",
-                textAlign: "center",
-                fontWeight: 600,
-                borderBottom:
-                  "2px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
-                minWidth: "46px",
-              }}
-            >
-              <Checkbox
-                checked={allSelected}
-                indeterminate={partiallySelected}
-                onChange={(e) => {
-                  if (e.currentTarget.checked) {
-                    handleSelectAllSubstrates()
-                  } else {
-                    handleSelectNoSubstrates()
-                  }
+            <thead>
+              <tr
+                style={{
+                  background:
+                    "light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))",
                 }}
-                aria-label="Select all substrates"
-              />
-            </th>
-            <th
-              style={{
-                padding: "12px 8px",
-                textAlign: "left",
-                fontWeight: 600,
-                borderBottom:
-                  "2px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
-                minWidth: "150px",
-              }}
-            >
-              Substrate
-            </th>
-            <th
-              style={{
-                padding: "12px 8px",
-                textAlign: "left",
-                fontWeight: 600,
-                borderBottom:
-                  "2px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
-                minWidth: "170px",
-              }}
-            >
-              Material
-            </th>
-            {process.stages.map((stage, idx) => {
-              const stageVarCols = variationColumnsByStageIdx.get(idx) ?? []
-              const isOpen = variationPopoverStageIdx === idx
-              const altOptions = buildStageStepOptions(
-                stage.alternatives,
-                process.solutionRecipes ?? [],
-              ).filter((o) => o.value !== "SKIP")
-              return (
-                <React.Fragment key={`stage-${idx}`}>
-                  <th
-                    style={{
-                      padding: "12px 8px",
-                      textAlign: "left",
-                      fontWeight: 600,
-                      borderBottom:
-                        "2px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
-                      minWidth: "180px",
+              >
+                <th style={{ ...thStyle, textAlign: "center", minWidth: 46 }}>
+                  <Checkbox
+                    checked={allSelected}
+                    indeterminate={partiallySelected}
+                    onChange={(e) => {
+                      if (e.currentTarget.checked) {
+                        handleSelectAllSubstrates()
+                      } else {
+                        handleSelectNoSubstrates()
+                      }
                     }}
+                    aria-label="Select all substrates"
+                  />
+                </th>
+                <th style={{ ...thStyle, minWidth: 150 }}>Substrate</th>
+                <th style={{ ...thStyle, minWidth: 170 }}>Material</th>
+                {process.stages.map((stage, idx) => (
+                  <th
+                    key={`h-stage-${idx}`}
+                    style={{ ...thStyle, minWidth: 180 }}
                   >
-                    <Group justify="space-between" gap="xs" wrap="nowrap">
-                      <Group gap="xs" wrap="nowrap">
-                        <Text size="sm">#{idx + 1} Step</Text>
-                        {stage.alternatives.length > 1 && (
-                          <Badge size="xs" variant="light" color="orange">
-                            {stage.alternatives.length} options
-                          </Badge>
-                        )}
-                      </Group>
-                      <Popover
-                        opened={isOpen}
-                        onClose={() => setVariationPopoverStageIdx(null)}
-                        position="bottom-end"
-                        withArrow
-                        shadow="md"
-                        trapFocus
-                      >
-                        <Popover.Target>
-                          <Tooltip label="Add parameter variation">
-                            <ActionIcon
-                              size="xs"
-                              variant="subtle"
-                              color="blue"
-                              onClick={() => {
-                                if (isOpen) {
-                                  setVariationPopoverStageIdx(null)
-                                } else {
-                                  setVariationPopoverStageIdx(idx)
-                                  setVariationAltStepId(
-                                    stage.alternatives[0]?.id ?? null,
-                                  )
-                                  setVariationParam(null)
-                                }
-                              }}
-                            >
-                              <IconPlus size={10} />
-                            </ActionIcon>
-                          </Tooltip>
-                        </Popover.Target>
-                        <Popover.Dropdown>
-                          <Stack gap="xs" style={{ minWidth: 220 }}>
-                            <Text size="xs" fw={600}>
-                              Add Parameter Variation
-                            </Text>
-                            {stage.alternatives.length > 1 && (
-                              <Select
-                                size="xs"
-                                label="Alternative"
-                                data={altOptions}
-                                value={variationAltStepId}
-                                onChange={(v) => {
-                                  setVariationAltStepId(v)
-                                  setVariationParam(null)
-                                }}
-                              />
-                            )}
-                            <Select
-                              size="xs"
-                              label="Parameter"
-                              placeholder="Select parameter..."
-                              data={variationParamOptions}
-                              value={variationParam}
-                              onChange={setVariationParam}
-                              disabled={variationParamOptions.length === 0}
-                            />
-                            <Button
-                              size="xs"
-                              disabled={!variationAltStepId || !variationParam}
-                              onClick={handleAddVariation}
-                            >
-                              Add Variation
-                            </Button>
-                          </Stack>
-                        </Popover.Dropdown>
-                      </Popover>
+                    <Group gap="xs" wrap="nowrap">
+                      <Text size="sm">#{idx + 1} Step</Text>
+                      {stage.alternatives.length > 1 && (
+                        <Badge size="xs" variant="light" color="orange">
+                          {stage.alternatives.length} options
+                        </Badge>
+                      )}
                     </Group>
                   </th>
-                  {stageVarCols.map((col) => (
-                    <th
-                      key={`variation-col-${col.stepId}-${col.paramKey}`}
-                      style={{
-                        padding: "12px 8px",
-                        textAlign: "left",
-                        fontWeight: 600,
-                        borderBottom:
-                          "2px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
-                        minWidth: "190px",
-                        background:
-                          "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
-                      }}
-                    >
-                      <Group justify="space-between" gap="xs" wrap="nowrap">
-                        <Text size="xs">{col.label}</Text>
-                        <Tooltip label="Delete variation column">
-                          <ActionIcon
-                            size="xs"
-                            variant="subtle"
-                            color="red"
-                            onClick={() => removeVariationColumn(col)}
-                          >
-                            <IconTrash size={12} />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Group>
-                    </th>
-                  ))}
-                </React.Fragment>
-              )
-            })}
-            <th
-              style={{
-                padding: "12px 8px",
-                textAlign: "center",
-                fontWeight: 600,
-                borderBottom:
-                  "2px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
-                minWidth: "80px",
-              }}
-            >
-              Action
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {experiment.substrates.map((substrate, substrateIndex) => (
-            <tr
-              key={substrate.id}
-              style={{
-                borderBottom:
-                  "1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
-              }}
-            >
-              <td
-                style={{
-                  padding: "8px 8px",
-                  textAlign: "center",
-                  background:
-                    "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
-                }}
-              >
-                <Checkbox
-                  checked={selectedSubstrateIds.has(substrate.id)}
-                  onChange={(e) =>
-                    handleToggleSubstrateSelection(
-                      substrate.id,
-                      e.currentTarget.checked,
-                    )
-                  }
-                  aria-label={`Select substrate ${substrate.name}`}
-                />
-              </td>
-              <td
-                style={{
-                  padding: "12px 8px",
-                  fontWeight: 500,
-                  background:
-                    "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
-                }}
-              >
-                <DeferredTextInput
-                  ref={nameRefCallbacks[substrateIndex]}
-                  size="xs"
-                  value={substrate.name}
-                  placeholder="Name Substrate..."
-                  pulseWhenEmpty
-                  onBlur={(value) =>
-                    handleSubstrateNameChange(substrate.id, value)
-                  }
-                  onFocus={(e) => e.currentTarget.select()}
-                  onKeyDown={(e) => {
-                    const currentIndex = experiment.substrates.findIndex(
-                      (s) => s.id === substrate.id,
-                    )
-                    const isLast =
-                      currentIndex === experiment.substrates.length - 1
-                    if (e.key === "Enter") {
-                      e.preventDefault()
-                      // Enter jumps to the next substrate name, creating one
-                      // when at the end so names can be entered in a rapid
-                      // type → Enter → type flow.
-                      if (isLast) {
-                        commitNameAndAddSubstrate(
-                          substrate.id,
-                          e.currentTarget.value,
-                        )
-                      } else {
-                        handleSubstrateNameChange(
-                          substrate.id,
-                          e.currentTarget.value,
-                        )
-                        focusNameInput(currentIndex + 1)
-                      }
-                    }
-                    if (e.key === "Tab") {
-                      e.preventDefault()
-                      if (!e.shiftKey && isLast) {
-                        commitNameAndAddSubstrate(
-                          substrate.id,
-                          e.currentTarget.value,
-                        )
-                      } else {
-                        focusNameInput(
-                          e.shiftKey ? currentIndex - 1 : currentIndex + 1,
-                        )
-                      }
-                    }
+                ))}
+                <th style={{ ...thStyle, textAlign: "center", minWidth: 80 }}>
+                  Action
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {experiment.substrates.map((substrate, substrateIndex) => (
+                <tr
+                  key={substrate.id}
+                  style={{
+                    borderBottom:
+                      "1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
                   }}
-                  styles={{ input: { fontWeight: 500 } }}
-                />
-              </td>
-              <td
-                style={{
-                  padding: "8px 4px",
-                  background:
-                    "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
-                }}
-              >
-                <Select
-                  size="xs"
-                  placeholder="Select material"
-                  data={substrateMaterialOptions}
-                  value={substrate.substrateMaterialId ?? null}
-                  onChange={(value) =>
-                    handleSubstrateMaterialChange(substrate.id, value)
-                  }
-                />
-              </td>
-              {process.stages.map((stage, stageIdx) => {
-                const stageVarCols =
-                  variationColumnsByStageIdx.get(stageIdx) ?? []
-                return (
-                  <React.Fragment key={`${substrate.id}-stage-${stageIdx}`}>
-                    <td style={{ padding: "8px 4px" }}>
+                >
+                  <td
+                    style={{
+                      padding: "8px 8px",
+                      textAlign: "center",
+                      background:
+                        "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+                    }}
+                  >
+                    <Checkbox
+                      checked={selectedSubstrateIds.has(substrate.id)}
+                      onChange={(e) =>
+                        handleToggleSubstrateSelection(
+                          substrate.id,
+                          e.currentTarget.checked,
+                        )
+                      }
+                      aria-label={`Select substrate ${substrate.name}`}
+                    />
+                  </td>
+                  <td
+                    style={{
+                      padding: "12px 8px",
+                      fontWeight: 500,
+                      background:
+                        "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+                    }}
+                  >
+                    <DeferredTextInput
+                      ref={nameRefCallbacks[substrateIndex]}
+                      size="xs"
+                      value={substrate.name}
+                      placeholder="Name Substrate..."
+                      pulseWhenEmpty
+                      onBlur={(value) =>
+                        handleSubstrateNameChange(substrate.id, value)
+                      }
+                      onFocus={(e) => e.currentTarget.select()}
+                      onKeyDown={(e) => {
+                        const currentIndex = experiment.substrates.findIndex(
+                          (s) => s.id === substrate.id,
+                        )
+                        const isLast =
+                          currentIndex === experiment.substrates.length - 1
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          if (isLast) {
+                            commitNameAndAddSubstrate(
+                              substrate.id,
+                              e.currentTarget.value,
+                            )
+                          } else {
+                            handleSubstrateNameChange(
+                              substrate.id,
+                              e.currentTarget.value,
+                            )
+                            focusNameInput(currentIndex + 1)
+                          }
+                        }
+                        if (e.key === "Tab") {
+                          e.preventDefault()
+                          if (!e.shiftKey && isLast) {
+                            commitNameAndAddSubstrate(
+                              substrate.id,
+                              e.currentTarget.value,
+                            )
+                          } else {
+                            focusNameInput(
+                              e.shiftKey ? currentIndex - 1 : currentIndex + 1,
+                            )
+                          }
+                        }
+                      }}
+                      styles={{ input: { fontWeight: 500 } }}
+                    />
+                  </td>
+                  <td
+                    style={{
+                      padding: "8px 4px",
+                      background:
+                        "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+                    }}
+                  >
+                    <Select
+                      size="xs"
+                      placeholder="Select material"
+                      data={substrateMaterialOptions}
+                      value={substrate.substrateMaterialId ?? null}
+                      onChange={(value) =>
+                        handleSubstrateMaterialChange(substrate.id, value)
+                      }
+                    />
+                  </td>
+                  {process.stages.map((stage, stageIdx) => (
+                    <td
+                      key={`${substrate.id}-stage-${stageIdx}`}
+                      style={{ padding: "8px 4px" }}
+                    >
                       <ProcessStepSelector
                         alternatives={stage.alternatives}
                         solutionRecipes={process.solutionRecipes ?? []}
@@ -1509,339 +1398,377 @@ function ExperimentGrid({
                         }
                       />
                     </td>
-                    {stageVarCols.map((column) => {
-                      const key = `${column.stepId}:${column.paramKey}`
-                      const editable = isVariationCellEditable(
-                        substrate.id,
-                        column.stageIndex,
-                        column.stepId,
-                      )
-                      return (
-                        <td
-                          key={`${substrate.id}-${key}`}
-                          style={{
-                            padding: "8px 4px",
-                            background:
-                              "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
-                          }}
+                  ))}
+                  <td style={{ padding: "8px 4px", textAlign: "center" }}>
+                    <Group justify="center" gap={2} wrap="nowrap">
+                      <Tooltip label="Duplicate substrate">
+                        <ActionIcon
+                          size="sm"
+                          variant="subtle"
+                          color="teal"
+                          onClick={() => handleDuplicateSubstrate(substrate.id)}
                         >
-                          <DeferredTextInput
-                            size="xs"
-                            value={substrate.parameterValues?.[key] ?? ""}
-                            disabled={!editable}
-                            styles={
-                              !editable
-                                ? { input: { opacity: 0.55 } }
-                                : undefined
-                            }
-                            onBlur={(value) =>
-                              handleVariationValueChange(
-                                substrate.id,
-                                column.stepId,
-                                column.paramKey,
-                                value,
-                              )
-                            }
-                          />
-                        </td>
-                      )
-                    })}
-                  </React.Fragment>
-                )
-              })}
-              <td style={{ padding: "8px 4px", textAlign: "center" }}>
-                <Group justify="center" gap={2} wrap="nowrap">
-                  <Tooltip label="Duplicate substrate">
-                    <ActionIcon
-                      size="sm"
-                      variant="subtle"
-                      color="teal"
-                      onClick={() => handleDuplicateSubstrate(substrate.id)}
-                    >
-                      <IconCopy size={14} />
-                    </ActionIcon>
-                  </Tooltip>
-                  <Tooltip label="Remove substrate">
-                    <ActionIcon
-                      size="sm"
-                      variant="subtle"
-                      color="red"
-                      onClick={() => handleRemoveSubstrate(substrate.id)}
-                    >
-                      <IconTrash size={14} />
-                    </ActionIcon>
-                  </Tooltip>
-                </Group>
-              </td>
-            </tr>
-          ))}
+                          <IconCopy size={14} />
+                        </ActionIcon>
+                      </Tooltip>
+                      <Tooltip label="Remove substrate">
+                        <ActionIcon
+                          size="sm"
+                          variant="subtle"
+                          color="red"
+                          onClick={() => handleRemoveSubstrate(substrate.id)}
+                        >
+                          <IconTrash size={14} />
+                        </ActionIcon>
+                      </Tooltip>
+                    </Group>
+                  </td>
+                </tr>
+              ))}
 
-          {/* Ghost add row — above Processing Times */}
-          <tr
-            onClick={() => {
-              // Focus the new (blank) name field so the user is prompted to
-              // name it right away.
-              pendingFocusNewSubstrate.current = true
-              onAddSingleSubstrate()
-            }}
-            onMouseEnter={() => setAddRowHovered(true)}
-            onMouseLeave={() => setAddRowHovered(false)}
-            style={{
-              cursor: "pointer",
-              background: addRowHovered
-                ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
-                : undefined,
-              transition: "background 100ms",
-              borderTop: `1px dashed ${addRowHovered ? "var(--mantine-color-blue-3)" : "light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))"}`,
-            }}
-          >
-            <td style={{ padding: "10px 8px", textAlign: "center" }}>
-              <IconPlus
-                size={12}
-                color={
-                  addRowHovered
-                    ? "var(--mantine-color-blue-5)"
-                    : "var(--mantine-color-gray-4)"
-                }
-              />
-            </td>
-            <td colSpan={999} style={{ padding: "10px 8px" }}>
-              <Text
-                size="xs"
-                c={addRowHovered ? "blue" : "dimmed"}
-                fw={addRowHovered ? 500 : 400}
-                fs={addRowHovered ? undefined : "italic"}
+              {/* Ghost add row */}
+              <tr
+                onClick={() => {
+                  pendingFocusNewSubstrate.current = true
+                  onAddSingleSubstrate()
+                }}
+                onMouseEnter={() => setAddRowHovered(true)}
+                onMouseLeave={() => setAddRowHovered(false)}
+                style={{
+                  cursor: "pointer",
+                  background: addRowHovered
+                    ? "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))"
+                    : undefined,
+                  transition: "background 100ms",
+                  borderTop: `1px dashed ${addRowHovered ? "var(--mantine-color-blue-3)" : "light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))"}`,
+                }}
               >
-                {addRowHovered
-                  ? "Click to add a new substrate"
-                  : "Add substrate..."}
-              </Text>
-            </td>
-          </tr>
+                <td style={{ padding: "10px 8px", textAlign: "center" }}>
+                  <IconPlus
+                    size={12}
+                    color={
+                      addRowHovered
+                        ? "var(--mantine-color-blue-5)"
+                        : "var(--mantine-color-gray-4)"
+                    }
+                  />
+                </td>
+                <td colSpan={999} style={{ padding: "10px 8px" }}>
+                  <Text
+                    size="xs"
+                    c={addRowHovered ? "blue" : "dimmed"}
+                    fw={addRowHovered ? 500 : 400}
+                    fs={addRowHovered ? undefined : "italic"}
+                  >
+                    {addRowHovered
+                      ? "Click to add a new substrate"
+                      : "Add substrate..."}
+                  </Text>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </Box>
+      </ProcessingSubBox>
 
-          {experiment.substrates.length > 0 &&
-            (() => {
-              const hasDivergence =
-                processingDivergeIdx >= 0 && processingStacks.length > 1
-              const rows: Array<{
-                rowKey: string
-                stackKey: string | null
-                isShared: boolean
-                rowIndexAmongStacks: number
-                ownFrom: number
-                ownTo: number
-              }> = hasDivergence
-                ? [
-                    {
-                      rowKey: "shared",
-                      stackKey: null,
-                      isShared: true,
-                      rowIndexAmongStacks: -1,
-                      ownFrom: 0,
-                      ownTo: processingDivergeIdx,
-                    },
-                    ...processingStacks.map((stack, rowIndexAmongStacks) => ({
-                      rowKey: stack.key,
-                      stackKey: stack.key,
-                      isShared: false,
-                      rowIndexAmongStacks,
-                      ownFrom: processingDivergeIdx,
-                      ownTo: process.stages.length,
-                    })),
-                  ]
-                : [
-                    {
-                      rowKey: "shared",
-                      stackKey: null,
-                      isShared: true,
-                      rowIndexAmongStacks: -1,
-                      ownFrom: 0,
-                      ownTo: process.stages.length,
-                    },
-                  ]
+      {/* ── Sub-box 2: Processing times ─────────────────────────────────── */}
+      {substratesDone && (
+        <ProcessingSubBox
+          index={2}
+          title="Processing times"
+          subtitle="Give every step a date and a time. The date auto-fills from the step before — you only need to add the time. Steps may share the same time."
+          done={timesDone}
+        >
+          {(() => {
+            const hasDivergence =
+              processingDivergeIdx >= 0 && processingStacks.length > 1
+            const rows: Array<{
+              rowKey: string
+              stackKey: string | null
+              isShared: boolean
+              rowIndexAmongStacks: number
+              ownFrom: number
+              ownTo: number
+            }> = hasDivergence
+              ? [
+                  {
+                    rowKey: "shared",
+                    stackKey: null,
+                    isShared: true,
+                    rowIndexAmongStacks: -1,
+                    ownFrom: 0,
+                    ownTo: processingDivergeIdx,
+                  },
+                  ...processingStacks.map((stack, rowIndexAmongStacks) => ({
+                    rowKey: stack.key,
+                    stackKey: stack.key,
+                    isShared: false,
+                    rowIndexAmongStacks,
+                    ownFrom: processingDivergeIdx,
+                    ownTo: process.stages.length,
+                  })),
+                ]
+              : [
+                  {
+                    rowKey: "shared",
+                    stackKey: null,
+                    isShared: true,
+                    rowIndexAmongStacks: -1,
+                    ownFrom: 0,
+                    ownTo: process.stages.length,
+                  },
+                ]
 
-              return rows.map((row) => (
-                <tr
-                  key={row.rowKey}
+            return (
+              <Box style={{ overflowX: "auto" }}>
+                <table
                   style={{
-                    background:
-                      "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+                    borderCollapse: "collapse",
+                    width: "100%",
+                    fontSize: "14px",
                   }}
                 >
-                  <td
-                    style={{
-                      borderTop:
-                        "2px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
-                    }}
-                  />
-                  <td
-                    style={{
-                      padding: "10px 8px",
-                      fontWeight: row.isShared ? 600 : 500,
-                      borderTop:
-                        "2px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
-                    }}
-                  >
-                    {row.isShared ? (
-                      <>
-                        Processing Times{" "}
-                        <Text component="span" c="red.6" fw={700}>
-                          *
-                        </Text>
-                      </>
-                    ) : (
-                      <Group gap={4} wrap="nowrap">
-                        <Text size="xs" c="dimmed">
-                          ↳
-                        </Text>
-                        <Text size="xs" fw={600}>
-                          {stackRowLabel(
-                            processingStacks[row.rowIndexAmongStacks],
-                            process,
-                            processingDecisiveStageIndices,
-                          )}
-                        </Text>
-                        <Text component="span" c="red.6" fw={700} size="xs">
-                          *
-                        </Text>
-                      </Group>
-                    )}
-                  </td>
-                  <td
-                    style={{
-                      borderTop:
-                        "2px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
-                    }}
-                  />
-                  {process.stages.map((stage, idx) => {
-                    const stageVarCols =
-                      variationColumnsByStageIdx.get(idx) ?? []
-                    const owned = idx >= row.ownFrom && idx < row.ownTo
-                    const resolvedValue = resolveProcessingTime(
-                      idx,
-                      row.stackKey,
-                      processingCtx,
-                    )
-
-                    let cellContent: React.ReactNode
-                    if (!owned) {
-                      // Handled by a different row (shared row above, or a
-                      // sibling stack row) — show it read-only for context.
-                      cellContent = (
-                        <Text size="xs" c="dimmed" ta="center">
-                          {resolvedValue
-                            ? resolvedValue.replace("T", " ")
-                            : "—"}
-                        </Text>
-                      )
-                    } else {
-                      const cellKey = processingTimeKey(idx, row.stackKey)
-                      const asAboveKey = row.stackKey
-                        ? processingAsAboveKey(idx, row.stackKey)
-                        : null
-                      const canUseAsAbove =
-                        asAboveKey !== null && row.rowIndexAmongStacks > 0
-                      const isAsAbove =
-                        canUseAsAbove &&
-                        processingCtx.processingTimes[asAboveKey!] === "true"
-                      const isFlagged = processingRegressions.has(cellKey)
-                      cellContent = (
-                        <Stack gap={2}>
-                          <DeferredTextInput
-                            size="xs"
-                            type="datetime-local"
-                            pulseWhenEmpty={!isAsAbove}
-                            disabled={isAsAbove}
-                            value={resolvedValue}
-                            onBlur={(value) =>
-                              handleProcessingTimeChange(cellKey, value)
-                            }
-                            styles={
-                              isFlagged
-                                ? {
-                                    input: {
-                                      borderColor: "var(--mantine-color-red-5)",
-                                    },
-                                  }
-                                : undefined
-                            }
-                          />
-                          {isFlagged && (
-                            <Text size="10px" c="red.6">
-                              Earlier than the previous step
-                            </Text>
-                          )}
-                          {canUseAsAbove && (
-                            <Checkbox
-                              size="xs"
-                              label="As above"
-                              checked={isAsAbove}
-                              onChange={(e) =>
-                                handleProcessingAsAboveToggle(
-                                  asAboveKey!,
-                                  e.currentTarget.checked,
-                                )
-                              }
-                            />
-                          )}
-                        </Stack>
-                      )
-                    }
-
-                    return (
-                      <React.Fragment
-                        key={`processing-time-${row.rowKey}-${stage.index}-${idx}`}
-                      >
-                        <td
-                          style={{
-                            padding: "8px 4px",
-                            borderTop:
-                              "2px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
-                            background: owned
-                              ? undefined
-                              : "light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))",
-                          }}
+                  <thead>
+                    <tr
+                      style={{
+                        background:
+                          "light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))",
+                      }}
+                    >
+                      <th style={{ ...thStyle, minWidth: 200 }}>Step</th>
+                      {process.stages.map((_stage, idx) => (
+                        <th
+                          key={`ptime-h-${idx}`}
+                          style={{ ...thStyle, minWidth: 250 }}
                         >
-                          {cellContent}
+                          #{idx + 1} Step
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr
+                        key={row.rowKey}
+                        style={{
+                          borderBottom:
+                            "1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
+                        }}
+                      >
+                        <td style={{ padding: "10px 8px" }}>
+                          {row.isShared ? (
+                            <Text size="sm" fw={600}>
+                              Processing Times{" "}
+                              <Text component="span" c="red.6" fw={700}>
+                                *
+                              </Text>
+                            </Text>
+                          ) : (
+                            <Group gap={4} wrap="nowrap">
+                              <Text size="xs" c="dimmed">
+                                ↳
+                              </Text>
+                              <Text size="xs" fw={600}>
+                                {stackRowLabel(
+                                  processingStacks[row.rowIndexAmongStacks],
+                                  process,
+                                  processingDecisiveStageIndices,
+                                )}
+                              </Text>
+                              <Text
+                                component="span"
+                                c="red.6"
+                                fw={700}
+                                size="xs"
+                              >
+                                *
+                              </Text>
+                            </Group>
+                          )}
                         </td>
-                        {stageVarCols.map((col) => (
-                          <td
-                            key={`processing-var-${col.stepId}-${col.paramKey}`}
-                            style={{
-                              borderTop:
-                                "2px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
-                              background:
-                                "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
-                            }}
-                          />
-                        ))}
-                      </React.Fragment>
-                    )
-                  })}
-                  <td
-                    style={{
-                      borderTop:
-                        "2px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
-                    }}
-                  />
-                </tr>
-              ))
-            })()}
-        </tbody>
+                        {process.stages.map((_stage, idx) => {
+                          const owned = idx >= row.ownFrom && idx < row.ownTo
+                          const resolvedValue = resolveProcessingTime(
+                            idx,
+                            row.stackKey,
+                            processingCtx,
+                          )
+                          if (!owned) {
+                            return (
+                              <td
+                                key={`ptime-${row.rowKey}-${idx}`}
+                                style={{
+                                  padding: "8px 4px",
+                                  background:
+                                    "light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))",
+                                }}
+                              >
+                                <Text size="xs" c="dimmed" ta="center">
+                                  {resolvedValue
+                                    ? resolvedValue.replace("T", " ")
+                                    : "—"}
+                                </Text>
+                              </td>
+                            )
+                          }
+                          const cellKey = processingTimeKey(idx, row.stackKey)
+                          const asAboveKey = row.stackKey
+                            ? processingAsAboveKey(idx, row.stackKey)
+                            : null
+                          const canUseAsAbove =
+                            asAboveKey !== null && row.rowIndexAmongStacks > 0
+                          const isAsAbove =
+                            canUseAsAbove &&
+                            processingCtx.processingTimes[asAboveKey!] ===
+                              "true"
+                          const isFlagged = processingRegressions.has(cellKey)
+                          const dateVal = datePart(resolvedValue)
+                          const timeVal = timePart(resolvedValue)
+                          return (
+                            <td
+                              key={`ptime-${row.rowKey}-${idx}`}
+                              style={{ padding: "8px 4px" }}
+                            >
+                              <Stack gap={4}>
+                                {isAsAbove ? (
+                                  <Text size="xs" c="dimmed" ta="center">
+                                    {resolvedValue
+                                      ? resolvedValue.replace("T", " ")
+                                      : "—"}
+                                  </Text>
+                                ) : (
+                                  <Group
+                                    gap={4}
+                                    wrap="nowrap"
+                                    align="flex-start"
+                                  >
+                                    <DeferredTextInput
+                                      size="xs"
+                                      type="date"
+                                      pulseWhenEmpty
+                                      value={dateVal}
+                                      onBlur={(value) =>
+                                        handleProcessingDateTimeChange(
+                                          cellKey,
+                                          value,
+                                          timeVal,
+                                        )
+                                      }
+                                      style={{ minWidth: 130 }}
+                                    />
+                                    <DeferredTextInput
+                                      size="xs"
+                                      type="time"
+                                      pulseWhenEmpty
+                                      value={timeVal}
+                                      onBlur={(value) =>
+                                        handleProcessingDateTimeChange(
+                                          cellKey,
+                                          dateVal,
+                                          value,
+                                        )
+                                      }
+                                      style={{ minWidth: 105 }}
+                                      styles={
+                                        isFlagged
+                                          ? {
+                                              input: {
+                                                borderColor:
+                                                  "var(--mantine-color-red-5)",
+                                              },
+                                            }
+                                          : undefined
+                                      }
+                                    />
+                                  </Group>
+                                )}
+                                {isFlagged && !isAsAbove && (
+                                  <Text size="10px" c="red.6">
+                                    Earlier than the previous step
+                                  </Text>
+                                )}
+                                {canUseAsAbove && (
+                                  <Checkbox
+                                    size="xs"
+                                    label="As above"
+                                    checked={isAsAbove}
+                                    onChange={(e) =>
+                                      handleProcessingAsAboveToggle(
+                                        asAboveKey!,
+                                        e.currentTarget.checked,
+                                      )
+                                    }
+                                  />
+                                )}
+                              </Stack>
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Box>
+            )
+          })()}
+        </ProcessingSubBox>
+      )}
 
-        {/* Variation hint — same action as + buttons in the step column headers */}
-        {process.stages.length > 0 && (
-          <tfoot>
-            <tr>
-              <td
-                colSpan={999}
-                style={{
-                  padding: "8px 12px",
-                  background:
-                    "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
-                  borderTop:
-                    "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
-                }}
+      {/* ── Sub-box 3: Parameter variation ──────────────────────────────── */}
+      {substratesDone && timesDone && (
+        <ProcessingSubBox
+          index={3}
+          title="Parameter variation"
+          subtitle="Did you vary a process parameter across substrates during this experiment?"
+          done={variationDone}
+        >
+          {variationChoice === null ? (
+            <Group gap="sm">
+              <Button
+                variant="light"
+                color="blue"
+                onClick={() => handleVariationChoice("yes")}
+              >
+                Yes, I varied a parameter
+              </Button>
+              <Button
+                variant="default"
+                onClick={() => handleVariationChoice("no")}
+              >
+                No, all substrates used the same parameters
+              </Button>
+            </Group>
+          ) : variationChoice === "no" ? (
+            <Group justify="space-between" wrap="nowrap">
+              <Text size="sm" c="dimmed">
+                No parameter variation — every substrate used the same process
+                parameters.
+              </Text>
+              <Button
+                size="xs"
+                variant="subtle"
+                onClick={() => handleVariationChoice("yes")}
+              >
+                Actually, I varied a parameter
+              </Button>
+            </Group>
+          ) : (
+            <Stack gap="md">
+              {!hasVariations && (
+                <Alert
+                  variant="light"
+                  color="orange"
+                  icon={<IconInfoCircle size={18} />}
+                >
+                  Add at least one parameter variation below, or switch back to
+                  "No" if nothing was varied.
+                </Alert>
+              )}
+
+              {/* Add-variation control — pulses while no variation exists yet */}
+              <Box
+                className={!hasVariations ? "exp-pulse" : undefined}
+                p={!hasVariations ? "xs" : 0}
               >
                 <Group gap="xs" align="center" wrap="wrap">
                   <Group gap={4} align="center" style={{ flexShrink: 0 }}>
@@ -1906,13 +1833,120 @@ function ExperimentGrid({
                   >
                     Add variation
                   </Button>
+                  <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    color="gray"
+                    onClick={() => handleVariationChoice("no")}
+                  >
+                    No variation after all
+                  </Button>
                 </Group>
-              </td>
-            </tr>
-          </tfoot>
-        )}
-      </table>
-    </Box>
+              </Box>
+
+              {hasVariations && (
+                <Box style={{ overflowX: "auto" }}>
+                  <table
+                    style={{
+                      borderCollapse: "collapse",
+                      width: "100%",
+                      fontSize: "14px",
+                    }}
+                  >
+                    <thead>
+                      <tr
+                        style={{
+                          background:
+                            "light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5))",
+                        }}
+                      >
+                        <th style={{ ...thStyle, minWidth: 150 }}>Substrate</th>
+                        {variationColumns.map((col) => (
+                          <th
+                            key={`var-h-${col.stepId}-${col.paramKey}`}
+                            style={{ ...thStyle, minWidth: 190 }}
+                          >
+                            <Group
+                              justify="space-between"
+                              gap="xs"
+                              wrap="nowrap"
+                            >
+                              <Text size="xs">{col.label}</Text>
+                              <Tooltip label="Delete variation column">
+                                <ActionIcon
+                                  size="xs"
+                                  variant="subtle"
+                                  color="red"
+                                  onClick={() => removeVariationColumn(col)}
+                                >
+                                  <IconTrash size={12} />
+                                </ActionIcon>
+                              </Tooltip>
+                            </Group>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {experiment.substrates.map((substrate) => (
+                        <tr
+                          key={`var-row-${substrate.id}`}
+                          style={{
+                            borderBottom:
+                              "1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4))",
+                          }}
+                        >
+                          <td style={{ padding: "10px 8px", fontWeight: 500 }}>
+                            {substrate.name || (
+                              <Text component="span" c="dimmed" fs="italic">
+                                (unnamed)
+                              </Text>
+                            )}
+                          </td>
+                          {variationColumns.map((col) => {
+                            const key = `${col.stepId}:${col.paramKey}`
+                            const editable = isVariationCellEditable(
+                              substrate.id,
+                              col.stageIndex,
+                              col.stepId,
+                            )
+                            return (
+                              <td
+                                key={`var-${substrate.id}-${key}`}
+                                style={{ padding: "8px 4px" }}
+                              >
+                                <DeferredTextInput
+                                  size="xs"
+                                  value={substrate.parameterValues?.[key] ?? ""}
+                                  disabled={!editable}
+                                  styles={
+                                    !editable
+                                      ? { input: { opacity: 0.55 } }
+                                      : undefined
+                                  }
+                                  onBlur={(value) =>
+                                    handleVariationValueChange(
+                                      substrate.id,
+                                      col.stepId,
+                                      col.paramKey,
+                                      value,
+                                    )
+                                  }
+                                />
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Box>
+              )}
+            </Stack>
+          )}
+        </ProcessingSubBox>
+      )}
+    </Stack>
   )
 }
 
