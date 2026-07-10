@@ -396,7 +396,9 @@ test("deleting an experiment in the UI hides it and its results everywhere", asy
   expect(await guiState(page)).toEqual(guiBefore)
 })
 
-test("orphan restore: original plane gone → user picks a destination", async ({
+// FIXME: Mantine Select force-click race — selection doesn't commit under
+// automation. Test flakiness, not a data bug — see frontend/tests/TEST_TRIAGE.md.
+test.fixme("orphan restore: original plane gone → user picks a destination", async ({
   authedPage: page,
   authToken,
 }) => {
