@@ -1,3 +1,6 @@
+0# Mark your user as a super-user in adminers and then click on user options, "Admin". 
+
+
 1# Debugging NOMAD Uploads
 
 Every NOMAD upload is logged, and any upload that doesn't succeed keeps its file

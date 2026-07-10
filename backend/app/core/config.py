@@ -231,5 +231,15 @@ class Settings(BaseSettings):
 
         return self
 
+    @model_validator(mode="after")
+    def _enforce_oauth_in_production(self) -> Self:
+        if self.ENVIRONMENT in ("staging", "production"):
+            if not self.NOMAD_OAUTH_ENABLED:
+                raise ValueError(
+                    "NOMAD_OAUTH_ENABLED must be true in staging/production "
+                    "(local login is unsafe for shared deployments)"
+                )
+        return self
+
 
 settings = Settings()  # type: ignore
