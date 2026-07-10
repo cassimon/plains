@@ -1399,7 +1399,18 @@ export function QuenchingModal({
     setVacuum(parsed.vacuum)
   }, [opened, initialValue])
 
+  // Obligatory specifications before the method can be added:
+  //  • Antisolvent → a chosen antisolvent material/solution
+  //  • Gas         → a gas type
+  const applyBlockedReason =
+    type === "Antisolvent" && !antisolvent.media.trim()
+      ? "Choose an antisolvent to add this quenching method."
+      : type === "Gas" && !gas.gasType.trim()
+        ? "Enter a gas type to add this quenching method."
+        : null
+
   function handleApply() {
+    if (applyBlockedReason) return
     const result = buildQuenchingString(type, gas, antisolvent, vacuum)
     onApply(result)
     onClose()
@@ -1447,11 +1458,21 @@ export function QuenchingModal({
           <VacuumForm state={vacuum} onChange={setVacuum} />
         )}
 
-        <Group justify="flex-end" mt="xs">
-          <Button variant="default" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleApply}>Apply</Button>
+        <Group justify="space-between" mt="xs" align="center" wrap="nowrap">
+          <Text size="xs" c="orange.7" style={{ flex: 1 }}>
+            {applyBlockedReason ?? ""}
+          </Text>
+          <Group gap="xs" wrap="nowrap">
+            <Button variant="default" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleApply}
+              disabled={Boolean(applyBlockedReason)}
+            >
+              Apply
+            </Button>
+          </Group>
         </Group>
       </Stack>
     </Modal>
@@ -1490,9 +1511,10 @@ export function summariseQuenchingValue(
   const type = pairs.type
   if (!type) return value
 
-  const parts: string[] = [`D/Q: ${type}`]
+  const parts: string[] = []
   if (type === "Gas") {
-    if (pairs.gasType) parts.push(pairs.gasType)
+    // Lead with "Gas: N2" / "Gas: Air" instead of a bare type word.
+    parts.push(pairs.gasType ? `D/Q: Gas: ${pairs.gasType}` : "D/Q: Gas")
     if (pairs.flowRate) parts.push(`${pairs.flowRate}`)
     if (pairs.pressure) parts.push(`${pairs.pressure}`)
     if (pairs.height) parts.push(`h=${pairs.height}`)
@@ -1500,12 +1522,18 @@ export function summariseQuenchingValue(
     if (pairs.timeUntilStart) parts.push(`t_start=${pairs.timeUntilStart} s`)
   } else if (type === "Antisolvent") {
     const media = pairs.media || pairs.material
-    if (media) parts.push(getMediaLabel(media, materials, solutions, recipes))
+    // Lead with the chosen antisolvent's name instead of "Antisolvent".
+    parts.push(
+      media
+        ? `D/Q: ${getMediaLabel(media, materials, solutions, recipes)}`
+        : "D/Q: Antisolvent",
+    )
     if (pairs.depositionMethod) parts.push(pairs.depositionMethod)
     if (pairs.flowRate) parts.push(`${pairs.flowRate}`)
     if (pairs.height) parts.push(`h=${pairs.height}`)
     if (pairs.timeUntilStart) parts.push(`t_start=${pairs.timeUntilStart} s`)
   } else if (type === "Vacuum") {
+    parts.push("D/Q: Vacuum")
     if (pairs.height) parts.push(`h=${pairs.height}`)
     if (pairs.evacuationTime) parts.push(`t=${pairs.evacuationTime}`)
     if (pairs.pumpModel) parts.push(pairs.pumpModel)

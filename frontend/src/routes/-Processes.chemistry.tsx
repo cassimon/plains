@@ -1760,6 +1760,7 @@ function SolutionCard({
   onToggle,
   onUpdate,
   onDelete,
+  onCreateDilution,
 }: {
   recipe: ProcessSolutionRecipe
   allRecipes: ProcessSolutionRecipe[]
@@ -1767,6 +1768,7 @@ function SolutionCard({
   onToggle: () => void
   onUpdate: (updated: ProcessSolutionRecipe) => void
   onDelete: () => void
+  onCreateDilution: () => void
 }) {
   const [search, setSearch] = useState<{
     role: "solvent" | "solute"
@@ -2163,6 +2165,20 @@ function SolutionCard({
                   </Group>
                 )}
 
+                {/* Create a lab-solution dilution seeded with this commercial
+                    solution (1 mL), then switch to it. */}
+                {recipe.isCommercial && (
+                  <Button
+                    fullWidth
+                    color="violet"
+                    variant="light"
+                    leftSection={<IconPlus size={18} />}
+                    onClick={onCreateDilution}
+                  >
+                    Create dilution
+                  </Button>
+                )}
+
                 {/* Solvents */}
                 <Box>
                   <Group justify="space-between" align="center" mb={6}>
@@ -2229,56 +2245,60 @@ function SolutionCard({
                               </Group>
                             )}
                           </Box>
-                          <Box
-                            style={{
-                              width: 100,
-                              flexShrink: 0,
-                              border: "1px solid var(--mantine-color-blue-3)",
-                              borderTopLeftRadius: 8,
-                              borderTopRightRadius: 8,
-                              borderBottom: showRatioColumn
-                                ? "none"
-                                : "1px solid var(--mantine-color-blue-3)",
-                              borderBottomLeftRadius: showRatioColumn ? 0 : 8,
-                              borderBottomRightRadius: showRatioColumn ? 0 : 8,
-                              background:
-                                "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
-                              padding: 6,
-                            }}
-                          >
-                            <NumberInput
-                              label={
-                                <Text size="xs" c="blue.6" fw={700}>
-                                  Total vol. (mL) ★
-                                </Text>
-                              }
-                              placeholder="e.g. 5"
-                              value={
-                                recipe.totalSolventVolumeMl !== ""
-                                  ? Number(recipe.totalSolventVolumeMl)
-                                  : ""
-                              }
-                              onChange={(v) =>
-                                update({
-                                  totalSolventVolumeMl:
-                                    v !== "" ? String(v) : "",
-                                })
-                              }
-                              min={0}
-                              size="xs"
-                              styles={{
-                                input: {
-                                  borderColor: "var(--mantine-color-blue-4)",
-                                  borderWidth: "1.5px",
-                                },
+                          {!recipe.isCommercial && (
+                            <Box
+                              style={{
+                                width: 100,
+                                flexShrink: 0,
+                                border: "1px solid var(--mantine-color-blue-3)",
+                                borderTopLeftRadius: 8,
+                                borderTopRightRadius: 8,
+                                borderBottom: showRatioColumn
+                                  ? "none"
+                                  : "1px solid var(--mantine-color-blue-3)",
+                                borderBottomLeftRadius: showRatioColumn ? 0 : 8,
+                                borderBottomRightRadius: showRatioColumn
+                                  ? 0
+                                  : 8,
+                                background:
+                                  "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
+                                padding: 6,
                               }}
-                            />
-                            {showRatioColumn && (
-                              <Text size="xs" c="blue.6" fw={600} mt={8}>
-                                Vol. ratio ★
-                              </Text>
-                            )}
-                          </Box>
+                            >
+                              <NumberInput
+                                label={
+                                  <Text size="xs" c="blue.6" fw={700}>
+                                    Total vol. (mL) ★
+                                  </Text>
+                                }
+                                placeholder="e.g. 5"
+                                value={
+                                  recipe.totalSolventVolumeMl !== ""
+                                    ? Number(recipe.totalSolventVolumeMl)
+                                    : ""
+                                }
+                                onChange={(v) =>
+                                  update({
+                                    totalSolventVolumeMl:
+                                      v !== "" ? String(v) : "",
+                                  })
+                                }
+                                min={0}
+                                size="xs"
+                                styles={{
+                                  input: {
+                                    borderColor: "var(--mantine-color-blue-4)",
+                                    borderWidth: "1.5px",
+                                  },
+                                }}
+                              />
+                              {showRatioColumn && (
+                                <Text size="xs" c="blue.6" fw={600} mt={8}>
+                                  Vol. ratio ★
+                                </Text>
+                              )}
+                            </Box>
+                          )}
                         </Group>
 
                         {/* One flex row per solvent: fields on the left, its
@@ -3045,6 +3065,19 @@ export function ChemistryTab({
   const updateRecipe = (updated: ProcessSolutionRecipe) =>
     updateRecipes(recipes.map((r) => (r.id === updated.id ? updated : r)))
 
+  const createDilution = (commercial: ProcessSolutionRecipe) => {
+    const dilution: ProcessSolutionRecipe = {
+      id: crypto.randomUUID(),
+      name: `Dilution of ${commercial.name || commercial.commercialName || "Commercial Solution"}`,
+      totalSolventVolumeMl: "1",
+      solvents: [],
+      solutes: [],
+      addedSolutions: [{ recipeId: commercial.id, volumeMl: "1" }],
+    }
+    updateRecipes([...recipes, dilution])
+    setExpandedId(dilution.id)
+  }
+
   const deleteRecipe = (id: string) => {
     updateRecipes(recipes.filter((r) => r.id !== id))
     if (expandedId === id) setExpandedId(null)
@@ -3200,6 +3233,7 @@ export function ChemistryTab({
           }
           onUpdate={updateRecipe}
           onDelete={() => deleteRecipe(r.id)}
+          onCreateDilution={() => createDilution(r)}
         />
       ))}
       <Divider />
