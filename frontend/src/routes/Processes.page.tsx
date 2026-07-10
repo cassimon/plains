@@ -1895,6 +1895,11 @@ const THICKNESS_UNKNOWN = "unknown"
 const DEFAULT_PIXEL_AREA_CM2 = "0.09"
 const DEFAULT_NUMBER_OF_PIXELS = "4"
 
+// Stable empty references so they can be safely used as hook dependencies
+// without re-firing effects on every render.
+const EMPTY_MATERIALS: Material[] = []
+const EMPTY_SOLUTIONS: Solution[] = []
+
 // Compact chemical labels for the generated stack view. Known materials collapse
 // to the app's search abbreviation (e.g. the full IUPAC SAM name → "MeO-2PACz");
 // anything else is truncated. The full name is preserved for a hover tooltip.
@@ -2423,6 +2428,57 @@ function generateStackCombinations(
   }
 
   return stacks
+}
+
+/**
+ * Carry as much user-entered stack data as possible across a regeneration.
+ *
+ * Layer-level edits (name, layer type, thickness, band gap, perovskite ions,
+ * HOMO/LUMO) are matched by stable layer id — which is the originating step id
+ * (or substrate id), so they survive as long as that step/substrate still
+ * exists. Stack-level edits (architecture, pixel area, pixel count, the
+ * build-device toggle) are matched by combination number. Layers and stacks
+ * that are genuinely new keep their freshly generated defaults.
+ */
+function mergePreservedStackEdits(
+  newStacks: GeneratedStack[],
+  prevStacks: GeneratedStack[],
+): GeneratedStack[] {
+  const layerEdits = new Map<string, Partial<StackLayer>>()
+  for (const stack of prevStacks) {
+    for (const layer of stack.layers) {
+      layerEdits.set(layer.id, {
+        name: layer.name,
+        layerType: layer.layerType,
+        thicknessNm: layer.thicknessNm,
+        bandgapEv: layer.bandgapEv ?? "",
+        perovskiteA: layer.perovskiteA,
+        perovskiteB: layer.perovskiteB,
+        perovskiteX: layer.perovskiteX,
+        homoEv: layer.homoEv ?? "",
+        lumoEv: layer.lumoEv ?? "",
+      })
+    }
+  }
+
+  const stackEdits = new Map<number, Partial<GeneratedStack>>()
+  for (const stack of prevStacks) {
+    stackEdits.set(stack.combination, {
+      architecture: stack.architecture,
+      pixelAreaCm2: stack.pixelAreaCm2,
+      numberOfPixels: stack.numberOfPixels,
+      buildDevice: stack.buildDevice,
+    })
+  }
+
+  return newStacks.map((stack) => ({
+    ...stack,
+    ...(stackEdits.get(stack.combination) ?? {}),
+    layers: stack.layers.map((layer) => {
+      const edit = layerEdits.get(layer.id)
+      return edit ? { ...layer, ...edit } : layer
+    }),
+  }))
 }
 
 type ResultingStacksProps = {
@@ -3767,8 +3823,8 @@ export function ProcessesPage() {
     lastSelectedByKind,
     updateLastSelected,
   } = useAppContext()
-  const materials: Material[] = []
-  const solutions: Solution[] = []
+  const materials = EMPTY_MATERIALS
+  const solutions = EMPTY_SOLUTIONS
   const {
     isEntityVisible,
     getEntityColor,
@@ -3946,8 +4002,9 @@ export function ProcessesPage() {
     pendingAutoTabRef.current = null
   }, [selectedProcess])
 
-  // Clear persisted stacks only when stack-defining structure/source changes.
-  // Parameter edits should not invalidate generated stacks.
+  // Regenerate (preserving user edits) only when the stack-defining STEP
+  // structure changes. Parameter-value edits don't change the key, so they
+  // never trigger a regeneration.
   useEffect(() => {
     if (!selectedProcess) return
 
@@ -3971,20 +4028,53 @@ export function ProcessesPage() {
       stackInvalidationKey,
     )
 
-    // Structure/source changed: clear now-stale generated stacks.
-    if (
-      (selectedProcess.generatedStacks?.length ?? 0) > 0 ||
-      (selectedProcess.deletedStackCombinations?.length ?? 0) > 0
-    ) {
-      const updated: Process = {
-        ...selectedProcess,
-        generatedStacks: [],
-        deletedStackCombinations: [],
+    // A stack-defining STEP changed (a step was added / removed / reordered, or
+    // a step's source material/solution/recipe was swapped). Parameter-value
+    // edits do not change the invalidation key, so they never reach here.
+    //
+    // Instead of discarding the user's work, regenerate the stacks and carry
+    // over every edit that still applies (matched by layer id / combination).
+    const oldStacks = (selectedProcess.generatedStacks ??
+      []) as GeneratedStack[]
+    if (oldStacks.length === 0) {
+      // Nothing generated yet — just drop any stale deletion bookkeeping and
+      // wait for the user's explicit "Generate Stacks".
+      if ((selectedProcess.deletedStackCombinations?.length ?? 0) > 0) {
+        setProcesses((prev) =>
+          prev.map((p) =>
+            p.id === selectedProcess.id
+              ? { ...p, deletedStackCombinations: [] }
+              : p,
+          ),
+        )
       }
-      setProcesses((prev) =>
-        prev.map((p) => (p.id === selectedProcess.id ? updated : p)),
-      )
+      return
     }
+
+    const substrateMap = new Map(materials.map((m) => [m.id, m]))
+    const regenerated = generateStackCombinations(
+      selectedProcess,
+      materials,
+      solutions,
+      substrateMap,
+    )
+    const preserved = mergePreservedStackEdits(regenerated, oldStacks)
+
+    // Per-combination deletions are positional; they only stay valid when the
+    // number of combinations is unchanged (e.g. a pure source swap). If steps
+    // were added/removed the indices shift, so reset the deletions.
+    const sameShape = regenerated.length === oldStacks.length
+
+    const updated: Process = {
+      ...selectedProcess,
+      generatedStacks: preserved as ProcessGeneratedStack[],
+      deletedStackCombinations: sameShape
+        ? (selectedProcess.deletedStackCombinations ?? [])
+        : [],
+    }
+    setProcesses((prev) =>
+      prev.map((p) => (p.id === selectedProcess.id ? updated : p)),
+    )
   }, [selectedProcess, setProcesses, stackInvalidationKey])
 
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
@@ -4019,13 +4109,17 @@ export function ProcessesPage() {
   useEffect(() => {
     if (!selectedProcess || pendingSelectProcessNameId !== selectedProcess.id)
       return
+    // Clear the pending flag INSIDE the rAF callback, not synchronously here:
+    // a synchronous state reset re-runs this effect and fires its cleanup
+    // (cancelAnimationFrame) before the frame paints, cancelling the select.
     const raf = window.requestAnimationFrame(() => {
       const input = processNameInputRef.current
-      if (!input) return
-      input.focus()
-      input.select()
+      if (input) {
+        input.focus()
+        input.select()
+      }
+      setPendingSelectProcessNameId(null)
     })
-    setPendingSelectProcessNameId(null)
     return () => window.cancelAnimationFrame(raf)
   }, [pendingSelectProcessNameId, selectedProcess])
 
@@ -4098,65 +4192,8 @@ export function ProcessesPage() {
       substrateMap,
     )
 
-    // Preserve user edits by layer id across regenerations
-    const existingLayerData = new Map<
-      string,
-      {
-        name: string
-        layerType: string
-        thicknessNm: string
-        bandgapEv: string
-        perovskiteA: string
-        perovskiteB: string
-        perovskiteX: string
-        homoEv: string
-        lumoEv: string
-      }
-    >()
-    for (const stack of generatedStacks) {
-      for (const layer of stack.layers) {
-        existingLayerData.set(layer.id, {
-          name: layer.name,
-          layerType: layer.layerType,
-          thicknessNm: layer.thicknessNm,
-          bandgapEv: layer.bandgapEv ?? "",
-          perovskiteA: layer.perovskiteA,
-          perovskiteB: layer.perovskiteB,
-          perovskiteX: layer.perovskiteX,
-          homoEv: layer.homoEv ?? "",
-          lumoEv: layer.lumoEv ?? "",
-        })
-      }
-    }
-
-    // Preserve stack-level fields by combination number
-    const existingStackData = new Map<
-      number,
-      {
-        architecture?: string
-        pixelAreaCm2?: string
-        numberOfPixels?: string
-      }
-    >()
-    for (const stack of generatedStacks) {
-      existingStackData.set(stack.combination, {
-        architecture: stack.architecture,
-        pixelAreaCm2: stack.pixelAreaCm2,
-        numberOfPixels: stack.numberOfPixels,
-      })
-    }
-
-    const preservedStacks = newStacks.map((stack) => {
-      const existingStack = existingStackData.get(stack.combination)
-      return {
-        ...stack,
-        ...(existingStack || {}),
-        layers: stack.layers.map((layer) => {
-          const existing = existingLayerData.get(layer.id)
-          return existing ? { ...layer, ...existing } : layer
-        }),
-      }
-    })
+    // Preserve user edits (by layer id and combination) across regeneration.
+    const preservedStacks = mergePreservedStackEdits(newStacks, generatedStacks)
 
     const updated: Process = {
       ...selectedProcess,
@@ -5153,18 +5190,15 @@ export function ProcessesPage() {
     )
   }
 
-  const getSubstrateLabel = useCallback(
-    (substrateId: string | undefined) => {
-      if (!substrateId) return null
-      const substrate = materials.find((m) => m.id === substrateId)
-      if (!substrate) return null
-      return {
-        name: substrate.name || "Unnamed substrate",
-        rigidity: substrate.substrateRigidity || "—",
-      }
-    },
-    [materials.find],
-  )
+  const getSubstrateLabel = useCallback((substrateId: string | undefined) => {
+    if (!substrateId) return null
+    const substrate = materials.find((m) => m.id === substrateId)
+    if (!substrate) return null
+    return {
+      name: substrate.name || "Unnamed substrate",
+      rigidity: substrate.substrateRigidity || "—",
+    }
+  }, [])
 
   const getSourceSuggestions = useCallback(
     (
@@ -5218,7 +5252,7 @@ export function ProcessesPage() {
 
       return suggestions
     },
-    [selectedProcess, selectedStep, materials.find, solutions.find],
+    [selectedProcess, selectedStep],
   )
 
   const displayedStages = useMemo(() => {
@@ -5262,7 +5296,7 @@ export function ProcessesPage() {
       }
       return "No material"
     },
-    [selectedProcess, solutions.find, materials.find],
+    [selectedProcess],
   )
 
   const getParameterFlowLines = useCallback(
@@ -5299,8 +5333,7 @@ export function ProcessesPage() {
       }
       return lines
     },
-    // biome-ignore lint/correctness/useExhaustiveDependencies: solutions and materials are passed to summariseQuenchingValue
-    [selectedProcess?.solutionRecipes, solutions, materials],
+    [selectedProcess?.solutionRecipes],
   )
 
   const selectedStepParameterSections = useMemo(() => {

@@ -2658,13 +2658,17 @@ export default function ExperimentsPage() {
     if (!selectedExpId || pendingSelectExperimentNameId !== selectedExpId) {
       return
     }
+    // Clear the pending flag INSIDE the rAF callback, not synchronously here:
+    // a synchronous state reset re-runs this effect and fires its cleanup
+    // (cancelAnimationFrame) before the frame paints, cancelling the select.
     const raf = window.requestAnimationFrame(() => {
       const input = experimentNameInputRef.current
-      if (!input) return
-      input.focus()
-      input.select()
+      if (input) {
+        input.focus()
+        input.select()
+      }
+      setPendingSelectExperimentNameId(null)
     })
-    setPendingSelectExperimentNameId(null)
     return () => window.cancelAnimationFrame(raf)
   }, [pendingSelectExperimentNameId, selectedExpId])
 
