@@ -3871,6 +3871,7 @@ export function ProcessesPage() {
     // Store in ref so the tab is applied once selectedProcess is confirmed non-null.
     pendingAutoTabRef.current = { processId: proc.id, tab: "chemistry" }
     selectProcess(proc.id)
+    setPendingSelectProcessNameId(proc.id)
   }, [
     pendingCollectionLink,
     setPendingCollectionLink,

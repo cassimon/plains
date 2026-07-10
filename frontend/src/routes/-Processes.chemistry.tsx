@@ -2171,212 +2171,288 @@ function SolutionCard({
                     </Text>
                   </Group>
 
-                  <Group align="flex-start" gap="xs" wrap="nowrap">
-                    <Box style={{ flex: 1, minWidth: 0 }}>
-                      {recipe.solvents.length > 0 && (
-                        <Group gap="xs" style={{ paddingLeft: 20 }} mb={4}>
-                          <Text size="xs" c="dimmed" style={{ flex: 2 }}>
-                            Name
-                          </Text>
-                          <Text size="xs" c="dimmed" style={{ width: 110 }}>
-                            PubChem CID
-                          </Text>
-                          <Text size="xs" c="dimmed" style={{ width: 80 }}>
-                            ρ (g/mL)
-                          </Text>
-                          <Text size="xs" c="dimmed" style={{ width: 80 }}>
-                            M (g/mol)
-                          </Text>
-                          <Box style={{ width: 24 }} />
-                        </Group>
-                      )}
-                      {recipe.solvents.length > 0 && (
-                        <Stack gap={4}>
-                          {recipe.solvents.map((s) => (
-                            <Group
-                              key={s.id}
-                              gap="xs"
-                              align="center"
-                              wrap="nowrap"
-                            >
-                              <ColorDot
-                                color={s.color}
-                                onChange={(c) =>
-                                  updateSolvent(s.id, { color: c })
-                                }
-                              />
-                              <TextInput
-                                size="xs"
-                                value={s.name}
-                                placeholder="Name"
-                                onChange={(e) =>
-                                  updateSolvent(s.id, {
-                                    name: e.currentTarget.value,
-                                  })
-                                }
-                                style={{ flex: 2 }}
-                              />
+                  {/* Table: solvent fields on the left, and a single boxed
+                      column on the right whose SOLO top cell is the total
+                      volume, with each solvent's volume ratio written directly
+                      underneath — kept on the same flex row as its solvent so
+                      ratio and solvent always line up regardless of row height. */}
+                  {(() => {
+                    const showRatioColumn =
+                      !recipe.isCommercial && recipe.solvents.length > 0
+                    const ratioCellBoxStyle = {
+                      width: 100,
+                      flexShrink: 0,
+                      borderLeft: "1px solid var(--mantine-color-blue-3)",
+                      borderRight: "1px solid var(--mantine-color-blue-3)",
+                      background:
+                        "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
+                      paddingLeft: 6,
+                      paddingRight: 6,
+                    } as const
+                    return (
+                      <Box>
+                        {/* Header row: field labels (left) + solo Total volume
+                            cell that caps the ratio column (right). */}
+                        <Group gap="xs" wrap="nowrap" align="flex-end" mb={4}>
+                          <Box style={{ flex: 1, minWidth: 0 }}>
+                            {recipe.solvents.length > 0 && (
                               <Group
-                                gap={2}
-                                style={{ width: 110 }}
+                                gap="xs"
+                                style={{ paddingLeft: 20 }}
                                 wrap="nowrap"
                               >
-                                <TextInput
+                                <Text size="xs" c="dimmed" style={{ flex: 2 }}>
+                                  Name
+                                </Text>
+                                <Text
                                   size="xs"
-                                  value={s.pubchemCid}
-                                  placeholder="CID"
-                                  onChange={(e) =>
-                                    updateSolvent(s.id, {
-                                      pubchemCid: e.currentTarget.value,
-                                    })
-                                  }
-                                  style={{ flex: 1 }}
-                                />
-                                <Tooltip label="Search PubChem">
-                                  <ActionIcon
-                                    size="xs"
-                                    variant="subtle"
-                                    onClick={() =>
-                                      setSearch({
-                                        role: "solvent",
-                                        ingredientId: s.id,
-                                      })
-                                    }
-                                  >
-                                    <IconSearch size={10} />
-                                  </ActionIcon>
-                                </Tooltip>
-                                {s.pubchemCid && (
-                                  <Tooltip label="Open in PubChem">
+                                  c="dimmed"
+                                  style={{ width: 110 }}
+                                >
+                                  PubChem CID
+                                </Text>
+                                <Text
+                                  size="xs"
+                                  c="dimmed"
+                                  style={{ width: 80 }}
+                                >
+                                  ρ (g/mL)
+                                </Text>
+                                <Text
+                                  size="xs"
+                                  c="dimmed"
+                                  style={{ width: 80 }}
+                                >
+                                  M (g/mol)
+                                </Text>
+                                <Box style={{ width: 24 }} />
+                              </Group>
+                            )}
+                          </Box>
+                          <Box
+                            style={{
+                              width: 100,
+                              flexShrink: 0,
+                              border: "1px solid var(--mantine-color-blue-3)",
+                              borderTopLeftRadius: 8,
+                              borderTopRightRadius: 8,
+                              borderBottom: showRatioColumn
+                                ? "none"
+                                : "1px solid var(--mantine-color-blue-3)",
+                              borderBottomLeftRadius: showRatioColumn ? 0 : 8,
+                              borderBottomRightRadius: showRatioColumn ? 0 : 8,
+                              background:
+                                "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
+                              padding: 6,
+                            }}
+                          >
+                            <NumberInput
+                              label={
+                                <Text size="xs" c="blue.6" fw={700}>
+                                  Total vol. (mL) ★
+                                </Text>
+                              }
+                              placeholder="e.g. 5"
+                              value={
+                                recipe.totalSolventVolumeMl !== ""
+                                  ? Number(recipe.totalSolventVolumeMl)
+                                  : ""
+                              }
+                              onChange={(v) =>
+                                update({
+                                  totalSolventVolumeMl:
+                                    v !== "" ? String(v) : "",
+                                })
+                              }
+                              min={0}
+                              size="xs"
+                              styles={{
+                                input: {
+                                  borderColor: "var(--mantine-color-blue-4)",
+                                  borderWidth: "1.5px",
+                                },
+                              }}
+                            />
+                            {showRatioColumn && (
+                              <Text size="xs" c="blue.6" fw={600} mt={8}>
+                                Vol. ratio ★
+                              </Text>
+                            )}
+                          </Box>
+                        </Group>
+
+                        {/* One flex row per solvent: fields on the left, its
+                            volume ratio in the boxed column on the right. */}
+                        {recipe.solvents.length > 0 && (
+                          <Stack gap={4}>
+                            {recipe.solvents.map((s, idx) => (
+                              <Group
+                                key={s.id}
+                                gap="xs"
+                                align="center"
+                                wrap="nowrap"
+                              >
+                                <Box style={{ flex: 1, minWidth: 0 }}>
+                                  <Group gap="xs" align="center" wrap="nowrap">
+                                    <ColorDot
+                                      color={s.color}
+                                      onChange={(c) =>
+                                        updateSolvent(s.id, { color: c })
+                                      }
+                                    />
+                                    <TextInput
+                                      size="xs"
+                                      value={s.name}
+                                      placeholder="Name"
+                                      onChange={(e) =>
+                                        updateSolvent(s.id, {
+                                          name: e.currentTarget.value,
+                                        })
+                                      }
+                                      style={{ flex: 2 }}
+                                    />
+                                    <Group
+                                      gap={2}
+                                      style={{ width: 110 }}
+                                      wrap="nowrap"
+                                    >
+                                      <TextInput
+                                        size="xs"
+                                        value={s.pubchemCid}
+                                        placeholder="CID"
+                                        onChange={(e) =>
+                                          updateSolvent(s.id, {
+                                            pubchemCid: e.currentTarget.value,
+                                          })
+                                        }
+                                        style={{ flex: 1 }}
+                                      />
+                                      <Tooltip label="Search PubChem">
+                                        <ActionIcon
+                                          size="xs"
+                                          variant="subtle"
+                                          onClick={() =>
+                                            setSearch({
+                                              role: "solvent",
+                                              ingredientId: s.id,
+                                            })
+                                          }
+                                        >
+                                          <IconSearch size={10} />
+                                        </ActionIcon>
+                                      </Tooltip>
+                                      {s.pubchemCid && (
+                                        <Tooltip label="Open in PubChem">
+                                          <ActionIcon
+                                            size="xs"
+                                            variant="subtle"
+                                            component="a"
+                                            href={`https://pubchem.ncbi.nlm.nih.gov/compound/${s.pubchemCid}`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                          >
+                                            <IconExternalLink size={10} />
+                                          </ActionIcon>
+                                        </Tooltip>
+                                      )}
+                                    </Group>
+                                    <NumberInput
+                                      size="xs"
+                                      value={s.density ?? ""}
+                                      placeholder="—"
+                                      min={0}
+                                      decimalScale={3}
+                                      onChange={(v) =>
+                                        updateSolvent(s.id, {
+                                          density:
+                                            v !== "" ? Number(v) : undefined,
+                                        })
+                                      }
+                                      style={{ width: 80 }}
+                                    />
+                                    <NumberInput
+                                      size="xs"
+                                      value={s.molarMass ?? ""}
+                                      placeholder="—"
+                                      min={0}
+                                      decimalScale={2}
+                                      onChange={(v) =>
+                                        updateSolvent(s.id, {
+                                          molarMass:
+                                            v !== "" ? Number(v) : undefined,
+                                        })
+                                      }
+                                      style={{ width: 80 }}
+                                    />
                                     <ActionIcon
                                       size="xs"
                                       variant="subtle"
-                                      component="a"
-                                      href={`https://pubchem.ncbi.nlm.nih.gov/compound/${s.pubchemCid}`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      onClick={(e) => e.stopPropagation()}
+                                      color="red"
+                                      onClick={() =>
+                                        update({
+                                          solvents: recipe.solvents.filter(
+                                            (x) => x.id !== s.id,
+                                          ),
+                                        })
+                                      }
                                     >
-                                      <IconExternalLink size={10} />
+                                      <IconX size={12} />
                                     </ActionIcon>
-                                  </Tooltip>
-                                )}
+                                  </Group>
+                                </Box>
+                                {/* Ratio cell — aligned to this solvent's row,
+                                    stacked under the total-volume cell. */}
+                                <Box
+                                  style={{
+                                    ...ratioCellBoxStyle,
+                                    paddingTop: 2,
+                                    paddingBottom:
+                                      idx === recipe.solvents.length - 1
+                                        ? 6
+                                        : 2,
+                                    borderBottom:
+                                      idx === recipe.solvents.length - 1
+                                        ? "1px solid var(--mantine-color-blue-3)"
+                                        : "none",
+                                    borderBottomLeftRadius:
+                                      idx === recipe.solvents.length - 1
+                                        ? 8
+                                        : 0,
+                                    borderBottomRightRadius:
+                                      idx === recipe.solvents.length - 1
+                                        ? 8
+                                        : 0,
+                                  }}
+                                >
+                                  {showRatioColumn && (
+                                    <NumberInput
+                                      size="xs"
+                                      value={s.volumeRatio}
+                                      min={0}
+                                      step={0.5}
+                                      onChange={(v) =>
+                                        updateSolvent(s.id, {
+                                          volumeRatio: Number(v) || 0,
+                                        })
+                                      }
+                                      styles={{
+                                        input: {
+                                          borderColor:
+                                            "var(--mantine-color-blue-4)",
+                                          borderWidth: "1.5px",
+                                        },
+                                      }}
+                                    />
+                                  )}
+                                </Box>
                               </Group>
-                              <NumberInput
-                                size="xs"
-                                value={s.density ?? ""}
-                                placeholder="—"
-                                min={0}
-                                decimalScale={3}
-                                onChange={(v) =>
-                                  updateSolvent(s.id, {
-                                    density: v !== "" ? Number(v) : undefined,
-                                  })
-                                }
-                                style={{ width: 80 }}
-                              />
-                              <NumberInput
-                                size="xs"
-                                value={s.molarMass ?? ""}
-                                placeholder="—"
-                                min={0}
-                                decimalScale={2}
-                                onChange={(v) =>
-                                  updateSolvent(s.id, {
-                                    molarMass: v !== "" ? Number(v) : undefined,
-                                  })
-                                }
-                                style={{ width: 80 }}
-                              />
-                              <ActionIcon
-                                size="xs"
-                                variant="subtle"
-                                color="red"
-                                onClick={() =>
-                                  update({
-                                    solvents: recipe.solvents.filter(
-                                      (x) => x.id !== s.id,
-                                    ),
-                                  })
-                                }
-                              >
-                                <IconX size={12} />
-                              </ActionIcon>
-                            </Group>
-                          ))}
-                        </Stack>
-                      )}
-                    </Box>
-
-                    {/* Boxed column: total solvent volume feeds the per-solvent ratios below it */}
-                    <Box
-                      style={{
-                        width: 100,
-                        flexShrink: 0,
-                        border: "1px solid var(--mantine-color-blue-3)",
-                        borderRadius: 8,
-                        background:
-                          "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
-                        padding: 6,
-                      }}
-                    >
-                      <NumberInput
-                        label={
-                          <Text size="xs" c="blue.6" fw={700}>
-                            Total vol. (mL) ★
-                          </Text>
-                        }
-                        placeholder="e.g. 5"
-                        value={
-                          recipe.totalSolventVolumeMl !== ""
-                            ? Number(recipe.totalSolventVolumeMl)
-                            : ""
-                        }
-                        onChange={(v) =>
-                          update({
-                            totalSolventVolumeMl: v !== "" ? String(v) : "",
-                          })
-                        }
-                        min={0}
-                        size="xs"
-                        styles={{
-                          input: {
-                            borderColor: "var(--mantine-color-blue-4)",
-                            borderWidth: "1.5px",
-                          },
-                        }}
-                      />
-                      {!recipe.isCommercial && recipe.solvents.length > 0 && (
-                        <>
-                          <Text size="xs" c="blue.6" fw={600} mt={8} mb={4}>
-                            Vol. ratio ★
-                          </Text>
-                          <Stack gap={4}>
-                            {recipe.solvents.map((s) => (
-                              <NumberInput
-                                key={s.id}
-                                size="xs"
-                                value={s.volumeRatio}
-                                min={0}
-                                step={0.5}
-                                onChange={(v) =>
-                                  updateSolvent(s.id, {
-                                    volumeRatio: Number(v) || 0,
-                                  })
-                                }
-                                styles={{
-                                  input: {
-                                    borderColor: "var(--mantine-color-blue-4)",
-                                    borderWidth: "1.5px",
-                                  },
-                                }}
-                              />
                             ))}
                           </Stack>
-                        </>
-                      )}
-                    </Box>
-                  </Group>
+                        )}
+                      </Box>
+                    )
+                  })()}
 
                   {search?.role === "solvent" && (
                     <Box mt={6}>
