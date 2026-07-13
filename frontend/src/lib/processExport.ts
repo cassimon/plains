@@ -1387,11 +1387,11 @@ function renderExperimentSection(
   L.drawTable(
     ["Field", "Value"],
     [
-      ["Start Date", edit({ kind: "experimentDate" }, experiment.date ?? "")],
-      [
-        "End Date",
-        edit({ kind: "experimentEndDate" }, experiment.endDate ?? ""),
-      ],
+      // Start/end are derived from the processing times (first step / end-of-
+      // experiment cell), so they are printed as plain text: an editable field
+      // here would be silently re-derived away on the next edit in the app.
+      ["Start", (experiment.date ?? "").replace("T", " ")],
+      ["End", (experiment.endDate ?? "").replace("T", " ")],
       [
         "Intent",
         edit({ kind: "experimentDescription" }, experiment.description ?? ""),

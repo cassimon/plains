@@ -165,8 +165,9 @@ const experimentFixture: Experiment = {
   id: EXP_ID,
   name: "RoundTripExp",
   description: "Round-trip experiment intent.",
-  date: "2026-07-06",
-  endDate: "2026-07-10",
+  // Derived from the processing times, and `datetime-local` since v3.
+  date: "2026-07-06T09:00",
+  endDate: "2026-07-10T17:30",
   architecture: "n-i-p",
   substrateMaterial: "glass",
   substrateWidth: 2.5,
@@ -316,7 +317,7 @@ test("Process & Experiment survive a PDF export→import round-trip", async ({
 
   // ── 1. Process payload fully survives ──────────────────────────────────────
   expect(result.r1.kind).toBe("process")
-  expect(result.r1.schemaVersion).toBe(2)
+  expect(result.r1.schemaVersion).toBe(3)
   expect(result.r1.roundProcess).toEqual(norm(processFixture))
   // Unedited PDF ⇒ no spurious edits / errors.
   expect(result.r1.editsLen).toBe(0)
@@ -452,6 +453,9 @@ test("a slightly altered PDF: several edits across the entity are detected & app
           stackIdx: 0,
           layerId: ids.LID,
         }),
+        description: schema.encodeFieldName({ kind: "experimentDescription" }),
+        // Start/end are derived from the processing times now, so the export
+        // prints them as plain text — there must be no form field to edit.
         endDate: schema.encodeFieldName({ kind: "experimentEndDate" }),
       }
 
@@ -461,7 +465,7 @@ test("a slightly altered PDF: several edits across the entity are detected & app
         [f.soluteUnit]: "mol", // mg → mol (dropdown)
         [f.substrateHeight]: "1.2", // 1.1 → 1.2
         [f.layerThickness]: "45", // 30 → 45
-        [f.endDate]: "2026-07-15", // 2026-07-10 → 2026-07-15
+        [f.description]: "Edited intent", // → experiment.description
       })
 
       const r = await imp.importPdf(altered)
@@ -484,6 +488,8 @@ test("a slightly altered PDF: several edits across the entity are detected & app
         ?.find((x) => x.id === ids.RID)
         ?.solutes.find((x) => x.id === ids.SID)
 
+      const allFieldNames = await imp.readFieldNames(bytes)
+
       return {
         editsLen: r.edits.length,
         errorsLen: r.errors.length,
@@ -491,13 +497,14 @@ test("a slightly altered PDF: several edits across the entity are detected & app
           r.edits.map((e) => [e.name, { old: e.oldValue, new: e.newValue }]),
         ),
         fieldNames: f,
+        allFieldNames,
         applied: {
           annealingTemp: step?.annealingTemp?.value,
           soluteAmount: sol?.amount,
           soluteUnit: sol?.unit,
           substrateHeight: sub?.heightMm,
           layerThickness: layer?.thicknessNm,
-          endDate: r.edited.experiment?.endDate,
+          description: r.edited.experiment?.description,
         },
         original: {
           soluteAmount: origSol?.amount,
@@ -523,9 +530,9 @@ test("a slightly altered PDF: several edits across the entity are detected & app
     new: "1.2",
   })
   expect(e[result.fieldNames.layerThickness]).toEqual({ old: "30", new: "45" })
-  expect(e[result.fieldNames.endDate]).toEqual({
-    old: "2026-07-10",
-    new: "2026-07-15",
+  expect(e[result.fieldNames.description]).toEqual({
+    old: "Round-trip experiment intent.",
+    new: "Edited intent",
   })
 
   // edits applied to the returned entity
@@ -534,12 +541,75 @@ test("a slightly altered PDF: several edits across the entity are detected & app
   expect(result.applied.soluteUnit).toBe("mol")
   expect(result.applied.substrateHeight).toBe("1.2")
   expect(result.applied.layerThickness).toBe("45")
-  expect(result.applied.endDate).toBe("2026-07-15")
+  expect(result.applied.description).toBe("Edited intent")
 
-  // the canonical original is left untouched
+  // Start/end are derived from the processing times (first step / end-of-
+  // experiment cell) and read-only in the Summary tab — the PDF must not offer
+  // them as editable fields either, or an edit would be re-derived away.
+  expect(result.allFieldNames).not.toContain(result.fieldNames.endDate)
+
+  // the canonical original is left untouched, and still carries the dates
   expect(result.original.soluteAmount).toBe("10")
   expect(result.original.soluteUnit).toBe("mg")
-  expect(result.original.endDate).toBe("2026-07-10")
+  expect(result.original.endDate).toBe("2026-07-10T17:30")
+})
+
+test("migration ladder: a v2 experiment payload still imports, with its dates widened", async ({
+  page,
+}) => {
+  await page.goto("/login", { waitUntil: "domcontentloaded" })
+
+  const result = await page.evaluate(
+    async ({ processFixture, experimentFixture }) => {
+      const schema = (await import(
+        /* @vite-ignore */ "/src/lib/pdfSchema.ts"
+      )) as typeof import("@/lib/pdfSchema")
+
+      // What a PDF exported before this change looks like: schemaVersion 2, and
+      // date-only start/end (there was no end-of-experiment cell to derive a
+      // time from).
+      const v2 = {
+        schemaVersion: 2,
+        kind: "experiment" as const,
+        experiment: {
+          ...experimentFixture,
+          date: "2026-07-06",
+          endDate: "2026-07-10",
+        },
+        process: processFixture,
+        refs: { materials: [], solutions: [] },
+      }
+
+      const migrated = schema.migratePayload(v2)
+      // A payload from a *newer* app must still be rejected rather than guessed at.
+      const tooNew = schema.migratePayload({ ...v2, schemaVersion: 99 })
+
+      return {
+        version: migrated?.schemaVersion,
+        date:
+          migrated?.kind === "experiment"
+            ? migrated.experiment.date
+            : undefined,
+        endDate:
+          migrated?.kind === "experiment"
+            ? migrated.experiment.endDate
+            : undefined,
+        // everything else must survive the migration untouched
+        name:
+          migrated?.kind === "experiment"
+            ? migrated.experiment.name
+            : undefined,
+        tooNew,
+      }
+    },
+    { processFixture, experimentFixture },
+  )
+
+  expect(result.version).toBe(3)
+  expect(result.date).toBe("2026-07-06T00:00")
+  expect(result.endDate).toBe("2026-07-10T00:00")
+  expect(result.name).toBe("RoundTripExp")
+  expect(result.tooNew).toBeNull()
 })
 
 test("new editable fields round-trip: solvent ratio, quenching, substrate name, step choice, variation", async ({

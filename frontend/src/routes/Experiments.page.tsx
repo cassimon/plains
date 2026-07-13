@@ -41,8 +41,8 @@ import { homeCollectionForEntity } from "@/lib/entityReveal"
 import { exportExperimentSummaryAsPdf } from "@/lib/processExport"
 import {
   buildProcessingStacks,
-  computeProcessingTimeRange,
   datePart,
+  endStageIdx,
   experimentProcessingTimesDone,
   experimentSubstratesDone,
   experimentVariationDone,
@@ -53,9 +53,11 @@ import {
   processingTimeKey,
   resolveProcessingTime,
   stackRowLabel,
+  timeCellCount,
   timePart,
   VARIATION_CHOICE_KEY,
   variationChoiceOf,
+  withDerivedExperimentDates,
 } from "@/lib/processingTimes"
 import { buildStageStepOptions } from "@/lib/stageStepChoices"
 import {
@@ -192,7 +194,9 @@ function buildGeneratedSubstrateName(
 ) {
   const parts: string[] = [generatorConfig.namePrefix || "sample"]
   if (generatorConfig.includeDate && experiment.date) {
-    parts.push(experiment.date)
+    // The date alone — `experiment.date` carries a time of day now, which has no
+    // business being in a substrate's name.
+    parts.push(datePart(experiment.date))
   }
   if (generatorConfig.includeExperimentName && experiment.name) {
     parts.push(experiment.name.replace(/\s+/g, "_"))
@@ -1505,7 +1509,7 @@ function ExperimentGrid({
                     isShared: false,
                     rowIndexAmongStacks,
                     ownFrom: processingDivergeIdx,
-                    ownTo: process.stages.length,
+                    ownTo: timeCellCount(process),
                   })),
                 ]
               : [
@@ -1515,9 +1519,17 @@ function ExperimentGrid({
                     isShared: true,
                     rowIndexAmongStacks: -1,
                     ownFrom: 0,
-                    ownTo: process.stages.length,
+                    ownTo: timeCellCount(process),
                   },
                 ]
+
+            // One cell per stage, then the end-of-experiment cell. Diverged
+            // stacks each end at their own time, so it belongs to the stack rows.
+            const timeCells = Array.from(
+              { length: timeCellCount(process) },
+              (_v, idx) => idx,
+            )
+            const endIdx = endStageIdx(process)
 
             return (
               <Box style={{ overflowX: "auto" }}>
@@ -1536,12 +1548,14 @@ function ExperimentGrid({
                       }}
                     >
                       <th style={{ ...thStyle, minWidth: 200 }}>Step</th>
-                      {process.stages.map((_stage, idx) => (
+                      {timeCells.map((idx) => (
                         <th
                           key={`ptime-h-${idx}`}
                           style={{ ...thStyle, minWidth: 250 }}
                         >
-                          #{idx + 1} Step
+                          {idx === endIdx
+                            ? "End of experiment"
+                            : `#${idx + 1} Step`}
                         </th>
                       ))}
                     </tr>
@@ -1586,7 +1600,7 @@ function ExperimentGrid({
                             </Group>
                           )}
                         </td>
-                        {process.stages.map((_stage, idx) => {
+                        {timeCells.map((idx) => {
                           const owned = idx >= row.ownFrom && idx < row.ownTo
                           const resolvedValue = resolveProcessingTime(
                             idx,
@@ -1684,7 +1698,9 @@ function ExperimentGrid({
                                 )}
                                 {isFlagged && !isAsAbove && (
                                   <Text size="10px" c="red.6">
-                                    Earlier than the previous step
+                                    {idx === endIdx
+                                      ? "Earlier than the last step"
+                                      : "Earlier than the previous step"}
                                   </Text>
                                 )}
                                 {canUseAsAbove && (
@@ -2242,15 +2258,6 @@ function SummaryTab({
     [experiment, process, allExperiments],
   )
 
-  // Derived from the Processing tab's times — offered as one-click suggestions
-  // rather than silently auto-filled, so a real user action still commits them.
-  const processingRange = React.useMemo(
-    () => computeProcessingTimeRange(experiment, process),
-    [experiment, process],
-  )
-  const suggestedStart = processingRange?.start.slice(0, 10)
-  const suggestedEnd = processingRange?.end.slice(0, 10)
-
   const exportPdf = async () => {
     try {
       setIsExportingPdf(true)
@@ -2311,61 +2318,37 @@ function SummaryTab({
     <Stack gap="lg">
       {/* Experiment metadata — all three are required to complete Step 3 */}
       <SimpleGrid cols={2} spacing="md">
+        {/* Start and end are read-only: they *are* the first step's time and the
+            "End of experiment" cell from the Processing tab. Editing them here
+            as well would give the same fact two owners — and the deposition
+            steps' durations are measured against them. */}
         <Box>
-          {requiredLabel("Start Date", Boolean(experiment.date))}
-          <Box className={nextField === "date" ? "exp-pulse" : undefined}>
-            <TextInput
-              type="date"
-              value={experiment.date}
-              onChange={(e) =>
-                onUpdate({ ...experiment, date: e.currentTarget.value })
-              }
-            />
-          </Box>
-          {!experiment.date && suggestedStart && (
-            <Group gap={4} mt={4}>
-              <Text size="xs" c="dimmed">
-                Suggested from processing times: {suggestedStart}
-              </Text>
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                onClick={() =>
-                  onUpdate({ ...experiment, date: suggestedStart })
-                }
-              >
-                Use
-              </Button>
-            </Group>
-          )}
+          {requiredLabel("Start", Boolean(experiment.date))}
+          <TextInput
+            type="datetime-local"
+            value={experiment.date ?? ""}
+            readOnly
+            disabled
+          />
+          <Text size="xs" c="dimmed" mt={4}>
+            {experiment.date
+              ? "From the first step in the Processing tab."
+              : "Set the step times in the Processing tab."}
+          </Text>
         </Box>
         <Box>
-          {requiredLabel("End Date", Boolean(experiment.endDate))}
-          <Box className={nextField === "endDate" ? "exp-pulse" : undefined}>
-            <TextInput
-              type="date"
-              value={experiment.endDate ?? ""}
-              onChange={(e) =>
-                onUpdate({ ...experiment, endDate: e.currentTarget.value })
-              }
-            />
-          </Box>
-          {!experiment.endDate && suggestedEnd && (
-            <Group gap={4} mt={4}>
-              <Text size="xs" c="dimmed">
-                Suggested from processing times: {suggestedEnd}
-              </Text>
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                onClick={() =>
-                  onUpdate({ ...experiment, endDate: suggestedEnd })
-                }
-              >
-                Use
-              </Button>
-            </Group>
-          )}
+          {requiredLabel("End", Boolean(experiment.endDate))}
+          <TextInput
+            type="datetime-local"
+            value={experiment.endDate ?? ""}
+            readOnly
+            disabled
+          />
+          <Text size="xs" c="dimmed" mt={4}>
+            {experiment.endDate
+              ? "From the “End of experiment” column in the Processing tab."
+              : "Fill the “End of experiment” column in the Processing tab."}
+          </Text>
         </Box>
       </SimpleGrid>
 
@@ -2882,12 +2865,19 @@ export default function ExperimentsPage() {
     [navigate, setActiveEntity, setPendingCollectionLink, updateLastSelected],
   )
 
-  // Update experiment
+  // Update experiment. `date`/`endDate` are not user-editable: they are derived
+  // from the Processing table on every mutation, which is why this is the only
+  // place that writes them (a read-only Summary can then never contradict the
+  // times the steps were actually given).
   const handleUpdateExperiment = useCallback(
     (exp: Experiment) => {
-      setExperiments((prev) => prev.map((e) => (e.id === exp.id ? exp : e)))
+      const next = withDerivedExperimentDates(
+        exp,
+        processes.find((p) => p.id === exp.processId),
+      )
+      setExperiments((prev) => prev.map((e) => (e.id === next.id ? next : e)))
     },
-    [setExperiments],
+    [setExperiments, processes],
   )
 
   // Confirming the summary (Step 3) is what makes an experiment "fully

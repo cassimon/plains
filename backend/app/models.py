@@ -1,5 +1,4 @@
 import uuid
-from datetime import date as date_type
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -970,8 +969,12 @@ class ExperimentBase(SQLModel):
     device_area: float | None = None
     device_type: str | None = Field(default=None, max_length=50)
     device_layout_image: str | None = None
-    date: date_type | None = None
-    end_date: date_type | None = None
+    # Start and end of the experiment. Both carry a time of day: they are derived
+    # from the Processing table's step times (the first step's start and the "end
+    # of experiment" cell), and the deposition steps' durations are measured
+    # against them, which a date alone could not support.
+    date: datetime | None = None
+    end_date: datetime | None = None
     has_results: bool = False
     has_completed_upload: bool = False
     chemicals_prep: dict[str, Any] | None = _jsonb_field()

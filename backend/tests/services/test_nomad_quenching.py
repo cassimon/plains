@@ -629,7 +629,8 @@ def test_antisolvent_quenching_with_units_and_media_reference():
         f"Expected 'Chlorobenzene', got {antisolvent_params['media']}"
     )
     assert antisolvent_params["deposition_method"] == "drip"
-    # Numeric values should be extracted from strings with units
-    assert antisolvent_params["flow_rate"] == 100.0
-    assert antisolvent_params["height"] == 10.0
-    assert antisolvent_params["volume"] == 200.0
+    # Values are converted into the unit the NOMAD quantity declares, since a
+    # bare number in the archive YAML is read *in that unit*.
+    assert antisolvent_params["flow_rate"] == 100.0  # "100 ul/s" → microliter/second
+    assert antisolvent_params["height"] == 10.0  # "10 mm"     → millimeter
+    assert antisolvent_params["volume"] == 200_000.0  # "200 mL"    → microliter

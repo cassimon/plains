@@ -19,7 +19,7 @@ import type { PDFDocument } from "pdf-lib"
 import type { Experiment, Process } from "@/store/AppContext"
 
 /** Bump on ANY change to the serialized shape or the field-name codec. */
-export const PDF_SCHEMA_VERSION = 2
+export const PDF_SCHEMA_VERSION = 3
 
 /** Minimal name lookups so an importer can resolve ids without the whole DB. */
 export type EntityRef = { id: string; name: string }
@@ -354,6 +354,27 @@ const MIGRATIONS: Record<number, (p: SerializedPayload) => SerializedPayload> =
     // experiment fields). A v1 PDF's field snapshot uses only v1 field names,
     // which still decode, so no data transform is needed — just bump the tag.
     1: (p) => ({ ...p, schemaVersion: 2 }),
+    // v2 → v3: an experiment's `date`/`endDate` are now `datetime-local`
+    // ("YYYY-MM-DDTHH:mm") rather than plain dates, and `processingTimes` gained
+    // the end-of-experiment cell (`stage:{stages.length}`). A v2 PDF has neither:
+    // its dates are date-only and it has no end cell. Widening a bare date to
+    // midnight keeps it a valid value, and the missing end cell simply leaves the
+    // Processing tab's last column empty for the user to fill — both are what the
+    // GUI would show for an experiment created before this change.
+    2: (p) => {
+      if (p.kind !== "experiment") return { ...p, schemaVersion: 3 }
+      const widen = (value: string | undefined) =>
+        value && !value.includes("T") ? `${value}T00:00` : value
+      return {
+        ...p,
+        schemaVersion: 3,
+        experiment: {
+          ...p.experiment,
+          date: widen(p.experiment.date) ?? "",
+          endDate: widen(p.experiment.endDate),
+        },
+      }
+    },
   }
 
 /**

@@ -463,8 +463,12 @@ export type Experiment = {
   id: string
   name: string
   description: string
-  date: string // fabrication date (ISO string)
-  endDate?: string // optional completion date
+  // Start and end of the experiment, as `datetime-local` strings
+  // ("YYYY-MM-DDTHH:mm"). NOT user-editable: both are derived from the
+  // Processing tab's step times (first step / "End of experiment" cell) by
+  // `withDerivedExperimentDates`, and the Summary tab shows them read-only.
+  date: string
+  endDate?: string
   // Device configuration
   architecture: DeviceArchitecture
   substrateMaterial: string

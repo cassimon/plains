@@ -103,6 +103,11 @@ function isNumeric(value: string): boolean {
   return !Number.isNaN(Number(value))
 }
 
+/** A pre-v3 date-only value ("YYYY-MM-DD") in the app's `datetime-local` shape. */
+function widenLegacyDate(value: string): string {
+  return value && !value.includes("T") ? `${value}T00:00` : value
+}
+
 export function validateEdit(path: FieldPath, value: string): string | null {
   if (NUMERIC_KINDS.has(path.kind)) {
     return isNumeric(value) ? null : "must be a number"
@@ -264,11 +269,14 @@ export function applyFieldValue(
       }
       break
     }
+    // Only a pre-v3 PDF still carries these as editable fields (they are derived
+    // from the processing times now, and exported as plain text). Their values
+    // are date-only, so widen them to the `datetime-local` shape the app uses.
     case "experimentDate":
-      if (experiment) experiment.date = value
+      if (experiment) experiment.date = widenLegacyDate(value)
       break
     case "experimentEndDate":
-      if (experiment) experiment.endDate = value
+      if (experiment) experiment.endDate = widenLegacyDate(value)
       break
     case "experimentDescription":
       if (experiment) experiment.description = value

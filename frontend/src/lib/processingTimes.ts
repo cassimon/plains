@@ -46,6 +46,26 @@ export function hasTime(value: string): boolean {
 /** The reserved `processingTimes` key holding the parameter-variation Yes/No. */
 export const VARIATION_CHOICE_KEY = "__variationChoice"
 
+/**
+ * The Processing table has one cell per stage plus a final one for the *end of
+ * the experiment*, addressed as if it were a stage one past the last
+ * (`stage:{stages.length}`). Modelling it as a pseudo-stage means it inherits
+ * every rule the real cells already have — the date cascade, "As above", the
+ * regression check, per-stack ownership after a divergence — instead of growing
+ * a parallel set of them.
+ *
+ * It is what gives the last deposition step a duration: NOMAD measures each
+ * step's duration up to the next step's start, and the last one up to here.
+ */
+export function endStageIdx(process: Process): number {
+  return process.stages.length
+}
+
+/** Stage cells plus the trailing end-of-experiment cell. */
+export function timeCellCount(process: Process): number {
+  return process.stages.length + 1
+}
+
 export type ProcessingStack = {
   /** Stable identity = every stage's selected step id (or "SKIP"), joined. */
   key: string
@@ -226,7 +246,9 @@ export function findProcessingTimeRegressions(
   const flagged = new Set<string>()
   for (const rowKey of rowKeysFor(stacks, divergeIdx)) {
     let prev = ""
-    for (let idx = 0; idx < process.stages.length; idx += 1) {
+    // Includes the end-of-experiment cell: an end before the last step is just
+    // as much a regression as a step before the one preceding it.
+    for (let idx = 0; idx < timeCellCount(process); idx += 1) {
       const effectiveStackKey =
         divergeIdx >= 0 && idx >= divergeIdx ? rowKey : null
       const value = resolveProcessingTime(idx, rowKey, ctx)
@@ -268,9 +290,10 @@ function isStackCellSeeded(
 }
 
 /**
- * Step 2's Processing-times sub-box is done only once *every* step carries a
- * full date **and** time: the shared prefix, plus — for every diverged stack —
- * a value the user actually seeded for that row (see `isStackCellSeeded`).
+ * Step 2's Processing-times sub-box is done only once *every* cell carries a
+ * full date **and** time — every step, plus the end of the experiment: the
+ * shared prefix, plus — for every diverged stack — a value the user actually
+ * seeded for that row (see `isStackCellSeeded`).
  */
 export function experimentProcessingTimesDone(
   exp: Experiment,
@@ -285,7 +308,8 @@ export function experimentProcessingTimesDone(
     divergeIdx,
     stackOrder: stacks.map((s) => s.key),
   }
-  return process.stages.every((_stage, idx) => {
+  const cells = Array.from({ length: timeCellCount(process) }, (_v, idx) => idx)
+  return cells.every((idx) => {
     if (divergeIdx < 0 || idx < divergeIdx) {
       return hasTime(processingTimes[processingTimeKey(idx, null)])
     }
@@ -365,9 +389,17 @@ export function experimentProcessingDone(
 }
 
 /**
- * Earliest and latest resolved processing time across every row, used to
- * suggest the experiment's start/end dates in the Summary tab. `datetime-local`
- * values ("YYYY-MM-DDTHH:mm") sort and slice correctly as plain strings.
+ * The experiment's start and end, as `datetime-local` strings
+ * ("YYYY-MM-DDTHH:mm", which sort correctly as plain strings).
+ *
+ * This is the *definition* of `Experiment.date` / `Experiment.endDate`, not a
+ * suggestion: the start is the first step's time and the end is the
+ * end-of-experiment cell (the latest one, when diverged stacks finish at
+ * different times). Having a single source of truth is what keeps the Summary
+ * tab and the Processing tab from disagreeing — see `withDerivedExperimentDates`.
+ *
+ * Only fully-specified cells (date *and* time) count; a cascaded date on its own
+ * is not a real time.
  */
 export function computeProcessingTimeRange(
   exp: Experiment,
@@ -384,13 +416,32 @@ export function computeProcessingTimeRange(
   let min: string | null = null
   let max: string | null = null
   for (const rowKey of rowKeysFor(stacks, divergeIdx)) {
-    for (let idx = 0; idx < process.stages.length; idx += 1) {
+    for (let idx = 0; idx < timeCellCount(process); idx += 1) {
       const value = resolveProcessingTime(idx, rowKey, ctx)
-      if (!value) continue
+      if (!hasTime(value)) continue
       if (min === null || value < min) min = value
       if (max === null || value > max) max = value
     }
   }
   if (min === null || max === null) return null
   return { start: min, end: max }
+}
+
+/**
+ * Re-derive `date` / `endDate` from the Processing table. Both are read-only in
+ * the Summary tab, so this is the only writer: run it on every experiment
+ * mutation (one imperative call in the update handler — deliberately not an
+ * effect, which would race the Processing tab's own writes; see CLAUDE.md).
+ *
+ * Returns the same object when nothing changed, so it never forces a re-render.
+ */
+export function withDerivedExperimentDates(
+  exp: Experiment,
+  process: Process | undefined,
+): Experiment {
+  if (!process) return exp
+  const range = computeProcessingTimeRange(exp, process)
+  if (!range) return exp
+  if (exp.date === range.start && exp.endDate === range.end) return exp
+  return { ...exp, date: range.start, endDate: range.end }
 }

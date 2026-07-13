@@ -300,6 +300,100 @@ def read_yaml_files_from_zip(zip_path: Path) -> dict[str, str]:
     return yaml_files
 
 
+# One deposition-stack layer, paired with the process step that produced it.
+_LayerEntries = list[tuple[dict[str, Any], str]]
+
+
+# ── Quenching units ───────────────────────────────────────────────────────────
+# The GUI serializes quenching parameters as "<number> <unit>" with a unit the
+# user picked (QuenchingModal.tsx). NOMAD quantities carry a fixed unit, and a
+# bare number in the YAML is read *in that unit* — so the unit token has to be
+# converted here, not dropped. Each target is (factors-to-target-unit, whether a
+# value with no unit token may be assumed to already be in the target unit).
+_QuenchUnit = tuple[dict[str, float], bool]
+
+MILLIMETER: _QuenchUnit = (
+    {"mm": 1.0, "millimeter": 1.0, "cm": 10.0, "centimeter": 10.0, "m": 1000.0},
+    True,
+)
+PASCAL: _QuenchUnit = (
+    {
+        "pa": 1.0,
+        "pascal": 1.0,
+        "kpa": 1000.0,
+        "psi": 6894.757293168361,
+        "bar": 100000.0,
+        "mbar": 100.0,
+    },
+    True,
+)
+LITER_PER_MIN: _QuenchUnit = (
+    {"slm": 1.0, "l/min": 1.0, "lpm": 1.0, "liter/minute": 1.0, "ml/min": 0.001},
+    True,
+)
+# A velocity is not a flow rate: "m/s" gets its own quantity rather than being
+# silently read as liter/minute, and never accepts an unitless value.
+METER_PER_SEC: _QuenchUnit = ({"m/s": 1.0, "meter/second": 1.0}, False)
+MICROLITER: _QuenchUnit = (
+    {
+        "ul": 1.0,
+        "µl": 1.0,
+        "μl": 1.0,
+        "microliter": 1.0,
+        "ml": 1000.0,
+        "milliliter": 1000.0,
+        "l": 1_000_000.0,
+    },
+    True,
+)
+MICROLITER_PER_SEC: _QuenchUnit = (
+    {"ul/s": 1.0, "µl/s": 1.0, "μl/s": 1.0, "ml/s": 1000.0},
+    True,
+)
+CM2: _QuenchUnit = (
+    {"cm2": 1.0, "cm^2": 1.0, "cm²": 1.0, "mm2": 0.01, "m2": 10000.0, "m^2": 10000.0},
+    True,
+)
+M3: _QuenchUnit = (
+    {"m3": 1.0, "m^3": 1.0, "m³": 1.0, "l": 0.001, "liter": 0.001, "ml": 1e-6},
+    True,
+)
+SECOND: _QuenchUnit = (
+    {"s": 1.0, "sec": 1.0, "second": 1.0, "ms": 0.001, "min": 60.0, "minute": 60.0},
+    True,
+)
+
+
+def _quench_value(raw: Any, unit: _QuenchUnit) -> float | None:
+    """Parse "<number> [unit]" and convert it into `unit`'s target unit."""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    match = re.match(r"^([-+]?[0-9]*\.?[0-9]+)\s*(.*)$", text)
+    if not match:
+        return None
+    try:
+        value = float(match.group(1))
+    except ValueError:
+        return None
+
+    factors, accept_bare = unit
+    token = match.group(2).strip().lower()
+    if not token:
+        return value if accept_bare else None
+    factor = factors.get(token)
+    if factor is None:
+        return None
+    return round(value * factor, 6)
+
+
+def _set_quench(target: dict[str, Any], key: str, raw: Any, unit: _QuenchUnit) -> None:
+    """Set `target[key]` from a GUI quenching value, or leave it unset."""
+    value = _quench_value(raw, unit)
+    if value is not None:
+        target[key] = value
+
+
 def create_nomad_metadata_yaml(
     experiment_id: str,
     user_name: str,
@@ -412,6 +506,10 @@ def create_nomad_metadata_yaml(
                         "solutionId": str(step.solution_id)
                         if step.solution_id
                         else None,
+                        "chemRecipeId": str(step.chem_recipe_id)
+                        if step.chem_recipe_id
+                        else None,
+                        "inlineMaterial": step.inline_material,
                         "depositionMethod": {
                             "value": step.deposition_method_value,
                             "mode": step.deposition_method_mode,
@@ -484,6 +582,48 @@ def create_nomad_metadata_yaml(
                 "stages": stages,
                 "generatedStacks": generated_stacks,
                 "deletedStackCombinations": [],
+                "solutionRecipes": [
+                    {
+                        "id": str(recipe.id),
+                        "name": recipe.name,
+                        "type": recipe.type,
+                        "isCommercial": recipe.is_commercial,
+                        "commercialName": recipe.commercial_name,
+                        "supplierNumber": recipe.supplier_number,
+                        "totalSolventVolumeMl": recipe.total_solvent_volume_ml,
+                        "solvents": [
+                            {
+                                "name": solvent.name,
+                                "pubchemCid": solvent.pubchem_cid,
+                                "molarMass": solvent.molar_mass,
+                                "density": solvent.density,
+                                "volumeRatio": solvent.volume_ratio,
+                            }
+                            for solvent in recipe.solvents
+                        ],
+                        "solutes": [
+                            {
+                                "name": solute.name,
+                                "pubchemCid": solute.pubchem_cid,
+                                "molarMass": solute.molar_mass,
+                                "density": solute.density,
+                                "amount": solute.amount,
+                                "unit": solute.unit,
+                            }
+                            for solute in recipe.solutes
+                        ],
+                        "addedSolutions": [
+                            {
+                                "recipeId": str(added.referenced_recipe_id)
+                                if added.referenced_recipe_id
+                                else None,
+                                "volumeMl": added.volume_ml,
+                            }
+                            for added in recipe.added_solutions
+                        ],
+                    }
+                    for recipe in process_orm.recipes
+                ],
             }
 
     if not process_data:
@@ -532,6 +672,14 @@ def create_nomad_metadata_yaml(
             ],
         }
         for s in owner_solutions
+    }
+
+    # Solution recipes live on the Process itself (not the material library), and
+    # are what a modern process step points at via `chemRecipeId`.
+    recipes_by_id: dict[str, dict[str, Any]] = {
+        str(recipe.get("id")): recipe
+        for recipe in ((process_data or {}).get("solutionRecipes") or [])
+        if isinstance(recipe, dict) and recipe.get("id")
     }
 
     # ── 3. Build step map: step_id → ProcessStep dict ─────────────────────────
@@ -645,15 +793,6 @@ def create_nomad_metadata_yaml(
             parts = [text] if text else []
         return " | ".join(parts) if parts else "Unknown"
 
-    def _parse_media_reference(media: str) -> tuple[str, str]:
-        raw = str(media or "").strip()
-        if not raw:
-            return "", ""
-        if ":" not in raw:
-            return "", raw
-        kind, ref_id = raw.split(":", 1)
-        return kind.strip().lower(), ref_id.strip()
-
     def _flatten_solution_components(
         solution_id: str,
         visited: set[str] | None = None,
@@ -699,6 +838,139 @@ def create_nomad_metadata_yaml(
 
         return flattened
 
+    def _recipe_solvent_volumes_ml(recipe: dict[str, Any]) -> list[float | None]:
+        """Each solvent's volume in mL, split from the recipe's total by ratio."""
+        solvents = [s for s in (recipe.get("solvents") or []) if isinstance(s, dict)]
+        total_ml = _to_float(recipe.get("totalSolventVolumeMl"))
+        ratios = [(_to_float(s.get("volumeRatio")) or 0.0) for s in solvents]
+        ratio_sum = sum(ratios)
+        if total_ml is None or total_ml <= 0 or ratio_sum <= 0:
+            return [None] * len(solvents)
+        return [total_ml * ratio / ratio_sum for ratio in ratios]
+
+    def _flatten_recipe_components(
+        recipe_id: str,
+        visited: set[str] | None = None,
+        scale: float = 1.0,
+    ) -> list[dict[str, str | bool]]:
+        """A process solution recipe as flat components, like a LabSolution.
+
+        Recipes are how the Processes page defines a step's chemistry (the
+        `materialId`/`solutionId` entity refs are the legacy path), so without
+        this every solvent, compound and concentration of a modern process would
+        be missing from the upload.
+        """
+        if not recipe_id:
+            return []
+        if visited is None:
+            visited = set()
+        if recipe_id in visited:
+            return []  # a recipe mixed into itself, directly or transitively
+        visited = {recipe_id, *visited}
+
+        recipe = recipes_by_id.get(recipe_id)
+        if not isinstance(recipe, dict):
+            return []
+
+        # A commercial product is bought, not mixed: it has no meaningful
+        # composition, so it enters as a single named compound.
+        supplier = _clean_value(recipe.get("supplierNumber"))
+        if recipe.get("isCommercial"):
+            return [
+                {
+                    "name": _clean_value(
+                        recipe.get("commercialName") or recipe.get("name")
+                    ),
+                    "supplier": supplier,
+                    "purity": "Unknown",
+                    "amount": "Unknown",
+                    "is_solvent": False,
+                }
+            ]
+
+        flattened: list[dict[str, str | bool]] = []
+
+        solvents = [s for s in (recipe.get("solvents") or []) if isinstance(s, dict)]
+        for solvent, volume_ml in zip(
+            solvents, _recipe_solvent_volumes_ml(recipe), strict=False
+        ):
+            flattened.append(
+                {
+                    "name": _clean_value(solvent.get("name")),
+                    "supplier": supplier,
+                    "purity": "Unknown",
+                    "amount": (
+                        f"{round(volume_ml * scale, 6)} ml"
+                        if volume_ml is not None
+                        else "Unknown"
+                    ),
+                    "is_solvent": True,
+                }
+            )
+
+        for solute in recipe.get("solutes") or []:
+            if not isinstance(solute, dict):
+                continue
+            amount = _to_float(solute.get("amount"))
+            unit = str(solute.get("unit") or "").strip()
+            flattened.append(
+                {
+                    "name": _clean_value(solute.get("name")),
+                    "supplier": supplier,
+                    "purity": "Unknown",
+                    "amount": (
+                        f"{round(amount * scale, 6)} {unit}".strip()
+                        if amount is not None
+                        else "Unknown"
+                    ),
+                    "is_solvent": False,
+                }
+            )
+
+        # Recipes can be mixed into one another by volume; scale the mixed-in
+        # recipe's components by the fraction of it that was actually added.
+        for added in recipe.get("addedSolutions") or []:
+            if not isinstance(added, dict):
+                continue
+            added_id = str(added.get("recipeId") or "").strip()
+            added_ml = _to_float(added.get("volumeMl"))
+            if not added_id or added_ml is None or added_ml <= 0:
+                continue
+            source = recipes_by_id.get(added_id)
+            source_total = (
+                _to_float(source.get("totalSolventVolumeMl"))
+                if isinstance(source, dict)
+                else None
+            )
+            fraction = (
+                added_ml / source_total
+                if source_total is not None and source_total > 0
+                else 1.0
+            )
+            flattened.extend(
+                _flatten_recipe_components(added_id, visited, scale * fraction)
+            )
+
+        return flattened
+
+    def _inline_material_component(
+        step: dict[str, Any],
+    ) -> dict[str, str | bool] | None:
+        """A material typed straight onto the step, with no Material entity."""
+        inline = step.get("inlineMaterial")
+        if not isinstance(inline, dict):
+            return None
+        name = _clean_value(inline.get("name"), "")
+        if not name:
+            return None
+        return {
+            "name": name,
+            "supplier": "Unknown",
+            "purity": "Unknown",
+            "amount": "Unknown",
+            "is_solvent": "solvent" in str(inline.get("type") or "").lower(),
+        }
+
     def _step_reaction_components(step: dict[str, Any]) -> list[dict[str, str | bool]]:
         components: list[dict[str, str | bool]] = []
 
@@ -718,6 +990,14 @@ def create_nomad_metadata_yaml(
         solution_id = str(step.get("solutionId") or "").strip()
         if solution_id:
             components.extend(_flatten_solution_components(solution_id))
+
+        recipe_id = str(step.get("chemRecipeId") or "").strip()
+        if recipe_id:
+            components.extend(_flatten_recipe_components(recipe_id))
+
+        inline = _inline_material_component(step)
+        if inline:
+            components.append(inline)
 
         return components
 
@@ -1165,11 +1445,6 @@ def create_nomad_metadata_yaml(
 
         return " >> ".join(cleaning_steps) if cleaning_steps else "Unknown"
 
-    def _ions_coefficients(ions_str: str) -> str:
-        """Return '1' for a single ion, 'x; x; ...' for multiple ions."""
-        ions = [i.strip() for i in ions_str.split(";") if i.strip()]
-        return "1" if len(ions) <= 1 else "; ".join("x" for _ in ions)
-
     def _short_form(a_ions: str, b_ions: str, x_ions: str) -> str:
         def squish(s):
             return "".join(i.strip() for i in s.split(";") if i.strip())
@@ -1376,38 +1651,24 @@ def create_nomad_metadata_yaml(
 
         result["type"] = qtype
 
+        time_until_start = _quench_value(pairs.get("timeUntilStart"), SECOND)
+        if time_until_start is not None:
+            result["time_until_start"] = time_until_start
+
         if qtype == "Gas":
             gas_params: dict[str, Any] = {}
             if pairs.get("gasType"):
                 gas_params["gas_type"] = pairs["gasType"]
-            if pairs.get("pressure"):
-                try:
-                    # Extract numeric value (may have unit like "100000 Pa")
-                    pressure_val = pairs["pressure"].split()[0]
-                    gas_params["pressure"] = float(pressure_val)
-                except (ValueError, TypeError, IndexError):
-                    pass
-            if pairs.get("flowRate"):
-                try:
-                    # Extract numeric value (may have unit like "10 Slm")
-                    flow_val = pairs["flowRate"].split()[0]
-                    gas_params["flow_rate"] = float(flow_val)
-                except (ValueError, TypeError, IndexError):
-                    pass
-            if pairs.get("height"):
-                try:
-                    # Extract numeric value (may have unit like "10 mm")
-                    height_val = pairs["height"].split()[0]
-                    gas_params["height"] = float(height_val)
-                except (ValueError, TypeError, IndexError):
-                    pass
-            if pairs.get("nozzleWidth"):
-                try:
-                    # Extract numeric value (may have unit like "5 mm")
-                    nozzle_val = pairs["nozzleWidth"].split()[0]
-                    gas_params["nozzle_width"] = float(nozzle_val)
-                except (ValueError, TypeError, IndexError):
-                    pass
+            _set_quench(gas_params, "pressure", pairs.get("pressure"), PASCAL)
+            # The GUI lets the flow be given either as a volumetric flow (Slm)
+            # or as a nozzle exit velocity (m/s) — dimensionally different
+            # things, so they land in different quantities.
+            _set_quench(gas_params, "flow_rate", pairs.get("flowRate"), LITER_PER_MIN)
+            _set_quench(gas_params, "velocity", pairs.get("flowRate"), METER_PER_SEC)
+            _set_quench(gas_params, "height", pairs.get("height"), MILLIMETER)
+            _set_quench(
+                gas_params, "nozzle_width", pairs.get("nozzleWidth"), MILLIMETER
+            )
             if pairs.get("nozzleForm"):
                 gas_params["nozzle_form"] = pairs["nozzleForm"]
 
@@ -1420,65 +1681,35 @@ def create_nomad_metadata_yaml(
             if media:
                 # Resolve material:id or solution:id to actual name
                 antisolvent_params["media"] = _resolve_media_reference(media)
+                # Keep the raw reference (never emitted to NOMAD) so the caller
+                # can look the solution up for the database's quenching fields.
+                result["media_ref"] = media
+            if pairs.get("mediaCid"):
+                antisolvent_params["media_pubchem_cid"] = pairs["mediaCid"]
             if pairs.get("depositionMethod"):
                 antisolvent_params["deposition_method"] = pairs["depositionMethod"]
-            if pairs.get("flowRate"):
-                try:
-                    # Extract numeric value (may have unit like "100 ul/s")
-                    flow_val = pairs["flowRate"].split()[0]
-                    antisolvent_params["flow_rate"] = float(flow_val)
-                except (ValueError, TypeError, IndexError):
-                    pass
-            if pairs.get("height"):
-                try:
-                    # Extract numeric value (may have unit like "10 mm")
-                    height_val = pairs["height"].split()[0]
-                    antisolvent_params["height"] = float(height_val)
-                except (ValueError, TypeError, IndexError):
-                    pass
-            if pairs.get("volume"):
-                try:
-                    # Extract numeric value (may have unit like "200 mL")
-                    vol_val = pairs["volume"].split()[0]
-                    antisolvent_params["volume"] = float(vol_val)
-                except (ValueError, TypeError, IndexError):
-                    pass
+            _set_quench(
+                antisolvent_params,
+                "flow_rate",
+                pairs.get("flowRate"),
+                MICROLITER_PER_SEC,
+            )
+            _set_quench(antisolvent_params, "height", pairs.get("height"), MILLIMETER)
+            _set_quench(antisolvent_params, "volume", pairs.get("volume"), MICROLITER)
 
             if antisolvent_params:
                 result["antisolvent"] = antisolvent_params
 
         elif qtype == "Vacuum":
             vacuum_params: dict[str, Any] = {}
-            if pairs.get("height"):
-                try:
-                    # Extract numeric value (may have unit like "10 mm")
-                    height_val = pairs["height"].split()[0]
-                    vacuum_params["height"] = float(height_val)
-                except (ValueError, TypeError, IndexError):
-                    pass
-            if pairs.get("baseArea"):
-                try:
-                    # Extract numeric value (may have unit like "100 cm2")
-                    area_val = pairs["baseArea"].split()[0]
-                    vacuum_params["base_area"] = float(area_val)
-                except (ValueError, TypeError, IndexError):
-                    pass
+            _set_quench(vacuum_params, "height", pairs.get("height"), MILLIMETER)
+            _set_quench(vacuum_params, "base_area", pairs.get("baseArea"), CM2)
             if pairs.get("pumpModel"):
                 vacuum_params["pump_model"] = pairs["pumpModel"]
-            if pairs.get("deadVolume"):
-                try:
-                    # Extract numeric value (may have unit like "0.001 m3")
-                    vol_val = pairs["deadVolume"].split()[0]
-                    vacuum_params["dead_volume"] = float(vol_val)
-                except (ValueError, TypeError, IndexError):
-                    pass
-            if pairs.get("evacuationTime"):
-                try:
-                    # Extract numeric value (may have unit like "30 s")
-                    time_val = pairs["evacuationTime"].split()[0]
-                    vacuum_params["evacuation_time"] = float(time_val)
-                except (ValueError, TypeError, IndexError):
-                    pass
+            _set_quench(vacuum_params, "dead_volume", pairs.get("deadVolume"), M3)
+            _set_quench(
+                vacuum_params, "evacuation_time", pairs.get("evacuationTime"), SECOND
+            )
 
             if vacuum_params:
                 result["vacuum"] = vacuum_params
@@ -1632,14 +1863,16 @@ def create_nomad_metadata_yaml(
         sample_lab_id: str,
         substrate_layer_name: str,
         cell_stack_sequence: str,
-        etl_e: list,
-        absorber_e: list,
-        htl_e: list,
-        backcontact_e: list,
-        add_e: list,
+        etl_e: _LayerEntries,
+        absorber_e: _LayerEntries,
+        htl_e: _LayerEntries,
+        backcontact_e: _LayerEntries,
+        add_front_e: _LayerEntries,
+        add_back_e: _LayerEntries,
         substrate: dict[str, Any] | None,
         jv_sec: dict[str, Any],
         cell_area: float | None,
+        cells_per_substrate: int | None = None,
         group_files: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Assemble the PerovskiteSolarCellSampleArea data dict.
@@ -1654,13 +1887,24 @@ def create_nomad_metadata_yaml(
         }
         if cell_area is not None:
             cell_dict["area_total"] = cell_area
+        if cells_per_substrate is not None:
+            cell_dict["number_of_cells_per_substrate"] = cells_per_substrate
+
+        # A discarded / unfinished substrate still yields a sample archive — say so
+        # on the sample too, not only on the SubstrateSample.
+        free_text = comment or ""
+        substrate_note = (
+            _substrate_description(substrate) if isinstance(substrate, dict) else ""
+        )
+        if substrate_note:
+            free_text = f"{free_text} {substrate_note}".strip()
 
         d: dict[str, Any] = {
             "m_def": "nomad_perovskite_solar_cell_sample_plains.schema_packages.sample.PerovskiteSolarCellSampleArea",
             "name": sample_name,
             "lab_id": sample_lab_id,
             "ref": {
-                "free_text_comment": comment or "",
+                "free_text_comment": free_text,
                 "name_of_person_entering_the_data": user_name,
             },
             "cell": cell_dict,
@@ -1669,6 +1913,10 @@ def create_nomad_metadata_yaml(
                 "thickness": "nan",
             },
         }
+
+        experiment_dt = _parse_datetime(str(exp_data.get("date") or ""))
+        if experiment_dt:
+            d["datetime"] = experiment_dt
 
         substrate_material_meta = _resolve_substrate_material(substrate)
         substrate_dimensions = _get_substrate_dimensions(substrate)
@@ -1797,6 +2045,17 @@ def create_nomad_metadata_yaml(
             if vacuum_list:
                 quenching_params_section["vacuum"] = vacuum_list[0]
 
+            time_until_start = next(
+                (
+                    qd["time_until_start"]
+                    for qd in quenching_data_list
+                    if qd.get("time_until_start") is not None
+                ),
+                None,
+            )
+            if time_until_start is not None:
+                quenching_params_section["time_until_start"] = time_until_start
+
             d["perovskite_deposition"] = {
                 "number_of_deposition_steps": len(absorber_e),
                 "procedure": _join_params(absorber_e, "depositionMethod", substrate),
@@ -1848,8 +2107,56 @@ def create_nomad_metadata_yaml(
                 "solvent_annealing_time": "Unknown",
                 "solvent_annealing_temperature": "Unknown",
                 "after_treatment_of_formed_perovskite": "false",
-                "after_treatment_of_formed_perovskite_method": "Unknown",
+                # The upstream quantity name really is truncated at "..._met".
+                "after_treatment_of_formed_perovskite_met": "Unknown",
             }
+
+            # The perovskite-database's own quenching fields, alongside the
+            # structured `quenching_parameters` subsection above — a NOMAD
+            # search over the database schema only sees these.
+            quench_types = [qd["type"] for qd in quenching_data_list if qd.get("type")]
+            d["perovskite_deposition"]["quenching_induced_crystallisation"] = bool(
+                quench_types
+            )
+            antisolvent_media = [
+                str(qd["antisolvent"].get("media") or "")
+                for qd in quenching_data_list
+                if qd.get("antisolvent")
+            ]
+            if antisolvent_media:
+                d["perovskite_deposition"]["quenching_media"] = (
+                    _format_layer_token_list(antisolvent_media)
+                )
+                volumes = [
+                    f"{qd['antisolvent']['volume']} uL"
+                    for qd in quenching_data_list
+                    if qd.get("antisolvent")
+                    and qd["antisolvent"].get("volume") is not None
+                ]
+                if volumes:
+                    d["perovskite_deposition"]["quenching_media_volume"] = "; ".join(
+                        volumes
+                    )
+
+                # When the antisolvent is one of the lab's solutions rather than
+                # a plain material, it can carry additives — keep them.
+                for qd in quenching_data_list:
+                    kind, _, ref_id = str(qd.get("media_ref") or "").partition(":")
+                    if kind.strip().lower() != "solution" or not ref_id.strip():
+                        continue
+                    meta = _quenching_solution_metadata(ref_id.strip())
+                    if meta["additives_compounds"] != "Unknown":
+                        d["perovskite_deposition"][
+                            "quenching_media_additives_compounds"
+                        ] = meta["additives_compounds"]
+                        d["perovskite_deposition"][
+                            "quenching_media_additives_concentrations"
+                        ] = meta["additives_concentrations"]
+                    if meta["mixing_ratios"] != "Unknown":
+                        d["perovskite_deposition"]["quenching_media_mixing_ratios"] = (
+                            meta["mixing_ratios"]
+                        )
+                    break
 
             # Add quenching_parameters if any were found
             if quenching_params_section:
@@ -1878,8 +2185,19 @@ def create_nomad_metadata_yaml(
             d["backcontact"] = _build_section(
                 backcontact_e, substrate, thickness_key="thickness_list"
             )
-        if add_e:
-            d["add"] = _build_section(add_e, substrate, thickness_key="thickness_list")
+
+        # `Add` prefixes every quantity with the side the layer sits on; an
+        # unprefixed key resolves to nothing and is silently dropped by NOMAD.
+        add_section: dict[str, Any] = {}
+        for prefix, entries in (("lay_front", add_front_e), ("lay_back", add_back_e)):
+            if not entries:
+                continue
+            add_section[prefix] = True
+            section = _build_section(entries, substrate, thickness_key="thickness_list")
+            for key, value in section.items():
+                add_section[f"{prefix}_{key}"] = value
+        if add_section:
+            d["add"] = add_section
 
         d["jv"] = jv_sec
 
@@ -1956,15 +2274,157 @@ def create_nomad_metadata_yaml(
             except ValueError:
                 return None
 
+    def _duration_minutes(start: str | None, end: str | None) -> float | None:
+        """Minutes from `start` to `end`, or None when that isn't a real interval."""
+        if not start or not end:
+            return None
+        try:
+            delta = datetime.fromisoformat(end) - datetime.fromisoformat(start)
+        except ValueError:
+            return None
+        minutes = delta.total_seconds() / 60.0
+        # A non-positive gap means the times are inconsistent (the GUI flags
+        # those cells in red); emitting a negative duration would corrupt the
+        # workflow, so leave it unset instead.
+        if minutes <= 0:
+            return None
+        return round(minutes, 4)
+
+    def _solution_molar_concentration(solution_id: str) -> float | None:
+        """Molarity (mol/l) of the solution's solutes, when it can be derived.
+
+        Only solutes given as a mass (mg/g) with a known molar mass, dissolved in
+        a known solvent volume, can be converted; anything else stays unset rather
+        than guessed.
+        """
+        solution = solutions_by_id.get(solution_id)
+        if not isinstance(solution, dict):
+            return None
+
+        total_volume_l = 0.0
+        moles = 0.0
+        for component in solution.get("components") or []:
+            if not isinstance(component, dict):
+                continue
+            material = materials_by_id.get(str(component.get("materialId") or ""))
+            if not isinstance(material, dict):
+                continue
+            amount = _to_float(component.get("amount"))
+            if amount is None:
+                continue
+            unit = str(component.get("unit") or "").strip().lower()
+
+            if _is_solvent_material(material):
+                if unit in ("ml", "milliliter"):
+                    total_volume_l += amount / 1000.0
+                elif unit in ("l", "liter"):
+                    total_volume_l += amount
+                elif unit in ("µl", "μl", "ul", "microliter"):
+                    total_volume_l += amount / 1_000_000.0
+                continue
+
+            if unit == "mol":
+                moles += amount
+                continue
+            molar_mass = _to_float(material.get("molecularWeight"))
+            if molar_mass is None or molar_mass <= 0:
+                continue
+            if unit in ("mg", "milligram"):
+                moles += (amount / 1000.0) / molar_mass
+            elif unit in ("g", "gram"):
+                moles += amount / molar_mass
+
+        if total_volume_l <= 0 or moles <= 0:
+            return None
+        return round(moles / total_volume_l, 6)
+
+    def _recipe_molar_concentration(recipe_id: str) -> float | None:
+        """Molarity (mol/l) of a process recipe, when its solutes can be converted."""
+        components = _flatten_recipe_components(recipe_id)
+        if not components:
+            return None
+
+        total_volume_l = 0.0
+        moles = 0.0
+        # Molar masses live on the recipe's own solute entries, not the material
+        # library, so index them by name.
+        molar_masses: dict[str, float] = {}
+        for recipe in recipes_by_id.values():
+            for solute in recipe.get("solutes") or []:
+                if not isinstance(solute, dict):
+                    continue
+                mass = _to_float(solute.get("molarMass"))
+                name = _clean_value(solute.get("name"), "")
+                if name and mass and mass > 0:
+                    molar_masses[name] = mass
+
+        for component in components:
+            amount_text = str(component.get("amount") or "")
+            value = _to_float(amount_text.split(" ")[0]) if amount_text else None
+            if value is None:
+                continue
+            unit = amount_text.partition(" ")[2].strip().lower()
+
+            if component.get("is_solvent"):
+                if unit in ("ml", "milliliter"):
+                    total_volume_l += value / 1000.0
+                elif unit in ("l", "liter"):
+                    total_volume_l += value
+                continue
+
+            if unit == "mol":
+                moles += value
+                continue
+            molar_mass = molar_masses.get(str(component.get("name") or ""))
+            if molar_mass is None:
+                continue
+            if unit == "mg":
+                moles += (value / 1000.0) / molar_mass
+            elif unit == "g":
+                moles += value / molar_mass
+
+        if total_volume_l <= 0 or moles <= 0:
+            return None
+        return round(moles / total_volume_l, 6)
+
     def _step_material_payload(step: dict[str, Any]) -> dict[str, Any] | None:
+        recipe_id = str(step.get("chemRecipeId") or "").strip()
+        if recipe_id:
+            recipe = recipes_by_id.get(recipe_id)
+            if isinstance(recipe, dict):
+                payload: dict[str, Any] = {
+                    "name": _clean_value(
+                        recipe.get("commercialName")
+                        if recipe.get("isCommercial")
+                        else recipe.get("name"),
+                        "Unknown",
+                    ),
+                    "supplier": _clean_value(recipe.get("supplierNumber")),
+                }
+                concentration = _recipe_molar_concentration(recipe_id)
+                if concentration is not None:
+                    payload["concentration"] = concentration
+                return payload
+
+        inline = step.get("inlineMaterial")
+        if isinstance(inline, dict) and _clean_value(inline.get("name"), ""):
+            return {
+                "name": _clean_value(inline.get("name")),
+                "supplier": "Unknown",
+            }
+
         solution_id = str(step.get("solutionId") or "").strip()
         if solution_id:
             solution = solutions_by_id.get(solution_id)
             if isinstance(solution, dict):
-                return {
+                solution_payload: dict[str, Any] = {
                     "name": _clean_value(solution.get("name"), "Unknown"),
                     "supplier": "Unknown",
                 }
+                concentration = _solution_molar_concentration(solution_id)
+                if concentration is not None:
+                    solution_payload["concentration"] = concentration
+                return solution_payload
 
         material_id = str(step.get("materialId") or "").strip()
         if material_id:
@@ -1975,6 +2435,114 @@ def create_nomad_metadata_yaml(
             }
 
         return None
+
+    # ── Processing times ──────────────────────────────────────────────────────
+    # Mirror of frontend/src/lib/processingTimes.ts. A substrate follows one
+    # alternative per stage; substrates that pick the same alternative
+    # everywhere share one timing row ("stack"), and from the first stage where
+    # two substrates disagree ("divergence") each stack carries its own times.
+    # The cells therefore live under either `stage:{i}` (shared prefix) or
+    # `stage:{i}:stack:{key}` (diverged) — reading only the former, as this used
+    # to, silently loses every timestamp after the divergence.
+    #
+    # Index `len(stages)` is not a stage but the *end of the experiment* cell,
+    # which is what gives the last step a duration.
+
+    _process_stages: list[dict[str, Any]] = [
+        stage
+        for stage in ((process_data or {}).get("stages") or [])
+        if isinstance(stage, dict)
+    ]
+    _end_stage_idx = len(_process_stages)
+    _processing_times: dict[str, str] = {
+        str(key): str(value)
+        for key, value in (exp_data.get("processingTimes") or {}).items()
+        if isinstance(value, str)
+    }
+
+    def _stage_selection(substrate: dict[str, Any], stage_idx: int) -> str:
+        stored = str(
+            (substrate.get("parameterValues") or {}).get(f"stageSelection:{stage_idx}")
+            or ""
+        ).strip()
+        if stored:
+            return stored
+        alternatives = _process_stages[stage_idx].get("alternatives") or []
+        first = alternatives[0] if alternatives else None
+        return str(first.get("id") or "") if isinstance(first, dict) else "SKIP"
+
+    def _stack_key_for(substrate: dict[str, Any]) -> str:
+        return "|".join(
+            _stage_selection(substrate, idx) for idx in range(_end_stage_idx)
+        )
+
+    def _stack_order() -> list[str]:
+        """Stack keys in the order the Processing table renders its rows."""
+        order: list[str] = []
+        for substrate in substrates_list:
+            if not isinstance(substrate, dict):
+                continue
+            key = _stack_key_for(substrate)
+            if key not in order:
+                order.append(key)
+        return order
+
+    _stacks = _stack_order()
+
+    def _diverge_idx() -> int:
+        if len(_stacks) <= 1:
+            return -1
+        for idx in range(_end_stage_idx):
+            if len({key.split("|")[idx] for key in _stacks}) > 1:
+                return idx
+        return -1
+
+    _divergence = _diverge_idx()
+
+    def _date_part(value: str) -> str:
+        return value.split("T")[0] if value else ""
+
+    def _has_time(value: str) -> bool:
+        return bool(_date_part(value)) and "T" in value and bool(value.split("T")[1])
+
+    def _resolve_processing_time(stage_idx: int, stack_key: str | None) -> str:
+        """The effective time of one Processing-table cell (see processingTimes.ts)."""
+        if stage_idx < 0:
+            return ""
+        effective_key = (
+            stack_key if _divergence >= 0 and stage_idx >= _divergence else None
+        )
+
+        if effective_key:
+            as_above = _processing_times.get(
+                f"asAbove:stage:{stage_idx}:stack:{effective_key}"
+            )
+            if as_above == "true":
+                row_idx = (
+                    _stacks.index(effective_key) if effective_key in _stacks else 0
+                )
+                if row_idx > 0:
+                    return _resolve_processing_time(stage_idx, _stacks[row_idx - 1])
+
+        own = _processing_times.get(
+            f"stage:{stage_idx}:stack:{effective_key}"
+            if effective_key
+            else f"stage:{stage_idx}"
+        )
+        if not own and effective_key:
+            own = _processing_times.get(f"stage:{stage_idx}")
+        if own:
+            return own
+
+        # Only the date cascades forward, never the time — same as the GUI.
+        return _date_part(_resolve_processing_time(stage_idx - 1, stack_key))
+
+    def _experiment_end_for(substrate: dict[str, Any]) -> str:
+        """The 'end of experiment' cell of this substrate's row, else the experiment's."""
+        end = _resolve_processing_time(_end_stage_idx, _stack_key_for(substrate))
+        if _has_time(end):
+            return end
+        return str(exp_data.get("endDate") or "")
 
     def _selected_steps_for_substrate(
         substrate: dict[str, Any],
@@ -2071,6 +2639,34 @@ def create_nomad_metadata_yaml(
 
         return substrate_data
 
+    def _substrate_description(substrate: dict[str, Any]) -> str:
+        """The substrate's notes and its outcome (discarded / stopped early).
+
+        A discarded or incomplete substrate still produces a sample archive, so
+        the fact that it was discarded has to travel with it — otherwise a failed
+        run is indistinguishable from a good one in NOMAD.
+        """
+        parts: list[str] = []
+        notes = _clean_value(substrate.get("notes"), "")
+        if notes:
+            parts.append(notes)
+
+        outcome = substrate.get("outcome")
+        if isinstance(outcome, dict):
+            status = str(outcome.get("status") or "").strip().lower()
+            if status == "discarded":
+                reason = _clean_value(outcome.get("discardReason"), "")
+                parts.append(f"Discarded: {reason}" if reason else "Discarded.")
+            elif status == "incomplete":
+                stopped = _clean_value(outcome.get("stoppedAtStep"), "")
+                parts.append(
+                    f"Incomplete: processing stopped at step {stopped}."
+                    if stopped
+                    else "Incomplete: processing did not finish."
+                )
+
+        return " ".join(parts)
+
     def _build_substrate_entity_data(
         substrate: dict[str, Any],
         substrate_layer_name: str,
@@ -2084,6 +2680,9 @@ def create_nomad_metadata_yaml(
         }
         if experiment_dt:
             payload["datetime"] = experiment_dt
+        description = _substrate_description(substrate)
+        if description:
+            payload["description"] = description
         return payload
 
     def _build_deposition_routine_data(
@@ -2091,35 +2690,57 @@ def create_nomad_metadata_yaml(
         substrate_sample_ref: str,
     ) -> dict[str, Any]:
         selected_steps = _selected_steps_for_substrate(substrate)
-        processing_times = exp_data.get("processingTimes") or {}
+        stack_key = _stack_key_for(substrate)
         step_payloads: list[dict[str, Any]] = []
-        start_ts: str | None = None
-        end_ts: str | None = None
 
-        for step_idx, (stage_idx, step) in enumerate(selected_steps, start=1):
-            timestamp = _parse_datetime(
-                str(processing_times.get(f"stage:{stage_idx}") or "")
-            )
-            if not timestamp:
-                timestamp = _parse_datetime(
+        # Resolve every step's start first: a step's duration is the gap to the
+        # step that follows it, so it can only be known once the next start is.
+        starts: list[str | None] = []
+        for stage_idx, step in selected_steps:
+            start = _parse_datetime(_resolve_processing_time(stage_idx, stack_key))
+            if not start:
+                start = _parse_datetime(
                     _get_step_param(step, "depositionStartTime", substrate, "")
                 )
+            starts.append(start)
 
-            name = _get_step_param(step, "depositionMethod", substrate, "")
+        # The last step runs until the end of the experiment.
+        routine_end = _parse_datetime(_experiment_end_for(substrate))
+        boundaries: list[str | None] = [*starts[1:], routine_end]
+
+        known_starts = [start for start in starts if start]
+        start_ts = min(known_starts) if known_starts else None
+        end_ts = routine_end or (max(known_starts) if known_starts else None)
+
+        for step_idx, (_stage_idx, step) in enumerate(selected_steps, start=1):
+            start = starts[step_idx - 1]
+
+            name = _clean_value(step.get("name"), "")
             if not name:
-                name = _clean_value(step.get("name"), "Unknown")
+                name = _get_step_param(step, "depositionMethod", substrate, "Unknown")
 
             step_payload: dict[str, Any] = {
                 "step_index": step_idx,
                 "step_type": _step_type_for_nomad(str(step.get("stepCategory") or "")),
                 "name": name,
             }
-            if timestamp:
-                step_payload["timestamp"] = timestamp
-                if start_ts is None or timestamp < start_ts:
-                    start_ts = timestamp
-                if end_ts is None or timestamp > end_ts:
-                    end_ts = timestamp
+            if start:
+                step_payload["start_time"] = start
+                duration = _duration_minutes(start, boundaries[step_idx - 1])
+                if duration is not None:
+                    step_payload["duration"] = duration
+
+            deposition_method = _get_step_param(step, "depositionMethod", substrate, "")
+            if deposition_method and deposition_method != "Unknown":
+                step_payload["deposition_method"] = deposition_method
+
+            color = _clean_value(step.get("color"), "")
+            if color:
+                step_payload["color"] = color
+
+            notes = _clean_value(step.get("notes"), "")
+            if notes:
+                step_payload["notes"] = notes
 
             # Add atmosphere
             atmosphere = _get_step_param(step, "depositionAtmosphere", substrate, "")
@@ -2138,12 +2759,12 @@ def create_nomad_metadata_yaml(
             if depo_params and depo_params != "Unknown":
                 step_payload["deposition_parameters"] = depo_params
 
-            # Add solution volume
+            # Solution volume — the GUI collects µL, the schema quantity is mL.
             solution_vol = _to_float(
                 _get_step_param(step, "solutionVolume", substrate, "")
             )
             if solution_vol is not None:
-                step_payload["solution_volume"] = solution_vol
+                step_payload["solution_volume"] = solution_vol / 1000.0
 
             # Add drying method
             drying_method = _get_step_param(step, "dryingMethod", substrate, "")
@@ -2162,7 +2783,12 @@ def create_nomad_metadata_yaml(
             )
             if annealing_time is not None:
                 step_payload["annealing_time"] = annealing_time
-                step_payload["duration"] = annealing_time  # Also set as duration
+                # Deliberately NOT the step's `duration`: annealing time is how
+                # long the sample was annealed, duration is how long the step
+                # occupied the routine (i.e. until the next step began). Falling
+                # back to it here is only for a step whose start is unknown, so
+                # the workflow keeps some notion of how long the step took.
+                step_payload.setdefault("duration", annealing_time)
 
             annealing_temp = _to_float(
                 _get_step_param(step, "annealingTemp", substrate, "")
@@ -2191,15 +2817,16 @@ def create_nomad_metadata_yaml(
             "steps": step_payloads,
         }
 
+        # `Process` has no `start_time` — the start of an activity is `datetime`
+        # (only its *steps* carry a start_time). Writing one would be silently
+        # dropped by NOMAD's deserializer.
         experiment_dt = _parse_datetime(str(exp_data.get("date") or ""))
-        if start_ts:
-            process_payload["start_time"] = start_ts
-        if end_ts:
-            process_payload["end_time"] = end_ts
         if start_ts:
             process_payload["datetime"] = start_ts
         elif experiment_dt:
             process_payload["datetime"] = experiment_dt
+        if end_ts:
+            process_payload["end_time"] = end_ts
 
         return process_payload
 
@@ -2260,11 +2887,20 @@ def create_nomad_metadata_yaml(
     def _layers_for_substrate(
         sub_idx: int,
         substrate: dict[str, Any],  # noqa: ARG001
-    ) -> tuple[str, str, list, list, list, list, list]:
+    ) -> tuple[
+        str,
+        str,
+        _LayerEntries,
+        _LayerEntries,
+        _LayerEntries,
+        _LayerEntries,
+        _LayerEntries,
+        _LayerEntries,
+    ]:
         """
         Return (substrate_layer_name, cell_stack_sequence,
                 etl_entries, absorber_entries, htl_entries,
-                backcontact_entries, add_entries)
+                backcontact_entries, add_front_entries, add_back_entries)
         for the given substrate index using the cyclically-assigned stack.
         """
         stack = _stack_for_substrate(sub_idx)
@@ -2286,8 +2922,13 @@ def create_nomad_metadata_yaml(
         htl_e: list[tuple[dict[str, Any], str]] = []
         absorber_e: list[tuple[dict[str, Any], str]] = []
         bc_e: list[tuple[dict[str, Any], str]] = []
-        add_e: list[tuple[dict[str, Any], str]] = []
+        # The database's `Add` section splits additional layers by which side of
+        # the device they sit on, so interlayers are bucketed by whether they
+        # were deposited before or after the absorber.
+        add_front_e: list[tuple[dict[str, Any], str]] = []
+        add_back_e: list[tuple[dict[str, Any], str]] = []
         ordered_names: list[str] = []
+        seen_absorber = False
 
         for layer in stack_layers:
             layer_id = layer.get("id", "")
@@ -2303,16 +2944,26 @@ def create_nomad_metadata_yaml(
                 htl_e.append(entry)
             elif lt == "absorber":
                 absorber_e.append(entry)
+                seen_absorber = True
             elif lt == "contact":
                 bc_e.append(entry)
             elif lt == "interlayer":
-                add_e.append(entry)
+                (add_back_e if seen_absorber else add_front_e).append(entry)
 
         stack_seq = sub_layer_name
         if ordered_names:
             stack_seq += " | " + " | ".join(ordered_names)
 
-        return sub_layer_name, stack_seq, etl_e, absorber_e, htl_e, bc_e, add_e
+        return (
+            sub_layer_name,
+            stack_seq,
+            etl_e,
+            absorber_e,
+            htl_e,
+            bc_e,
+            add_front_e,
+            add_back_e,
+        )
 
     # ── 8. Build device-group lookup by substrate ─────────────────────────────
     groups_by_substrate: dict[str, list[dict[str, Any]]] = {}
@@ -2341,9 +2992,16 @@ def create_nomad_metadata_yaml(
 
         sub_name_slug = _slug(str(substrate.get("name") or substrate_id))
 
-        sub_layer, stack_seq, etl_e, absorber_e, htl_e, bc_e, add_e = (
-            _layers_for_substrate(sub_idx, substrate)
-        )
+        (
+            sub_layer,
+            stack_seq,
+            etl_e,
+            absorber_e,
+            htl_e,
+            bc_e,
+            add_front_e,
+            add_back_e,
+        ) = _layers_for_substrate(sub_idx, substrate)
 
         # Reserve filenames up-front so nothing collides later
         substrate_sample_fname = _reserve_archive_filename(
@@ -2396,10 +3054,12 @@ def create_nomad_metadata_yaml(
                 absorber_e,
                 htl_e,
                 bc_e,
-                add_e,
+                add_front_e,
+                add_back_e,
                 substrate,
                 jv_sec,
                 cell_area=cell_area,
+                cells_per_substrate=num_pixels,
                 group_files=group_files,
             )
             archives[sample_fname] = {"data": sample_data}

@@ -260,13 +260,24 @@ function stackFromApi(s: ApiObj): ProcessGeneratedStack {
 
 // ── Experiment ───────────────────────────────────────────────────────────────
 
+/**
+ * The API returns a full ISO timestamp ("…T14:30:00"), but the app holds these
+ * as `datetime-local` strings ("…T14:30") — which is also what they are compared
+ * against when re-derived from the processing times. Trim to minutes so a
+ * round-trip through the backend doesn't look like an edit.
+ */
+function toDatetimeLocal(value: string | null | undefined): string | undefined {
+  if (!value) return undefined
+  return value.length > 16 ? value.slice(0, 16) : value
+}
+
 function experimentFromApi(e: ApiObj): Experiment {
   return {
     id: e.id,
     name: e.name,
     description: e.description ?? "",
-    date: e.date ?? "",
-    endDate: e.end_date ?? undefined,
+    date: toDatetimeLocal(e.date) ?? "",
+    endDate: toDatetimeLocal(e.end_date),
     architecture: e.architecture ?? "n-i-p",
     substrateMaterial: e.substrate_material ?? "",
     substrateWidth: e.substrate_width ?? 0,
