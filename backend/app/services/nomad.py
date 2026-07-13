@@ -151,6 +151,28 @@ def get_nomad_token(username: str | None = None, password: str | None = None) ->
         raise NomadAuthError(f"Failed to connect to NOMAD: {e}")
 
 
+# Path separators, control characters, and the characters Windows/zip tooling
+# cannot represent. Everything else — parentheses, '#', '&', … — is kept: the
+# generated archive YAMLs point at raw files *by name*, so any character we drop
+# here has to be dropped identically over there or NOMAD's parser reports
+# "No such file or directory" for a file that is sitting right next to it.
+_UNSAFE_FILENAME_CHARS = re.compile(r'[\x00-\x1f\x7f:*?"<>|]')
+
+
+def sanitize_upload_filename(filename: str) -> str:
+    """Return the flat, zip-safe name a file has *inside* the upload archive.
+
+    This is the single source of truth for that name. Call it anywhere a
+    filename is written into the zip **or** referenced from metadata, so the two
+    can never disagree.
+    """
+    # Backslashes are not separators on POSIX, so normalise before taking .name.
+    name = Path(filename.replace("\\", "/")).name
+    name = _UNSAFE_FILENAME_CHARS.sub("_", name)
+    # Leading dots ('..') and trailing dots/spaces are traversal / Windows traps.
+    return name.strip(". ")
+
+
 def create_secure_zip(
     files: list[tuple[str, bytes]],
     metadata_files: list[tuple[str, str]] | None = None,
@@ -182,20 +204,14 @@ def create_secure_zip(
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
         # Add data files
         for filename, content in files:
-            # Sanitize filename - remove path components
-            safe_filename = Path(filename).name
-            # Remove any potentially dangerous characters
-            safe_filename = "".join(
-                c for c in safe_filename if c.isalnum() or c in "._- "
-            )
+            safe_filename = sanitize_upload_filename(filename)
             if safe_filename:
                 zipf.writestr(safe_filename, content)
 
         # Add metadata YAML files
         if metadata_files:
             for meta_filename, yaml_content in metadata_files:
-                safe_meta = Path(meta_filename).name
-                safe_meta = "".join(c for c in safe_meta if c.isalnum() or c in "._- ")
+                safe_meta = sanitize_upload_filename(meta_filename)
                 if not safe_meta:
                     continue
                 zipf.writestr(safe_meta, yaml_content)
@@ -234,7 +250,10 @@ def add_metadata_to_zip(
     if not zip_path.exists():
         raise FileNotFoundError(f"Zip archive not found: {zip_path}")
 
-    remove_set: set[str] = {Path(f).name for f in (files_to_remove or [])}
+    # Callers pass the *original* filenames; zip entries carry the sanitized ones.
+    remove_set: set[str] = {
+        sanitize_upload_filename(f) for f in (files_to_remove or [])
+    }
 
     # Create temporary zip file
     temp_zip = zip_path.with_suffix(".tmp.zip")
@@ -247,14 +266,14 @@ def add_metadata_to_zip(
                 for item in old_zip.namelist():
                     if item.endswith(".yaml"):
                         continue
-                    if Path(item).name in remove_set:
+                    if sanitize_upload_filename(item) in remove_set:
                         logger.info(f"Stripping ignored file from archive: {item}")
                         continue
                     new_zip.writestr(item, old_zip.read(item))
 
                 # Add new metadata YAML files
                 for meta_filename, yaml_content in metadata_files:
-                    safe_meta = Path(meta_filename).name
+                    safe_meta = sanitize_upload_filename(meta_filename)
                     new_zip.writestr(safe_meta, yaml_content)
 
         # Replace original with updated version
@@ -1562,7 +1581,7 @@ def create_nomad_metadata_yaml(
             caption = Path(filename).stem.replace("_", " ").replace("-", " ")
             images.append(
                 {
-                    "image": _upload_raw_reference(filename),
+                    "image": _upload_raw_reference(sanitize_upload_filename(filename)),
                     "caption": caption,
                 }
             )
@@ -1589,7 +1608,9 @@ def create_nomad_metadata_yaml(
             title = Path(filename).stem.replace("_", " ").replace("-", " ")
             documents.append(
                 {
-                    "document": _upload_raw_reference(filename),
+                    "document": _upload_raw_reference(
+                        sanitize_upload_filename(filename)
+                    ),
                     "title": title,
                 }
             )
@@ -1819,6 +1840,9 @@ def create_nomad_metadata_yaml(
         """Build a LabXxx measurement data dict, or None for non-measurement types."""
         file_type = meas_file.get("fileType", "Unknown")
         file_name = meas_file.get("fileName", "")
+        # The measurement points at the raw file by name, so it must be the name
+        # the file actually has inside the upload — not the one it had on disk.
+        raw_file = sanitize_upload_filename(file_name)
         op = str(meas_file.get("user") or operator)
 
         if file_type in JV_TYPES:
@@ -1826,7 +1850,7 @@ def create_nomad_metadata_yaml(
                 "m_def": "nomad_chose.schema_packages.schema_package.LabJVMeasurement",
                 "name": file_name,
                 "operator": op,
-                "jv_file": file_name,
+                "jv_file": raw_file,
                 "samples": [
                     {"reference": _upload_raw_reference(sample_filename, "/data")}
                 ],
@@ -1836,7 +1860,7 @@ def create_nomad_metadata_yaml(
                 "m_def": "nomad_chose.schema_packages.schema_package.LabEQEMeasurement",
                 "name": file_name,
                 "operator": op,
-                "eqe_file": file_name,
+                "eqe_file": raw_file,
                 "samples": [
                     {"reference": _upload_raw_reference(sample_filename, "/data")}
                 ],
@@ -1851,9 +1875,9 @@ def create_nomad_metadata_yaml(
                 ],
             }
             if file_type == "Stability (Tracking)":
-                entry["stability_tracking_file"] = file_name
+                entry["stability_tracking_file"] = raw_file
             else:
-                entry["stability_parameters_file"] = file_name
+                entry["stability_parameters_file"] = raw_file
             return entry
         # Document / Image / Archive / Unknown → skip
         return None
