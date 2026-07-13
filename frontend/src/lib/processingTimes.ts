@@ -17,6 +17,7 @@ import {
   PROCESS_PARAMETER_DEFINITIONS,
   type Process,
 } from "@/store/AppContext"
+import { buildStageStepOptions, SKIP_STEP } from "./stageStepChoices"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Date / time helpers for processing-time cells
@@ -142,17 +143,21 @@ export function stackRowLabel(
   process: Process,
   decisiveStageIndices: number[],
 ): string {
+  const recipes = process.solutionRecipes ?? []
   const parts = decisiveStageIndices
     .map((idx) => {
       const stepId = stack.selections[idx]
-      const stepLabel = `#${idx + 1} Step`
-      if (!stepId || stepId === "SKIP") return `${stepLabel}: Skip`
-      const optionName = process.stages[idx]?.alternatives.find(
-        (a) => a.id === stepId,
-      )?.name
-      // Always name the step the option belongs to, then the option itself, so
-      // a diverged process history reads e.g. "#2 Step: Spin Coating".
-      return optionName ? `${stepLabel}: ${optionName}` : stepLabel
+      const stepLabel = `#Step ${idx + 1}`
+      if (!stepId || stepId === SKIP_STEP) return `${stepLabel}: Skip`
+      // The step's display name, built exactly as the stage-selection dropdown
+      // in the same table builds it (e.g. "Spin coating: Perovskite Ink") —
+      // never the raw `step.name`, which is usually still the placeholder
+      // "Step 3" and would render the useless "#Step 3: Step 3".
+      const stepName = buildStageStepOptions(
+        process.stages[idx]?.alternatives ?? [],
+        recipes,
+      ).find((option) => option.value === stepId)?.label
+      return stepName ? `${stepLabel}: ${stepName}` : stepLabel
     })
     .filter((s): s is string => Boolean(s))
   return parts.length > 0 ? parts.join(" · ") : "Skip"

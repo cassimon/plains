@@ -1761,6 +1761,7 @@ function SolutionCard({
   onUpdate,
   onDelete,
   onCreateDilution,
+  highlightSolvents = false,
 }: {
   recipe: ProcessSolutionRecipe
   allRecipes: ProcessSolutionRecipe[]
@@ -1769,6 +1770,8 @@ function SolutionCard({
   onUpdate: (updated: ProcessSolutionRecipe) => void
   onDelete: () => void
   onCreateDilution: () => void
+  /** Draw attention to the solvent section (freshly created dilution). */
+  highlightSolvents?: boolean
 }) {
   const [search, setSearch] = useState<{
     role: "solvent" | "solute"
@@ -2180,11 +2183,33 @@ function SolutionCard({
                 )}
 
                 {/* Solvents */}
-                <Box>
+                <Box
+                  style={
+                    highlightSolvents
+                      ? {
+                          border: "1.5px solid var(--mantine-color-blue-5)",
+                          borderRadius: 8,
+                          padding: 8,
+                          background:
+                            "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
+                        }
+                      : undefined
+                  }
+                >
                   <Group justify="space-between" align="center" mb={6}>
                     <Text size="sm" fw={600}>
                       Solvents
+                      {highlightSolvents && (
+                        <Text component="span" c="blue.6" fw={700}>
+                          {" ★"}
+                        </Text>
+                      )}
                     </Text>
+                    {highlightSolvents && (
+                      <Text size="xs" c="blue.6" fw={500}>
+                        Add the solvent this dilution is made with
+                      </Text>
+                    )}
                   </Group>
 
                   {/* Table: solvent fields on the left, and a single boxed
@@ -2487,7 +2512,7 @@ function SolutionCard({
                   <Group justify="flex-start" mt={6}>
                     <Button
                       size="xs"
-                      variant="subtle"
+                      variant={highlightSolvents ? "light" : "subtle"}
                       leftSection={<IconPlus size={12} />}
                       onClick={() =>
                         setSearch({ role: "solvent", ingredientId: null })
@@ -2943,6 +2968,9 @@ export function ChemistryTab({
   allProcesses?: Process[]
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  // Dilution just created here: its solvent section stays highlighted until the
+  // user picks the diluting solvent (the one field it can't inherit).
+  const [dilutionSeedId, setDilutionSeedId] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [importCollKey, setImportCollKey] = useState("")
   const [importProcessId, setImportProcessId] = useState("")
@@ -3069,6 +3097,12 @@ export function ChemistryTab({
     const dilution: ProcessSolutionRecipe = {
       id: crypto.randomUUID(),
       name: `Dilution of ${commercial.name || commercial.commercialName || "Commercial Solution"}`,
+      // A dilution is the same substance at a lower concentration: it keeps the
+      // parent's functional type and handling constraints. The diluting solvent
+      // is the one thing it cannot inherit — hence the highlight below.
+      type: commercial.type,
+      handlingPreparation: commercial.handlingPreparation,
+      handlingBeforeUse: commercial.handlingBeforeUse,
       totalSolventVolumeMl: "1",
       solvents: [],
       solutes: [],
@@ -3076,6 +3110,7 @@ export function ChemistryTab({
     }
     updateRecipes([...recipes, dilution])
     setExpandedId(dilution.id)
+    setDilutionSeedId(dilution.id)
   }
 
   const deleteRecipe = (id: string) => {
@@ -3234,6 +3269,7 @@ export function ChemistryTab({
           onUpdate={updateRecipe}
           onDelete={() => deleteRecipe(r.id)}
           onCreateDilution={() => createDilution(r)}
+          highlightSolvents={dilutionSeedId === r.id && r.solvents.length === 0}
         />
       ))}
       <Divider />
