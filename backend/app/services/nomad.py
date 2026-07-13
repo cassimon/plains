@@ -1482,6 +1482,31 @@ def create_nomad_metadata_yaml(
         except ValueError:
             return value
 
+    def _upstream_safe_coefficients(coefficients: str) -> str | None:
+        """Return the coefficients string, or None if it would kill the section.
+
+        perovskite_solar_cell_database's `Perovskite.normalize()` runs a bare
+        `float(c)` over every ';'-separated token. It cannot parse the schema's
+        own documented placeholder for an unknown coefficient ('x'), nor the
+        ' | ' layer separator used in its own examples — either one raises and
+        the *whole* Perovskite section then fails to normalize, taking the
+        composition, thickness and band gap down with it.
+
+        So we only emit coefficients when every token is a number. Omitting the
+        quantity costs nothing: upstream just skips building the `Ion`
+        subsections, and the composition itself is still carried by
+        composition_short_form / composition_long_form.
+        """
+        tokens = [token.strip() for token in str(coefficients or "").split(";")]
+        if not tokens or any(not token for token in tokens):
+            return None
+        try:
+            for token in tokens:
+                float(token)
+        except ValueError:
+            return None
+        return coefficients
+
     def _parse_perovskite_ion_layers(raw_ions: Any) -> tuple[str, str, int]:
         """
         Parse perovskite ions into aligned `ions` and `coefficients` strings.
@@ -2026,21 +2051,29 @@ def create_nomad_metadata_yaml(
                 ),
             }
 
-            d["perovskite"] = {
+            perovskite: dict[str, Any] = {
                 "dimension_3D": True,
                 "dimension_list_of_layers": dimension_list,
                 "composition_perovskite_ABC3_structure": True,
-                "composition_a_ions": parsed_a_ions,
-                "composition_a_ions_coefficients": parsed_a_coeffs,
-                "composition_b_ions": parsed_b_ions,
-                "composition_b_ions_coefficients": parsed_b_coeffs,
-                "composition_c_ions": parsed_c_ions,
-                "composition_c_ions_coefficients": parsed_c_coeffs,
-                "composition_short_form": _short_form(a_ions, b_ions, x_ions),
-                "composition_long_form": _short_form(a_ions, b_ions, x_ions),
-                "thickness": thickness,
-                "band_gap": band_gap,
             }
+            for site, site_ions, site_coeffs in (
+                ("a", parsed_a_ions, parsed_a_coeffs),
+                ("b", parsed_b_ions, parsed_b_coeffs),
+                ("c", parsed_c_ions, parsed_c_coeffs),
+            ):
+                perovskite[f"composition_{site}_ions"] = site_ions
+                safe_coeffs = _upstream_safe_coefficients(site_coeffs)
+                if safe_coeffs is not None:
+                    perovskite[f"composition_{site}_ions_coefficients"] = safe_coeffs
+            perovskite.update(
+                {
+                    "composition_short_form": _short_form(a_ions, b_ions, x_ions),
+                    "composition_long_form": _short_form(a_ions, b_ions, x_ions),
+                    "thickness": thickness,
+                    "band_gap": band_gap,
+                }
+            )
+            d["perovskite"] = perovskite
             # Build quenching_parameters subsection
             quenching_params_section: dict[str, Any] = {}
             quenching_data_list = [
@@ -2187,21 +2220,11 @@ def create_nomad_metadata_yaml(
                 d["perovskite_deposition"]["quenching_parameters"] = (
                     quenching_params_section
                 )
-        else:
-            d["perovskite"] = {
-                "dimension_3D": True,
-                "dimension_list_of_layers": "3D",
-                "composition_a_ions": "Unknown",
-                "composition_a_ions_coefficients": "x",
-                "composition_b_ions": "Unknown",
-                "composition_b_ions_coefficients": "x",
-                "composition_c_ions": "Unknown",
-                "composition_c_ions_coefficients": "x",
-                "composition_short_form": "Unknown",
-                "composition_long_form": "Unknown",
-                "thickness": "nan",
-                "band_gap": "nan",
-            }
+        # A stack with no absorber layer has no perovskite, so we emit no
+        # Perovskite section. The placeholder we used to send ("Unknown" ions
+        # with 'x' coefficients) both fabricated a composition that does not
+        # exist and crashed upstream's normalizer on the 'x' — see
+        # _upstream_safe_coefficients. `perovskite` is an optional SubSection.
 
         if htl_e:
             d["htl"] = _build_section(htl_e, substrate, thickness_key="thickness_list")
