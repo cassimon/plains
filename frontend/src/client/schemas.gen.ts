@@ -993,7 +993,7 @@ export const ExperimentCreateSchema = {
             anyOf: [
                 {
                     type: 'string',
-                    format: 'date'
+                    format: 'date-time'
                 },
                 {
                     type: 'null'
@@ -1005,7 +1005,7 @@ export const ExperimentCreateSchema = {
             anyOf: [
                 {
                     type: 'string',
-                    format: 'date'
+                    format: 'date-time'
                 },
                 {
                     type: 'null'
@@ -1268,7 +1268,7 @@ export const ExperimentPublicSchema = {
             anyOf: [
                 {
                     type: 'string',
-                    format: 'date'
+                    format: 'date-time'
                 },
                 {
                     type: 'null'
@@ -1280,7 +1280,7 @@ export const ExperimentPublicSchema = {
             anyOf: [
                 {
                     type: 'string',
-                    format: 'date'
+                    format: 'date-time'
                 },
                 {
                     type: 'null'
@@ -2006,7 +2006,7 @@ export const ExperimentUpdateSchema = {
             anyOf: [
                 {
                     type: 'string',
-                    format: 'date'
+                    format: 'date-time'
                 },
                 {
                     type: 'null'
@@ -2018,7 +2018,7 @@ export const ExperimentUpdateSchema = {
             anyOf: [
                 {
                     type: 'string',
-                    format: 'date'
+                    format: 'date-time'
                 },
                 {
                     type: 'null'
@@ -3357,6 +3357,17 @@ export const MeasurementFileCreateSchema = {
             ],
             title: 'Ff'
         },
+        illumination_intensity: {
+            anyOf: [
+                {
+                    type: 'number'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Illumination Intensity'
+        },
         measurement_date: {
             anyOf: [
                 {
@@ -3506,6 +3517,17 @@ export const MeasurementFilePublicSchema = {
                 }
             ],
             title: 'Ff'
+        },
+        illumination_intensity: {
+            anyOf: [
+                {
+                    type: 'number'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Illumination Intensity'
         },
         measurement_date: {
             anyOf: [
@@ -7276,6 +7298,303 @@ export const TokenSchema = {
     type: 'object',
     required: ['access_token', 'token_type'],
     title: 'Token'
+} as const;
+
+export const TrashDeleteResultSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/TrashRootPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        trashed: {
+            items: {
+                '$ref': '#/components/schemas/TrashedRef'
+            },
+            type: 'array',
+            title: 'Trashed'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'TrashDeleteResult',
+    description: `The refreshed root list plus the exact batch this call trashed, so the
+client can prune the same ids from its local arrays, canvas refs and
+selections without waiting for a reload.`
+} as const;
+
+export const TrashListPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/TrashRootPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'TrashListPublic'
+} as const;
+
+export const TrashRestoreSchema = {
+    properties: {
+        entity_type: {
+            type: 'string',
+            maxLength: 32,
+            title: 'Entity Type'
+        },
+        entity_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Entity Id'
+        },
+        destination_plane_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Destination Plane Id'
+        },
+        destination_collection_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Destination Collection Id'
+        }
+    },
+    type: 'object',
+    required: ['entity_type', 'entity_id'],
+    title: 'TrashRestore'
+} as const;
+
+export const TrashRestoreResultSchema = {
+    properties: {
+        restored: {
+            items: {
+                '$ref': '#/components/schemas/TrashRestoredItem'
+            },
+            type: 'array',
+            title: 'Restored'
+        }
+    },
+    type: 'object',
+    required: ['restored'],
+    title: 'TrashRestoreResult',
+    description: `What the restore re-attached, so the frontend can reload and (only for
+genuinely unplaceable items) prompt for a destination.`
+} as const;
+
+export const TrashRestoredItemSchema = {
+    properties: {
+        entity_type: {
+            type: 'string',
+            title: 'Entity Type'
+        },
+        entity_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Entity Id'
+        },
+        plane_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Plane Id'
+        },
+        collection_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Collection Id'
+        },
+        original_plane_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Original Plane Id'
+        },
+        original_collection_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Original Collection Id'
+        },
+        needs_placement: {
+            type: 'boolean',
+            title: 'Needs Placement',
+            default: false
+        },
+        position_fixup: {
+            type: 'boolean',
+            title: 'Position Fixup',
+            default: false
+        }
+    },
+    type: 'object',
+    required: ['entity_type', 'entity_id'],
+    title: 'TrashRestoredItem',
+    description: 'A restored entity plus the placement the server re-attached it to.'
+} as const;
+
+export const TrashRootPublicSchema = {
+    properties: {
+        entity_type: {
+            type: 'string',
+            maxLength: 32,
+            title: 'Entity Type'
+        },
+        entity_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Entity Id'
+        },
+        name: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Name',
+            default: ''
+        },
+        original_plane_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Original Plane Id'
+        },
+        original_collection_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Original Collection Id'
+        },
+        root_entity_type: {
+            type: 'string',
+            maxLength: 32,
+            title: 'Root Entity Type',
+            default: ''
+        },
+        root_entity_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Root Entity Id'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        deleted_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Deleted At'
+        },
+        child_counts: {
+            additionalProperties: {
+                type: 'integer'
+            },
+            type: 'object',
+            title: 'Child Counts'
+        },
+        child_count: {
+            type: 'integer',
+            title: 'Child Count',
+            default: 0
+        },
+        summary: {
+            type: 'string',
+            title: 'Summary',
+            default: ''
+        }
+    },
+    type: 'object',
+    required: ['entity_type', 'entity_id', 'id', 'deleted_at'],
+    title: 'TrashRootPublic',
+    description: `One row per user delete action (the root of a deletion batch). Carries a
+human summary of what the deletion contained so the Trash page can show only
+the top item plus a description of its contents.`
+} as const;
+
+export const TrashedRefSchema = {
+    properties: {
+        entity_type: {
+            type: 'string',
+            title: 'Entity Type'
+        },
+        entity_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Entity Id'
+        }
+    },
+    type: 'object',
+    required: ['entity_type', 'entity_id'],
+    title: 'TrashedRef',
+    description: 'One entity that a delete cascaded to.'
 } as const;
 
 export const UiPrefsUpdateSchema = {

@@ -10,6 +10,7 @@ import {
   Divider,
   Group,
   Loader,
+  NumberInput,
   Paper,
   ScrollArea,
   Select,
@@ -58,6 +59,7 @@ import { getTokenSync } from "../lib/keycloakInstance"
 import { getExperimentAllStepsDone } from "../lib/uploadFlow"
 import {
   type CanvasCollectionElement,
+  DEFAULT_ILLUMINATION_INTENSITY,
   type DeviceGroup,
   type Experiment,
   type ExperimentResults,
@@ -109,6 +111,7 @@ type NomadUploadRequest = {
       voc?: number
       jsc?: number
       ff?: number
+      illuminationIntensity?: number
       user?: string
       measurementDate?: string
     }>
@@ -1385,6 +1388,12 @@ function ResultsDetail({
   const results = experimentResults ?? fallbackResults
   resultsRef.current = results
 
+  // One illumination for the whole set of measurements: a lab sets its solar
+  // simulator once. Stored per file so it round-trips and could later differ.
+  const illuminationIntensity =
+    results.files.find((f) => f.illuminationIntensity !== undefined)
+      ?.illuminationIntensity ?? DEFAULT_ILLUMINATION_INTENSITY
+
   // Files already provided for this experiment: either ingested into `results`,
   // or still staged on the active upload flow (carried from an Organization /
   // experiment drop). Lets Step 1 show "files already present" instead of an
@@ -2251,6 +2260,8 @@ function ResultsDetail({
           voc: f.voc,
           jsc: f.jsc,
           ff: f.ff,
+          illuminationIntensity:
+            f.illuminationIntensity ?? DEFAULT_ILLUMINATION_INTENSITY,
           user: f.user,
           measurementDate: f.measurementDate,
         })),
@@ -2268,6 +2279,8 @@ function ResultsDetail({
           voc: f.voc,
           jsc: f.jsc,
           ff: f.ff,
+          illuminationIntensity:
+            f.illuminationIntensity ?? DEFAULT_ILLUMINATION_INTENSITY,
           user: f.user,
           measurementDate: f.measurementDate,
         })),
@@ -4007,6 +4020,40 @@ function ResultsDetail({
                             If needed, use Process Flow to go back and add more
                             files.
                           </Text>
+
+                          <NumberInput
+                            size="xs"
+                            label="Illumination intensity (mW/cm²)"
+                            description="The measurement files do not record it, but NOMAD needs it. 100 = 1 sun (AM 1.5G)."
+                            min={0}
+                            step={10}
+                            w={280}
+                            value={illuminationIntensity}
+                            onChange={(value) => {
+                              const intensity =
+                                typeof value === "number"
+                                  ? value
+                                  : parseFloat(value)
+                              if (Number.isNaN(intensity)) return
+                              // The device groups hold their own copies of the
+                              // files, and it is those that the NOMAD archives
+                              // are built from — so both must be updated.
+                              onUpdateResults({
+                                ...results,
+                                files: results.files.map((f) => ({
+                                  ...f,
+                                  illuminationIntensity: intensity,
+                                })),
+                                deviceGroups: results.deviceGroups.map((g) => ({
+                                  ...g,
+                                  files: g.files.map((f) => ({
+                                    ...f,
+                                    illuminationIntensity: intensity,
+                                  })),
+                                })),
+                              })
+                            }}
+                          />
 
                           <Group wrap="wrap" gap="xs">
                             <Button

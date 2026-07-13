@@ -1045,6 +1045,9 @@ class MeasurementFileBase(SQLModel):
     voc: float | None = None
     jsc: float | None = None
     ff: float | None = None
+    # mW/cm². The instrument files do not record the illumination, but NOMAD needs
+    # it (it is what efficiency is measured against). Defaults to 1 sun, AM 1.5G.
+    illumination_intensity: float | None = None
     measurement_date: str | None = Field(default=None, max_length=100)
     measurement_user: str | None = Field(default=None, max_length=255)
 

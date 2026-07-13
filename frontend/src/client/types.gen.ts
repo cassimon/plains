@@ -456,6 +456,7 @@ export type MeasurementFileCreate = {
     voc?: (number | null);
     jsc?: (number | null);
     ff?: (number | null);
+    illumination_intensity?: (number | null);
     measurement_date?: (string | null);
     measurement_user?: (string | null);
     id?: string;
@@ -473,6 +474,7 @@ export type MeasurementFilePublic = {
     voc?: (number | null);
     jsc?: (number | null);
     ff?: (number | null);
+    illumination_intensity?: (number | null);
     measurement_date?: (string | null);
     measurement_user?: (string | null);
     id: string;
@@ -1023,6 +1025,81 @@ export type TextFieldUpdate = {
 export type Token = {
     access_token: string;
     token_type: string;
+};
+
+/**
+ * The refreshed root list plus the exact batch this call trashed, so the
+ * client can prune the same ids from its local arrays, canvas refs and
+ * selections without waiting for a reload.
+ */
+export type TrashDeleteResult = {
+    data: Array<TrashRootPublic>;
+    count: number;
+    trashed?: Array<TrashedRef>;
+};
+
+/**
+ * One entity that a delete cascaded to.
+ */
+export type TrashedRef = {
+    entity_type: string;
+    entity_id: string;
+};
+
+export type TrashListPublic = {
+    data: Array<TrashRootPublic>;
+    count: number;
+};
+
+export type TrashRestore = {
+    entity_type: string;
+    entity_id: string;
+    destination_plane_id?: (string | null);
+    destination_collection_id?: (string | null);
+};
+
+/**
+ * A restored entity plus the placement the server re-attached it to.
+ */
+export type TrashRestoredItem = {
+    entity_type: string;
+    entity_id: string;
+    plane_id?: (string | null);
+    collection_id?: (string | null);
+    original_plane_id?: (string | null);
+    original_collection_id?: (string | null);
+    needs_placement?: boolean;
+    position_fixup?: boolean;
+};
+
+/**
+ * What the restore re-attached, so the frontend can reload and (only for
+ * genuinely unplaceable items) prompt for a destination.
+ */
+export type TrashRestoreResult = {
+    restored: Array<TrashRestoredItem>;
+};
+
+/**
+ * One row per user delete action (the root of a deletion batch). Carries a
+ * human summary of what the deletion contained so the Trash page can show only
+ * the top item plus a description of its contents.
+ */
+export type TrashRootPublic = {
+    entity_type: string;
+    entity_id: string;
+    name?: string;
+    original_plane_id?: (string | null);
+    original_collection_id?: (string | null);
+    root_entity_type?: string;
+    root_entity_id?: (string | null);
+    id: string;
+    deleted_at: string;
+    child_counts?: {
+        [key: string]: (number);
+    };
+    child_count?: number;
+    summary?: string;
 };
 
 export type UiPrefsUpdate = {
@@ -1701,6 +1778,29 @@ export type StateUpdateStateData = {
 export type StateUpdateStateResponse = (UserStatePublic);
 
 export type StateGetBulkStateResponse = (BulkStateResponse);
+
+export type TrashListTrashResponse = (TrashListPublic);
+
+export type TrashTrashEntityData = {
+    requestBody: TrashRestore;
+};
+
+export type TrashTrashEntityResponse = (TrashDeleteResult);
+
+export type TrashRestoreEntityData = {
+    requestBody: TrashRestore;
+};
+
+export type TrashRestoreEntityResponse = (TrashRestoreResult);
+
+export type TrashPurgeEntityData = {
+    entityId: string;
+    entityType: string;
+};
+
+export type TrashPurgeEntityResponse = (Message);
+
+export type TrashEmptyTrashResponse = (Message);
 
 export type UsersReadUsersData = {
     limit?: number;

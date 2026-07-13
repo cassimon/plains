@@ -1861,6 +1861,7 @@ def create_nomad_metadata_yaml(
         meas_file: dict[str, Any],
         sample_filename: str,
         operator: str,
+        cell_area: float | None = None,
     ) -> dict[str, Any] | None:
         """Build a LabXxx measurement data dict, or None for non-measurement types."""
         file_type = meas_file.get("fileType", "Unknown")
@@ -1870,15 +1871,26 @@ def create_nomad_metadata_yaml(
         raw_file = sanitize_upload_filename(file_name)
         op = str(meas_file.get("user") or operator)
 
+        # The measurement conditions. A file header that states these wins — the
+        # plugin only falls back to what we send here (see nomad_chose's
+        # build_jv_dict). Illumination is stated by no instrument file at all.
+        conditions: dict[str, Any] = {}
+        if cell_area is not None:
+            conditions["active_area"] = cell_area
+        intensity = meas_file.get("illuminationIntensity")
+        if intensity is not None:
+            conditions["intensity"] = float(intensity)
+
+        sample_ref = [{"reference": _upload_raw_reference(sample_filename, "/data")}]
+
         if file_type in JV_TYPES:
             return {
                 "m_def": "nomad_chose.schema_packages.schema_package.LabJVMeasurement",
                 "name": file_name,
                 "operator": op,
                 "jv_file": raw_file,
-                "samples": [
-                    {"reference": _upload_raw_reference(sample_filename, "/data")}
-                ],
+                **conditions,
+                "samples": sample_ref,
             }
         if file_type in IPCE_TYPES:
             return {
@@ -1886,18 +1898,17 @@ def create_nomad_metadata_yaml(
                 "name": file_name,
                 "operator": op,
                 "eqe_file": raw_file,
-                "samples": [
-                    {"reference": _upload_raw_reference(sample_filename, "/data")}
-                ],
+                # LabEQEMeasurement has an active_area but no intensity.
+                **{k: v for k, v in conditions.items() if k == "active_area"},
+                "samples": sample_ref,
             }
         if file_type in STABILITY_TYPES:
             entry: dict[str, Any] = {
                 "m_def": "nomad_chose.schema_packages.schema_package.LabStabilityMeasurement",
                 "name": file_name,
                 "operator": op,
-                "samples": [
-                    {"reference": _upload_raw_reference(sample_filename, "/data")}
-                ],
+                **conditions,
+                "samples": sample_ref,
             }
             if file_type == "Stability (Tracking)":
                 entry["stability_tracking_file"] = raw_file
@@ -3133,7 +3144,7 @@ def create_nomad_metadata_yaml(
 
             for meas_file in group_files:
                 meas_data = _measurement_archive(
-                    meas_file, target_sample_fname, user_name
+                    meas_file, target_sample_fname, user_name, cell_area
                 )
                 if meas_data is None:
                     continue

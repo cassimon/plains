@@ -219,6 +219,7 @@ class MeasurementFileInfo(BaseModel):
     voc: float | None = None  # Open-circuit voltage (V)
     jsc: float | None = None  # Short-circuit current density (mA/cm²)
     ff: float | None = None  # Fill factor (%)
+    illuminationIntensity: float | None = None  # mW/cm² (1 sun = 100)
     user: str | None = None  # Operator / user from file header
     measurementDate: str | None = None  # Date from file header
 

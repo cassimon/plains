@@ -755,11 +755,19 @@ export type MeasurementFile = {
   jsc?: number
   /** Fill factor in % (from JV file) */
   ff?: number
+  /**
+   * Illumination intensity in mW/cm² (1 sun = 100). The instrument files do not
+   * record it, but NOMAD needs it — efficiency is measured against it.
+   */
+  illuminationIntensity?: number
   /** Date from measurement file */
   measurementDate?: string
   /** User from measurement file */
   user?: string
 }
+
+/** 1 sun, AM 1.5G — the standard measurement condition. */
+export const DEFAULT_ILLUMINATION_INTENSITY = 100
 
 /** A group of measurement files with the same device name */
 export type DeviceGroup = {

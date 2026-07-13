@@ -331,6 +331,7 @@ function resultsFromApi(r: ApiObj): ExperimentResults {
         voc: f.voc ?? undefined,
         jsc: f.jsc ?? undefined,
         ff: f.ff ?? undefined,
+        illuminationIntensity: f.illumination_intensity ?? undefined,
         measurementDate: f.measurement_date ?? undefined,
         user: f.measurement_user ?? undefined,
       }),
@@ -669,6 +670,7 @@ export function measurementFilesToApi(r: ExperimentResults): ApiObj[] {
     voc: f.voc ?? null,
     jsc: f.jsc ?? null,
     ff: f.ff ?? null,
+    illumination_intensity: f.illuminationIntensity ?? null,
     measurement_date: f.measurementDate ?? null,
     measurement_user: f.user ?? null,
   }))
