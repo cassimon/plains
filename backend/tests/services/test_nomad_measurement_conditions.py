@@ -82,6 +82,10 @@ def _measurement(archives, marker):
     return None
 
 
+def _sample_jv(archives):
+    return _measurement(archives, "PerovskiteSolarCellSampleArea")["jv"]
+
+
 def test_jv_archive_carries_area_and_illumination():
     archives = _archives(
         [
@@ -113,6 +117,76 @@ def test_a_non_standard_illumination_is_carried_through():
     assert _measurement(archives, "LabJVMeasurement")["intensity"] == pytest.approx(
         50.0
     )
+
+
+def _stability_runs(archives):
+    return [
+        data
+        for data in (a.get("data", {}) for a in archives.values())
+        if "LabStabilityMeasurement" in str(data.get("m_def", ""))
+    ]
+
+
+def test_a_stability_run_is_one_measurement_not_two():
+    """The instrument exports a stability run as two files -- (Parameters) and
+    (Tracking) -- which are two halves of a single MPPTracking measurement: the
+    track, and the JV parameters sampled along it.
+
+    One entry per *file* produced two half-empty measurements. baseclasses derives
+    the figures of merit (T80/T95) from the track, so the (Parameters) half carried
+    no results at all, while the (Tracking) half lost the JV parameters.
+    """
+    archives = _archives(
+        [
+            {
+                "fileName": "0000_Stability (Parameters)_AI03-1A.txt",
+                "fileType": "Stability (Parameters)",
+            },
+            {
+                "fileName": "0000_Stability (Tracking)_AI03-1A.txt",
+                "fileType": "Stability (Tracking)",
+            },
+        ]
+    )
+
+    runs = _stability_runs(archives)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run["stability_parameters_file"] == "0000_Stability (Parameters)_AI03-1A.txt"
+    assert run["stability_tracking_file"] == "0000_Stability (Tracking)_AI03-1A.txt"
+
+
+def test_two_stability_runs_stay_two_measurements():
+    """Only the halves of the *same* run are merged."""
+    archives = _archives(
+        [
+            {
+                "fileName": f"{index}_Stability ({half})_AI03-1A.txt",
+                "fileType": f"Stability ({half})",
+            }
+            for index in ("0000", "0001")
+            for half in ("Parameters", "Tracking")
+        ]
+    )
+
+    runs = _stability_runs(archives)
+    assert len(runs) == 2
+    assert all(
+        run["stability_parameters_file"] and run["stability_tracking_file"]
+        for run in runs
+    )
+
+
+def test_half_a_stability_run_still_yields_a_measurement():
+    """A track exported without its parameters is still a measurement."""
+    archives = _archives(
+        [{"fileName": "track.txt", "fileType": "Stability (Tracking)"}]
+    )
+
+    run = _stability_runs(archives)[0]
+    assert run["stability_tracking_file"] == "track.txt"
+    assert "stability_parameters_file" not in run
 
 
 def test_stability_archive_carries_the_conditions_too():
@@ -154,3 +228,49 @@ def test_no_illumination_supplied_means_none_is_stated():
     header that does state the illumination can still win."""
     archives = _archives([{"fileName": "scan.txt", "fileType": "JV"}])
     assert "intensity" not in _measurement(archives, "LabJVMeasurement")
+
+
+def test_the_measurement_archive_is_named_after_its_raw_file():
+    """nomad_chose skips a raw file when `<raw name>.archive.yaml` sits beside it,
+    so that this — the richer entry — is the only entry for the measurement. The
+    name is therefore load-bearing: a slug would not be found, and every
+    measurement would be parsed twice and counted twice."""
+    archives = _archives(
+        [{"fileName": "0001_Stability (JV)_AI03-1A.txt", "fileType": "Stability (JV)"}]
+    )
+
+    assert "0001_Stability (JV)_AI03-1A.txt.archive.yaml" in archives
+
+
+def test_the_sample_states_the_fill_factor_as_a_fraction():
+    """The database's default_FF is a fraction; the app carries a percent.
+
+    Passing the app's 25.38 straight through made NOMAD read a 2538 % fill
+    factor.
+    """
+    archives = _archives(
+        [
+            {
+                "fileName": "scan.txt",
+                "fileType": "JV",
+                "value": 3.67,
+                "voc": 0.54,
+                "jsc": 20.84,
+                "ff": 32.61,
+            }
+        ]
+    )
+    jv = _sample_jv(archives)
+
+    assert jv["default_FF"] == pytest.approx(0.3261)
+    assert jv["default_PCE"] == pytest.approx(3.67)
+
+
+def test_the_sample_jv_states_the_illumination_it_was_measured_under():
+    """A PCE with no illumination beside it cannot be interpreted."""
+    files = [{"fileName": "scan.txt", "fileType": "JV", "value": 3.67}]
+    # Not supplied → 1 sun, AM 1.5G.
+    assert _sample_jv(_archives(files))["light_intensity"] == pytest.approx(100.0)
+
+    files[0]["illuminationIntensity"] = 50.0
+    assert _sample_jv(_archives(files))["light_intensity"] == pytest.approx(50.0)

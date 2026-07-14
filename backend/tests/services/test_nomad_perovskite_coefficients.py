@@ -207,6 +207,72 @@ def test_fully_numeric_coefficients_are_still_emitted():
     perovskite = sample["perovskite"]
     assert perovskite["composition_a_ions_coefficients"] == "0.1; 0.9"
     assert perovskite["composition_b_ions_coefficients"] == "0.2; 0.8"
-    assert perovskite["composition_c_ions_coefficients"] == "0.75; 0.25"
+    # Tripled: see test_the_x_site_is_scaled_to_the_three_anions_of_abx3.
+    assert perovskite["composition_c_ions_coefficients"] == "2.25; 0.75"
+
+    _upstream_would_parse(perovskite)
+
+
+def test_the_x_site_is_scaled_to_the_three_anions_of_abx3():
+    """The reported "FAPbBr": the X site lost its 3.
+
+    The GUI asks for each site's ion *fractions* and validates them to sum to 1.
+    On the A and B sites that is already the coefficient — one cation per formula
+    unit — but ABX3 carries *three* anions, so the X site's fractions have to be
+    tripled. A lone "Br" was being sent with the coefficient 1, and the formula
+    NOMAD derived the material from came out as FAPbBr: not a perovskite.
+    """
+    sample = _sample_archive(
+        [
+            _SUBSTRATE_LAYER,
+            _layer(perovskiteA="FA", perovskiteB="Pb", perovskiteX="Br"),
+        ]
+    )
+    perovskite = sample["perovskite"]
+
+    assert perovskite["composition_a_ions_coefficients"] == "1"
+    assert perovskite["composition_b_ions_coefficients"] == "1"
+    assert perovskite["composition_c_ions_coefficients"] == "3"
+
+    # The long form is what upstream feeds to its formula normalizer, so it is
+    # what `results.material` is derived from — it must carry the coefficients.
+    assert perovskite["composition_long_form"] == "FAPbBr3"
+    # The short form is the ion names alone, as the database defines it.
+    assert perovskite["composition_short_form"] == "FAPbBr"
+
+    _upstream_would_parse(perovskite)
+
+
+def test_an_x_site_that_already_states_its_coefficients_is_left_alone():
+    """ "I3" sums to 3 already — tripling it would give I9."""
+    sample = _sample_archive(
+        [
+            _SUBSTRATE_LAYER,
+            _layer(perovskiteA="MA", perovskiteB="Pb", perovskiteX="I3"),
+        ]
+    )
+    perovskite = sample["perovskite"]
+
+    assert perovskite["composition_c_ions_coefficients"] == "3"
+    assert perovskite["composition_long_form"] == "MAPbI3"
+
+    _upstream_would_parse(perovskite)
+
+
+def test_the_long_form_falls_back_to_names_when_a_coefficient_is_unknown():
+    """An unknown coefficient is stated as no coefficient, never as 'x'.
+
+    'x' in a formula would be read as an element by the formula normalizer.
+    """
+    sample = _sample_archive(
+        [
+            _SUBSTRATE_LAYER,
+            _layer(perovskiteA="Cs; FA", perovskiteB="Pb", perovskiteX="I; Br"),
+        ]
+    )
+    perovskite = sample["perovskite"]
+
+    assert perovskite["composition_long_form"] == "CsFAPbIBr"
+    assert "x" not in perovskite["composition_long_form"]
 
     _upstream_would_parse(perovskite)

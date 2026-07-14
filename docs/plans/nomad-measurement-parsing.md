@@ -234,6 +234,87 @@ Both were silently corrupting values; both are now covered by tests.
    sample's stabilised PCE. The sign is now preserved, and the sample only accepts a
    power-*delivering* point as a stabilised PCE.
 
+## 5c. Round two — the sample stayed empty anyway (2026-07-14)
+
+The measurements parsed correctly after §1–§4, but the *sample* entry still showed
+N/A performances, an "unavailable" Solar Cell Properties panel, a solar-cell panel on
+bare **substrates**, and a material of "FAPbBr". Five independent causes, all in the
+sample's population chain (`sample-plains/schema_packages/sample.py`):
+
+1. **The search could never match.** `search(owner='visible')` with no `user_id` means
+   *published* entries only (`nomad/search.py`) — and a fresh upload is unpublished. It
+   returned zero hits every time, not just sometimes. Now `owner='all'` +
+   `user_id=archive.metadata.main_author.user_id`, which is what baseclasses does.
+2. **A hit is a dict, not an object.** `MetadataResponse.data` is `list[dict]`, so
+   `hit.entry_id` raised an `AttributeError` that the per-hit `except` swallowed — even a
+   hit that *was* found was never loaded.
+3. **NOMAD normalizes post-order.** `MetainfoNormalizer` normalizes every subsection
+   *before* its parent, so `JV.normalize` — the thing that copies default_PCE/Voc/Jsc/FF
+   and `light_intensity` into `results…solar_cell`, i.e. **the panel** — ran against an
+   empty `jv`, and the sections created during the parent's normalize (`eqe`,
+   `stability`, `stabilised`) were never normalized at all. The sample now re-normalizes
+   them explicitly, after populating them.
+4. **The stack figure was drawn before the JV was populated** → every annotation N/A.
+   Drawn last now.
+5. **Processing order was a race.** Sample and measurement archives all sat at the
+   built-in archive parser's level (-1), so the sample could search before its
+   measurements were indexed. A `PlainsSampleParser` entry point (same parsing, `level=2`)
+   makes the ordering a guarantee — NOMAD runs levels strictly in sequence.
+
+Also fixed in the same pass:
+
+- **`integrated_Jsc` was `integrated_jsc`.** The database's EQE section spells the two
+  integrated quantities with a capital J; copying them under the source's lower-case
+  name meant the `all_properties` guard silently dropped both.
+- **Substrates were being registered as solar cells.** The database's `Substrate.normalize`
+  calls `add_solar_cell(archive)` unconditionally, so every bare substrate entry grew an
+  empty Solar Cell Properties panel *and* matched the solar-cell filters of the overview
+  plots. `SubstrateInfo` overrides that normalize to a no-op (the side effect is all it did).
+- **"FAPbBr" — the X site lost its 3.** The GUI collects each site's ion *fractions* and
+  validates them to sum to 1, but a formula unit of ABX3 carries **three** anions. The X
+  site's fractions are now tripled ("Br" → 3, "I0.75Br0.25" → "2.25; 0.75"), and
+  `composition_long_form` is built *with* coefficients (it is what upstream feeds to its
+  formula normalizer, hence what `results.material` comes from) while
+  `composition_short_form` stays names-only.
+- **Fill factor was 100× too large.** The app carries FF as a percent; the database's
+  `default_FF` is a fraction.
+- **One measurement, two entries.** Each raw `.txt` matched `ChoseParser` *and* got a
+  plains-generated measurement YAML, so every device was counted twice in the overview
+  statistics. `ChoseParser.is_mainfile` now skips a raw file when its
+  `<name>.archive.yaml` companion exists (hand-dropped files still parse).
+
+### A stability run is one measurement, not two
+
+The instrument exports a stability run as **two** files — `(Parameters)` and
+`(Tracking)` — which are two halves of a single `MPPTracking`: the MPP track itself, and
+the JV parameters sampled along it. The app was emitting **one entry per file**, so the
+pair was never read in together, and each half was incomplete:
+
+| entry | track | jv_parameters | figures of merit (T80/T95) |
+|---|---|---|---|
+| (Parameters) alone | — | ✓ | **none** (baseclasses derives them from the track) |
+| (Tracking) alone | ✓ | — | ✓ |
+| **paired** | ✓ | ✓ | ✓ |
+
+Worse, the sample loaded *both* as `MPPTracking` entries, so `_populate_from_mppt` ran
+twice and the trackless half could clobber the good one. `_measurement_runs` now groups a
+device's files into measurement *runs* and emits one `LabStabilityMeasurement` carrying
+both halves. Since that single archive is named after only one of the two raw files,
+`ChoseParser.is_mainfile` also skips a raw stability file when its **sibling's** companion
+archive exists — otherwise the unnamed half would be parsed and recreate the duplicate.
+(`ChoseParser` already paired the two itself for hand-dropped files; only the app path
+was splitting them.)
+
+### A third data bug: the EQE spectrum was integrated backwards
+
+`baseclasses` integrates EQE against AM1.5G using `np.interp` and
+`cumulative_trapezoid`, both of which require an **increasing** x. The instrument sweeps
+the *wavelength* up, which is photon energy going *down* — so the spectrum was being fed
+in backwards and the integral came out negative: **`integrated_Jsc` = −0.0011 mA/cm²**
+instead of 18.26. `build_eqe_dict` now sorts by ascending photon energy (and reorders the
+per-wavelength current columns with it, or they would pair to the wrong wavelength).
+Cross-validated against the instrument's own `J integrated` column, which ends at 18.23.
+
 ## 6. Decisions (settled)
 
 1. **Illumination intensity** — default **100 mW/cm² (1 sun, AM 1.5G)**, overridable from a

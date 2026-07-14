@@ -366,7 +366,11 @@ def test_create_nomad_metadata_yaml_formats_perovskite_ions_and_coefficients():
     assert perovskite["composition_b_ions"] == "Sn; Pb"
     assert perovskite["composition_b_ions_coefficients"] == "0.2; 0.8"
     assert perovskite["composition_c_ions"] == "I; Br"
-    assert perovskite["composition_c_ions_coefficients"] == "0.75; 0.25"
+    # The GUI collects each site's ion *fractions* (they sum to 1), but a formula
+    # unit of ABX3 carries three anions — so the X site's fractions are tripled.
+    assert perovskite["composition_c_ions_coefficients"] == "2.25; 0.75"
+    assert perovskite["composition_short_form"] == "CsFASnPbIBr"
+    assert perovskite["composition_long_form"] == "Cs0.1FA0.9Sn0.2Pb0.8I2.25Br0.75"
 
 
 def test_create_nomad_metadata_yaml_generates_substrate_and_deposition_and_per_pixel_samples():
@@ -507,7 +511,10 @@ def test_create_nomad_metadata_yaml_generates_substrate_and_deposition_and_per_p
     substrate_file = "sub-1_substrate.archive.yaml"
     deposition_file = "sub-1_deposition.archive.yaml"
     sample_files = [f"sub-1_dev{i}_sample.archive.yaml" for i in range(1, 5)]
-    measurement_files = [f"pixel_{i}.archive.yaml" for i in range(1, 5)]
+    # Named after the raw file, extension and all: that is the name nomad_chose
+    # looks for to know the file is already described and must not be parsed a
+    # second time.
+    measurement_files = [f"pixel_{i}.txt.archive.yaml" for i in range(1, 5)]
 
     assert substrate_file in archives
     assert deposition_file in archives

@@ -13,6 +13,7 @@ Uses the nomad_utility_workflows package for NOMAD API interaction.
 """
 
 import logging
+import math
 import re
 import shutil
 import tempfile
@@ -1464,11 +1465,100 @@ def create_nomad_metadata_yaml(
 
         return " >> ".join(cleaning_steps) if cleaning_steps else "Unknown"
 
-    def _short_form(a_ions: str, b_ions: str, x_ions: str) -> str:
-        def squish(s):
-            return "".join(i.strip() for i in s.split(";") if i.strip())
+    # Ions per formula unit of ABX3. The GUI asks for each site's ion *fractions*
+    # and validates them to sum to 1 — but a formula unit carries three anions, so
+    # the X site's fractions have to be tripled to become coefficients.
+    _SITE_STOICHIOMETRY = {"a": 1.0, "b": 1.0, "c": 3.0}
 
-        return squish(a_ions) + squish(b_ions) + squish(x_ions)
+    def _site_stoichiometry(coeff_values: list[str], site: str) -> list[str]:
+        """Scale one site's fractions to the coefficients ABX3 calls for.
+
+        Without this, an X site of "Br" got the coefficient 1 and the formula came
+        out as FAPbBr rather than FAPbBr3 — NOMAD then derived the material from a
+        composition that is not a perovskite.
+
+        A site that already states its coefficients (someone typed "I3", summing
+        to 3) is left alone, and so is anything that is not fully numeric.
+        """
+        target = _SITE_STOICHIOMETRY.get(site, 1.0)
+        if target == 1.0:
+            return coeff_values
+        try:
+            numbers = [float(value) for value in coeff_values]
+        except ValueError:
+            # An unknown ('x') coefficient — nothing to scale, and the list is
+            # dropped by _upstream_safe_coefficients anyway.
+            return coeff_values
+        total = sum(numbers)
+        if total <= 0 or math.isclose(total, target, rel_tol=1e-3):
+            return coeff_values
+        if not math.isclose(total, 1.0, rel_tol=1e-3):
+            # Neither fractions nor coefficients — take the user at their word.
+            return coeff_values
+        return [_format_coeff_value(str(number * target)) for number in numbers]
+
+    def _site_layers(ions: str, coefficients: str) -> list[list[tuple[str, str]]]:
+        """Re-pair a site's ion names with its coefficients, layer by layer."""
+        ion_layers = [layer.strip() for layer in str(ions or "").split("|")]
+        coeff_layers = [layer.strip() for layer in str(coefficients or "").split("|")]
+
+        layers: list[list[tuple[str, str]]] = []
+        for idx, ion_layer in enumerate(ion_layers):
+            names = [name.strip() for name in ion_layer.split(";") if name.strip()]
+            raw = coeff_layers[idx] if idx < len(coeff_layers) else ""
+            values = [value.strip() for value in raw.split(";")]
+            layers.append(
+                [
+                    (name, values[i] if i < len(values) else "")
+                    for i, name in enumerate(names)
+                ]
+            )
+        return layers
+
+    def _long_coefficient(value: str) -> str:
+        """How a coefficient is written in a chemical formula."""
+        # An unknown ('x') or absent coefficient: state the ion on its own rather
+        # than invent a number. A coefficient of 1 is implicit — "Pb", not "Pb1".
+        if not value or value == "x" or value == "1":
+            return ""
+        return value
+
+    def _composition_forms(
+        a_site: tuple[str, str],
+        b_site: tuple[str, str],
+        c_site: tuple[str, str],
+    ) -> tuple[str, str]:
+        """Build (short_form, long_form) from the parsed sites.
+
+        The database means two different things by these: the short form is the ion
+        names alone ("CsFAPbIBr"), the long form carries the coefficients
+        ("Cs0.2FA0.8PbI2.4Br0.6"). Only the long form is fed to the formula
+        normalizer, so it is what `results.material` is derived from — sending the
+        short form as both is what left the material reading "FAPbBr".
+        """
+        sites = [_site_layers(*site) for site in (a_site, b_site, c_site)]
+        layer_count = max(len(site) for site in sites)
+
+        short_parts: list[str] = []
+        long_parts: list[str] = []
+        for index in range(layer_count):
+            # A site with fewer layers than the stack keeps its last one (a single
+            # A site shared by two X layers, say).
+            pairs_per_site = [
+                site[index] if index < len(site) else site[-1] for site in sites
+            ]
+            short_parts.append(
+                "".join(name for pairs in pairs_per_site for name, _ in pairs)
+            )
+            long_parts.append(
+                "".join(
+                    f"{name}{_long_coefficient(value)}"
+                    for pairs in pairs_per_site
+                    for name, value in pairs
+                )
+            )
+
+        return " | ".join(short_parts), " | ".join(long_parts)
 
     def _format_coeff_value(raw: str) -> str:
         value = raw.strip()
@@ -1507,12 +1597,15 @@ def create_nomad_metadata_yaml(
             return None
         return coefficients
 
-    def _parse_perovskite_ion_layers(raw_ions: Any) -> tuple[str, str, int]:
+    def _parse_perovskite_ion_layers(
+        raw_ions: Any, site: str = "a"
+    ) -> tuple[str, str, int]:
         """
         Parse perovskite ions into aligned `ions` and `coefficients` strings.
 
         Supports compact notation like `Cs0.1FA0.9` and explicit notation like
-        `Cs; FA; MA` (with optional coefficients in tokens).
+        `Cs; FA; MA` (with optional coefficients in tokens). `site` is the ABX3
+        site the ions sit on ("a", "b" or "c"), which sets their stoichiometry.
         """
         raw_text = str(raw_ions or "").strip()
         if not raw_text:
@@ -1562,11 +1655,14 @@ def create_nomad_metadata_yaml(
 
             raw_coeffs = [coeff for _, coeff in parsed_pairs]
             if len(ion_names) == 1 and not raw_coeffs[0]:
+                # A lone ion is the whole site — it holds every one of that site's
+                # places in the formula unit.
                 coeff_values = ["1"]
             else:
                 coeff_values = [
                     _format_coeff_value(coeff) if coeff else "x" for coeff in raw_coeffs
                 ]
+            coeff_values = _site_stoichiometry(coeff_values, site)
 
             ion_layers.append("; ".join(ion_names))
             coeff_layers.append("; ".join(coeff_values))
@@ -1818,6 +1914,9 @@ def create_nomad_metadata_yaml(
     IPCE_TYPES: set[str] = {"IPCE"}
     STABILITY_TYPES: set[str] = {"Stability (Tracking)", "Stability (Parameters)"}
 
+    # 1 sun, AM 1.5G — what a JV is measured under unless the GUI says otherwise.
+    DEFAULT_ILLUMINATION_MW_CM2 = 100.0
+
     def _slug(name: str) -> str:
         """Filesystem-safe lowercase slug."""
         s = str(name).replace(" ", "_").replace("/", "-")
@@ -1833,6 +1932,17 @@ def create_nomad_metadata_yaml(
         return max(
             ipce, key=lambda f: float(f.get("jsc") or f.get("value") or 0), default=None
         )
+
+    def _fill_factor_fraction(raw: Any) -> float:
+        """The database states FF as a fraction; the app carries it as a percent.
+
+        The GUI normalises whatever the file said up to a percent (Results.page's
+        `ff = raw <= 1 ? raw * 100 : raw`), so a 25.38 % fill factor arrives here
+        as 25.38 — and was passed straight into `default_FF`, a hundred times the
+        value NOMAD expects.
+        """
+        value = float(raw)
+        return value / 100.0 if value > 1.0 else value
 
     def _jv_section(
         jv_file: dict[str, Any] | None,
@@ -1850,20 +1960,88 @@ def create_nomad_metadata_yaml(
             if jsc_val is not None:
                 sec["default_Jsc"] = round(float(jsc_val), 4)
             if jv_file.get("ff") is not None:
-                sec["default_FF"] = round(float(jv_file["ff"]), 4)
+                sec["default_FF"] = round(_fill_factor_fraction(jv_file["ff"]), 6)
+            # The efficiency is measured *against* an illumination, so a PCE with
+            # no intensity beside it is not interpretable. No instrument file
+            # states it; the GUI does, defaulting to 1 sun.
+            sec["light_intensity"] = float(
+                jv_file.get("illuminationIntensity") or DEFAULT_ILLUMINATION_MW_CM2
+            )
         elif ipce_file:
             jsc_val = ipce_file.get("jsc") or ipce_file.get("value")
             if jsc_val is not None:
                 sec["default_Jsc"] = round(float(jsc_val), 4)
         return sec
 
-    def _measurement_archive(
+    def _measurement_archive_filename(
         meas_file: dict[str, Any],
+        archives: dict[str, Any],
+    ) -> str:
+        """Name a measurement archive after the raw file it describes.
+
+        The name is load-bearing: nomad_chose's ChoseParser skips a raw file when
+        `<raw name>.archive.yaml` sits beside it, so that the app's richer entry
+        (sample link, cell area, illumination) is the *only* entry for that
+        measurement. A slugged name would not be found and every measurement would
+        be parsed twice.
+        """
+        raw_name = sanitize_upload_filename(str(meas_file.get("fileName", "unknown")))
+        fname = f"{raw_name}.archive.yaml"
+        counter = 1
+        while fname in archives:
+            fname = f"{raw_name}_{counter}.archive.yaml"
+            counter += 1
+        return fname
+
+    def _stability_run_key(file_name: str) -> str:
+        """The key both halves of one stability run share."""
+        return (
+            sanitize_upload_filename(file_name)
+            .replace("(Parameters)", "()")
+            .replace("(Tracking)", "()")
+        )
+
+    def _measurement_runs(
+        group_files: list[dict[str, Any]],
+    ) -> list[list[dict[str, Any]]]:
+        """Group a device's files into measurement *runs*, not files.
+
+        A stability run is exported as two files — (Parameters) and (Tracking) —
+        which are two halves of a single MPPTracking measurement: the track itself,
+        and the JV parameters sampled along it. One entry per *file* gives two
+        half-empty measurements: baseclasses derives the figures of merit (T80/T95)
+        from the track, so the (Parameters) half would carry no results at all,
+        while the (Tracking) half would lose the JV parameters.
+        """
+        runs: list[list[dict[str, Any]]] = []
+        stability_runs: dict[str, list[dict[str, Any]]] = {}
+
+        for meas_file in group_files:
+            if meas_file.get("fileType") not in STABILITY_TYPES:
+                runs.append([meas_file])
+                continue
+            key = _stability_run_key(str(meas_file.get("fileName", "")))
+            run = stability_runs.get(key)
+            if run is None:
+                run = stability_runs[key] = [meas_file]
+                runs.append(run)
+            else:
+                run.append(meas_file)
+
+        return runs
+
+    def _measurement_archive(
+        run: list[dict[str, Any]],
         sample_filename: str,
         operator: str,
         cell_area: float | None = None,
     ) -> dict[str, Any] | None:
-        """Build a LabXxx measurement data dict, or None for non-measurement types."""
+        """Build a LabXxx measurement data dict, or None for non-measurement types.
+
+        `run` is the file (or, for a stability run, the two files) of one
+        measurement — see `_measurement_runs`.
+        """
+        meas_file = run[0]
         file_type = meas_file.get("fileType", "Unknown")
         file_name = meas_file.get("fileName", "")
         # The measurement points at the raw file by name, so it must be the name
@@ -1910,10 +2088,14 @@ def create_nomad_metadata_yaml(
                 **conditions,
                 "samples": sample_ref,
             }
-            if file_type == "Stability (Tracking)":
-                entry["stability_tracking_file"] = raw_file
-            else:
-                entry["stability_parameters_file"] = raw_file
+            # Both halves of the run go on the one measurement — the track and the
+            # JV parameters sampled along it describe the same experiment.
+            for half in run:
+                half_name = sanitize_upload_filename(str(half.get("fileName", "")))
+                if half.get("fileType") == "Stability (Tracking)":
+                    entry["stability_tracking_file"] = half_name
+                else:
+                    entry["stability_parameters_file"] = half_name
             return entry
         # Document / Image / Archive / Unknown → skip
         return None
@@ -2027,13 +2209,18 @@ def create_nomad_metadata_yaml(
             b_ions = abs_layer.get("perovskiteB") or "Pb"
             x_ions = abs_layer.get("perovskiteX") or "I"
             parsed_a_ions, parsed_a_coeffs, a_layers = _parse_perovskite_ion_layers(
-                a_ions
+                a_ions, "a"
             )
             parsed_b_ions, parsed_b_coeffs, b_layers = _parse_perovskite_ion_layers(
-                b_ions
+                b_ions, "b"
             )
             parsed_c_ions, parsed_c_coeffs, c_layers = _parse_perovskite_ion_layers(
-                x_ions
+                x_ions, "c"
+            )
+            short_form, long_form = _composition_forms(
+                (parsed_a_ions, parsed_a_coeffs),
+                (parsed_b_ions, parsed_b_coeffs),
+                (parsed_c_ions, parsed_c_coeffs),
             )
             max_layers = max(a_layers, b_layers, c_layers, 1)
             dimension_list = " | ".join(["3.0"] * max_layers)
@@ -2078,8 +2265,8 @@ def create_nomad_metadata_yaml(
                     perovskite[f"composition_{site}_ions_coefficients"] = safe_coeffs
             perovskite.update(
                 {
-                    "composition_short_form": _short_form(a_ions, b_ions, x_ions),
-                    "composition_long_form": _short_form(a_ions, b_ions, x_ions),
+                    "composition_short_form": short_form,
+                    "composition_long_form": long_form,
                     "thickness": thickness,
                     "band_gap": band_gap,
                 }
@@ -3142,19 +3329,15 @@ def create_nomad_metadata_yaml(
                 continue
             target_sample_fname = sample_filenames[group_idx % len(sample_filenames)]
 
-            for meas_file in group_files:
+            for run in _measurement_runs(group_files):
                 meas_data = _measurement_archive(
-                    meas_file, target_sample_fname, user_name, cell_area
+                    run, target_sample_fname, user_name, cell_area
                 )
                 if meas_data is None:
                     continue
-                meas_stem = _slug(Path(meas_file.get("fileName", "unknown")).stem)
-                meas_fname = f"{meas_stem}.archive.yaml"
-                counter = 1
-                while meas_fname in archives:
-                    meas_fname = f"{meas_stem}_{counter}.archive.yaml"
-                    counter += 1
-                archives[meas_fname] = {"data": meas_data}
+                archives[_measurement_archive_filename(run[0], archives)] = {
+                    "data": meas_data
+                }
 
     # ── 10. Unassigned device groups (no substrate match) ─────────────────────
     for group in unassigned_groups:
@@ -3163,17 +3346,13 @@ def create_nomad_metadata_yaml(
         # No sample YAML — just measurement YAMLs with a placeholder reference
         sample_placeholder = f"sample_{dev_slug}_sample.archive.yaml"
         group_files = list(group.get("files") or [])
-        for meas_file in group_files:
-            meas_data = _measurement_archive(meas_file, sample_placeholder, user_name)
+        for run in _measurement_runs(group_files):
+            meas_data = _measurement_archive(run, sample_placeholder, user_name)
             if meas_data is None:
                 continue
-            meas_stem = _slug(Path(meas_file.get("fileName", "unknown")).stem)
-            meas_fname = f"{meas_stem}.archive.yaml"
-            counter = 1
-            while meas_fname in archives:
-                meas_fname = f"{meas_stem}_{counter}.archive.yaml"
-                counter += 1
-            archives[meas_fname] = {"data": meas_data}
+            archives[_measurement_archive_filename(run[0], archives)] = {
+                "data": meas_data
+            }
 
     # ── 11. Write deduplicated DepositionRoutine archives ────────────────────
     _write_deduplicated_depositions(_pending_depositions, archives)
