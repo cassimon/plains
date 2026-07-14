@@ -27,6 +27,7 @@ import { modals } from "@mantine/modals"
 import {
   IconArrowBackUp,
   IconAtom,
+  IconBan,
   IconBrush,
   IconCheck,
   IconChevronRight,
@@ -54,6 +55,12 @@ import {
 import type { CollectionConfirmParams } from "@/components/SelectCollectionModal"
 import { autoResolveCollection } from "@/lib/autoResolveCollection"
 import { exportProcessProtocolAsPdf } from "@/lib/processExport"
+import type { StackDivergence } from "@/lib/stackDivergence"
+import {
+  enumerateStackVariants,
+  stackDivergences,
+  stackSubstrates,
+} from "@/lib/stackDivergence"
 import {
   type CanvasCollectionElement,
   getDependentLocations,
@@ -142,6 +149,11 @@ const STEP_CATEGORIES: Array<{
     label: "Substrate Preparation",
     icon: <IconBrush size={14} />,
   },
+  {
+    value: "do_nothing",
+    label: "Do Nothing (skip layer)",
+    icon: <IconBan size={14} />,
+  },
 ]
 
 const STEP_CATEGORY_ICON_MAP: Record<ProcessStepCategory, React.ReactNode> = {
@@ -150,6 +162,7 @@ const STEP_CATEGORY_ICON_MAP: Record<ProcessStepCategory, React.ReactNode> = {
   surface_treatment: <IconSparkles size={14} />,
   doping_aging: <IconAtom size={14} />,
   substrate_preparation: <IconBrush size={14} />,
+  do_nothing: <IconBan size={14} />,
 }
 
 // Standard deposition/treatment methods offered as a hover submenu when adding
@@ -192,12 +205,24 @@ const SUBSTRATE_PREPARATION_METHODS = [
 // "choose material" dialog is pointless for these, so it is skipped.
 const METHODS_WITHOUT_MATERIAL = new Set(["UV/Ozone", "Blow Cleaning"])
 
+/** Whether a freshly added step should prompt for a material. */
+function stepNeedsMaterial(
+  category: ProcessStepCategory,
+  method?: string,
+): boolean {
+  if (category === "do_nothing") return false
+  return !method || !METHODS_WITHOUT_MATERIAL.has(method)
+}
+
 const STEP_METHOD_OPTIONS: Record<ProcessStepCategory, string[]> = {
   wet_deposition: WET_DEPOSITION_METHODS,
   dry_deposition: DRY_DEPOSITION_METHODS,
   surface_treatment: SURFACE_TREATMENT_METHODS,
   doping_aging: SURFACE_TREATMENT_METHODS,
   substrate_preparation: SUBSTRATE_PREPARATION_METHODS,
+  // A no-op has no method to pick, so it is offered as a plain entry in the
+  // top-level "Add step" menu rather than as a submenu of methods.
+  do_nothing: [],
 }
 
 type StepCategoryEntry = {
@@ -238,48 +263,63 @@ function AddStepMenu({
         </Button>
       </Menu.Target>
       <Menu.Dropdown>
-        {categories.map((category) => (
-          <Menu
-            key={category.value}
-            trigger="hover"
-            position="right-start"
-            offset={2}
-            shadow="md"
-            width={220}
-            closeOnItemClick={false}
-          >
-            <Menu.Target>
-              <Menu.Item
-                leftSection={category.icon}
-                rightSection={<IconChevronRight size={14} />}
-              >
-                {category.label}
-              </Menu.Item>
-            </Menu.Target>
-            <Menu.Dropdown>
-              {STEP_METHOD_OPTIONS[category.value].map((method) => (
+        {categories.map((category) =>
+          // A category with no methods to choose from (e.g. "Do Nothing") has
+          // nothing to put in a submenu, so it is added straight from here.
+          STEP_METHOD_OPTIONS[category.value].length === 0 ? (
+            <Menu.Item
+              key={category.value}
+              leftSection={category.icon}
+              onClick={() => {
+                setOpened(false)
+                onAdd(category.value)
+              }}
+            >
+              {category.label}
+            </Menu.Item>
+          ) : (
+            <Menu
+              key={category.value}
+              trigger="hover"
+              position="right-start"
+              offset={2}
+              shadow="md"
+              width={220}
+              closeOnItemClick={false}
+            >
+              <Menu.Target>
                 <Menu.Item
-                  key={method}
+                  leftSection={category.icon}
+                  rightSection={<IconChevronRight size={14} />}
+                >
+                  {category.label}
+                </Menu.Item>
+              </Menu.Target>
+              <Menu.Dropdown>
+                {STEP_METHOD_OPTIONS[category.value].map((method) => (
+                  <Menu.Item
+                    key={method}
+                    onClick={() => {
+                      setOpened(false)
+                      onAdd(category.value, method)
+                    }}
+                  >
+                    {method}
+                  </Menu.Item>
+                ))}
+                <Menu.Divider />
+                <Menu.Item
                   onClick={() => {
                     setOpened(false)
-                    onAdd(category.value, method)
+                    onAdd(category.value)
                   }}
                 >
-                  {method}
+                  Custom
                 </Menu.Item>
-              ))}
-              <Menu.Divider />
-              <Menu.Item
-                onClick={() => {
-                  setOpened(false)
-                  onAdd(category.value)
-                }}
-              >
-                Custom
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
-        ))}
+              </Menu.Dropdown>
+            </Menu>
+          ),
+        )}
       </Menu.Dropdown>
     </Menu>
   )
@@ -570,6 +610,15 @@ function getParameterSections(stepCategory: ProcessStepCategory): {
   labelOverrides: Partial<Record<ProcessParameterKey, string>>
   placeholderOverrides: Partial<Record<ProcessParameterKey, string>>
 } {
+  // A no-op has nothing to parameterise.
+  if (stepCategory === "do_nothing") {
+    return {
+      deposition: [],
+      annealing: [],
+      labelOverrides: {},
+      placeholderOverrides: {},
+    }
+  }
   if (stepCategory === "substrate_preparation") {
     return {
       deposition: ["depositionMethod", "annealingTime", "depositionParameters"],
@@ -938,9 +987,46 @@ function MaterialParamsPanel({
         molarMass: string
         density: string
       }
+    // A material picked off a raw PubChem hit carries no category, and the
+    // category is what the generated stack reads to type the layer. Hold the
+    // material here, uncommitted, until the user supplies one.
+    | {
+        kind: "category"
+        material: ProcessStepInlineMaterial
+        type: string
+      }
 
-  const [mode, setMode] = useState<PanelMode>({ kind: "idle" })
+  const searchMode = (): PanelMode => ({
+    kind: "pubchem",
+    query: "",
+    loading: false,
+    hits: [],
+    error: null,
+    fetchingCid: null,
+  })
+
+  const hasSelection = !!step.chemRecipeId || !!step.inlineMaterial
+
+  // Open on the search box when there is nothing to show yet: picking a material
+  // is the whole point of the panel, so it should not cost an extra click.
+  const [mode, setMode] = useState<PanelMode>(() =>
+    hasSelection ? { kind: "idle" } : searchMode(),
+  )
   const [highlightedIdx, setHighlightedIdx] = useState(-1)
+
+  /**
+   * Commit a chosen material, or divert into the category prompt when it has no
+   * type yet. Nothing reaches the step (and no dialog closes) until it does.
+   */
+  const commitMaterial = (mat: ProcessStepInlineMaterial) => {
+    if (!mat.type) {
+      setMode({ kind: "category", material: mat, type: "" })
+      return
+    }
+    onSetInlineMaterial(mat)
+    setMode({ kind: "idle" })
+    onAfterSelect?.()
+  }
 
   const filteredSuggestions = useMemo(() => {
     if (mode.kind !== "pubchem") return []
@@ -1003,15 +1089,13 @@ function MaterialParamsPanel({
     )
     try {
       const props = await fetchPubChemPropsStep(s.pubchemCid)
-      onSetInlineMaterial({
+      commitMaterial({
         name: s.name,
         type: s.type,
         pubchemCid: s.pubchemCid,
         componentCids: s.componentCids,
         ...props,
       })
-      setMode({ kind: "idle" })
-      onAfterSelect?.()
     } catch {
       setMode((prev) =>
         prev.kind === "pubchem"
@@ -1062,13 +1146,9 @@ function MaterialParamsPanel({
     setMode({ ...mode, fetchingCid: hit.cid })
     try {
       const props = await fetchPubChemPropsStep(hit.cid)
-      onSetInlineMaterial({ name: hit.title, pubchemCid: hit.cid, ...props })
-      setMode({ kind: "idle" })
-      onAfterSelect?.()
+      commitMaterial({ name: hit.title, pubchemCid: hit.cid, ...props })
     } catch {
-      onSetInlineMaterial({ name: hit.title, pubchemCid: hit.cid })
-      setMode({ kind: "idle" })
-      onAfterSelect?.()
+      commitMaterial({ name: hit.title, pubchemCid: hit.cid })
     }
   }
 
@@ -1105,6 +1185,7 @@ function MaterialParamsPanel({
                   onClick={() => {
                     onSetRecipe(null)
                     onSetInlineMaterial(null)
+                    setMode(searchMode())
                   }}
                 >
                   <IconX size={10} />
@@ -1114,6 +1195,7 @@ function MaterialParamsPanel({
                 <NativeSelect
                   size="xs"
                   label="Type"
+                  withAsterisk
                   value={step.inlineMaterial.type ?? ""}
                   onChange={(e) =>
                     onSetInlineMaterial({
@@ -1122,6 +1204,9 @@ function MaterialParamsPanel({
                     })
                   }
                   data={MATERIAL_TYPE_SELECT_DATA}
+                  error={
+                    step.inlineMaterial.type ? undefined : "Category required"
+                  }
                 />
               )}
             </Stack>
@@ -1295,6 +1380,53 @@ function MaterialParamsPanel({
                 </Stack>
               )}
             </Stack>
+          ) : mode.kind === "category" ? (
+            <Stack gap="xs">
+              <Box>
+                <Text size="xs" fw={600}>
+                  {mode.material.name}
+                  {mode.material.pubchemCid && (
+                    <Text span c="dimmed" size="xs">
+                      {" "}
+                      (CID {mode.material.pubchemCid})
+                    </Text>
+                  )}
+                </Text>
+                <Text size="xs" c="dimmed">
+                  Pick the category this material acts as in the stack.
+                </Text>
+              </Box>
+              <NativeSelect
+                size="xs"
+                label="Type"
+                withAsterisk
+                autoFocus
+                value={mode.type}
+                onChange={(e) =>
+                  setMode({ ...mode, type: e.currentTarget.value })
+                }
+                data={MATERIAL_TYPE_SELECT_DATA}
+                error={!mode.type ? "Required" : undefined}
+              />
+              <Group gap="xs" justify="flex-end">
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  onClick={() => setMode(searchMode())}
+                >
+                  Back
+                </Button>
+                <Button
+                  size="xs"
+                  disabled={!mode.type}
+                  onClick={() =>
+                    commitMaterial({ ...mode.material, type: mode.type })
+                  }
+                >
+                  Confirm
+                </Button>
+              </Group>
+            </Stack>
           ) : mode.kind === "manual" ? (
             <Stack gap="xs">
               <Group gap="xs" wrap="nowrap">
@@ -1311,11 +1443,13 @@ function MaterialParamsPanel({
                 <NativeSelect
                   size="xs"
                   label="Type"
+                  withAsterisk
                   value={mode.type}
                   onChange={(e) =>
                     setMode({ ...mode, type: e.currentTarget.value })
                   }
                   data={MATERIAL_TYPE_SELECT_DATA}
+                  error={!mode.type ? "Required" : undefined}
                   style={{ flex: 1 }}
                 />
               </Group>
@@ -1353,18 +1487,17 @@ function MaterialParamsPanel({
                 </Button>
                 <Button
                   size="xs"
-                  disabled={!mode.name.trim()}
-                  onClick={() => {
-                    onSetInlineMaterial({
+                  disabled={!mode.name.trim() || !mode.type}
+                  onClick={() =>
+                    commitMaterial({
                       name: mode.name.trim(),
-                      type: mode.type || undefined,
+                      type: mode.type,
                       molarMass: mode.molarMass
                         ? Number(mode.molarMass)
                         : undefined,
                       density: mode.density ? Number(mode.density) : undefined,
                     })
-                    setMode({ kind: "idle" })
-                  }}
+                  }
                 >
                   Add
                 </Button>
@@ -2159,6 +2292,9 @@ function shouldIncludeLayer(
   materials: Material[],
   solutions: Solution[],
 ): boolean {
+  // A no-op exists precisely to leave a layer out of this branch.
+  if (step.stepCategory === "do_nothing") return false
+
   // These categories never become device layers — tracked as modifications instead
   if (
     step.stepCategory === "surface_treatment" ||
@@ -2240,19 +2376,6 @@ function generateStackCombinations(
     process.stages.length === 0
   ) {
     return []
-  }
-
-  // Build cartesian product of stage alternatives
-  const combinations: ProcessStep[][] = [[]]
-
-  for (const stage of process.stages) {
-    const newCombinations: ProcessStep[][] = []
-    for (const combo of combinations) {
-      for (const step of stage.alternatives) {
-        newCombinations.push([...combo, step])
-      }
-    }
-    combinations.splice(0, combinations.length, ...newCombinations)
   }
 
   type MergedEntry = { step: ProcessStep; name: string; isPerovskite: boolean }
@@ -2346,6 +2469,9 @@ function generateStackCombinations(
     // followsId -> category -> names[]
     const pending = new Map<string | null, Map<string, string[]>>()
     for (const step of combo) {
+      // A no-op contributes nothing and must not become the layer that a later
+      // modification is pinned to.
+      if (step.stepCategory === "do_nothing") continue
       if (!modCategorySet.has(step.stepCategory)) {
         // Real layer step — update the current layer tracker
         const isPero = isPerovskitePrecursor(
@@ -2387,47 +2513,25 @@ function generateStackCombinations(
     return result
   }
 
-  // Convert each substrate + step combination to a stack
-  const stacks: GeneratedStack[] = []
-  let combinationCounter = 0
-
-  for (const substrateId of substrateIds) {
-    const substrate = substrateMap.get(substrateId)
-    if (!substrate) continue
-    for (const combo of combinations) {
-      stacks.push({
-        layers: buildLayersForCombo(
-          substrate.id,
-          substrate.name || "Unnamed",
-          combo,
-        ),
-        modifications: buildModificationsForCombo(combo),
-        combination: combinationCounter,
-        architecture: "Unknown",
-        buildDevice: undefined,
-        pixelAreaCm2: DEFAULT_PIXEL_AREA_CM2,
-        numberOfPixels: DEFAULT_NUMBER_OF_PIXELS,
-      })
-      combinationCounter += 1
-    }
-  }
-
-  for (const sub of inlineSubs) {
-    for (const combo of combinations) {
-      stacks.push({
-        layers: buildLayersForCombo(sub.id, sub.name || "Unnamed", combo),
-        modifications: buildModificationsForCombo(combo),
-        combination: combinationCounter,
-        architecture: "Unknown",
-        buildDevice: undefined,
-        pixelAreaCm2: DEFAULT_PIXEL_AREA_CM2,
-        numberOfPixels: DEFAULT_NUMBER_OF_PIXELS,
-      })
-      combinationCounter += 1
-    }
-  }
-
-  return stacks
+  // Convert each substrate + step combination to a stack. The enumeration is
+  // shared with the divergence summary so `combination` indexes the same thing
+  // in both.
+  return enumerateStackVariants(
+    process,
+    stackSubstrates(process, (id) => substrateMap.get(id)?.name),
+  ).map((variant) => ({
+    layers: buildLayersForCombo(
+      variant.substrate.id,
+      variant.substrate.name,
+      variant.combo,
+    ),
+    modifications: buildModificationsForCombo(variant.combo),
+    combination: variant.combination,
+    architecture: "Unknown",
+    buildDevice: undefined,
+    pixelAreaCm2: DEFAULT_PIXEL_AREA_CM2,
+    numberOfPixels: DEFAULT_NUMBER_OF_PIXELS,
+  }))
 }
 
 /**
@@ -2481,8 +2585,87 @@ function mergePreservedStackEdits(
   }))
 }
 
+/** Differences shown before the list collapses behind a "show all" toggle. */
+const MAX_VISIBLE_DIFFS = 4
+
+/**
+ * The first thing shown inside a stack box: what makes this stack distinct, and
+ * every field on which it diverges from the reference stack. Long diff lists
+ * collapse to a count so the heading never crowds out the stack itself.
+ */
+function StackDivergenceHeading({
+  divergence,
+}: {
+  divergence: StackDivergence
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const { title, subtitle, diffs, isReference } = divergence
+  const overflowing = diffs.length > MAX_VISIBLE_DIFFS
+  const visible =
+    expanded || !overflowing ? diffs : diffs.slice(0, MAX_VISIBLE_DIFFS)
+
+  return (
+    <Box
+      mb="sm"
+      p="xs"
+      style={{
+        borderRadius: 8,
+        border: "1px solid var(--mantine-color-blue-3)",
+        background:
+          "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-6))",
+      }}
+    >
+      {/* Keeps clear of the absolutely-positioned delete button. */}
+      <Text
+        size="xs"
+        fw={700}
+        c="blue.7"
+        style={{ lineHeight: 1.35, paddingRight: 18 }}
+      >
+        {title}
+      </Text>
+      <Text size="10px" c="dimmed" mt={2}>
+        {subtitle}
+      </Text>
+
+      {!isReference && diffs.length > 0 && (
+        <Stack gap={2} mt={6}>
+          {visible.map((d) => (
+            <Group key={d.label} gap={6} wrap="nowrap" align="baseline">
+              <Text size="10px" c="dimmed" style={{ flexShrink: 0 }}>
+                {d.label}
+              </Text>
+              <Text size="10px" fw={600} style={{ minWidth: 0 }} truncate>
+                {d.reference} → {d.value}
+              </Text>
+            </Group>
+          ))}
+          {overflowing && (
+            <Text
+              size="10px"
+              c="blue.6"
+              fw={600}
+              style={{ cursor: "pointer" }}
+              onClick={(e) => {
+                e.stopPropagation()
+                setExpanded((v) => !v)
+              }}
+            >
+              {expanded
+                ? "Show fewer"
+                : `+ ${diffs.length - MAX_VISIBLE_DIFFS} more differences`}
+            </Text>
+          )}
+        </Stack>
+      )}
+    </Box>
+  )
+}
+
 type ResultingStacksProps = {
   stacks: GeneratedStack[]
+  /** Keyed by `GeneratedStack.combination`. */
+  divergences: Map<number, StackDivergence>
   deletedCombinations: Set<number>
   onLayerChange: (
     stackIdx: number,
@@ -2502,6 +2685,7 @@ type ResultingStacksProps = {
 
 function ResultingStacks({
   stacks,
+  divergences,
   deletedCombinations,
   onLayerChange,
   onStackFieldChange,
@@ -2658,6 +2842,13 @@ function ResultingStacks({
                   <IconX size={12} />
                 </ActionIcon>
               </Tooltip>
+
+              {/* Why this stack exists — the first thing the user reads. */}
+              {divergences.has(stack.combination) && (
+                <StackDivergenceHeading
+                  divergence={divergences.get(stack.combination)!}
+                />
+              )}
 
               {/* Stack-level metadata fields — guided build-device flow */}
               <Box
@@ -3994,6 +4185,34 @@ export function ProcessesPage() {
     [selectedProcess],
   )
 
+  // Why each stack differs from the others. Compared against the first stack the
+  // user can still see, so deleting combination 0 doesn't leave the rest
+  // measured against something that isn't on screen.
+  const stackDivergenceMap = useMemo<Map<number, StackDivergence>>(() => {
+    if (!selectedProcess) return new Map()
+    const substrateMap = new Map(materials.map((m) => [m.id, m]))
+    const baseline = generatedStacks.find(
+      (s) => !deletedCombinations.has(s.combination),
+    )?.combination
+    return stackDivergences(
+      selectedProcess,
+      stackSubstrates(selectedProcess, (id) => substrateMap.get(id)?.name),
+      {
+        categoryLabel: (step) =>
+          STEP_CATEGORIES.find((c) => c.value === step.stepCategory)?.label ??
+          step.stepCategory,
+        materialLabel: (step) =>
+          getLayerName(
+            step,
+            materials,
+            solutions,
+            selectedProcess.solutionRecipes ?? [],
+          ),
+      },
+      baseline,
+    )
+  }, [selectedProcess, generatedStacks, deletedCombinations])
+
   // Apply any pending auto-tab once selectedProcess is confirmed visible
   useEffect(() => {
     if (!selectedProcess || !pendingAutoTabRef.current) return
@@ -4531,7 +4750,7 @@ export function ProcessesPage() {
     )
     setActiveEntity({ kind: "process", id: updated.id })
     setSelectedStepId(step.id)
-    if (!method || !METHODS_WITHOUT_MATERIAL.has(method)) {
+    if (stepNeedsMaterial(category, method)) {
       setMaterialModalStepId(step.id)
     }
   }
@@ -4562,7 +4781,7 @@ export function ProcessesPage() {
     )
     selectProcess(updated.id)
     setSelectedStepId(step.id)
-    if (!method || !METHODS_WITHOUT_MATERIAL.has(method)) {
+    if (stepNeedsMaterial(category, method)) {
       setMaterialModalStepId(step.id)
     }
   }
@@ -5355,16 +5574,25 @@ export function ProcessesPage() {
       }}
     >
       <Stack gap="md">
-        {/* Material Parameters — above deposition params */}
-        <MaterialParamsPanel
-          step={selectedStep}
-          stepColor={selectedStep.color}
-          recipes={selectedProcess?.solutionRecipes ?? []}
-          onSetRecipe={(id) => handleSetStepChemRecipe(selectedStep.id, id)}
-          onSetInlineMaterial={(mat) =>
-            handleSetStepInlineMaterial(selectedStep.id, mat)
-          }
-        />
+        {/* Material Parameters — above deposition params. A no-op step deposits
+            nothing, so it has no material to choose. */}
+        {selectedStep.stepCategory === "do_nothing" ? (
+          <Text size="xs" c="dimmed">
+            This step does nothing — it exists so a branch of the plan can leave
+            this layer out. It contributes no layer to the generated stacks.
+          </Text>
+        ) : (
+          <MaterialParamsPanel
+            key={selectedStep.id}
+            step={selectedStep}
+            stepColor={selectedStep.color}
+            recipes={selectedProcess?.solutionRecipes ?? []}
+            onSetRecipe={(id) => handleSetStepChemRecipe(selectedStep.id, id)}
+            onSetInlineMaterial={(mat) =>
+              handleSetStepInlineMaterial(selectedStep.id, mat)
+            }
+          />
+        )}
 
         {selectedStepParameterSections && (
           <>
@@ -6087,6 +6315,7 @@ export function ProcessesPage() {
                     <>
                       <ResultingStacks
                         stacks={generatedStacks}
+                        divergences={stackDivergenceMap}
                         deletedCombinations={deletedCombinations}
                         onLayerChange={handleUpdateStackLayer}
                         onStackFieldChange={handleUpdateStackField}

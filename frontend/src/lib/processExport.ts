@@ -10,6 +10,8 @@ import {
   type QuenchingField,
   quenchingFields,
 } from "@/components/QuenchingModal"
+import type { StackDiff } from "@/lib/stackDivergence"
+import { stackDivergences, stackSubstrates } from "@/lib/stackDivergence"
 import type {
   ChemicalExportRow,
   SolutionExportRow,
@@ -158,6 +160,10 @@ type DeviceStackSection = {
   numberOfPixels: string
   layers: StackLayer[]
   hasPerovskite: boolean
+  /** Why this stack differs from the others — printed above the diagram. */
+  divergenceTitle: string
+  divergenceSubtitle: string
+  divergenceDiffs: StackDiff[]
 }
 
 type ProcessExportModel = {
@@ -182,6 +188,7 @@ const STEP_CATEGORY_LABELS: Record<string, string> = {
   surface_treatment: "Surface Treatment",
   doping_aging: "Doping / Aging",
   substrate_preparation: "Substrate Preparation",
+  do_nothing: "Do Nothing (skip layer)",
 }
 
 const LAYER_TYPE_LABELS: Record<string, string> = {
@@ -497,15 +504,39 @@ function buildProcessExportModel({
     }),
   )
 
-  // Device stacks
+  // Device stacks. The divergence summary is derived from the process (not
+  // stored on the stack), so it stays correct without changing the serialized
+  // shape the PDF round-trip depends on.
+  const divergences = stackDivergences(
+    process,
+    stackSubstrates(process, (id) => materialNameById.get(id)),
+    {
+      categoryLabel: (step) =>
+        STEP_CATEGORY_LABELS[step.stepCategory] || step.stepCategory,
+      materialLabel: (step) =>
+        resolveStepMaterialLabel(
+          step,
+          recipes,
+          materialNameById,
+          solutionNameById,
+          recipeIndexById,
+        ).label,
+    },
+    (process.generatedStacks ?? [])[0]?.combination,
+  )
+
   const deviceStacks: DeviceStackSection[] = (
     process.generatedStacks ?? []
   ).map((stack, i) => {
     const hasPerovskite = stack.layers.some(
       (l) => l.perovskiteA || l.perovskiteB || l.perovskiteX,
     )
+    const divergence = divergences.get(stack.combination)
     return {
       index: i + 1,
+      divergenceTitle: divergence?.title ?? "",
+      divergenceSubtitle: divergence?.subtitle ?? "",
+      divergenceDiffs: divergence?.diffs ?? [],
       architecture: stack.architecture || "-",
       pixelAreaCm2: stack.pixelAreaCm2 || "",
       numberOfPixels: stack.numberOfPixels || "",
@@ -1244,6 +1275,25 @@ function renderProcessSections(L: PdfLayout, model: ProcessExportModel) {
     for (const stack of model.deviceStacks) {
       const stackIdx = stack.index - 1
       L.writeSubHeading(`Stack ${stack.index}`)
+
+      // Why this stack exists, before anything else about it.
+      if (stack.divergenceTitle) {
+        L.writeLabelValue("Variant", stack.divergenceTitle)
+        L.writeNote(stack.divergenceSubtitle)
+        if (stack.divergenceDiffs.length > 0) {
+          L.drawTable(
+            ["Field", "Reference stack", "This stack"],
+            stack.divergenceDiffs.map((d): TableCell[] => [
+              d.label,
+              d.reference,
+              d.value,
+            ]),
+            [cw * 0.4, cw * 0.3, cw * 0.3],
+          )
+        }
+        L.spacer(8)
+      }
+
       L.writeLabelValue("Architecture", stack.architecture)
       L.drawTable(
         ["Pixel Area (cm²)", "Number of Pixels"],

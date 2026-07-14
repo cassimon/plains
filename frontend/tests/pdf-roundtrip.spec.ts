@@ -317,7 +317,7 @@ test("Process & Experiment survive a PDF export→import round-trip", async ({
 
   // ── 1. Process payload fully survives ──────────────────────────────────────
   expect(result.r1.kind).toBe("process")
-  expect(result.r1.schemaVersion).toBe(3)
+  expect(result.r1.schemaVersion).toBe(4)
   expect(result.r1.roundProcess).toEqual(norm(processFixture))
   // Unedited PDF ⇒ no spurious edits / errors.
   expect(result.r1.editsLen).toBe(0)
@@ -605,7 +605,8 @@ test("migration ladder: a v2 experiment payload still imports, with its dates wi
     { processFixture, experimentFixture },
   )
 
-  expect(result.version).toBe(3)
+  // A v2 payload climbs the whole ladder (v2 → v3 → v4).
+  expect(result.version).toBe(4)
   expect(result.date).toBe("2026-07-06T00:00")
   expect(result.endDate).toBe("2026-07-10T00:00")
   expect(result.name).toBe("RoundTripExp")

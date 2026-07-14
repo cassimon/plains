@@ -135,6 +135,12 @@ export type ProcessStepCategory =
   | "surface_treatment"
   | "doping_aging"
   | "substrate_preparation"
+  /**
+   * A deliberate no-op. Used as an alternative to a real step so a plan can
+   * carry a branch in which that layer is simply left out — it contributes no
+   * layer, no modification and no parameters to the generated stack.
+   */
+  | "do_nothing"
 
 /** Inline material defined directly on a process step (no separate entity) */
 export type ProcessStepInlineMaterial = {
@@ -295,7 +301,8 @@ export function getProcessStatus(process: Process): "incomplete" | "complete" {
     stage.alternatives.some(
       (step) =>
         step.stepCategory !== "surface_treatment" &&
-        step.stepCategory !== "substrate_preparation",
+        step.stepCategory !== "substrate_preparation" &&
+        step.stepCategory !== "do_nothing",
     ),
   )
   const depositionDone = hasSubstrate && hasDepositionStep

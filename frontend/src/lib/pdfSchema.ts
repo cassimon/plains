@@ -19,7 +19,7 @@ import type { PDFDocument } from "pdf-lib"
 import type { Experiment, Process } from "@/store/AppContext"
 
 /** Bump on ANY change to the serialized shape or the field-name codec. */
-export const PDF_SCHEMA_VERSION = 3
+export const PDF_SCHEMA_VERSION = 4
 
 /** Minimal name lookups so an importer can resolve ids without the whole DB. */
 export type EntityRef = { id: string; name: string }
@@ -375,6 +375,12 @@ const MIGRATIONS: Record<number, (p: SerializedPayload) => SerializedPayload> =
         },
       }
     },
+    // v3 → v4: `ProcessStepCategory` gained "do_nothing", a step that
+    // deliberately contributes no layer. The shape is unchanged and a v3 PDF
+    // cannot contain one, so there is nothing to transform — the bump exists so
+    // that an app build predating the category refuses a v4 PDF outright rather
+    // than importing a no-op step as a real deposition layer.
+    3: (p) => ({ ...p, schemaVersion: 4 }),
   }
 
 /**
