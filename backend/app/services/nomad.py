@@ -3451,7 +3451,7 @@ def upload_to_nomad(
     # ───────────────────────────────────────────────────────────────────
 
     try:
-        with httpx.Client(timeout=120.0) as client:
+        with httpx.Client(timeout=12000.0) as client:
             with open(zip_path, "rb") as f:
                 if existing_upload_id:
                     # Add data to an existing upload via streaming PUT

@@ -5,6 +5,7 @@ node_modules/
 .env.*
 !.env.example
 /test-results/
+/db_backups/
 /playwright-report/
 /blob-report/
 /playwright/.cache/

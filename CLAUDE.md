@@ -8,6 +8,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The stack is FastAPI (Python) + React (TypeScript) + PostgreSQL, deployed via Docker Compose.
 
+## ⚠️ Protecting the dev database during tests
+
+The dev database lives in the `app-db-data` **named volume** (see `compose.yml`). A
+normal restart (`docker compose restart` / `stop` + `start` / `up`) reuses that
+volume and keeps your data. **The only thing that wipes it is `docker compose
+down -v`** — the `-v`/`--volumes` flag deletes the volume.
+
+The test suites (`scripts/test.sh`, `scripts/test-local.sh`) run against the
+*same* Compose project and call `down -v`, so historically every test run wiped
+the dev database. Those scripts now guard it automatically:
+
+- `scripts/db-backup.sh` `pg_dump`s the dev DB to `db_backups/` (gitignored)
+  **before** any `down -v`, updating `db_backups/latest.sql.gz`.
+- `scripts/db-restore.sh` drops and rebuilds the DB from that dump **after** the
+  run (invoked via a `trap … EXIT`, so it runs even when tests fail).
+
+**Rules to avoid data loss during development:**
+
+- Never run `docker compose down -v` against the dev stack by hand without first
+  running `bash scripts/db-backup.sh`. To just stop the stack, use
+  `docker compose down` (no `-v`) or `docker compose stop`.
+- To rebuild the frontend after a change, use `docker compose up -d --build
+  frontend` — it does **not** touch the volume. (The frontend has no hot-reload;
+  it is a static nginx build.)
+- Any new script or workflow that tears down the stack must back up and restore
+  the DB the same way `scripts/test.sh` does (backup first, `trap` restore on
+  EXIT), or run against an isolated Compose project/volume.
+- `db_backups/` is gitignored — never commit dumps.
+
 ## Commands
 
 ### Full Stack (Docker Compose)

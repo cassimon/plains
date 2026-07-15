@@ -51,7 +51,9 @@ import {
   findProcessingTimeRegressions,
   processingAsAboveKey,
   processingTimeKey,
+  resolveProcessingAsAboveToggle,
   resolveProcessingTime,
+  resolveProcessingTimeEdit,
   stackRowLabel,
   timeCellCount,
   timePart,
@@ -1105,20 +1107,78 @@ function ExperimentGrid({
     [process, processingStacks, processingDivergeIdx, processingCtx],
   )
   const handleProcessingAsAboveToggle = useCallback(
-    (key: string, checked: boolean) =>
-      handleProcessingTimeChange(key, checked ? "true" : ""),
-    [handleProcessingTimeChange],
+    (stageIdx: number, stackKey: string, checked: boolean) => {
+      const result = resolveProcessingAsAboveToggle(
+        process,
+        processingStacks,
+        processingDivergeIdx,
+        experiment.processingTimes ?? {},
+        stageIdx,
+        stackKey,
+        checked,
+      )
+      handleProcessingTimeChange(
+        processingAsAboveKey(stageIdx, stackKey),
+        result.asAboveValue,
+      )
+      if (result.rejected && result.message) {
+        notifications.show({
+          color: "orange",
+          title: "Can’t use “As above” here",
+          message: result.message,
+        })
+      }
+    },
+    [
+      process,
+      processingStacks,
+      processingDivergeIdx,
+      experiment.processingTimes,
+      handleProcessingTimeChange,
+    ],
   )
 
   // Combine a date part and a time part back into a stored `datetime-local`
-  // value: keep the date alone while the time is still missing (so the cell
-  // stays "incomplete" and keeps buzzing), and only join them once both exist.
+  // value, then run it past the ordering gate: keep the date alone while the
+  // time is still missing (so the cell stays "incomplete" and keeps buzzing),
+  // and — when a full time would start before the previous step — reject it,
+  // re-imposing the previous step's date with a blank time and telling the user
+  // why, so an out-of-order value can never be committed.
   const handleProcessingDateTimeChange = useCallback(
-    (cellKey: string, date: string, time: string) => {
-      const combined = date && time ? `${date}T${time}` : date ? date : ""
-      handleProcessingTimeChange(cellKey, combined)
+    (stageIdx: number, stackKey: string | null, date: string, time: string) => {
+      const proposed = date && time ? `${date}T${time}` : date ? date : ""
+      const result = resolveProcessingTimeEdit(
+        process,
+        processingStacks,
+        processingDivergeIdx,
+        experiment.processingTimes ?? {},
+        stageIdx,
+        stackKey,
+        proposed,
+      )
+      const effectiveStackKey =
+        processingDivergeIdx >= 0 && stageIdx >= processingDivergeIdx
+          ? stackKey
+          : null
+      handleProcessingTimeChange(
+        processingTimeKey(stageIdx, effectiveStackKey),
+        result.storedValue,
+      )
+      if (result.rejected && result.message) {
+        notifications.show({
+          color: "orange",
+          title: "Time not accepted",
+          message: result.message,
+        })
+      }
     },
-    [handleProcessingTimeChange],
+    [
+      process,
+      processingStacks,
+      processingDivergeIdx,
+      experiment.processingTimes,
+      handleProcessingTimeChange,
+    ],
   )
 
   // ── Parameter-variation Yes/No ───────────────────────────────────────────
@@ -1663,7 +1723,8 @@ function ExperimentGrid({
                                       value={dateVal}
                                       onBlur={(value) =>
                                         handleProcessingDateTimeChange(
-                                          cellKey,
+                                          idx,
+                                          row.stackKey,
                                           value,
                                           timeVal,
                                         )
@@ -1677,7 +1738,8 @@ function ExperimentGrid({
                                       value={timeVal}
                                       onBlur={(value) =>
                                         handleProcessingDateTimeChange(
-                                          cellKey,
+                                          idx,
+                                          row.stackKey,
                                           dateVal,
                                           value,
                                         )
@@ -1710,7 +1772,8 @@ function ExperimentGrid({
                                     checked={isAsAbove}
                                     onChange={(e) =>
                                       handleProcessingAsAboveToggle(
-                                        asAboveKey!,
+                                        idx,
+                                        row.stackKey!,
                                         e.currentTarget.checked,
                                       )
                                     }

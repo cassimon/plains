@@ -18,7 +18,6 @@ import {
   TextInput,
   Tooltip,
 } from "@mantine/core"
-import { useElementSize } from "@mantine/hooks"
 import {
   IconChevronDown,
   IconChevronRight,
@@ -30,7 +29,10 @@ import {
   IconX,
 } from "@tabler/icons-react"
 import { useEffect, useMemo, useRef, useState } from "react"
-import type { ConcentrationSummary } from "../lib/solutionConcentration"
+import type {
+  ConcentrationEntry,
+  ConcentrationSummary,
+} from "../lib/solutionConcentration"
 import {
   concentrationSummary,
   soluteVolumeMl,
@@ -1673,51 +1675,57 @@ function fmtPct(p: number | null): string | null {
   return p === null ? null : `${p.toFixed(2)} %w/w`
 }
 
-/** Horizontal room (px) one solute needs at each level of detail. */
-const CONC_FULL_W = 230
-const CONC_SHORT_W = 110
-const CONC_TOTAL_W = 160
+/** mol/mL → compact molarity for the inline triple: "0.9M". */
+function fmtMshort(molPerMl: number | null): string | null {
+  if (molPerMl === null) return null
+  const m = molPerMl * 1000
+  if (m === 0) return "0M"
+  if (Math.abs(m) < 0.001) return `${m.toExponential(1)}M`
+  const digits = Math.abs(m) >= 100 ? 0 : Math.abs(m) >= 10 ? 1 : 2
+  return `${Number.parseFloat(m.toFixed(digits))}M`
+}
+
+/** %w/w → compact percent for the inline triple: "30%w/w". */
+function fmtPctShort(p: number | null): string | null {
+  return p === null ? null : `${Number.parseFloat(p.toFixed(1))}%w/w`
+}
+
+/**
+ * The canonical one-line concentration triple, used both for each sub-solute and,
+ * in small letters, under the total: "0.9M, 1.0M per solv. vol., 30%w/w". Any
+ * part that can't be computed is dropped rather than shown as a dash.
+ */
+function concTriple(e: ConcentrationEntry): string {
+  return [
+    fmtMshort(e.molPerMlTotal),
+    fmtMshort(e.molPerMlSolvent)?.concat(" per solv. vol."),
+    fmtPctShort(e.wPercent),
+  ]
+    .filter(Boolean)
+    .join(", ")
+}
 
 /**
  * Concentration of the solution as a whole on the right, the solutes it is made
- * of on the left. The per-solute figures are the first thing to go when the card
- * gets narrow — they shorten to a bare molarity, then drop out entirely, so the
- * total always survives.
+ * of on the left. Both the total and every sub-solute are always shown; the total
+ * leads with its solvent-basis molarity (4 dp) and repeats the full triple in
+ * small letters beneath, mirroring the per-solute lines.
  */
 function ConcentrationBar({ summary }: { summary: ConcentrationSummary }) {
-  const { ref, width } = useElementSize()
   const { entries, total, dilution, incomplete } = summary
 
-  // A single solute *is* the total, so print one figure rather than the same
-  // number twice.
-  const single = entries.length === 1
-  const headline = single ? entries[0] : total
-
-  // Before the first measurement, assume there is room: showing everything for
-  // one frame beats blanking the bar out.
-  const avail =
-    (width > 0 ? width : Number.POSITIVE_INFINITY) -
-    (headline && !single ? CONC_TOTAL_W : 0)
-  const detail: "full" | "short" | "none" = single
-    ? avail >= CONC_FULL_W
-      ? "full"
-      : "short"
-    : avail >= entries.length * CONC_FULL_W
-      ? "full"
-      : avail >= entries.length * CONC_SHORT_W
-        ? "short"
-        : "none"
-
-  const headlineSub = [
-    fmtM(headline?.molPerMlSolvent ?? null)?.concat(" solvent"),
-    fmtPct(headline?.wPercent ?? null),
-  ]
-    .filter(Boolean)
-    .join(" · ")
+  // The total always leads with its solvent-basis molarity (4 dp); it falls back
+  // to the total-volume basis, then %w/w, when solvent volume is unknown.
+  const headlineBig = total
+    ? (fmtM(total.molPerMlSolvent) &&
+        `${fmtM(total.molPerMlSolvent)} per solv. vol.`) ||
+      fmtM(total.molPerMlTotal) ||
+      fmtPct(total.wPercent) ||
+      "—"
+    : "—"
 
   return (
     <Box
-      ref={ref}
       p="xs"
       style={{
         background:
@@ -1750,7 +1758,8 @@ function ConcentrationBar({ summary }: { summary: ConcentrationSummary }) {
             )}
           </Group>
 
-          {!single && detail !== "none" && (
+          {/* Every sub-solute, always shown, on its own line as the triple. */}
+          {entries.length > 0 && (
             <Group gap="lg" wrap="wrap">
               {entries.map((c) => (
                 <Box key={c.name} style={{ minWidth: 0 }}>
@@ -1758,40 +1767,26 @@ function ConcentrationBar({ summary }: { summary: ConcentrationSummary }) {
                     {c.name}
                   </Text>
                   <Text size="xs" c="dimmed">
-                    {detail === "full"
-                      ? [
-                          fmtM(c.molPerMlTotal),
-                          fmtM(c.molPerMlSolvent)?.concat(" solvent"),
-                          fmtPct(c.wPercent),
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")
-                      : (fmtM(c.molPerMlTotal) ?? fmtPct(c.wPercent) ?? "—")}
+                    {concTriple(c)}
                   </Text>
                 </Box>
               ))}
             </Group>
           )}
-          {!single && detail === "none" && entries.length > 0 && (
-            <Text size="xs" c="dimmed">
-              {entries.length} solutes
-            </Text>
-          )}
         </Box>
 
-        {headline && (
+        {/* The total, always shown when a total can be computed. */}
+        {total && (
           <Box style={{ flexShrink: 0, textAlign: "right" }}>
             <Text size="xs" fw={600} c="dimmed" truncate>
-              {single ? entries[0].name : "Total"}
+              Total
             </Text>
             <Text size="sm" fw={700} c="teal">
-              {fmtM(headline.molPerMlTotal) ?? fmtPct(headline.wPercent) ?? "—"}
+              {headlineBig}
             </Text>
-            {detail === "full" && headlineSub && (
-              <Text size="10px" c="dimmed">
-                {headlineSub}
-              </Text>
-            )}
+            <Text size="10px" c="dimmed">
+              {concTriple(total)}
+            </Text>
           </Box>
         )}
       </Group>
@@ -1882,7 +1877,13 @@ function SolutionCard({
           molarMass: props.molarMass,
           density: props.density,
         }
-        update({ solvents: [...recipe.solvents, newSolvent] })
+        // First solvent: seed a total volume of 1 mL so the (until now
+        // deactivated, 0-showing) Total vol. field becomes live and non-zero.
+        const patch: Partial<ProcessSolutionRecipe> = {
+          solvents: [...recipe.solvents, newSolvent],
+        }
+        if (recipe.solvents.length === 0) patch.totalSolventVolumeMl = "1"
+        update(patch)
       }
     } else {
       if (ingredientId) {
@@ -2332,10 +2333,13 @@ function SolutionCard({
                                   </Text>
                                 }
                                 placeholder="e.g. 2"
+                                disabled={addedSolutions.length === 0}
                                 value={
-                                  stockTotalMl !== ""
-                                    ? Number(stockTotalMl)
-                                    : ""
+                                  addedSolutions.length === 0
+                                    ? 0
+                                    : stockTotalMl !== ""
+                                      ? Number(stockTotalMl)
+                                      : ""
                                 }
                                 onChange={(v) =>
                                   updateStockTotal(v !== "" ? String(v) : "")
@@ -2620,10 +2624,13 @@ function SolutionCard({
                                   </Text>
                                 }
                                 placeholder="e.g. 5"
+                                disabled={recipe.solvents.length === 0}
                                 value={
-                                  recipe.totalSolventVolumeMl !== ""
-                                    ? Number(recipe.totalSolventVolumeMl)
-                                    : ""
+                                  recipe.solvents.length === 0
+                                    ? 0
+                                    : recipe.totalSolventVolumeMl !== ""
+                                      ? Number(recipe.totalSolventVolumeMl)
+                                      : ""
                                 }
                                 onChange={(v) =>
                                   update({

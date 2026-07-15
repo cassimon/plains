@@ -268,6 +268,163 @@ export function findProcessingTimeRegressions(
 }
 
 /**
+ * The regression keys that exist in `candidate` but not already in `current` —
+ * i.e. the ones a proposed edit would newly introduce. Comparing against the
+ * pre-edit state (rather than looking at `candidate` alone) means a legacy
+ * experiment that already contains a regression elsewhere doesn't wrongly cause
+ * an otherwise-valid edit to be rejected: we only ever block edits that make
+ * things *worse*.
+ */
+function newRegressionKeys(
+  process: Process,
+  stacks: ProcessingStack[],
+  divergeIdx: number,
+  current: Record<string, string>,
+  candidate: Record<string, string>,
+): Set<string> {
+  const before = findProcessingTimeRegressions(
+    process,
+    stacks,
+    divergeIdx,
+    current,
+  )
+  const after = findProcessingTimeRegressions(
+    process,
+    stacks,
+    divergeIdx,
+    candidate,
+  )
+  const introduced = new Set<string>()
+  for (const key of after) {
+    if (!before.has(key)) introduced.add(key)
+  }
+  return introduced
+}
+
+export type ProcessingTimeEdit = {
+  /** The value to actually store for the edited cell — the proposal when it is
+   *  accepted, or the previous step's date with an empty time on rejection. */
+  storedValue: string
+  /** True when the proposal broke the ordering rule and was reverted. */
+  rejected: boolean
+  /** A user-facing explanation, set only when `rejected` is true. */
+  message?: string
+}
+
+/**
+ * Gatekeeper for a single processing-time cell edit. The rule is simple: a
+ * step's time may never be *earlier* than the step before it (equal is fine —
+ * steps can start together), and the end-of-experiment cell may never be
+ * earlier than the last step.
+ *
+ * Rather than accept a bad value and merely flag it — which lets an incorrect
+ * timeline sit there looking "specified" — this rejects it outright and
+ * re-imposes the previous step's date with a **blank time**, so the field goes
+ * back to buzzing and the user immediately sees their entry was not taken. The
+ * check looks at the whole row, so it also catches *forward* breakage: raising
+ * an early step above a later one (t1 → t1 > t2) is rejected just the same,
+ * because it would push the later step into a regression.
+ *
+ * A blank or date-only proposal is always accepted: only complete date+time
+ * cells participate in the ordering check, so a bare date can never be "too
+ * early" — it just keeps the cell incomplete (buzzing) until a time is added.
+ */
+export function resolveProcessingTimeEdit(
+  process: Process,
+  stacks: ProcessingStack[],
+  divergeIdx: number,
+  currentTimes: Record<string, string>,
+  stageIdx: number,
+  stackKey: string | null,
+  proposedValue: string,
+): ProcessingTimeEdit {
+  const effectiveStackKey =
+    divergeIdx >= 0 && stageIdx >= divergeIdx ? stackKey : null
+  const key = processingTimeKey(stageIdx, effectiveStackKey)
+
+  if (!hasTime(proposedValue)) {
+    return { storedValue: proposedValue, rejected: false }
+  }
+
+  const candidate = { ...currentTimes, [key]: proposedValue }
+  const introduced = newRegressionKeys(
+    process,
+    stacks,
+    divergeIdx,
+    currentTimes,
+    candidate,
+  )
+  if (introduced.size === 0) {
+    return { storedValue: proposedValue, rejected: false }
+  }
+
+  // Rejected — reimpose the previous step's date (blank time) so the cell keeps
+  // buzzing and the timeline never holds an out-of-order value.
+  const ctx: ProcessingTimesCtx = {
+    processingTimes: currentTimes,
+    divergeIdx,
+    stackOrder: stacks.map((s) => s.key),
+  }
+  const prevDate = datePart(resolveProcessingTime(stageIdx - 1, stackKey, ctx))
+  const isEnd = stageIdx === endStageIdx(process)
+  const message = isEnd
+    ? "The end of the experiment can't be earlier than the last step. Its time was cleared — enter a time no earlier than the last step."
+    : "A step can't start before the step before it. The time was cleared — enter a time no earlier than the previous step (they may be equal)."
+  return { storedValue: prevDate, rejected: true, message }
+}
+
+export type ProcessingAsAboveToggle = {
+  /** The value to store for the "As above" key ("true" to link, "" to unlink). */
+  asAboveValue: string
+  /** True when *enabling* was refused because it would break the ordering. */
+  rejected: boolean
+  /** A user-facing explanation, set only when `rejected` is true. */
+  message?: string
+}
+
+/**
+ * Gatekeeper for the per-stack "As above" checkbox. Enabling it copies the time
+ * from the row above for this stage; if that copied time would start before
+ * this row's own previous step (or shove a later step out of order), the tick
+ * is refused and the box stays unchecked, with a status message explaining why
+ * — far less frustrating than silently accepting it and wiping the row's times.
+ *
+ * Un-ticking is always allowed: it simply restores the row's own value (which,
+ * if empty, goes back to buzzing).
+ */
+export function resolveProcessingAsAboveToggle(
+  process: Process,
+  stacks: ProcessingStack[],
+  divergeIdx: number,
+  currentTimes: Record<string, string>,
+  stageIdx: number,
+  stackKey: string,
+  enable: boolean,
+): ProcessingAsAboveToggle {
+  if (!enable) {
+    return { asAboveValue: "", rejected: false }
+  }
+  const asAboveKey = processingAsAboveKey(stageIdx, stackKey)
+  const candidate = { ...currentTimes, [asAboveKey]: "true" }
+  const introduced = newRegressionKeys(
+    process,
+    stacks,
+    divergeIdx,
+    currentTimes,
+    candidate,
+  )
+  if (introduced.size === 0) {
+    return { asAboveValue: "true", rejected: false }
+  }
+  return {
+    asAboveValue: "",
+    rejected: true,
+    message:
+      "“As above” can't be used here — the step above starts before this row's previous step, which would put the timeline out of order. Adjust the times first.",
+  }
+}
+
+/**
  * Whether a diverged cell has actually been addressed — an explicit own
  * value, an "As above" pointing at a row that was itself addressed, or
  * cascaded forward from an earlier stage *within the diverged region*.
@@ -308,6 +465,15 @@ export function experimentProcessingTimesDone(
   const stacks = buildProcessingStacks(exp, process)
   const divergeIdx = findDivergeIdx(stacks)
   const processingTimes = exp.processingTimes ?? {}
+  // An out-of-order step (one starting before the step before it) is never
+  // "done", however completely the cells are filled — otherwise a timeline the
+  // user knows is wrong could still show green.
+  if (
+    findProcessingTimeRegressions(process, stacks, divergeIdx, processingTimes)
+      .size > 0
+  ) {
+    return false
+  }
   const ctx: ProcessingTimesCtx = {
     processingTimes,
     divergeIdx,

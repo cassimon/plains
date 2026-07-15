@@ -1913,6 +1913,159 @@ function getSolidComponents(
     )
 }
 
+/** Display name for a commercial recipe: the product/catalogue name. */
+function commercialRecipeName(recipe: ProcessSolutionRecipe): string {
+  return recipe.commercialName?.trim() || recipe.name?.trim() || ""
+}
+
+/**
+ * The solid names a step leaves behind once its solvent has evaporated — the
+ * solutes of a chemistry recipe, the solid components of a solution, or a plain
+ * solid material. A commercial product is opaque but still counts as residue,
+ * named after the product.
+ */
+function getStepSolidNames(
+  step: ProcessStep,
+  materials: Material[],
+  solutions: Solution[],
+  solutionRecipes?: ProcessSolutionRecipe[],
+): string[] {
+  if (step.materialId) {
+    const mat = materials.find((m) => m.id === step.materialId)
+    if (!mat) return []
+    const t = mat.type?.toLowerCase() ?? ""
+    if (t.includes("solvent") || t.includes("surface modifier")) return []
+    return [mat.name || mat.inventoryLabel || mat.casNumber || mat.id]
+  }
+  if (step.solutionId) {
+    return Array.from(
+      new Set(
+        getSolidComponents(step.solutionId, materials, solutions).map(
+          (mat) => mat.name || mat.inventoryLabel || mat.casNumber || mat.id,
+        ),
+      ),
+    )
+  }
+  if (step.chemRecipeId) {
+    const recipe = solutionRecipes?.find((r) => r.id === step.chemRecipeId)
+    if (!recipe) return []
+    if (recipe.isCommercial) {
+      const nm = commercialRecipeName(recipe)
+      return nm ? [nm] : []
+    }
+    return Array.from(
+      new Set(
+        (recipe.solutes ?? [])
+          .map((s) => s.name.trim())
+          .filter((n) => n.length > 0),
+      ),
+    )
+  }
+  if (step.inlineMaterial) {
+    const t = step.inlineMaterial.type?.toLowerCase() ?? ""
+    if (t.includes("solvent")) return []
+    return step.inlineMaterial.name ? [step.inlineMaterial.name] : []
+  }
+  return []
+}
+
+/** The solvent names a liquid step deposits (for labelling solvent treatments). */
+function getSolventNames(
+  step: ProcessStep,
+  materials: Material[],
+  solutions: Solution[],
+  solutionRecipes?: ProcessSolutionRecipe[],
+): string[] {
+  if (step.solutionId) {
+    const sol = solutions.find((s) => s.id === step.solutionId)
+    return Array.from(
+      new Set(
+        (sol?.components ?? [])
+          .map((c) => materials.find((m) => m.id === c.materialId))
+          .filter((m): m is Material => Boolean(m))
+          .filter((m) => m.type?.toLowerCase() === "solvent")
+          .map((m) => m.name || m.id),
+      ),
+    )
+  }
+  if (step.chemRecipeId) {
+    const recipe = solutionRecipes?.find((r) => r.id === step.chemRecipeId)
+    return Array.from(
+      new Set(
+        (recipe?.solvents ?? [])
+          .map((s) => s.name.trim())
+          .filter((n) => n.length > 0),
+      ),
+    )
+  }
+  return []
+}
+
+/**
+ * True when a deposition step lays down only solvent — no solid solute survives
+ * evaporation. Such a step is a surface/solvent treatment of the layer beneath it
+ * (an anti-solvent drip, a solvent wash), not a device layer of its own.
+ * Commercial products are never solvent-only: their (opaque) residue is the
+ * product itself; a recipe that mixes in stock solutions carries their solids.
+ */
+function isSolventOnlyDeposition(
+  step: ProcessStep,
+  materials: Material[],
+  solutions: Solution[],
+  solutionRecipes?: ProcessSolutionRecipe[],
+): boolean {
+  const recipe = step.chemRecipeId
+    ? solutionRecipes?.find((r) => r.id === step.chemRecipeId)
+    : undefined
+  const hasLiquidSource =
+    !!step.solutionId || (!!step.chemRecipeId && !recipe?.isCommercial)
+  if (!hasLiquidSource) return false
+  if ((recipe?.addedSolutions?.length ?? 0) > 0) return false
+  return (
+    getStepSolidNames(step, materials, solutions, solutionRecipes).length === 0
+  )
+}
+
+/**
+ * For each step, the set of layer names that are auto-derived placeholders
+ * rather than a name the user deliberately typed: the deposition method, the
+ * step name, the recipe's own (solvent-inclusive) name, the commercial product
+ * name, any solvent name, and the "Unnamed" fallbacks. A preserved layer name in
+ * this set must yield to the freshly derived material name on regeneration —
+ * that is what lets a layer whose material is filled in *after* the stack was
+ * generated stop showing "Spin Coating". Anything the user actually typed is not
+ * in the set, so genuine renames survive. See `mergePreservedStackEdits`.
+ */
+function buildAutoNameCandidates(
+  process: Process,
+  materials: Material[],
+  solutions: Solution[],
+): Map<string, Set<string>> {
+  const recipes = process.solutionRecipes ?? []
+  const map = new Map<string, Set<string>>()
+  for (const stage of process.stages) {
+    for (const step of stage.alternatives) {
+      const cands = new Set<string>(["", "Unnamed", "Unnamed Material"])
+      const dep = step.depositionMethod?.value?.trim()
+      if (dep) cands.add(dep)
+      if (step.name?.trim()) cands.add(step.name.trim())
+      const recipe = step.chemRecipeId
+        ? recipes.find((r) => r.id === step.chemRecipeId)
+        : undefined
+      if (recipe) {
+        if (recipe.name?.trim()) cands.add(recipe.name.trim())
+        const cn = commercialRecipeName(recipe)
+        if (cn) cands.add(cn)
+      }
+      for (const sv of getSolventNames(step, materials, solutions, recipes)) {
+        cands.add(sv)
+      }
+      map.set(step.id, cands)
+    }
+  }
+  return map
+}
+
 function isPerovskitePrecursor(
   step: ProcessStep,
   materials: Material[],
@@ -2214,9 +2367,14 @@ if (
   document.head.appendChild(s)
 }
 
-function getStackInvalidationKey(process: Process | null): string {
+function getStackInvalidationKey(
+  process: Process | null,
+  materials: Material[] = EMPTY_MATERIALS,
+  solutions: Solution[] = EMPTY_SOLUTIONS,
+): string {
   if (!process) return ""
 
+  const recipes = process.solutionRecipes ?? []
   const substrateKey = [
     ...(process.substrateIds ?? []),
     ...(process.inlineSubstrates ?? []).map((s) => s.id),
@@ -2225,10 +2383,22 @@ function getStackInvalidationKey(process: Process | null): string {
     .map(
       (stage, stagePos) =>
         `${stagePos}:${stage.alternatives
-          .map(
-            (step, altPos) =>
-              `${altPos}:${step.id}:${step.materialId ?? ""}:${step.solutionId ?? ""}:${step.chemRecipeId ?? ""}:${step.inlineMaterial?.name ?? ""}`,
-          )
+          .map((step, altPos) => {
+            // Fold in the *derived* layer name and whether the step reads as a
+            // layer or a solvent modification, so filling in a step's material
+            // or a recipe's solutes later — which changes neither the step id
+            // nor its source id — still re-derives the stack.
+            const nameSig = getLayerName(step, materials, solutions, recipes)
+            const roleSig = isSolventOnlyDeposition(
+              step,
+              materials,
+              solutions,
+              recipes,
+            )
+              ? "M"
+              : "L"
+            return `${altPos}:${step.id}:${step.materialId ?? ""}:${step.solutionId ?? ""}:${step.chemRecipeId ?? ""}:${step.inlineMaterial?.name ?? ""}:${nameSig}:${roleSig}`
+          })
           .join(",")}`,
     )
     .join(";")
@@ -2287,6 +2457,13 @@ function getLayerName(
     if (soluteNames.length > 0) {
       return soluteNames.join(", ")
     }
+    // Commercial product with no explicit solutes: name the layer after the
+    // product itself, so the stack shows the commercial solution rather than a
+    // bare deposition method.
+    if (recipe?.isCommercial) {
+      const nm = commercialRecipeName(recipe)
+      if (nm) return nm
+    }
     return (
       recipe?.name ||
       step.depositionMethod?.value?.trim() ||
@@ -2305,6 +2482,7 @@ function shouldIncludeLayer(
   step: ProcessStep,
   materials: Material[],
   solutions: Solution[],
+  solutionRecipes?: ProcessSolutionRecipe[],
 ): boolean {
   // A no-op exists precisely to leave a layer out of this branch.
   if (step.stepCategory === "do_nothing") return false
@@ -2315,6 +2493,12 @@ function shouldIncludeLayer(
     step.stepCategory === "doping_aging" ||
     step.stepCategory === "substrate_preparation"
   ) {
+    return false
+  }
+
+  // A pure-solvent deposition leaves no solid layer — it is a solvent treatment
+  // of the layer beneath (tracked as a modification instead).
+  if (isSolventOnlyDeposition(step, materials, solutions, solutionRecipes)) {
     return false
   }
 
@@ -2414,7 +2598,7 @@ function generateStackCombinations(
     })
 
     const includedSteps = combo.filter((step) =>
-      shouldIncludeLayer(step, materials, solutions),
+      shouldIncludeLayer(step, materials, solutions, solutionRecipes),
     )
 
     // Merge consecutive perovskite precursor steps into one "Perovskite" layer
@@ -2486,7 +2670,15 @@ function generateStackCombinations(
       // A no-op contributes nothing and must not become the layer that a later
       // modification is pinned to.
       if (step.stepCategory === "do_nothing") continue
-      if (!modCategorySet.has(step.stepCategory)) {
+      // A pure-solvent deposition is a solvent treatment of the layer beneath,
+      // not a device layer — record it as a surface-treatment modification.
+      const solventOnly = isSolventOnlyDeposition(
+        step,
+        materials,
+        solutions,
+        solutionRecipes,
+      )
+      if (!modCategorySet.has(step.stepCategory) && !solventOnly) {
         // Real layer step — update the current layer tracker
         const isPero = isPerovskitePrecursor(
           step,
@@ -2501,16 +2693,20 @@ function generateStackCombinations(
           lastWasPerovskite = isPero
         }
       } else {
-        // Modification step — associate with the most recent real layer
-        const name = getLayerName(step, materials, solutions, solutionRecipes)
+        // Modification step — associate with the most recent real layer. Solvent
+        // treatments are labelled with the solvent(s) they apply, under the
+        // surface-treatment category.
+        const category = solventOnly ? "surface_treatment" : step.stepCategory
+        const name = solventOnly
+          ? getSolventNames(step, materials, solutions, solutionRecipes).join(
+              ", ",
+            ) || getLayerName(step, materials, solutions, solutionRecipes)
+          : getLayerName(step, materials, solutions, solutionRecipes)
         if (!pending.has(currentLayerId)) {
           pending.set(currentLayerId, new Map())
         }
         const catMap = pending.get(currentLayerId)!
-        catMap.set(step.stepCategory, [
-          ...(catMap.get(step.stepCategory) ?? []),
-          name,
-        ])
+        catMap.set(category, [...(catMap.get(category) ?? []), name])
       }
     }
     const result: StackModification[] = []
@@ -2557,10 +2753,19 @@ function generateStackCombinations(
  * exists. Stack-level edits (architecture, pixel area, pixel count, the
  * build-device toggle) are matched by combination number. Layers and stacks
  * that are genuinely new keep their freshly generated defaults.
+ *
+ * The one field NOT preserved wholesale is the name: an auto-derived placeholder
+ * (a bare deposition method left over from before the step's material was
+ * defined) must yield to the freshly derived material name — otherwise a layer
+ * whose material is filled in *after* the stack was first generated would stay
+ * stuck on "Spin Coating". Names the user actually typed are still kept.
+ * `autoNameCandidates` (from `buildAutoNameCandidates`) supplies, per layer id,
+ * the placeholder names that are safe to refresh.
  */
 function mergePreservedStackEdits(
   newStacks: GeneratedStack[],
   prevStacks: GeneratedStack[],
+  autoNameCandidates: Map<string, Set<string>> = new Map(),
 ): GeneratedStack[] {
   const layerEdits = new Map<string, Partial<StackLayer>>()
   for (const stack of prevStacks) {
@@ -2594,7 +2799,16 @@ function mergePreservedStackEdits(
     ...(stackEdits.get(stack.combination) ?? {}),
     layers: stack.layers.map((layer) => {
       const edit = layerEdits.get(layer.id)
-      return edit ? { ...layer, ...edit } : layer
+      if (!edit) return layer
+      // Let a freshly derived material name replace a stale auto-placeholder;
+      // keep it when the previous name was a deliberate rename.
+      const prevName = (edit.name ?? "").trim()
+      const keepName = !autoNameCandidates.get(layer.id)?.has(prevName)
+      return {
+        ...layer,
+        ...edit,
+        name: keepName ? (edit.name ?? layer.name) : layer.name,
+      }
     }),
   }))
 }
@@ -4185,7 +4399,9 @@ export function ProcessesPage() {
   }, [selectedProcess?.id])
 
   const stackInvalidationKey = useMemo(
-    () => getStackInvalidationKey(selectedProcess),
+    // `materials`/`solutions` are stable module constants here; the reactive
+    // source is `selectedProcess` (its steps and solution recipes).
+    () => getStackInvalidationKey(selectedProcess, materials, solutions),
     [selectedProcess],
   )
 
@@ -4291,7 +4507,11 @@ export function ProcessesPage() {
       solutions,
       substrateMap,
     )
-    const preserved = mergePreservedStackEdits(regenerated, oldStacks)
+    const preserved = mergePreservedStackEdits(
+      regenerated,
+      oldStacks,
+      buildAutoNameCandidates(selectedProcess, materials, solutions),
+    )
 
     // Per-combination deletions are positional; they only stay valid when the
     // number of combinations is unchanged (e.g. a pure source swap). If steps
@@ -4426,7 +4646,11 @@ export function ProcessesPage() {
     )
 
     // Preserve user edits (by layer id and combination) across regeneration.
-    const preservedStacks = mergePreservedStackEdits(newStacks, generatedStacks)
+    const preservedStacks = mergePreservedStackEdits(
+      newStacks,
+      generatedStacks,
+      buildAutoNameCandidates(selectedProcess, materials, solutions),
+    )
 
     const updated: Process = {
       ...selectedProcess,
