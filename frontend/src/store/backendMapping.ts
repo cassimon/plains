@@ -13,6 +13,7 @@
  * list of `process_step` rows keyed by `stage_index`/`step_index`).
  */
 
+import { reconstructStockModel } from "../lib/stockSolutions"
 import type {
   CanvasCollectionElement,
   CanvasElement,
@@ -192,7 +193,7 @@ function stepFromApi(s: ApiObj): ProcessStep {
 }
 
 function recipeFromApi(r: ApiObj): ProcessSolutionRecipe {
-  return {
+  const recipe: ProcessSolutionRecipe = {
     id: r.id,
     name: r.name,
     type: r.type ?? undefined,
@@ -228,6 +229,9 @@ function recipeFromApi(r: ApiObj): ProcessSolutionRecipe {
       volumeMl: a.volume_ml ?? "",
     })),
   }
+  // The backend persists each stock's absolute volume only; rebuild the total +
+  // per-stock ratio inputs the editor drives from those volumes.
+  return reconstructStockModel(recipe)
 }
 
 function stackFromApi(s: ApiObj): ProcessGeneratedStack {

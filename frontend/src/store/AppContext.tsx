@@ -218,7 +218,14 @@ export type ProcessSolute = ProcessChemIngredient & {
 
 export type ProcessAddedSolution = {
   recipeId: string
+  /**
+   * Absolute volume of this stock mixed in (mL). Authoritative + persisted; the
+   * concentration math and exports read it. Derived from the recipe's total
+   * stock volume and `volumeRatio` — see lib/stockSolutions.ts.
+   */
   volumeMl: string
+  /** Volume ratio within the stock-solutions total, mirroring solvent ratios. */
+  volumeRatio?: number
 }
 
 export type ProcessSolutionRecipe = {
@@ -231,6 +238,8 @@ export type ProcessSolutionRecipe = {
   handlingPreparation?: string
   handlingBeforeUse?: string
   totalSolventVolumeMl: string
+  /** Total volume of stock solutions mixed in; ratios split it per stock. */
+  totalStockSolutionVolumeMl?: string
   solvents: ProcessSolvent[]
   solutes: ProcessSolute[]
   addedSolutions?: ProcessAddedSolution[] // other process solutions mixed in (volumes in mL)

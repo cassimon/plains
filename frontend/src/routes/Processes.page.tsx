@@ -1014,6 +1014,20 @@ function MaterialParamsPanel({
   )
   const [highlightedIdx, setHighlightedIdx] = useState(-1)
 
+  // When there is no material yet this panel auto-opens the search box. If a
+  // material is then committed *externally* — e.g. picked in the post-add modal
+  // for the same step — this instance's mode would stay stuck on that search box.
+  // Watch for the selection appearing (false → true) and drop back to the normal
+  // idle view. One-directional only: an existing selection being replaced via
+  // Search (prev already true) is left alone.
+  const prevHasSelectionRef = useRef(hasSelection)
+  useEffect(() => {
+    if (hasSelection && !prevHasSelectionRef.current) {
+      setMode({ kind: "idle" })
+    }
+    prevHasSelectionRef.current = hasSelection
+  }, [hasSelection])
+
   /**
    * Commit a chosen material, or divert into the category prompt when it has no
    * type yet. Nothing reaches the step (and no dialog closes) until it does.

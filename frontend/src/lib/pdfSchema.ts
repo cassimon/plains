@@ -17,9 +17,10 @@
 
 import type { PDFDocument } from "pdf-lib"
 import type { Experiment, Process } from "@/store/AppContext"
+import { reconstructStockModel } from "./stockSolutions"
 
 /** Bump on ANY change to the serialized shape or the field-name codec. */
-export const PDF_SCHEMA_VERSION = 4
+export const PDF_SCHEMA_VERSION = 5
 
 /** Minimal name lookups so an importer can resolve ids without the whole DB. */
 export type EntityRef = { id: string; name: string }
@@ -381,6 +382,22 @@ const MIGRATIONS: Record<number, (p: SerializedPayload) => SerializedPayload> =
     // that an app build predating the category refuses a v4 PDF outright rather
     // than importing a no-op step as a real deposition layer.
     3: (p) => ({ ...p, schemaVersion: 4 }),
+    // v4 → v5: solution recipes gained a stock-solutions total volume
+    // (`totalStockSolutionVolumeMl`) plus a per-stock `volumeRatio`, mirroring
+    // the solvent total/ratio inputs. A v4 PDF only carries each stock's absolute
+    // `volumeMl`; rebuild the total (their sum) and ratios (each own volume) so
+    // the editor shows the same volumes it did before.
+    4: (p) => ({
+      ...p,
+      schemaVersion: 5,
+      // Both process and experiment payloads carry a `process`.
+      process: {
+        ...p.process,
+        solutionRecipes: (p.process.solutionRecipes ?? []).map(
+          reconstructStockModel,
+        ),
+      },
+    }),
   }
 
 /**

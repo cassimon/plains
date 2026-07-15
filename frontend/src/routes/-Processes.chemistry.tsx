@@ -3,6 +3,7 @@ import {
   Badge,
   Box,
   Button,
+  Collapse,
   ColorPicker,
   Divider,
   Group,
@@ -19,6 +20,8 @@ import {
 } from "@mantine/core"
 import { useElementSize } from "@mantine/hooks"
 import {
+  IconChevronDown,
+  IconChevronRight,
   IconExternalLink,
   IconFlask2,
   IconPlus,
@@ -32,6 +35,7 @@ import {
   concentrationSummary,
   soluteVolumeMl,
 } from "../lib/solutionConcentration"
+import { deriveStockVolumes } from "../lib/stockSolutions"
 import type {
   CanvasCollectionElement,
   Plane,
@@ -1826,8 +1830,10 @@ function SolutionCard({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [addingSolution, setAddingSolution] = useState(false)
   const [newSolutionId, setNewSolutionId] = useState("")
-  const [newSolutionVolumeMl, setNewSolutionVolumeMl] = useState("")
   const [newSoluteId, setNewSoluteId] = useState<string | null>(null)
+  const [stockOpen, setStockOpen] = useState(
+    (recipe.addedSolutions?.length ?? 0) > 0,
+  )
 
   const update = (patch: Partial<ProcessSolutionRecipe>) =>
     onUpdate({ ...recipe, ...patch })
@@ -1936,30 +1942,46 @@ function SolutionCard({
     })
 
   const addedSolutions = recipe.addedSolutions ?? []
+  const stockTotalMl = recipe.totalStockSolutionVolumeMl ?? ""
 
-  const updateAddedSolutionVolume = (recipeId: string, volumeMl: string) =>
+  // Stock solutions mirror solvents: one editable total volume + a ratio per
+  // stock, from which each stock's absolute volumeMl is derived and persisted.
+  const setStock = (total: string, entries: ProcessAddedSolution[]) =>
     update({
-      addedSolutions: addedSolutions.map((e) =>
-        e.recipeId === recipeId ? { ...e, volumeMl } : e,
-      ),
+      totalStockSolutionVolumeMl: total,
+      addedSolutions: deriveStockVolumes(total, entries),
     })
+
+  const updateStockTotal = (total: string) => setStock(total, addedSolutions)
+
+  const updateStockRatio = (recipeId: string, volumeRatio: number) =>
+    setStock(
+      stockTotalMl,
+      addedSolutions.map((e) =>
+        e.recipeId === recipeId ? { ...e, volumeRatio } : e,
+      ),
+    )
 
   const removeAddedSolution = (recipeId: string) =>
-    update({
-      addedSolutions: addedSolutions.filter((e) => e.recipeId !== recipeId),
-    })
+    setStock(
+      stockTotalMl,
+      addedSolutions.filter((e) => e.recipeId !== recipeId),
+    )
 
   const confirmAddSolution = () => {
     if (!newSolutionId) return
     if (addedSolutions.some((e) => e.recipeId === newSolutionId)) return
     const entry: ProcessAddedSolution = {
       recipeId: newSolutionId,
-      volumeMl: newSolutionVolumeMl,
+      volumeRatio: 1,
+      volumeMl: "",
     }
-    update({ addedSolutions: [...addedSolutions, entry] })
+    // Seed a sensible total the first time a stock is added so the derived
+    // volume is non-zero out of the gate.
+    setStock(stockTotalMl || "1", [...addedSolutions, entry])
+    setStockOpen(true)
     setAddingSolution(false)
     setNewSolutionId("")
-    setNewSolutionVolumeMl("")
   }
 
   // Recipes that can be added (other recipes in this process, not self)
@@ -1968,10 +1990,9 @@ function SolutionCard({
       r.id !== recipe.id && !addedSolutions.some((e) => e.recipeId === r.id),
   )
 
-  const addedSolutionsTotalMl = addedSolutions.reduce(
-    (sum, e) => sum + (Number(e.volumeMl) || 0),
-    0,
-  )
+  const solventTotalNum = Number(recipe.totalSolventVolumeMl) || 0
+  const stockTotalNum = Number(stockTotalMl) || 0
+  const combinedTotalMl = solventTotalNum + stockTotalNum
 
   const concentrations = concentrationSummary(recipe, allRecipes)
 
@@ -2227,6 +2248,262 @@ function SolutionCard({
                     Create dilution
                   </Button>
                 )}
+
+                {/* Stock solutions — a foldable extension sitting directly above
+                    Solvents. Its grape "Total vol." box aligns over the blue
+                    solvent total-volume box (same right-hand column), and each
+                    stock carries a volume ratio just like the solvents do. Lab
+                    solutions only; commercial products are not mixed from stocks. */}
+                {!recipe.isCommercial &&
+                  (() => {
+                    const showStockRatio = addedSolutions.length > 0
+                    const stockRatioCellStyle = {
+                      width: 100,
+                      flexShrink: 0,
+                      borderLeft: "1px solid var(--mantine-color-grape-3)",
+                      borderRight: "1px solid var(--mantine-color-grape-3)",
+                      background:
+                        "light-dark(var(--mantine-color-grape-0), var(--mantine-color-dark-5))",
+                      paddingLeft: 6,
+                      paddingRight: 6,
+                    } as const
+                    return (
+                      <Box>
+                        <Group
+                          gap={6}
+                          align="center"
+                          wrap="nowrap"
+                          mb={showStockRatio || addingSolution ? 6 : 0}
+                          style={{ cursor: "pointer" }}
+                          onClick={() => setStockOpen((o) => !o)}
+                        >
+                          {stockOpen ? (
+                            <IconChevronDown size={16} />
+                          ) : (
+                            <IconChevronRight size={16} />
+                          )}
+                          <Text size="sm" fw={600}>
+                            Add Stock Solutions
+                          </Text>
+                          {addedSolutions.length > 0 && (
+                            <Badge size="xs" color="grape" variant="light">
+                              {addedSolutions.length}
+                            </Badge>
+                          )}
+                        </Group>
+
+                        <Collapse in={stockOpen}>
+                          {/* Header row: label (left) + grape Total-vol cell that
+                              caps the ratio column (right), mirroring Solvents. */}
+                          <Group gap="xs" wrap="nowrap" align="flex-end" mb={4}>
+                            <Box style={{ flex: 1, minWidth: 0 }}>
+                              {addedSolutions.length > 0 && (
+                                <Text
+                                  size="xs"
+                                  c="dimmed"
+                                  style={{ paddingLeft: 4 }}
+                                >
+                                  Stock solution
+                                </Text>
+                              )}
+                            </Box>
+                            <Box
+                              style={{
+                                width: 100,
+                                flexShrink: 0,
+                                border:
+                                  "1px solid var(--mantine-color-grape-3)",
+                                borderTopLeftRadius: 8,
+                                borderTopRightRadius: 8,
+                                borderBottom: showStockRatio
+                                  ? "none"
+                                  : "1px solid var(--mantine-color-grape-3)",
+                                borderBottomLeftRadius: showStockRatio ? 0 : 8,
+                                borderBottomRightRadius: showStockRatio ? 0 : 8,
+                                background:
+                                  "light-dark(var(--mantine-color-grape-0), var(--mantine-color-dark-5))",
+                                padding: 6,
+                              }}
+                            >
+                              <NumberInput
+                                label={
+                                  <Text size="xs" c="grape.6" fw={700}>
+                                    Total vol. (mL)
+                                  </Text>
+                                }
+                                placeholder="e.g. 2"
+                                value={
+                                  stockTotalMl !== ""
+                                    ? Number(stockTotalMl)
+                                    : ""
+                                }
+                                onChange={(v) =>
+                                  updateStockTotal(v !== "" ? String(v) : "")
+                                }
+                                min={0}
+                                size="xs"
+                                styles={{
+                                  input: {
+                                    borderColor: "var(--mantine-color-grape-4)",
+                                    borderWidth: "1.5px",
+                                  },
+                                }}
+                              />
+                              {showStockRatio && (
+                                <Text size="xs" c="grape.6" fw={600} mt={8}>
+                                  Vol. ratio
+                                </Text>
+                              )}
+                            </Box>
+                          </Group>
+
+                          {/* One flex row per stock: name on the left, its volume
+                              ratio in the grape column on the right. */}
+                          {addedSolutions.length > 0 && (
+                            <Stack gap={4}>
+                              {addedSolutions.map((entry, idx) => {
+                                const ref = allRecipes.find(
+                                  (r) => r.id === entry.recipeId,
+                                )
+                                const last = idx === addedSolutions.length - 1
+                                return (
+                                  <Group
+                                    key={entry.recipeId}
+                                    gap="xs"
+                                    align="center"
+                                    wrap="nowrap"
+                                  >
+                                    <Box style={{ flex: 1, minWidth: 0 }}>
+                                      <Group
+                                        gap="xs"
+                                        align="center"
+                                        wrap="nowrap"
+                                      >
+                                        <Text
+                                          size="xs"
+                                          style={{ flex: 1, minWidth: 0 }}
+                                          truncate
+                                        >
+                                          {ref?.name || "Unknown solution"}
+                                        </Text>
+                                        {ref?.isCommercial && (
+                                          <Badge
+                                            size="xs"
+                                            color="violet"
+                                            variant="light"
+                                            style={{ flexShrink: 0 }}
+                                          >
+                                            Commercial
+                                          </Badge>
+                                        )}
+                                        <ActionIcon
+                                          size="xs"
+                                          variant="subtle"
+                                          color="red"
+                                          onClick={() =>
+                                            removeAddedSolution(entry.recipeId)
+                                          }
+                                        >
+                                          <IconX size={12} />
+                                        </ActionIcon>
+                                      </Group>
+                                    </Box>
+                                    <Box
+                                      style={{
+                                        ...stockRatioCellStyle,
+                                        paddingTop: 2,
+                                        paddingBottom: last ? 6 : 2,
+                                        borderBottom: last
+                                          ? "1px solid var(--mantine-color-grape-3)"
+                                          : "none",
+                                        borderBottomLeftRadius: last ? 8 : 0,
+                                        borderBottomRightRadius: last ? 8 : 0,
+                                      }}
+                                    >
+                                      <NumberInput
+                                        size="xs"
+                                        value={entry.volumeRatio ?? 0}
+                                        min={0}
+                                        step={0.5}
+                                        onChange={(v) =>
+                                          updateStockRatio(
+                                            entry.recipeId,
+                                            Number(v) || 0,
+                                          )
+                                        }
+                                        styles={{
+                                          input: {
+                                            borderColor:
+                                              "var(--mantine-color-grape-4)",
+                                            borderWidth: "1.5px",
+                                          },
+                                        }}
+                                      />
+                                    </Box>
+                                  </Group>
+                                )
+                              })}
+                            </Stack>
+                          )}
+
+                          {addingSolution && (
+                            <Group gap="xs" align="center" wrap="nowrap" mt={4}>
+                              <NativeSelect
+                                size="xs"
+                                value={newSolutionId}
+                                onChange={(e) =>
+                                  setNewSolutionId(e.currentTarget.value)
+                                }
+                                data={availableToAdd.map((r) => ({
+                                  label: r.name || "Unnamed",
+                                  value: r.id,
+                                }))}
+                                style={{ flex: 1 }}
+                              />
+                              <Button size="xs" onClick={confirmAddSolution}>
+                                Add
+                              </Button>
+                              <ActionIcon
+                                size="xs"
+                                variant="subtle"
+                                onClick={() => {
+                                  setAddingSolution(false)
+                                  setNewSolutionId("")
+                                }}
+                              >
+                                <IconX size={12} />
+                              </ActionIcon>
+                            </Group>
+                          )}
+
+                          {availableToAdd.length === 0 &&
+                            !addingSolution &&
+                            addedSolutions.length === 0 && (
+                              <Text size="xs" c="dimmed" mt={4}>
+                                No other solutions defined in this process yet.
+                              </Text>
+                            )}
+
+                          {availableToAdd.length > 0 && !addingSolution && (
+                            <Group justify="flex-start" mt={6}>
+                              <Button
+                                size="xs"
+                                variant="subtle"
+                                color="grape"
+                                leftSection={<IconPlus size={12} />}
+                                onClick={() => {
+                                  setNewSolutionId(availableToAdd[0]?.id ?? "")
+                                  setAddingSolution(true)
+                                }}
+                              >
+                                Add Stock Solution
+                              </Button>
+                            </Group>
+                          )}
+                        </Collapse>
+                      </Box>
+                    )
+                  })()}
 
                 {/* Solvents */}
                 <Box
@@ -2493,30 +2770,33 @@ function SolutionCard({
                                   </Group>
                                 </Box>
                                 {/* Ratio cell — aligned to this solvent's row,
-                                    stacked under the total-volume cell. */}
-                                <Box
-                                  style={{
-                                    ...ratioCellBoxStyle,
-                                    paddingTop: 2,
-                                    paddingBottom:
-                                      idx === recipe.solvents.length - 1
-                                        ? 6
-                                        : 2,
-                                    borderBottom:
-                                      idx === recipe.solvents.length - 1
-                                        ? "1px solid var(--mantine-color-blue-3)"
-                                        : "none",
-                                    borderBottomLeftRadius:
-                                      idx === recipe.solvents.length - 1
-                                        ? 8
-                                        : 0,
-                                    borderBottomRightRadius:
-                                      idx === recipe.solvents.length - 1
-                                        ? 8
-                                        : 0,
-                                  }}
-                                >
-                                  {showRatioColumn && (
+                                    stacked under the total-volume cell. Only for
+                                    lab solutions; commercial ones have no
+                                    total/ratio column, so rendering the box would
+                                    leave an empty blue bar on the right. */}
+                                {showRatioColumn && (
+                                  <Box
+                                    style={{
+                                      ...ratioCellBoxStyle,
+                                      paddingTop: 2,
+                                      paddingBottom:
+                                        idx === recipe.solvents.length - 1
+                                          ? 6
+                                          : 2,
+                                      borderBottom:
+                                        idx === recipe.solvents.length - 1
+                                          ? "1px solid var(--mantine-color-blue-3)"
+                                          : "none",
+                                      borderBottomLeftRadius:
+                                        idx === recipe.solvents.length - 1
+                                          ? 8
+                                          : 0,
+                                      borderBottomRightRadius:
+                                        idx === recipe.solvents.length - 1
+                                          ? 8
+                                          : 0,
+                                    }}
+                                  >
                                     <NumberInput
                                       size="xs"
                                       value={s.volumeRatio}
@@ -2535,8 +2815,8 @@ function SolutionCard({
                                         },
                                       }}
                                     />
-                                  )}
-                                </Box>
+                                  </Box>
+                                )}
                               </Group>
                             ))}
                           </Stack>
@@ -2568,6 +2848,38 @@ function SolutionCard({
                     </Button>
                   </Group>
                 </Box>
+
+                {/* Resume — read-only combined total of the two volume sections
+                    above (solvent Total vol. + stock-solution Total vol.), so the
+                    user sees exactly how much their dilution comes to. */}
+                {!recipe.isCommercial && (
+                  <Group
+                    gap="xs"
+                    wrap="nowrap"
+                    align="center"
+                    justify="flex-end"
+                  >
+                    <Text size="sm" fw={600}>
+                      Total volume (solvents + stock solutions)
+                    </Text>
+                    <Box
+                      style={{
+                        width: 100,
+                        flexShrink: 0,
+                        border: "1.5px solid var(--mantine-color-teal-5)",
+                        borderRadius: 8,
+                        padding: "5px 8px",
+                        background:
+                          "light-dark(var(--mantine-color-teal-0), var(--mantine-color-dark-5))",
+                        textAlign: "right",
+                      }}
+                    >
+                      <Text size="sm" fw={700} c="teal.7">
+                        {combinedTotalMl.toFixed(2)} mL
+                      </Text>
+                    </Box>
+                  </Group>
+                )}
 
                 {/* Solutes */}
                 <Box>
@@ -2791,171 +3103,6 @@ function SolutionCard({
                     </Button>
                   </Group>
                 </Box>
-
-                {/* Solutions — mix in other process solutions (non-commercial only) */}
-                {!recipe.isCommercial && (
-                  <Box>
-                    <Group justify="space-between" mb={4} align="flex-start">
-                      <Box>
-                        <Text size="sm" fw={600}>
-                          Add Stock Solutions
-                        </Text>
-                        <Text size="xs" c="dimmed" maw={420} lh={1.4}>
-                          Add volumes of other solutions to this solution.
-                          {addedSolutionsTotalMl > 0 && (
-                            <Text span size="xs" c="blue.6" fw={600}>
-                              {" "}
-                              (Added: {addedSolutionsTotalMl.toFixed(2)} mL →
-                              effective total:{" "}
-                              {(
-                                (Number(recipe.totalSolventVolumeMl) || 0) +
-                                addedSolutionsTotalMl
-                              ).toFixed(2)}{" "}
-                              mL)
-                            </Text>
-                          )}
-                        </Text>
-                      </Box>
-                    </Group>
-
-                    {addedSolutions.length > 0 && (
-                      <Stack gap={4} mb={addingSolution ? 6 : 0}>
-                        {addedSolutions.map((entry) => {
-                          const ref = allRecipes.find(
-                            (r) => r.id === entry.recipeId,
-                          )
-                          return (
-                            <Group
-                              key={entry.recipeId}
-                              gap="xs"
-                              align="center"
-                              wrap="nowrap"
-                            >
-                              <Text size="xs" style={{ flex: 1 }} truncate>
-                                {ref?.name || "Unknown solution"}
-                              </Text>
-                              {ref?.isCommercial && (
-                                <Badge
-                                  size="xs"
-                                  color="violet"
-                                  variant="light"
-                                  style={{ flexShrink: 0 }}
-                                >
-                                  Commercial
-                                </Badge>
-                              )}
-                              <NumberInput
-                                size="xs"
-                                value={
-                                  entry.volumeMl !== ""
-                                    ? Number(entry.volumeMl)
-                                    : ""
-                                }
-                                placeholder="0"
-                                min={0}
-                                decimalScale={3}
-                                rightSection={
-                                  <Text size="10px" c="dimmed" pr={2}>
-                                    mL
-                                  </Text>
-                                }
-                                rightSectionWidth={28}
-                                onChange={(v) =>
-                                  updateAddedSolutionVolume(
-                                    entry.recipeId,
-                                    v !== "" ? String(v) : "",
-                                  )
-                                }
-                                style={{ width: 100 }}
-                              />
-                              <ActionIcon
-                                size="xs"
-                                variant="subtle"
-                                color="red"
-                                onClick={() =>
-                                  removeAddedSolution(entry.recipeId)
-                                }
-                              >
-                                <IconX size={12} />
-                              </ActionIcon>
-                            </Group>
-                          )
-                        })}
-                      </Stack>
-                    )}
-
-                    {addingSolution && (
-                      <Group gap="xs" align="center" wrap="nowrap" mt={4}>
-                        <NativeSelect
-                          size="xs"
-                          value={newSolutionId}
-                          onChange={(e) =>
-                            setNewSolutionId(e.currentTarget.value)
-                          }
-                          data={availableToAdd.map((r) => ({
-                            label: r.name || "Unnamed",
-                            value: r.id,
-                          }))}
-                          style={{ flex: 1 }}
-                        />
-                        <NumberInput
-                          size="xs"
-                          value={
-                            newSolutionVolumeMl !== ""
-                              ? Number(newSolutionVolumeMl)
-                              : ""
-                          }
-                          placeholder="mL"
-                          min={0}
-                          decimalScale={3}
-                          onChange={(v) =>
-                            setNewSolutionVolumeMl(v !== "" ? String(v) : "")
-                          }
-                          style={{ width: 90 }}
-                        />
-                        <Button size="xs" onClick={confirmAddSolution}>
-                          Add
-                        </Button>
-                        <ActionIcon
-                          size="xs"
-                          variant="subtle"
-                          onClick={() => {
-                            setAddingSolution(false)
-                            setNewSolutionId("")
-                            setNewSolutionVolumeMl("")
-                          }}
-                        >
-                          <IconX size={12} />
-                        </ActionIcon>
-                      </Group>
-                    )}
-
-                    {availableToAdd.length === 0 &&
-                      !addingSolution &&
-                      addedSolutions.length === 0 && (
-                        <Text size="xs" c="dimmed">
-                          No other solutions defined in this process yet.
-                        </Text>
-                      )}
-
-                    {availableToAdd.length > 0 && !addingSolution && (
-                      <Group justify="flex-start" mt={4}>
-                        <Button
-                          size="xs"
-                          variant="subtle"
-                          leftSection={<IconPlus size={12} />}
-                          onClick={() => {
-                            setNewSolutionId(availableToAdd[0]?.id ?? "")
-                            setAddingSolution(true)
-                          }}
-                        >
-                          Add Solution
-                        </Button>
-                      </Group>
-                    )}
-                  </Box>
-                )}
-                {/* end !isCommercial Solutions */}
               </Stack>
             </Box>
           </Group>
@@ -3118,9 +3265,12 @@ export function ChemistryTab({
       handlingPreparation: commercial.handlingPreparation,
       handlingBeforeUse: commercial.handlingBeforeUse,
       totalSolventVolumeMl: "1",
+      totalStockSolutionVolumeMl: "1",
       solvents: [],
       solutes: [],
-      addedSolutions: [{ recipeId: commercial.id, volumeMl: "1" }],
+      addedSolutions: [
+        { recipeId: commercial.id, volumeRatio: 1, volumeMl: "1" },
+      ],
     }
     updateRecipes([...recipes, dilution])
     setExpandedId(dilution.id)
