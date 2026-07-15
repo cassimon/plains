@@ -745,6 +745,7 @@ export type MeasurementType =
   | "Stability (JV)"
   | "Stability (Tracking)"
   | "Stability (Parameters)"
+  | "UV-Vis"
   | "Document"
   | "Image"
   | "Archive"

@@ -56,7 +56,10 @@ import type {
 } from "../client/types.gen"
 import { homeCollectionForEntity, useRevealForFlow } from "../lib/entityReveal"
 import { getTokenSync } from "../lib/keycloakInstance"
-import { getExperimentAllStepsDone } from "../lib/uploadFlow"
+import {
+  getExperimentAllStepsDone,
+  recognizeGroupName,
+} from "../lib/uploadFlow"
 import {
   type CanvasCollectionElement,
   DEFAULT_ILLUMINATION_INTENSITY,
@@ -147,6 +150,14 @@ function getFileCategory(fileName: string): MeasurementType | null {
 function extractDeviceFromFilename(fileName: string): string {
   // Remove extension
   const baseName = fileName.replace(/\.[^/.]+$/, "")
+
+  // Primary: the standardized CHOSE export names the device right after the
+  // measurement-type marker, so this survives compound ids ("B37_Ref_100uL_S3")
+  // that the letter+digit patterns below can't see. Shared with the upload flow.
+  const recognized = recognizeGroupName(fileName)
+  if (recognized) {
+    return recognized
+  }
 
   // Pattern 1: Two uppercase letters followed by 2-3 digits anywhere in the
   // name (e.g. "AI44" inside "2025-11-19_AI44-1C"). Matches the primary
@@ -264,6 +275,12 @@ function parseTxtContent(
         measurementType = "Stability (JV)"
       }
     }
+    // Detect UV-Vis transmittance (its distinctive column header). This is a
+    // film-level measurement — no "Device" header — so the film name comes from
+    // the file's first "<name> - RawData" line, captured below.
+    if (lower.includes("wavelength nm. t%")) {
+      measurementType = "UV-Vis"
+    }
 
     // Extract PCE value
     const pceMatch = line.match(/pce[:\s=]*(\d+\.?\d*)\s*%?/i)
@@ -310,6 +327,12 @@ function parseTxtContent(
     if (dateMatch) {
       measurementDate = dateMatch[1]
     }
+  }
+
+  // A UV-Vis export names the film on its first "<name> - RawData" line, not in a
+  // "Device" header — prefer that over the filename so the group is meaningful.
+  if (measurementType === "UV-Vis" && !deviceName && lines.length > 0) {
+    deviceName = lines[0].replace(/\s*-\s*RawData\s*$/i, "").trim()
   }
 
   // If no device found in content, extract from filename
@@ -463,6 +486,24 @@ function findSubstrateNamesInFile(
   substrates: { id: string; name: string }[],
 ): { id: string; name: string; confidence: number }[] {
   const baseName = fileName.replace(/\.[^/.]+$/, "")
+
+  // Exact device-id match wins, and when it exists it's the ONLY answer. The
+  // file's own recognized group name (device minus per-pixel suffix) is compared
+  // for equality against each substrate — so "…_S3-1C" matches substrate "…_S3"
+  // and never the substring-adjacent "…_S32" / "…_S3I". Without this, the
+  // substring fallback below claimed a file for every substrate whose name is a
+  // prefix of another (S12 stealing S12I's files, and vice-versa).
+  const recognized = recognizeGroupName(fileName)
+  if (recognized) {
+    const recognizedLower = recognized.toLowerCase()
+    const exact = substrates.filter(
+      (s) => s.name.toLowerCase() === recognizedLower,
+    )
+    if (exact.length > 0) {
+      return exact.map((s) => ({ ...s, confidence: 1.0 }))
+    }
+  }
+
   const fileComp = parseNameComponents(baseName)
   const matches: { id: string; name: string; confidence: number }[] = []
 
@@ -666,6 +707,7 @@ function FileTypeBadge({ type }: { type: MeasurementType }) {
     "Stability (JV)": "teal",
     "Stability (Tracking)": "green",
     "Stability (Parameters)": "lime",
+    "UV-Vis": "grape",
     Document: "gray",
     Image: "orange",
     Archive: "violet",

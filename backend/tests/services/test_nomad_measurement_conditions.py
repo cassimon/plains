@@ -230,6 +230,40 @@ def test_no_illumination_supplied_means_none_is_stated():
     assert "intensity" not in _measurement(archives, "LabJVMeasurement")
 
 
+def _archive_filename(archives, marker):
+    for filename, archive in archives.items():
+        if marker in str(archive.get("data", {}).get("m_def", "")):
+            return filename
+    return None
+
+
+def test_uvvis_is_a_film_level_measurement_referencing_the_substrate():
+    """UV-Vis describes the whole substrate, not a pixel, so it is referenced
+    against the SubstrateSample archive — and it carries no illumination/area."""
+    archives = _archives(
+        [
+            {
+                "fileName": "T-PVK 100 uL.txt",
+                "fileType": "UV-Vis",
+                "illuminationIntensity": 100.0,
+            }
+        ]
+    )
+    uvvis = _measurement(archives, "LabUVvisMeasurement")
+
+    assert uvvis is not None
+    assert uvvis["uvvis_file"] == "T-PVK 100 uL.txt"
+    assert "intensity" not in uvvis
+    assert "active_area" not in uvvis
+
+    substrate_fname = _archive_filename(archives, "SubstrateSample")
+    assert substrate_fname is not None
+    reference = uvvis["samples"][0]["reference"]
+    assert substrate_fname in reference
+    # …not the pixel sample.
+    assert "_dev1_sample.archive.yaml" not in reference
+
+
 def test_the_measurement_archive_is_named_after_its_raw_file():
     """nomad_chose skips a raw file when `<raw name>.archive.yaml` sits beside it,
     so that this — the richer entry — is the only entry for the measurement. The

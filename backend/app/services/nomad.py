@@ -1913,6 +1913,7 @@ def create_nomad_metadata_yaml(
     JV_TYPES: set[str] = {"JV", "Dark JV", "Stability (JV)"}
     IPCE_TYPES: set[str] = {"IPCE"}
     STABILITY_TYPES: set[str] = {"Stability (Tracking)", "Stability (Parameters)"}
+    UVVIS_TYPES: set[str] = {"UV-Vis"}
 
     # 1 sun, AM 1.5G — what a JV is measured under unless the GUI says otherwise.
     DEFAULT_ILLUMINATION_MW_CM2 = 100.0
@@ -2035,11 +2036,16 @@ def create_nomad_metadata_yaml(
         sample_filename: str,
         operator: str,
         cell_area: float | None = None,
+        substrate_sample_filename: str | None = None,
     ) -> dict[str, Any] | None:
         """Build a LabXxx measurement data dict, or None for non-measurement types.
 
         `run` is the file (or, for a stability run, the two files) of one
         measurement — see `_measurement_runs`.
+
+        `substrate_sample_filename`, when given, is the SubstrateSample archive a
+        *film-level* measurement (UV-Vis) is referenced against — it describes the
+        whole substrate, not the single pixel `sample_filename` names.
         """
         meas_file = run[0]
         file_type = meas_file.get("fileType", "Unknown")
@@ -2079,6 +2085,24 @@ def create_nomad_metadata_yaml(
                 # LabEQEMeasurement has an active_area but no intensity.
                 **{k: v for k, v in conditions.items() if k == "active_area"},
                 "samples": sample_ref,
+            }
+        if file_type in UVVIS_TYPES:
+            # A film-level measurement: reference the whole substrate, not a pixel.
+            uvvis_ref = sample_ref
+            if substrate_sample_filename is not None:
+                uvvis_ref = [
+                    {
+                        "reference": _upload_raw_reference(
+                            substrate_sample_filename, "/data"
+                        )
+                    }
+                ]
+            return {
+                "m_def": "nomad_chose.schema_packages.schema_package.LabUVvisMeasurement",
+                "name": file_name,
+                "operator": op,
+                "uvvis_file": raw_file,
+                "samples": uvvis_ref,
             }
         if file_type in STABILITY_TYPES:
             entry: dict[str, Any] = {
@@ -3331,7 +3355,11 @@ def create_nomad_metadata_yaml(
 
             for run in _measurement_runs(group_files):
                 meas_data = _measurement_archive(
-                    run, target_sample_fname, user_name, cell_area
+                    run,
+                    target_sample_fname,
+                    user_name,
+                    cell_area,
+                    substrate_sample_filename=substrate_sample_fname,
                 )
                 if meas_data is None:
                     continue

@@ -242,22 +242,65 @@ export function isUploadFlowComplete(steps: UploadFlowStepStates): boolean {
 export const UPLOAD_FLOW_INACTIVITY_MS = 30 * 60 * 1000
 
 /**
+ * The measurement-type markers a CHOSE instrument writes into every export file
+ * name, between the timestamp and the device id:
+ * `<seq>_<date>_<time>_<Marker>_<Device>-<cell><pixel>.txt`. Shared with the
+ * Results page's filename parsing so the two recognizers can't drift.
+ */
+export const MEASUREMENT_MARKERS = [
+  "Stability (JV)",
+  "Stability (Tracking)",
+  "Stability (Parameters)",
+  "Dark JV",
+  "IPCE",
+] as const
+
+/** Strip a trailing per-pixel suffix ("-1C", "-1A", "- 1 C") from a device id. */
+export function stripPixelSuffix(device: string): string {
+  return device.replace(/-\s*\d+\s*[A-Za-z]+\s*$/, "").trim()
+}
+
+/**
  * Best-effort device/substrate group name for a single file. Mirrors the Results
  * page's `extractDeviceFromFilename` so substrates created from an upload line up
  * with the groups the review step later matches against — but returns null (not a
  * date/basename fallback) when nothing device-like is present, so pure numeric or
  * date-prefixed names don't seed bogus substrates.
  *
+ *  0. The standardized CHOSE export: the device id is everything AFTER the
+ *     measurement-type marker (it equals the file's `Device` header field),
+ *     minus the trailing per-pixel suffix. This is the only signal that survives
+ *     *compound* device ids like "B37_Ref_100uL_S3" — the letter+digit patterns
+ *     below only ever saw the lab's "AI44"-style ids and returned null for the
+ *     rest, so a whole batch collapsed to the one stray "JV Summary" file.
  *  1. 2–4 letters + 2–3 digits as a whole separator-delimited token, ANYWHERE and
  *     case-insensitively ("AI44" inside "2025-11-19_AI44-1C", "ab41") — the primary
- *     lab substrate-ID convention. This is the key fix: it now survives a leading
- *     date, which the old "must be at the start / must be uppercase" rule dropped.
+ *     lab substrate-ID convention, kept for hand-named files with no marker.
  *  2. a letters-then-digits word at the very start ("Device01").
- *  3. the first separator-delimited token, but only when it carries a letter and
- *     isn't purely numeric (so a leading "2025"/"01" is skipped).
+ *  3. the first separator-delimited token, but only when it's ≥2 chars, carries a
+ *     letter and isn't purely numeric (so a leading "2025"/"01" and a stray "T"
+ *     from a "T-PVK …" UV-Vis film name are skipped).
  */
 export function recognizeGroupName(fileName: string): string | null {
-  const base = fileName.replace(/\.[^/.]+$/, "")
+  const base = fileName.replace(/\.[^/.]+$/, "").trim()
+
+  // Aggregate exports ("JV Summary.txt", "JV Summary_Parameters RV.txt") describe
+  // a whole run, not one substrate — they must never seed a substrate. (A word
+  // boundary is no good here: "Summary_" has none, because "_" is a word char.)
+  if (/summary/i.test(base)) {
+    return null
+  }
+
+  // Standardized CHOSE export — the device id follows the measurement-type marker.
+  for (const marker of MEASUREMENT_MARKERS) {
+    const idx = base.lastIndexOf(marker)
+    if (idx !== -1) {
+      const tail = base.slice(idx + marker.length).replace(/^[_\-\s]+/, "")
+      const device = stripPixelSuffix(tail)
+      return device.length > 0 ? device : null
+    }
+  }
+
   const idMatch = base.match(/(?:^|[_\-\s])([A-Za-z]{2,4}\d{2,3})(?=$|[_\-\s])/)
   if (idMatch) {
     return idMatch[1].toUpperCase()
@@ -267,7 +310,12 @@ export function recognizeGroupName(fileName: string): string | null {
     return wordMatch[1].toUpperCase()
   }
   const first = base.split(/[_\-\s]+/).filter(Boolean)[0]
-  if (first && /[A-Za-z]/.test(first) && !/^\d+$/.test(first)) {
+  if (
+    first &&
+    first.length >= 2 &&
+    /[A-Za-z]/.test(first) &&
+    !/^\d+$/.test(first)
+  ) {
     return first.toUpperCase()
   }
   return null
