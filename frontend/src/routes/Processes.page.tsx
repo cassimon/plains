@@ -397,9 +397,20 @@ function ImportStepButton({
         const catLabel =
           STEP_CATEGORIES.find((c) => c.value === step.stepCategory)?.label ??
           step.stepCategory
+        // Surface the deposited material (inline material or linked recipe) so
+        // steps are identifiable when their own name is blank or generic.
+        const matName =
+          step.inlineMaterial?.name ||
+          (step.chemRecipeId
+            ? selectedImportProcess.solutionRecipes?.find(
+                (r) => r.id === step.chemRecipeId,
+              )?.name
+            : undefined)
         opts.push({
           value: step.id,
-          label: `${step.name || "Unnamed"} (${catLabel})`,
+          label: matName
+            ? `${step.name || "Unnamed"} — ${matName} (${catLabel})`
+            : `${step.name || "Unnamed"} (${catLabel})`,
         })
       }
     }
@@ -1013,6 +1024,9 @@ function MaterialParamsPanel({
     hasSelection ? { kind: "idle" } : searchMode(),
   )
   const [highlightedIdx, setHighlightedIdx] = useState(-1)
+  // Remembers the last query we've already searched (manually or via the
+  // typing-pause auto-search) so the debounce doesn't repeat an identical query.
+  const lastAutoSearchRef = useRef<string>("")
 
   // When there is no material yet this panel auto-opens the search box. If a
   // material is then committed *externally* — e.g. picked in the post-add modal
@@ -1064,6 +1078,8 @@ function MaterialParamsPanel({
     s: (typeof PEROVSKITE_MATERIAL_SUGGESTIONS)[number],
   ) => {
     if (!s.pubchemCid) {
+      // Record so the typing-pause auto-search doesn't repeat this same query.
+      lastAutoSearchRef.current = s.searchQuery.trim()
       setMode((prev) =>
         prev.kind === "pubchem"
           ? {
@@ -1133,6 +1149,7 @@ function MaterialParamsPanel({
     if (mode.kind !== "pubchem") return
     const q = mode.query.trim()
     if (!q) return
+    lastAutoSearchRef.current = q
     setMode({ ...mode, loading: true, error: null, hits: [] })
     try {
       const hits = await searchPubChemStep(q)
@@ -1154,6 +1171,21 @@ function MaterialParamsPanel({
       )
     }
   }
+
+  // Auto-search PubChem once the user pauses typing, so they don't have to hit
+  // the search button. Keyed on the query text; re-typing cancels the pending
+  // fire, and lastAutoSearchRef stops an identical query from repeating.
+  const pubchemQuery = mode.kind === "pubchem" ? mode.query : null
+  // doSearch is recreated each render but reads the current query; keying on
+  // pubchemQuery alone is sufficient and intended.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on query only
+  useEffect(() => {
+    if (pubchemQuery === null) return
+    const q = pubchemQuery.trim()
+    if (q.length < 2 || q === lastAutoSearchRef.current) return
+    const timer = setTimeout(() => void doSearch(), 600)
+    return () => clearTimeout(timer)
+  }, [pubchemQuery])
 
   const handleHitClick = async (hit: PubChemHit) => {
     if (mode.kind !== "pubchem" || mode.fetchingCid) return
@@ -1416,9 +1448,12 @@ function MaterialParamsPanel({
                 withAsterisk
                 autoFocus
                 value={mode.type}
-                onChange={(e) =>
-                  setMode({ ...mode, type: e.currentTarget.value })
-                }
+                // Picking a category commits immediately — no extra Confirm click.
+                onChange={(e) => {
+                  const type = e.currentTarget.value
+                  setMode({ ...mode, type })
+                  if (type) commitMaterial({ ...mode.material, type })
+                }}
                 data={MATERIAL_TYPE_SELECT_DATA}
                 error={!mode.type ? "Required" : undefined}
               />
@@ -1429,15 +1464,6 @@ function MaterialParamsPanel({
                   onClick={() => setMode(searchMode())}
                 >
                   Back
-                </Button>
-                <Button
-                  size="xs"
-                  disabled={!mode.type}
-                  onClick={() =>
-                    commitMaterial({ ...mode.material, type: mode.type })
-                  }
-                >
-                  Confirm
                 </Button>
               </Group>
             </Stack>
@@ -2367,6 +2393,16 @@ if (
   document.head.appendChild(s)
 }
 
+// Red "fill me next" ring. Paired with the stk-pulse buzz so every guided field
+// is flagged the same way — buzz + red outline — instead of bandgap being the
+// only field with a red border while the rest merely buzz. The box-shadow hugs
+// the element's own border radius and adds no layout width, so it drops onto any
+// control (button group, select, input, wrapper Box) without shifting anything.
+const NEXT_FIELD_RING: React.CSSProperties = {
+  boxShadow: "0 0 0 2px #ff8787",
+  borderRadius: 6,
+}
+
 function getStackInvalidationKey(
   process: Process | null,
   materials: Material[] = EMPTY_MATERIALS,
@@ -3100,7 +3136,12 @@ function ResultingStacks({
                         ? "stk-pulse"
                         : undefined
                     }
-                    style={{ display: "inline-flex" }}
+                    style={{
+                      display: "inline-flex",
+                      ...(nextField?.kind === "buildDevice"
+                        ? NEXT_FIELD_RING
+                        : {}),
+                    }}
                   >
                     <Button.Group>
                       <Button
@@ -3161,6 +3202,9 @@ function ResultingStacks({
                       maxWidth: 220,
                       opacity: previewArchitecture ? 0.55 : 1,
                       pointerEvents: previewArchitecture ? "none" : "auto",
+                      ...(nextField?.kind === "architecture"
+                        ? NEXT_FIELD_RING
+                        : {}),
                     }}
                   >
                     <Text size="10px" c="dimmed" mb={2}>
@@ -3207,7 +3251,10 @@ function ResultingStacks({
                 {isBuildingDevice && hasArchitecture && (
                   <Group gap="xs" wrap="nowrap" mt="xs">
                     <Box
-                      style={{ width: 110 }}
+                      style={{
+                        width: 110,
+                        ...(nextField?.kind === "area" ? NEXT_FIELD_RING : {}),
+                      }}
                       className={
                         nextField?.kind === "area" ? "stk-pulse" : undefined
                       }
@@ -3244,7 +3291,12 @@ function ResultingStacks({
                       />
                     </Box>
                     <Box
-                      style={{ width: 90 }}
+                      style={{
+                        width: 90,
+                        ...(nextField?.kind === "pixels"
+                          ? NEXT_FIELD_RING
+                          : {}),
+                      }}
                       className={
                         nextField?.kind === "pixels" ? "stk-pulse" : undefined
                       }
@@ -3524,6 +3576,11 @@ function ResultingStacks({
                                       className={
                                         pulseLayerField(layerIdx, "bandgap")
                                           ? "stk-pulse"
+                                          : undefined
+                                      }
+                                      style={
+                                        pulseLayerField(layerIdx, "bandgap")
+                                          ? NEXT_FIELD_RING
                                           : undefined
                                       }
                                     >
@@ -3948,7 +4005,13 @@ function ResultingStacks({
 
                                 {/* Right: thickness (nm) — value or explicit Unknown */}
                                 <Box
-                                  style={{ width: 92, flexShrink: 0 }}
+                                  style={{
+                                    width: 92,
+                                    flexShrink: 0,
+                                    ...(pulseLayerField(layerIdx, "thickness")
+                                      ? NEXT_FIELD_RING
+                                      : {}),
+                                  }}
                                   className={
                                     pulseLayerField(layerIdx, "thickness")
                                       ? "stk-pulse"

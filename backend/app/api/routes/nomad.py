@@ -48,10 +48,13 @@ from app.services.nomad import (
     TEMP_UPLOAD_DIR,
     NomadAuthError,
     NomadUploadError,
+    add_metadata_to_zip,
+    append_files_to_zip,
     cleanup_stale_archives,
     cleanup_temp_archive,
     create_nomad_metadata_yaml,
     create_secure_zip,
+    find_missing_raw_files,
     get_nomad_token,
     get_upload_entries,
     get_upload_status,
@@ -122,6 +125,40 @@ def _require_nomad_upload_authorized(current_user: CurrentUser) -> None:
             status_code=403,
             detail="NOMAD upload requires an authenticated NOMAD OAuth user",
         )
+
+
+def _validated_archive_path(archive_path: str) -> Path:
+    """Resolve a client-supplied archive path and confine it to TEMP_UPLOAD_DIR.
+
+    Existence is *not* checked here — callers decide whether a missing archive
+    is an error (metadata step) or a fall-back to creating a fresh one (drop
+    step, where a stale sessionStorage path may outlive the archive).
+    """
+    try:
+        candidate = Path(archive_path).resolve()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid archive path") from e
+
+    allowed_root = TEMP_UPLOAD_DIR.resolve()
+    if not candidate.is_relative_to(allowed_root):
+        raise HTTPException(status_code=403, detail="Archive path is not allowed")
+    return candidate
+
+
+def _raise_on_missing_raw_files(missing: list[str]) -> None:
+    """Turn the guard's missing-file list into a clear, actionable 409."""
+    if not missing:
+        return
+    shown = ", ".join(missing[:8])
+    more = f" (+{len(missing) - 8} more)" if len(missing) > 8 else ""
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"{len(missing)} measurement file(s) referenced by the metadata are "
+            f"missing from the uploaded archive: {shown}{more}. Re-drop the "
+            "affected files so they are added to the archive, then try again."
+        ),
+    )
 
 
 def _maybe_uuid(value: str | None) -> uuid.UUID | None:
@@ -339,6 +376,10 @@ async def upload_files_for_nomad(
     experiment_id = str(form.get("experiment_id") or "")
     str(form.get("experiment_name") or "")
     request_json: str | None = form.get("request_json")  # type: ignore[assignment]
+    # When set, append this drop to the existing archive instead of creating a
+    # fresh one — otherwise a later drop *replaces* the archive and the
+    # metadata ends up referencing raw files NOMAD cannot find.
+    existing_archive_path = str(form.get("archive_path") or "")
     files: list[UploadFile] = form.getlist("files")  # type: ignore[assignment]
 
     if not files:
@@ -359,6 +400,7 @@ async def upload_files_for_nomad(
 
     # Generate YAML metadata if request metadata is provided
     archive_yaml_files: list[tuple[str, str]] = []
+    archives_for_guard: dict[str, Any] | None = None
     if request_json:
         try:
             upload_request = NomadUploadRequest.model_validate_json(request_json)
@@ -391,6 +433,7 @@ async def upload_files_for_nomad(
                 measurement_files=measurement_files_dicts,
                 device_groups=device_groups_dicts,
             )
+            archives_for_guard = archives
 
             # Serialise each archive dict to its own YAML string
             archive_yaml_files = [
@@ -416,30 +459,59 @@ async def upload_files_for_nomad(
                 status_code=500, detail=f"Failed to generate metadata: {str(e)}"
             )
 
-    # Create secure zip
+    # Append to the existing archive when one is given (and still exists),
+    # otherwise create a fresh secure zip.
+    append_target: Path | None = None
+    if existing_archive_path:
+        candidate = _validated_archive_path(existing_archive_path)
+        if candidate.exists():
+            append_target = candidate
+        else:
+            logger.warning(
+                "[upload_files_for_nomad] archive_path given but not on disk, "
+                "creating a new archive instead: %s",
+                candidate,
+            )
+
     try:
-        zip_path = create_secure_zip(
-            files=file_data,
-            metadata_files=archive_yaml_files if archive_yaml_files else None,
-            archive_name=archive_name,
-        )
-
-        logger.info(
-            f"Created temporary zip archive at {zip_path} with {len(file_data)} files + {len(archive_yaml_files)} YAML files, total size: {zip_path.stat().st_size} bytes"
-        )
-
-        return {
-            "success": True,
-            "archive_path": str(zip_path),
-            "archive_name": zip_path.name,
-            "file_count": len(file_data),
-            "metadata_file_count": len(archive_yaml_files),
-            "total_size": zip_path.stat().st_size,
-        }
-
+        if append_target is not None:
+            zip_path = append_files_to_zip(append_target, file_data)
+            if archive_yaml_files:
+                # Rare legacy combination (archive_path + request_json): keep
+                # the freshly generated metadata rather than dropping it.
+                add_metadata_to_zip(zip_path, archive_yaml_files)
+            logger.info(
+                f"Appended {len(file_data)} files to existing archive {zip_path}, "
+                f"total size: {zip_path.stat().st_size} bytes"
+            )
+        else:
+            zip_path = create_secure_zip(
+                files=file_data,
+                metadata_files=archive_yaml_files if archive_yaml_files else None,
+                archive_name=archive_name,
+            )
+            logger.info(
+                f"Created temporary zip archive at {zip_path} with {len(file_data)} files + {len(archive_yaml_files)} YAML files, total size: {zip_path.stat().st_size} bytes"
+            )
     except Exception as e:
         logger.error(f"Failed to create zip archive: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create archive: {e}")
+
+    # Guard: every raw file the generated metadata references must actually be
+    # in the archive — otherwise NOMAD fails each entry with "… is not found".
+    if archives_for_guard is not None:
+        _raise_on_missing_raw_files(
+            find_missing_raw_files(zip_path, archives_for_guard)
+        )
+
+    return {
+        "success": True,
+        "archive_path": str(zip_path),
+        "archive_name": zip_path.name,
+        "file_count": len(file_data),
+        "metadata_file_count": len(archive_yaml_files),
+        "total_size": zip_path.stat().st_size,
+    }
 
 
 @router.post("/upload/metadata")
@@ -490,20 +562,7 @@ async def add_metadata_to_archive(
     )
 
     # Validate archive path
-    try:
-        candidate = Path(archive_path).resolve()
-    except Exception as e:
-        logger.error("[add_metadata_to_archive] invalid archive path: %s", archive_path)
-        raise HTTPException(status_code=400, detail="Invalid archive path") from e
-
-    allowed_root = TEMP_UPLOAD_DIR.resolve()
-    if not candidate.is_relative_to(allowed_root):
-        logger.error(
-            "[add_metadata_to_archive] archive path outside allowed root: %s (allowed: %s)",
-            candidate,
-            allowed_root,
-        )
-        raise HTTPException(status_code=403, detail="Archive path is not allowed")
+    candidate = _validated_archive_path(archive_path)
 
     if not candidate.exists():
         logger.error(
@@ -537,9 +596,16 @@ async def add_metadata_to_archive(
             device_groups=device_groups_dicts,
         )
 
-        # Serialize each archive dict to its own YAML string
-        from app.services.nomad import add_metadata_to_zip
+        # Guard: every raw file the generated metadata references must actually
+        # be in the archive — a stale/replaced archive would otherwise make
+        # NOMAD fail each entry at process time with "…/raw/<file> is not found".
+        _raise_on_missing_raw_files(
+            find_missing_raw_files(
+                candidate, archives, files_to_remove=request.ignored_files
+            )
+        )
 
+        # Serialize each archive dict to its own YAML string
         archive_yaml_files: list[tuple[str, str]] = [
             (
                 filename,
@@ -577,6 +643,9 @@ async def add_metadata_to_archive(
             "total_size": candidate.stat().st_size,
         }
 
+    except HTTPException:
+        # E.g. the missing-raw-files guard — pass its status/detail through.
+        raise
     except Exception as e:
         logger.error(f"Failed to add metadata to archive: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to add metadata: {str(e)}")

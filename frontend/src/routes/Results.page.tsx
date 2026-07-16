@@ -1298,6 +1298,15 @@ function ResultsDetail({
     null,
   )
   const [isReviewDragActive, setIsReviewDragActive] = useState(false)
+  // The archive path must be read inside queued async uploads, where state
+  // would be stale. Kept in sync with `lastArchivePath` via `applyArchivePath`
+  // (deliberately NOT assigned during render: a render between an upload
+  // finishing and its setState committing would clobber the fresh value).
+  const lastArchivePathRef = useRef<string | null>(null)
+  // Drop uploads are serialized through this chain so two drops can't race
+  // each other into creating two separate server archives — every drop
+  // appends to the one shared archive instead.
+  const uploadQueueRef = useRef<Promise<void>>(Promise.resolve())
   const reviewScrollViewportRef = useRef<HTMLDivElement | null>(null)
   const reviewDragPositionRef = useRef<number | null>(null)
   // Keep a ref to the latest results so polling callbacks don't stale-close
@@ -1412,12 +1421,36 @@ function ResultsDetail({
       )
   }, [])
 
+  // Single write-path for the server archive location: state (for the UI),
+  // ref (for queued uploads) and sessionStorage (for reload survival) must
+  // never disagree.
+  const applyArchivePath = useCallback(
+    (path: string | null) => {
+      lastArchivePathRef.current = path
+      setLastArchivePath(path)
+      try {
+        const key = `nomad_archive:${experiment.id}`
+        if (path) {
+          sessionStorage.setItem(key, path)
+        } else {
+          sessionStorage.removeItem(key)
+        }
+      } catch (_e) {
+        // ignore sessionStorage errors in restrictive environments
+      }
+    },
+    [experiment.id],
+  )
+
   // Load any persisted archive path for this experiment from the session
   useEffect(() => {
     try {
       const key = `nomad_archive:${experiment.id}`
       const v = sessionStorage.getItem(key)
-      if (v) setLastArchivePath(v)
+      if (v) {
+        lastArchivePathRef.current = v
+        setLastArchivePath(v)
+      }
     } catch (_e) {
       // ignore sessionStorage errors in restrictive environments
     }
@@ -1586,13 +1619,8 @@ function ResultsDetail({
       // best effort cleanup
     }
 
-    try {
-      sessionStorage.removeItem(`nomad_archive:${experiment.id}`)
-    } catch (_e) {
-      // ignore
-    }
-    setLastArchivePath(null)
-  }, [experiment.id, lastArchivePath])
+    applyArchivePath(null)
+  }, [applyArchivePath, lastArchivePath])
 
   useEffect(() => {
     const hasInProgress = results.files.length > 0 || !!lastArchivePath
@@ -1744,81 +1772,87 @@ function ResultsDetail({
         }),
       ])
 
-      // Upload dropped files to create a temporary archive on the server
-      ;(async () => {
-        try {
-          const filesToSend = droppedFiles.filter(
-            (f) => getFileCategory(f.name) !== null,
-          )
-          if (filesToSend.length === 0) return
+      // Upload dropped files to the temporary archive on the server. Queued so
+      // concurrent drops run one after another, each appending to the SAME
+      // archive — a parallel second drop used to replace the archive with one
+      // holding only its own files, so the metadata later referenced raw files
+      // NOMAD could not find.
+      const filesToSend = droppedFiles.filter(
+        (f) => getFileCategory(f.name) !== null,
+      )
+      if (filesToSend.length > 0) {
+        uploadQueueRef.current = uploadQueueRef.current.then(async () => {
+          try {
+            const form = new FormData()
+            form.append("experiment_id", experiment.id)
+            form.append("experiment_name", experiment.name)
+            // Append to the archive from earlier drops (if any) so those
+            // files stay in — the server creates a new archive otherwise.
+            if (lastArchivePathRef.current) {
+              form.append("archive_path", lastArchivePathRef.current)
+            }
+            for (const f of filesToSend) {
+              form.append("files", f)
+            }
 
-          const form = new FormData()
-          form.append("experiment_id", experiment.id)
-          form.append("experiment_name", experiment.name)
-          for (const f of filesToSend) {
-            form.append("files", f)
-          }
+            const token =
+              typeof OpenAPI.TOKEN === "function"
+                ? await OpenAPI.TOKEN({} as any)
+                : (OpenAPI.TOKEN ?? undefined)
 
-          const token =
-            typeof OpenAPI.TOKEN === "function"
-              ? await OpenAPI.TOKEN({} as any)
-              : (OpenAPI.TOKEN ?? undefined)
+            const res = await fetch(
+              `${OpenAPI.BASE}/api/v1/nomad/upload/files`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                },
+                body: form,
+              },
+            )
 
-          const res = await fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/files`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-            body: form,
-          })
+            if (!res.ok) {
+              const text = await res.text()
+              notifications.show({
+                title: "Upload Error",
+                message: `Failed to upload files: ${res.status} ${text}`,
+                color: "red",
+              })
+              return
+            }
 
-          if (!res.ok) {
-            const text = await res.text()
+            const data = await res.json()
+            // Persist archive path so it survives reloads this session
+            if (data?.archive_path) {
+              applyArchivePath(data.archive_path)
+              console.log("[handleDrop] server archive updated", {
+                archivePath: data.archive_path,
+                fileCount: data.file_count,
+              })
+            } else {
+              console.warn(
+                "[handleDrop] server returned 2xx but no archive_path — " +
+                  "'Confirm review and proceed' will fail. Response body:",
+                data,
+              )
+            }
+            notifications.show({
+              title: "Files Uploaded",
+              message: data.archive_path
+                ? `Archive updated: ${data.archive_path}`
+                : "Files uploaded successfully",
+              color: "green",
+            })
+          } catch (err) {
+            console.error("upload files error", err)
             notifications.show({
               title: "Upload Error",
-              message: `Failed to upload files: ${res.status} ${text}`,
+              message: err instanceof Error ? err.message : String(err),
               color: "red",
             })
-            return
           }
-
-          const data = await res.json()
-          // Persist archive path in session state so it survives reloads this session
-          if (data?.archive_path) {
-            try {
-              const key = `nomad_archive:${experiment.id}`
-              sessionStorage.setItem(key, data.archive_path)
-            } catch (_e) {
-              // ignore
-            }
-            setLastArchivePath(data.archive_path)
-            console.log("[handleDrop] server archive created", {
-              archivePath: data.archive_path,
-              fileCount: data.file_count,
-            })
-          } else {
-            console.warn(
-              "[handleDrop] server returned 2xx but no archive_path — " +
-                "'Confirm review and proceed' will fail. Response body:",
-              data,
-            )
-          }
-          notifications.show({
-            title: "Files Uploaded",
-            message: data.archive_path
-              ? `Created archive: ${data.archive_path}`
-              : "Files uploaded successfully",
-            color: "green",
-          })
-        } catch (err) {
-          console.error("upload files error", err)
-          notifications.show({
-            title: "Upload Error",
-            message: err instanceof Error ? err.message : String(err),
-            color: "red",
-          })
-        }
-      })()
+        })
+      }
 
       // Group files by device name while preserving existing ungrouped files
       const allFiles = [...results.files, ...newFiles]
@@ -1879,6 +1913,7 @@ function ResultsDetail({
       matchGroupsToSubstrates,
       experiment.id,
       experiment.name,
+      applyArchivePath,
     ],
   )
 
@@ -2345,7 +2380,11 @@ function ResultsDetail({
       // flush the debounced save first or a fast user hits "not found".
       await flushSave()
 
-      let archivePath = lastArchivePath
+      // Wait for any drop upload still in flight so the archive holds every
+      // dropped file before metadata references them.
+      await uploadQueueRef.current
+
+      let archivePath = lastArchivePathRef.current ?? lastArchivePath
 
       if (!archivePath) {
         // The drop-time upload may have failed (e.g. too many multipart fields).
@@ -2416,7 +2455,7 @@ function ResultsDetail({
           return false
         }
         archivePath = uploadData.archive_path
-        setLastArchivePath(archivePath)
+        applyArchivePath(archivePath)
         console.log("[handlePrepareUpload] archive created", { archivePath })
       }
 
@@ -2496,6 +2535,7 @@ function ResultsDetail({
       setPreparingUpload(false)
     }
   }, [
+    applyArchivePath,
     buildNomadUploadRequest,
     experiment.id,
     experiment.name,

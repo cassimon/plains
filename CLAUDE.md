@@ -117,6 +117,7 @@ uv run prek run --all-files
 - **Path alias**: `@/` resolves to `frontend/src/` (configured in `vite.config.ts`).
 - **API client**: `src/client/` is fully generated from `openapi.json` — do not edit manually. Regenerate via `generate-client.sh`.
 - **UI**: shadcn/ui (`src/components/ui/`) for base components + Mantine for modals/notifications/dropzone. Tailwind CSS v4.
+- **Stale-chunk / "blocked MIME type text/html" on navigation**: pages are lazily loaded as hashed chunks (`autoCodeSplitting: true`). When the frontend is rebuilt (`docker compose up -d --build frontend`) while a tab is open, the old tab still requests old chunk hashes (e.g. `results-CM8WUKcq.js`) that no longer exist. nginx's SPA fallback (`try_files $uri /index.html`) returns `index.html` for that `.js` request, the browser blocks the module for its `text/html` MIME type, and the lazy route import throws — surfacing as a broken or "logged out" navigation. **Guard**: `main.tsx` listens for Vite's `vite:preloadError` and reloads once (capped to one auto-reload per 10s via a `sessionStorage` timestamp so a genuinely-missing chunk can't loop). Keep this handler when touching `main.tsx`; any new lazily-imported code inherits the guard automatically.
 
 ### Data Model (key entities)
 - `Material` — raw chemicals/substrates

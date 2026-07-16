@@ -223,6 +223,118 @@ def create_secure_zip(
     return zip_path
 
 
+def append_files_to_zip(
+    zip_path: Path,
+    files: list[tuple[str, bytes]],
+) -> Path:
+    """Append raw data files to an existing upload archive.
+
+    Used when the user drops files in several batches: every drop lands in the
+    *same* archive instead of replacing it with a fresh one holding only the
+    latest drop (which left the metadata referencing raw files NOMAD could not
+    find). An existing entry with the same (sanitized) name is replaced, so
+    re-dropping a file updates it rather than duplicating the zip entry.
+
+    Raises:
+        FileNotFoundError: If zip_path doesn't exist
+    """
+    if not zip_path.exists():
+        raise FileNotFoundError(f"Zip archive not found: {zip_path}")
+
+    # Dedupe within the drop too — flattening subfolders can collide.
+    new_entries: dict[str, bytes] = {}
+    for filename, content in files:
+        safe = sanitize_upload_filename(filename)
+        if safe:
+            new_entries[safe] = content
+
+    temp_zip = zip_path.with_suffix(".tmp.zip")
+    try:
+        with zipfile.ZipFile(zip_path, "r") as old_zip:
+            with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED) as new_zip:
+                for item in old_zip.namelist():
+                    if item in new_entries:
+                        continue
+                    new_zip.writestr(item, old_zip.read(item))
+                for safe, content in new_entries.items():
+                    new_zip.writestr(safe, content)
+        temp_zip.replace(zip_path)
+        logger.info(
+            f"Appended {len(new_entries)} files to archive {zip_path} "
+            f"({zip_path.stat().st_size} bytes)"
+        )
+    except Exception:
+        if temp_zip.exists():
+            temp_zip.unlink()
+        raise
+
+    return zip_path
+
+
+# Quantities on generated measurement archives that name a raw file by its
+# bare archive-entry name (see `_measurement_archive` / nomad_chose schemas).
+_RAW_FILE_KEYS = {
+    "jv_file",
+    "eqe_file",
+    "uvvis_file",
+    "stability_tracking_file",
+    "stability_parameters_file",
+    "data_file",
+}
+_RAW_REFERENCE_RE = re.compile(r"\.\./upload/raw/([^#]+)")
+
+
+def collect_referenced_raw_files(archives: dict[str, Any]) -> set[str]:
+    """Every raw-file name the generated archive YAMLs point at.
+
+    Covers both the plain file-name quantities (``jv_file`` …) and full
+    ``../upload/raw/<name>`` references (images, documents). References to
+    other ``.archive.yaml`` files are skipped: those are generated together
+    with the archives themselves (and unassigned device groups intentionally
+    carry a dangling sample placeholder).
+    """
+    referenced: set[str] = set()
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in _RAW_FILE_KEYS and isinstance(value, str) and value:
+                    referenced.add(value)
+                else:
+                    _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+        elif isinstance(node, str):
+            match = _RAW_REFERENCE_RE.search(node)
+            if match:
+                referenced.add(match.group(1))
+
+    _walk(archives)
+    return {name for name in referenced if not name.endswith(".archive.yaml")}
+
+
+def find_missing_raw_files(
+    zip_path: Path,
+    archives: dict[str, Any],
+    files_to_remove: list[str] | None = None,
+) -> list[str]:
+    """Referenced raw files that are absent from the upload zip.
+
+    The guard against metadata that points at raw files the archive does not
+    contain — NOMAD would otherwise fail every affected entry at process time
+    with ``…/raw/<file> is not found``. ``files_to_remove`` are about to be
+    stripped from the zip (the Ignore category), so they count as absent.
+    """
+    referenced = collect_referenced_raw_files(archives)
+    if not referenced:
+        return []
+    with zipfile.ZipFile(zip_path, "r") as zipf:
+        present = set(zipf.namelist())
+    present -= {sanitize_upload_filename(f) for f in (files_to_remove or [])}
+    return sorted(referenced - present)
+
+
 def add_metadata_to_zip(
     zip_path: Path,
     metadata_files: list[tuple[str, str]],

@@ -34,6 +34,25 @@ const queryClient = new QueryClient({
   }),
 })
 
+// Guard against stale-chunk errors after a redeploy. Pages are lazily loaded as
+// hashed chunks (TanStack `autoCodeSplitting`), so rebuilding the frontend while
+// a tab is open leaves the old tab requesting chunk hashes that no longer exist
+// on disk (e.g. results-CM8WUKcq.js). nginx's SPA fallback (`try_files $uri
+// /index.html`) then returns index.html for that `.js` request, the browser
+// blocks the module for its `text/html` MIME type, and the lazy route import
+// throws — surfacing as a broken/"logged out" navigation. Vite dispatches
+// `vite:preloadError` in exactly this case; reload once to pick up the fresh
+// index.html and new chunk hashes. The sessionStorage timestamp caps us to one
+// auto-reload per 10s so a genuinely-missing chunk can't cause a reload loop.
+window.addEventListener("vite:preloadError", (event) => {
+  event.preventDefault()
+  const RELOAD_KEY = "plains:chunk-reload-at"
+  const lastReload = Number(sessionStorage.getItem(RELOAD_KEY) ?? 0)
+  if (Date.now() - lastReload < 10_000) return
+  sessionStorage.setItem(RELOAD_KEY, String(Date.now()))
+  window.location.reload()
+})
+
 const router = createRouter({ routeTree, basepath: import.meta.env.BASE_URL })
 declare module "@tanstack/react-router" {
   interface Register {
