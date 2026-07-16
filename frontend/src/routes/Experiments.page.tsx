@@ -69,6 +69,7 @@ import {
   getExperimentAllStepsDone,
   recognizeGroupNames,
 } from "@/lib/uploadFlow"
+import { useStartOrAddUpload } from "@/lib/useStartOrAddUpload"
 import type { CollectionConfirmParams } from "../components/SelectCollectionModal"
 import {
   type CanvasCollectionElement,
@@ -2635,9 +2636,9 @@ export default function ExperimentsPage() {
     setPendingCollectionLink,
     startUploadFlow,
     uploadFlow,
-    addFilesToUploadFlow,
   } = useAppContext()
   const { getEntityColor, isEntityVisible } = useEntityCollection()
+  const startOrAddUpload = useStartOrAddUpload()
 
   const [selectedExpId, setSelectedExpId] = useState<string | null>(
     () => lastSelectedByKind.experiment ?? null,
@@ -2977,33 +2978,16 @@ export default function ExperimentsPage() {
     ],
   )
 
-  // Files dropped straight onto an experiment (the bottom drop zone). Starts a
-  // flow carrying the real bytes; it naturally lands at 2/3 when the experiment
-  // is fully specified (only Upload left) or 1/3 when it isn't — the step state
-  // is derived by getUploadFlowSteps, so no manual step handling here.
+  // Files dropped straight onto an experiment (the bottom drop zone). Funnels
+  // through the shared `useStartOrAddUpload` hook, so the single-active-flow
+  // rules (start / add-to-same-target / refuse) live in exactly one place. The
+  // started flow carries the real bytes and naturally lands at 2/3 when the
+  // experiment is fully specified (only Upload left) or 1/3 when it isn't —
+  // the step state is derived by getUploadFlowSteps, so no manual step
+  // handling here.
   const handleExperimentFilesDrop = useCallback(
     (exp: Experiment, files: File[]) => {
       if (files.length === 0) {
-        return
-      }
-      if (uploadFlow) {
-        if (uploadFlow.experimentId === exp.id) {
-          addFilesToUploadFlow(files)
-          notifications.show({
-            title: "Added to current upload",
-            message: `${files.length} file${
-              files.length === 1 ? "" : "s"
-            } added to the current upload.`,
-            color: "blue",
-          })
-        } else {
-          notifications.show({
-            title: "Upload already in progress",
-            message:
-              "There's still an incomplete upload — finish or cancel it before starting a new one.",
-            color: "red",
-          })
-        }
         return
       }
       const process = processes.find((p) => p.id === exp.processId)
@@ -3012,47 +2996,50 @@ export default function ExperimentsPage() {
       // Organization canvas shows the "incomplete upload" marker there — exactly
       // as if the files had been dropped onto that collection.
       const home = homeCollectionForEntity(planes, "experiment", exp.id)
-      const started = startUploadFlow({
-        origin: "add-results",
-        processId: exp.processId,
-        experimentId: exp.id,
+      startOrAddUpload(
         files,
-        pendingFiles: files.map((f) => ({ name: f.name, size: f.size })),
-        targetCollectionId: home?.collectionId ?? null,
-        targetPlaneId: home?.planeId ?? null,
-      })
-      if (!started) {
-        return
-      }
-      if (fullySpecified) {
-        // Complete → go straight to Results & Upload (opens Step 2 via the
-        // carried files, reusing the Req 2 path).
-        setPendingCollectionLink({
-          collectionId: "",
-          planeId: "",
-          kind: "result",
-          selectedExperimentId: exp.id,
-          openAddResults: true,
-          requestId: crypto.randomUUID(),
-        })
-        setActiveEntity({ kind: "experiment", id: exp.id })
-        updateLastSelected("experiment", exp.id)
-        void navigate({ to: "/results" })
-      } else {
-        notifications.show({
-          title: "Upload started",
-          message:
-            "Finish specifying this experiment (chemicals, substrates, summary) to upload its results.",
-          color: "yellow",
-        })
-      }
+        {
+          collectionId: home?.collectionId ?? null,
+          planeId: home?.planeId ?? null,
+          experimentId: exp.id,
+        },
+        {
+          origin: "add-results",
+          openPanel: false,
+          onOutcome: (outcome) => {
+            if (outcome !== "started") {
+              return
+            }
+            if (fullySpecified) {
+              // Complete → go straight to Results & Upload (opens Step 2 via
+              // the carried files, reusing the Req 2 path).
+              setPendingCollectionLink({
+                collectionId: "",
+                planeId: "",
+                kind: "result",
+                selectedExperimentId: exp.id,
+                openAddResults: true,
+                requestId: crypto.randomUUID(),
+              })
+              setActiveEntity({ kind: "experiment", id: exp.id })
+              updateLastSelected("experiment", exp.id)
+              void navigate({ to: "/results" })
+            } else {
+              notifications.show({
+                title: "Upload started",
+                message:
+                  "Finish specifying this experiment (chemicals, substrates, summary) to upload its results.",
+                color: "yellow",
+              })
+            }
+          },
+        },
+      )
     },
     [
-      uploadFlow,
-      addFilesToUploadFlow,
       processes,
       planes,
-      startUploadFlow,
+      startOrAddUpload,
       setPendingCollectionLink,
       setActiveEntity,
       updateLastSelected,

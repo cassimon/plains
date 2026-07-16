@@ -63,7 +63,7 @@ export function AppLayout() {
     setActiveEntity,
     flushSave,
     uploadFlow,
-    cancelUploadFlow,
+    discardUploadFlow,
     trashCount,
   } = useAppContext()
 
@@ -434,8 +434,12 @@ export function AppLayout() {
                   leftSection={<IconLogout size={14} />}
                   onClick={() => {
                     const doLogout = async () => {
-                      // Incomplete flows are discarded on logout.
-                      cancelUploadFlow()
+                      // Incomplete flows are discarded on logout — awaited so
+                      // the server-side cleanup (temp archives, incomplete
+                      // results) still runs with a valid token, before the
+                      // Keycloak redirect. Runs even without a flow: it also
+                      // sweeps orphaned archive records from sessionStorage.
+                      await discardUploadFlow()
                       await flushSave()
                       logout()
                     }

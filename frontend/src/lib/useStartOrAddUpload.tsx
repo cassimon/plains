@@ -24,7 +24,11 @@ import { useCallback } from "react"
 import { UploadFlowPanel } from "../components/UploadFlowStatus"
 import { detectDigestDocs } from "../lib/pdfDigest"
 import { useAppContext } from "../store/AppContext"
-import type { StagedFile } from "./uploadFlow"
+import {
+  resolveUploadDropAction,
+  type StagedFile,
+  type UploadFlowOrigin,
+} from "./uploadFlow"
 
 /** Identifies where the files were dropped/picked, so add-to-zip vs. warn can
  *  be decided against the active flow's target. */
@@ -35,6 +39,19 @@ export type UploadTarget = {
   planeId: string | null
   /** Experiment context, when the ingress is an experiment (drop zone). */
   experimentId?: string | null
+}
+
+/** What a drop resolved to, reported via `onOutcome` (after the async PDF
+ *  digest detection, so callers can chain page-specific follow-ups). */
+export type UploadDropOutcome = "started" | "added" | "refused"
+
+export type StartOrAddUploadOptions = {
+  /** How a freshly started flow records its origin (default "drag-drop"). */
+  origin?: UploadFlowOrigin
+  /** Open the canonical flow window after starting a flow (default true). */
+  openPanel?: boolean
+  /** Reports what the drop resolved to (only when upload files were present). */
+  onOutcome?: (outcome: UploadDropOutcome) => void
 }
 
 /** Open the canonical flow window (identical to the top-bar badge's popover). */
@@ -56,7 +73,7 @@ export function useStartOrAddUpload() {
   } = useAppContext()
 
   return useCallback(
-    (files: File[], target: UploadTarget) => {
+    (files: File[], target: UploadTarget, opts?: StartOrAddUploadOptions) => {
       if (files.length === 0) {
         return
       }
@@ -95,12 +112,7 @@ export function useStartOrAddUpload() {
             openFlowPanel()
           }
           if (others.length > 0) {
-            const sameTarget =
-              (target.collectionId != null &&
-                uploadFlow.targetCollectionId === target.collectionId) ||
-              (target.experimentId != null &&
-                uploadFlow.experimentId === target.experimentId)
-            if (sameTarget) {
+            if (resolveUploadDropAction(uploadFlow, target) === "add") {
               addFilesToUploadFlow(others)
               notifications.show({
                 title: "Added to current upload",
@@ -109,6 +121,7 @@ export function useStartOrAddUpload() {
                 } added to the current upload.`,
                 color: "blue",
               })
+              opts?.onOutcome?.("added")
             } else {
               // Dropped onto a different collection/experiment than the active
               // upload targets. Never silently swallow the files — tell the user
@@ -119,6 +132,7 @@ export function useStartOrAddUpload() {
                   "There's still an incomplete upload for another target — finish or delete it before starting a new one.",
                 color: "red",
               })
+              opts?.onOutcome?.("refused")
             }
           }
           return
@@ -131,12 +145,14 @@ export function useStartOrAddUpload() {
 
         // ── Fresh flow ────────────────────────────────────────────────────────
         // When digesting, the process/experiment is decided by the PDF, so don't
-        // preselect defaults; otherwise prefer the most-recently-created
+        // preselect defaults. When the ingress IS an experiment (drop zone),
+        // preselect exactly that one; otherwise prefer the most-recently-created
         // experiment, falling back to the last one the user interacted with.
         const defaultExpId =
           digests.length > 0
             ? null
-            : (experiments[experiments.length - 1]?.id ??
+            : (target.experimentId ??
+              experiments[experiments.length - 1]?.id ??
               lastSelectedByKind.experiment ??
               null)
         const defaultExp = defaultExpId
@@ -148,7 +164,7 @@ export function useStartOrAddUpload() {
           size: f.size,
         }))
         const started = startUploadFlow({
-          origin: "drag-drop",
+          origin: opts?.origin ?? "drag-drop",
           files: others,
           pendingFiles: others.length > 0 ? pendingFiles : undefined,
           processId: defaultExp?.processId ?? null,
@@ -160,11 +176,16 @@ export function useStartOrAddUpload() {
         if (!started) {
           return
         }
+        if (others.length > 0) {
+          opts?.onOutcome?.("started")
+        }
         // Render the exact same window as the top-bar badge's popover
         // (`UploadFlowPanel`) so the post-drop dialog and the top-icon dialog are
         // always identical. No title bar / close button: like the popover, it is
         // dismissed by clicking outside or aborting — the top icon is the guideline.
-        openFlowPanel()
+        if (opts?.openPanel !== false) {
+          openFlowPanel()
+        }
       })()
     },
     [

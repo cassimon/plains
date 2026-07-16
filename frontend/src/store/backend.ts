@@ -246,6 +246,14 @@ export interface BackendAdapter {
   createResults(results: ExperimentResults): Promise<ExperimentResults>
   updateResults(results: ExperimentResults): Promise<ExperimentResults>
   deleteResults(id: string): Promise<void>
+  /**
+   * Permanently delete results server-side, bypassing the Trash. Used to purge
+   * incomplete upload stagings (files staged but never handed over to NOMAD) —
+   * a discarded staging must not be restorable. Best-effort: missing rows
+   * (incomplete results are filtered from every save, so they usually never
+   * reached the server) and network failures are swallowed.
+   */
+  hardDeleteResults(ids: string[]): Promise<void>
 
   // ── Planes & Elements ──────────────────────────────────────────────────────
 
@@ -395,6 +403,10 @@ export class InMemoryBackend implements BackendAdapter {
   }
   async deleteResults(id: string) {
     this.data.results = this.data.results.filter((x) => x.id !== id)
+  }
+  async hardDeleteResults(ids: string[]) {
+    const idSet = new Set(ids)
+    this.data.results = this.data.results.filter((x) => !idSet.has(x.id))
   }
 
   // ── Planes & Elements ──────────────────────────────────────────────────────
@@ -993,6 +1005,25 @@ export class HttpBackend implements BackendAdapter {
   }
   async deleteResults(id: string) {
     this.data.results = this.data.results.filter((x) => x.id !== id)
+  }
+  async hardDeleteResults(ids: string[]) {
+    for (const id of ids) {
+      try {
+        // Hard DELETE (not POST /trash/): a purged incomplete staging must not
+        // land in the Trash page as a restorable item.
+        await this.request("DELETE", `/results/${id}`)
+      } catch (err) {
+        // Usually a 404 — incomplete results are filtered from every save, so
+        // most never reached the server at all. Best-effort by contract.
+        if (!(err instanceof HttpError && err.status === 404)) {
+          console.warn("[HttpBackend] hardDeleteResults failed:", id, err)
+        }
+      }
+      // Keep the local mirror + delete-reconciliation set in sync so the next
+      // save() doesn't try to soft-delete (trash) the already-purged row.
+      this.serverIds.results.delete(id)
+      this.data.results = this.data.results.filter((x) => x.id !== id)
+    }
   }
 
   async getPlanes() {

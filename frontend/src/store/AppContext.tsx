@@ -10,6 +10,7 @@ import {
 } from "react"
 import { firstFreeSpanCell } from "../lib/gridPacking"
 import { getTokenSync } from "../lib/keycloakInstance"
+import { discardArchive, takeAllSessionArchivePaths } from "../lib/nomadArchive"
 import type { UploadFlow } from "../lib/uploadFlow"
 import {
   type AppSnapshot,
@@ -1300,8 +1301,31 @@ type AppContextValue = {
    * same target ("add to the zip"). No-op when there is no active flow.
    */
   addFilesToUploadFlow: (files: File[]) => void
-  /** Drop the active flow (user abort / logout / inactivity). */
-  cancelUploadFlow: () => void
+  /**
+   * Discard the active flow (user abort / logout / inactivity) — the ONLY way
+   * to drop a flow. Deletes the staged files everywhere, not just the
+   * in-memory flow: the server-side temp archives (flow's own + any orphaned
+   * sessionStorage records) and the flow's incomplete ExperimentResults
+   * (files staged but never handed over to NOMAD; results with a NOMAD
+   * upload_id are complete and never touched). Idempotent and safe to await
+   * (e.g. before logout); network failures never block the local clearing.
+   */
+  discardUploadFlow: () => Promise<void>
+}
+
+/**
+ * Ids of results whose upload staging never finished: files are present but
+ * the result was never handed over to NOMAD (no upload_id). The single
+ * predicate behind the save filter, the load-time purge and the upload-flow
+ * discard — a result WITH an upload_id is complete by definition (waiting for
+ * NOMAD processing is not part of the staging) and is never swept.
+ */
+function staleResultIdsOf(results: ExperimentResults[]): Set<string> {
+  return new Set(
+    results
+      .filter((r) => r.files.length > 0 && !r.nomad?.upload_id)
+      .map((r) => r.id),
+  )
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -1453,30 +1477,13 @@ export function AppProvider({
       }
     })
   }, [])
-  const cancelUploadFlow = useCallback(() => setUploadFlow(null), [])
-
-  // Drop an inactive flow after the inactivity window. The timer re-arms
-  // whenever lastActivityAt changes (every update bumps it).
-  const uploadFlowActivity = uploadFlow?.lastActivityAt
-  useEffect(() => {
-    if (uploadFlowActivity === undefined) {
-      return
-    }
-    const elapsed = Date.now() - uploadFlowActivity
-    const remaining = Math.max(0, UPLOAD_FLOW_INACTIVITY_MS - elapsed)
-    const timer = window.setTimeout(() => {
-      setUploadFlow((prev) => {
-        if (!prev) {
-          return prev
-        }
-        if (Date.now() - prev.lastActivityAt >= UPLOAD_FLOW_INACTIVITY_MS) {
-          return null
-        }
-        return prev
-      })
-    }, remaining)
-    return () => window.clearTimeout(timer)
-  }, [uploadFlowActivity])
+  // Latest flow for callbacks that must not re-create on every flow change
+  // (discardUploadFlow, the inactivity timer). Kept current on every render.
+  const uploadFlowRef = useRef(uploadFlow)
+  uploadFlowRef.current = uploadFlow
+  // Dropping a flow always goes through `discardUploadFlow` (defined after
+  // `removeCollectionRefs`, which it needs) — there is deliberately no plain
+  // "cancel" that would leave staged files behind.
 
   const [lastSelectedByKind, setLastSelectedByKind] = useState<
     Partial<Record<"experiment" | "process", string>>
@@ -1574,11 +1581,12 @@ export function AppProvider({
       const snapshot = await backend.load()
       setExperiments(snapshot.experiments)
       setProcesses(snapshot.processes)
-      const staleResultIds = new Set(
-        snapshot.results
-          .filter((r) => r.files.length > 0 && !r.nomad?.upload_id)
-          .map((r) => r.id),
-      )
+      const staleResultIds = staleResultIdsOf(snapshot.results)
+      // Purge stale stagings server-side too (best-effort), so they can never
+      // resurface as "incomplete" in a later session.
+      if (staleResultIds.size > 0) {
+        void backend.hardDeleteResults([...staleResultIds])
+      }
       setResults(snapshot.results.filter((r) => !staleResultIds.has(r.id)))
       setFolders(snapshot.folders ?? [])
       setPlanes(
@@ -1914,11 +1922,19 @@ export function AppProvider({
       // Strip any incomplete in-progress results that survived a refresh/crash.
       // They should never have been persisted (filtered from the save snapshot),
       // but may exist in older snapshots written before this guard was added.
-      const staleResultIds = new Set(
-        snapshot.results
-          .filter((r) => r.files.length > 0 && !r.nomad?.upload_id)
-          .map((r) => r.id),
-      )
+      // Purge them server-side too (best-effort, hard delete — not Trash) so a
+      // stale staging can never resurface as "incomplete" again.
+      const staleResultIds = staleResultIdsOf(snapshot.results)
+      if (staleResultIds.size > 0) {
+        void backend.hardDeleteResults([...staleResultIds])
+      }
+      // Any per-experiment archive record surviving into a fresh app load is
+      // orphaned by definition — the ephemeral flow died with the previous
+      // session (sessionStorage outlives a same-tab re-login). Discard the
+      // server-side zips it pointed at.
+      for (const { path } of takeAllSessionArchivePaths()) {
+        void discardArchive(path)
+      }
       const completeResults = snapshot.results.filter(
         (r) => !staleResultIds.has(r.id),
       )
@@ -2285,6 +2301,73 @@ export function AppProvider({
     [],
   )
 
+  // ── Upload-flow discard ─────────────────────────────────────────────────────
+  // Defined here (not with the other upload-flow callbacks) because it needs
+  // `removeCollectionRefs` above. Latest full results array for the sweep —
+  // NOT stateRef.current.results, which is already filtered down to the
+  // persistable results and would hide exactly the incomplete rows this
+  // discard must delete.
+  const allResultsRef = useRef(results)
+  allResultsRef.current = results
+  const discardInFlightRef = useRef(false)
+  /** See AppContextValue.discardUploadFlow. */
+  const discardUploadFlow = useCallback(async () => {
+    if (discardInFlightRef.current) {
+      return
+    }
+    discardInFlightRef.current = true
+    try {
+      const flow = uploadFlowRef.current
+      // Collect the server archives before clearing anything: the flow's own
+      // plus any orphaned per-experiment records left in sessionStorage.
+      const archivePaths = new Set<string>()
+      if (flow?.archivePath) {
+        archivePaths.add(flow.archivePath)
+      }
+      for (const { path } of takeAllSessionArchivePaths()) {
+        archivePaths.add(path)
+      }
+      const staleIds = [...staleResultIdsOf(allResultsRef.current)]
+      // Clear local state first so the UI is consistent immediately, even if
+      // the network cleanup below fails (the server TTL sweep is the backstop).
+      setUploadFlow(null)
+      if (staleIds.length > 0) {
+        const idSet = new Set(staleIds)
+        setResults((prev) => prev.filter((r) => !idSet.has(r.id)))
+        removeCollectionRefs("result", staleIds)
+      }
+      // Auto-created substrates are intentionally NOT rolled back: they belong
+      // to the experiment, not to the upload staging.
+      await Promise.allSettled([
+        ...[...archivePaths].map((path) => discardArchive(path)),
+        backend.hardDeleteResults(staleIds),
+      ])
+    } finally {
+      discardInFlightRef.current = false
+    }
+  }, [backend, removeCollectionRefs])
+
+  // Drop an inactive flow after the inactivity window. The timer re-arms
+  // whenever lastActivityAt changes (every update bumps it).
+  const uploadFlowActivity = uploadFlow?.lastActivityAt
+  useEffect(() => {
+    if (uploadFlowActivity === undefined) {
+      return
+    }
+    const elapsed = Date.now() - uploadFlowActivity
+    const remaining = Math.max(0, UPLOAD_FLOW_INACTIVITY_MS - elapsed)
+    const timer = window.setTimeout(() => {
+      const flow = uploadFlowRef.current
+      if (
+        flow &&
+        Date.now() - flow.lastActivityAt >= UPLOAD_FLOW_INACTIVITY_MS
+      ) {
+        void discardUploadFlow()
+      }
+    }, remaining)
+    return () => window.clearTimeout(timer)
+  }, [uploadFlowActivity, discardUploadFlow])
+
   const fuseCollections = useCallback(
     (
       planeId: string,
@@ -2415,7 +2498,7 @@ export function AppProvider({
         startUploadFlow,
         updateUploadFlow,
         addFilesToUploadFlow,
-        cancelUploadFlow,
+        discardUploadFlow,
       }}
     >
       {children}

@@ -54,11 +54,17 @@ import type {
   NomadConfigResponse,
   NomadUploadResponse,
 } from "../client/types.gen"
+import { openDiscardUploadFlowConfirm } from "../components/UploadFlowStatus"
 import { homeCollectionForEntity, useRevealForFlow } from "../lib/entityReveal"
-import { getTokenSync } from "../lib/keycloakInstance"
+import {
+  discardArchive,
+  sessionArchiveKey,
+  takeSessionArchivePath,
+} from "../lib/nomadArchive"
 import {
   getExperimentAllStepsDone,
   recognizeGroupName,
+  resolveUploadDropAction,
 } from "../lib/uploadFlow"
 import {
   type CanvasCollectionElement,
@@ -1248,10 +1254,15 @@ function ResultsDetail({
     uploadFlow,
     startUploadFlow,
     updateUploadFlow,
+    discardUploadFlow,
     setActiveEntity,
     updateLastSelected,
     planes,
   } = useAppContext()
+  // Latest flow for stable callbacks (applyArchivePath) that must not
+  // re-create whenever the flow object changes.
+  const uploadFlowRef = useRef(uploadFlow)
+  uploadFlowRef.current = uploadFlow
   const navigate = useNavigate()
   const revealForFlow = useRevealForFlow()
   const theme = useMantineTheme()
@@ -1422,14 +1433,14 @@ function ResultsDetail({
   }, [])
 
   // Single write-path for the server archive location: state (for the UI),
-  // ref (for queued uploads) and sessionStorage (for reload survival) must
-  // never disagree.
+  // ref (for queued uploads), sessionStorage (for in-session remount survival)
+  // and the active flow's `archivePath` mirror must never disagree.
   const applyArchivePath = useCallback(
     (path: string | null) => {
       lastArchivePathRef.current = path
       setLastArchivePath(path)
       try {
-        const key = `nomad_archive:${experiment.id}`
+        const key = sessionArchiveKey(experiment.id)
         if (path) {
           sessionStorage.setItem(key, path)
         } else {
@@ -1438,15 +1449,20 @@ function ResultsDetail({
       } catch (_e) {
         // ignore sessionStorage errors in restrictive environments
       }
+      // Mirror onto the active flow so every discard entry point (widget
+      // trash, logout, inactivity) can delete the server archive without
+      // going through this page.
+      if (uploadFlowRef.current?.experimentId === experiment.id) {
+        updateUploadFlow({ archivePath: path })
+      }
     },
-    [experiment.id],
+    [experiment.id, updateUploadFlow],
   )
 
   // Load any persisted archive path for this experiment from the session
   useEffect(() => {
     try {
-      const key = `nomad_archive:${experiment.id}`
-      const v = sessionStorage.getItem(key)
+      const v = sessionStorage.getItem(sessionArchiveKey(experiment.id))
       if (v) {
         lastArchivePathRef.current = v
         setLastArchivePath(v)
@@ -1601,24 +1617,7 @@ function ResultsDetail({
     if (!lastArchivePath) {
       return
     }
-
-    try {
-      const form = new FormData()
-      form.append("archive_path", lastArchivePath)
-      const token =
-        typeof OpenAPI.TOKEN === "function"
-          ? await OpenAPI.TOKEN({} as any)
-          : (OpenAPI.TOKEN ?? undefined)
-
-      await fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/archive/discard`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        body: form,
-      })
-    } catch (_e) {
-      // best effort cleanup
-    }
-
+    await discardArchive(lastArchivePath)
     applyArchivePath(null)
   }, [applyArchivePath, lastArchivePath])
 
@@ -1633,15 +1632,8 @@ function ResultsDetail({
       event.returnValue = ""
 
       if (lastArchivePath) {
-        const token = getTokenSync()
-        const form = new FormData()
-        form.append("archive_path", lastArchivePath)
-        fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/archive/discard`, {
-          method: "POST",
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          body: form,
-          keepalive: true,
-        }).catch(() => {})
+        // keepalive: fired synchronously (sync token) so it survives unload.
+        void discardArchive(lastArchivePath, { keepalive: true })
       }
     }
 
@@ -1926,7 +1918,10 @@ function ResultsDetail({
       if (files.length === 0) {
         return
       }
-      if (uploadFlow && uploadFlow.experimentId !== experiment.id) {
+      if (
+        resolveUploadDropAction(uploadFlow, { experimentId: experiment.id }) ===
+        "refuse"
+      ) {
         notifications.show({
           title: "Upload already in progress",
           message:
@@ -2172,6 +2167,18 @@ function ResultsDetail({
     moveFilesToUnmatched([fileId])
   }
 
+  // Local page state accompanying a discarded staging — the flow, the result
+  // rows and the server archive themselves are cleared by discardUploadFlow();
+  // this resets what only this page knows about. Call it AFTER
+  // discardUploadFlow() so the flow's archivePath is still readable there.
+  const resetLocalStaging = useCallback(() => {
+    setUploadedFiles([])
+    setWorkflowStep(1)
+    setReviewConfirmed(false)
+    setIsResultsCardOpen(false)
+    applyArchivePath(null)
+  }, [applyArchivePath])
+
   const handleDeleteFiles = useCallback(
     (fileIds: string[]) => {
       if (fileIds.length === 0) {
@@ -2180,6 +2187,33 @@ function ResultsDetail({
 
       const fileIdSet = new Set(fileIds)
       const updatedFiles = results.files.filter((f) => !fileIdSet.has(f.id))
+
+      // Removing the LAST file abandons the staging: per the upload-flow rules
+      // this cancels the whole flow — confirmed by the widget's dialog — and
+      // permanently deletes the staged files (server archive included).
+      if (
+        updatedFiles.length === 0 &&
+        uploadFlow?.experimentId === experiment.id
+      ) {
+        openDiscardUploadFlowConfirm({
+          title: "Cancel this upload?",
+          message: (
+            <>
+              Removing the last file cancels this upload — its staged files will
+              be <strong>permanently deleted</strong>.
+            </>
+          ),
+          confirmLabel: "Cancel upload",
+          onConfirm: () => {
+            // Discard first (it snapshots the flow's archive path), then
+            // reset the page-local staging state.
+            void discardUploadFlow()
+            resetLocalStaging()
+          },
+        })
+        return
+      }
+
       const updatedGroups = results.deviceGroups
         .map((g) => ({
           ...g,
@@ -2194,7 +2228,14 @@ function ResultsDetail({
         updatedAt: new Date().toISOString(),
       })
     },
-    [onUpdateResults, results],
+    [
+      onUpdateResults,
+      results,
+      uploadFlow,
+      experiment.id,
+      discardUploadFlow,
+      resetLocalStaging,
+    ],
   )
 
   // Assign file from unmatched to substrate
@@ -2273,16 +2314,32 @@ function ResultsDetail({
   }
 
   const handleClearAll = () => {
+    // Clearing all staged files cancels the active upload flow (Rule: clearing
+    // the files leads to a cancellation of the flow, confirmed by the widget).
+    if (uploadFlow?.experimentId === experiment.id) {
+      openDiscardUploadFlowConfirm({
+        title: "Cancel this upload?",
+        message: (
+          <>
+            Clearing the files cancels this upload — its staged files will be{" "}
+            <strong>permanently deleted</strong>.
+          </>
+        ),
+        confirmLabel: "Cancel upload",
+        onConfirm: () => {
+          void discardUploadFlow()
+          resetLocalStaging()
+        },
+      })
+      return
+    }
     onUpdateResults({
       ...results,
       files: [],
       deviceGroups: [],
       updatedAt: new Date().toISOString(),
     })
-    setUploadedFiles([])
-    setWorkflowStep(1)
-    setReviewConfirmed(false)
-    setIsResultsCardOpen(false)
+    resetLocalStaging()
     void discardTemporaryArchive()
   }
 
@@ -4213,27 +4270,9 @@ export function ResultsPage() {
 
   const discardArchiveForExperiment = useCallback(
     async (experimentId: string) => {
-      try {
-        const key = `nomad_archive:${experimentId}`
-        const archivePath = sessionStorage.getItem(key)
-        if (!archivePath) {
-          return
-        }
-
-        const form = new FormData()
-        form.append("archive_path", archivePath)
-        const token =
-          typeof OpenAPI.TOKEN === "function"
-            ? await OpenAPI.TOKEN({} as any)
-            : (OpenAPI.TOKEN ?? undefined)
-        await fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/archive/discard`, {
-          method: "POST",
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          body: form,
-        })
-        sessionStorage.removeItem(key)
-      } catch (_e) {
-        // best effort cleanup
+      const archivePath = takeSessionArchivePath(experimentId)
+      if (archivePath) {
+        await discardArchive(archivePath)
       }
     },
     [],

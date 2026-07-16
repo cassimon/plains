@@ -82,6 +82,13 @@ export type UploadFlow = {
    */
   substrateNamesImported?: boolean
   /**
+   * Server-side temp-archive path for the staged files, mirrored from the
+   * Results page (see `applyArchivePath`) so every discard entry point —
+   * widget trash, logout, inactivity — can delete the server zip without
+   * going through that page. Null until files reach the server.
+   */
+  archivePath?: string | null
+  /**
    * Exported Process/Experiment PDFs pulled out of a drop, awaiting digestion.
    * While non-empty the flow's target picker is BLOCKED and the digest view is
    * shown instead (see UploadFlowPanel): each doc is resolved into a selected or
@@ -240,6 +247,36 @@ export function isUploadFlowComplete(steps: UploadFlowStepStates): boolean {
 
 /** Inactivity window after which an incomplete flow is dropped (ms). */
 export const UPLOAD_FLOW_INACTIVITY_MS = 30 * 60 * 1000
+
+/** Where files were dropped/picked, for {@link resolveUploadDropAction}. */
+export type UploadDropTarget = {
+  /** Collection the files belong to, or null for a non-collection ingress. */
+  collectionId?: string | null
+  /** Experiment context, when the ingress is an experiment (drop zone). */
+  experimentId?: string | null
+}
+
+/**
+ * The single-active-flow rule, as one pure decision shared by every upload
+ * ingress (Organization drop, experiment drop zone, Results drop):
+ *   • no active flow                → "start" a new one;
+ *   • active flow, same target      → "add" the files to the current upload;
+ *   • active flow, different target → "refuse" (the user must finish or
+ *     delete the current upload first — files are never silently swallowed).
+ */
+export function resolveUploadDropAction(
+  flow: UploadFlow | null,
+  target: UploadDropTarget,
+): "start" | "add" | "refuse" {
+  if (!flow) {
+    return "start"
+  }
+  const sameTarget =
+    (target.collectionId != null &&
+      flow.targetCollectionId === target.collectionId) ||
+    (target.experimentId != null && flow.experimentId === target.experimentId)
+  return sameTarget ? "add" : "refuse"
+}
 
 /**
  * The measurement-type markers a CHOSE instrument writes into every export file

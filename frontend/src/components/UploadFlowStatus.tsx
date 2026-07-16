@@ -19,7 +19,7 @@ import {
   IconX,
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { useRevealForFlow } from "@/lib/entityReveal"
 import {
   countDoneSteps,
@@ -49,6 +49,40 @@ if (
 }
 
 /**
+ * The one confirm dialog for discarding an upload flow — every path that
+ * cancels a staging (widget trash button, clearing the last staged file) asks
+ * through this so the wording and the consequence (permanent deletion of the
+ * staged files) stay consistent. `onConfirm` should call
+ * `discardUploadFlow()` from AppContext.
+ */
+export function openDiscardUploadFlowConfirm(opts: {
+  title?: string
+  message?: ReactNode
+  confirmLabel?: string
+  onConfirm: () => void
+}) {
+  modals.openConfirmModal({
+    title: opts.title ?? "Delete this upload?",
+    children: (
+      <Text size="sm">
+        {opts.message ?? (
+          <>
+            The staged files for this upload will be{" "}
+            <strong>permanently deleted</strong>. This can't be undone.
+          </>
+        )}
+      </Text>
+    ),
+    labels: {
+      confirm: opts.confirmLabel ?? "Delete permanently",
+      cancel: "Keep upload",
+    },
+    confirmProps: { color: "red" },
+    onConfirm: opts.onConfirm,
+  })
+}
+
+/**
  * The full body of the upload flow — the Process/Experiment/Upload "boxes" (which
  * turn green as each step completes) and the "Go to results & upload" action. This
  * is the single source of truth for what the flow window looks like: it is rendered
@@ -64,7 +98,7 @@ if (
 export function UploadFlowPanel({ onClose }: { onClose: () => void }) {
   const {
     uploadFlow,
-    cancelUploadFlow,
+    discardUploadFlow,
     processes,
     experiments,
     results,
@@ -110,19 +144,10 @@ export function UploadFlowPanel({ onClose }: { onClose: () => void }) {
   }
 
   const handleDelete = () => {
-    modals.openConfirmModal({
-      title: "Delete this upload?",
-      children: (
-        <Text size="sm">
-          The staged files for this upload will be{" "}
-          <strong>permanently deleted</strong>. This can't be undone.
-        </Text>
-      ),
-      labels: { confirm: "Delete permanently", cancel: "Keep upload" },
-      confirmProps: { color: "red" },
+    openDiscardUploadFlowConfirm({
       onConfirm: () => {
         onClose()
-        cancelUploadFlow()
+        void discardUploadFlow()
       },
     })
   }
@@ -233,7 +258,7 @@ export function UploadFlowPanel({ onClose }: { onClose: () => void }) {
 }
 
 export function UploadFlowStatus() {
-  const { uploadFlow, cancelUploadFlow, processes, experiments, results } =
+  const { uploadFlow, discardUploadFlow, processes, experiments, results } =
     useAppContext()
   const [opened, setOpened] = useState(false)
 
@@ -261,9 +286,12 @@ export function UploadFlowStatus() {
       message: "Your files were uploaded to NOMAD.",
       color: "green",
     })
-    const timer = window.setTimeout(() => cancelUploadFlow(), 5000)
+    // Auto-clear through the same discard path: on a complete flow the result
+    // has its upload_id and empty files, so the sweep only clears the flow
+    // itself (plus any leftover archive record) — never the uploaded result.
+    const timer = window.setTimeout(() => void discardUploadFlow(), 5000)
     return () => window.clearTimeout(timer)
-  }, [complete, cancelUploadFlow])
+  }, [complete, discardUploadFlow])
 
   if (!uploadFlow || !steps) {
     return null

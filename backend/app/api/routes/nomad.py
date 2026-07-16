@@ -728,6 +728,10 @@ async def discard_uploaded_archive(
         raise HTTPException(status_code=403, detail="Archive path is not allowed")
 
     deleted = cleanup_temp_archive(candidate)
+    # Opportunistic sweep (same as /upload/files and /upload/nomad): an explicit
+    # discard is a natural moment to also drop archives abandoned beyond the
+    # inactivity window, so orphans from crashed sessions don't linger.
+    cleanup_stale_archives()
     return {
         "success": deleted,
         "archive_path": str(candidate),
