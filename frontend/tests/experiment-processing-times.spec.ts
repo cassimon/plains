@@ -157,7 +157,7 @@ test("Processing tab has an end-of-experiment cell that drives the Summary's sta
   await expect(end).toBeDisabled()
 })
 
-test("an end before the last step is flagged rather than silently uploaded", async ({
+test("an end before the last step is rejected: error shown, time cleared", async ({
   page,
 }) => {
   await openProcessingTab(page)
@@ -177,8 +177,43 @@ test("an end before the last step is flagged rather than silently uploaded", asy
   }
   await fill(0, "2026-05-19", "09:00")
   await fill(1, "2026-05-19", "11:30")
-  // End of experiment *before* the last step began.
+  // End of experiment *before* the last step began → direct failure: the entry
+  // is announced as rejected and the field is cleared so the user retries.
   await fill(2, "2026-05-19", "10:00")
 
-  await expect(row.getByText("Earlier than the last step")).toBeVisible()
+  await expect(page.getByText("Time not accepted").first()).toBeVisible()
+  await expect(times.nth(2)).toHaveValue("")
+  // The date cascade stays, so only the time buzzes for a retry.
+  await expect(dates.nth(2)).toHaveValue("2026-05-19")
+})
+
+test("raising an early step above a later one keeps the current time and explains", async ({
+  page,
+}) => {
+  await openProcessingTab(page)
+
+  const table = page
+    .locator("main table")
+    .filter({ hasText: "Processing Times" })
+  const row = table.locator("tr", { hasText: "Processing Times" })
+  const dates = row.locator('input[type="date"]')
+  const times = row.locator('input[type="time"]')
+
+  const fill = async (idx: number, date: string, time: string) => {
+    await dates.nth(idx).fill(date)
+    await dates.nth(idx).blur()
+    await times.nth(idx).fill(time)
+    await times.nth(idx).blur()
+  }
+  await fill(0, "2026-05-19", "09:00")
+  await fill(1, "2026-05-19", "11:30")
+  await fill(2, "2026-05-19", "16:30")
+
+  // Dependent failure: step 1 raised past step 2 would invalidate step 2 —
+  // the change is refused, the current time stays, and the message explains.
+  await times.nth(0).fill("17:00")
+  await times.nth(0).blur()
+
+  await expect(page.getByText("Time not accepted").first()).toBeVisible()
+  await expect(times.nth(0)).toHaveValue("09:00")
 })

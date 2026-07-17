@@ -303,9 +303,10 @@ function newRegressionKeys(
 
 export type ProcessingTimeEdit = {
   /** The value to actually store for the edited cell — the proposal when it is
-   *  accepted, or the previous step's date with an empty time on rejection. */
+   *  accepted; on a *direct* rejection the previous step's date with an empty
+   *  time; on a *dependent* rejection the cell's current (pre-edit) value. */
   storedValue: string
-  /** True when the proposal broke the ordering rule and was reverted. */
+  /** True when the proposal broke the ordering rule and was not applied. */
   rejected: boolean
   /** A user-facing explanation, set only when `rejected` is true. */
   message?: string
@@ -318,16 +319,29 @@ export type ProcessingTimeEdit = {
  * earlier than the last step.
  *
  * Rather than accept a bad value and merely flag it — which lets an incorrect
- * timeline sit there looking "specified" — this rejects it outright and
- * re-imposes the previous step's date with a **blank time**, so the field goes
- * back to buzzing and the user immediately sees their entry was not taken. The
- * check looks at the whole row, so it also catches *forward* breakage: raising
- * an early step above a later one (t1 → t1 > t2) is rejected just the same,
- * because it would push the later step into a regression.
+ * timeline sit there looking "specified" — an out-of-order proposal is never
+ * committed. Two failure shapes are handled differently:
  *
- * A blank or date-only proposal is always accepted: only complete date+time
+ * - **Direct failure** — the proposed time is itself earlier than the step
+ *   before it. The entry is rejected and the previous step's date is
+ *   re-imposed with a **blank time**, so the field goes back to buzzing and
+ *   the user immediately sees their entry was not taken and must retry.
+ *   This applies even when the cell was *already* flagged before the edit
+ *   (e.g. legacy data): a still-invalid retry must never be silently kept
+ *   just because the cell was bad to begin with.
+ *
+ * - **Dependent failure** — the proposed time is fine relative to its own
+ *   previous step, but committing it would push *other* cells out of order
+ *   (raising an early step above a later one, or breaking a row linked via
+ *   "As above"). Here the cell's **current value stays** — clearing it would
+ *   punish a cell that isn't the real problem — and the message explains
+ *   which conflict blocked the change.
+ *
+ * A blank or date-only proposal is normally accepted (only complete date+time
  * cells participate in the ordering check, so a bare date can never be "too
- * early" — it just keeps the cell incomplete (buzzing) until a time is added.
+ * early" — it just keeps the cell buzzing until a time is added); the one
+ * exception is a clear that would itself push other cells out of order (a
+ * legacy-data corner), which is refused as a dependent failure like any other.
  */
 export function resolveProcessingTimeEdit(
   process: Process,
@@ -342,35 +356,56 @@ export function resolveProcessingTimeEdit(
     divergeIdx >= 0 && stageIdx >= divergeIdx ? stackKey : null
   const key = processingTimeKey(stageIdx, effectiveStackKey)
 
-  if (!hasTime(proposedValue)) {
-    return { storedValue: proposedValue, rejected: false }
-  }
-
   const candidate = { ...currentTimes, [key]: proposedValue }
-  const introduced = newRegressionKeys(
+  const before = findProcessingTimeRegressions(
     process,
     stacks,
     divergeIdx,
     currentTimes,
+  )
+  const after = findProcessingTimeRegressions(
+    process,
+    stacks,
+    divergeIdx,
     candidate,
   )
-  if (introduced.size === 0) {
+  // Direct: the edited value itself is out of order. Checked against `after`
+  // alone (not `after − before`) so a previously-flagged cell can't mask a
+  // still-invalid retry.
+  const isDirect = hasTime(proposedValue) && after.has(key)
+  // Dependent: the edit would newly push *other* cells out of order. Pre-existing
+  // regressions elsewhere (legacy data) don't block an otherwise-valid edit.
+  const isDependent = [...after].some((k) => k !== key && !before.has(k))
+
+  if (!isDirect && !isDependent) {
     return { storedValue: proposedValue, rejected: false }
   }
 
-  // Rejected — reimpose the previous step's date (blank time) so the cell keeps
-  // buzzing and the timeline never holds an out-of-order value.
-  const ctx: ProcessingTimesCtx = {
-    processingTimes: currentTimes,
-    divergeIdx,
-    stackOrder: stacks.map((s) => s.key),
+  if (isDirect) {
+    // Rejected — reimpose the previous step's date (blank time) so the cell
+    // keeps buzzing and the timeline never holds an out-of-order value.
+    const ctx: ProcessingTimesCtx = {
+      processingTimes: currentTimes,
+      divergeIdx,
+      stackOrder: stacks.map((s) => s.key),
+    }
+    const prevDate = datePart(
+      resolveProcessingTime(stageIdx - 1, stackKey, ctx),
+    )
+    const isEnd = stageIdx === endStageIdx(process)
+    const message = isEnd
+      ? "The end of the experiment can't be earlier than the last step. Its time was cleared — enter a time no earlier than the last step."
+      : "A step can't start before the step before it. The time was cleared — enter a time no earlier than the previous step (they may be equal)."
+    return { storedValue: prevDate, rejected: true, message }
   }
-  const prevDate = datePart(resolveProcessingTime(stageIdx - 1, stackKey, ctx))
-  const isEnd = stageIdx === endStageIdx(process)
-  const message = isEnd
-    ? "The end of the experiment can't be earlier than the last step. Its time was cleared — enter a time no earlier than the last step."
-    : "A step can't start before the step before it. The time was cleared — enter a time no earlier than the previous step (they may be equal)."
-  return { storedValue: prevDate, rejected: true, message }
+
+  // Dependent-only failure: keep the cell's current value and explain.
+  return {
+    storedValue: currentTimes[key] ?? "",
+    rejected: true,
+    message:
+      "This change was not applied — it would put other steps out of order (a later step, or a row linked via “As above”, would end up starting before an earlier one). The current time was kept; adjust the conflicting steps first if this change is intended.",
+  }
 }
 
 export type ProcessingAsAboveToggle = {

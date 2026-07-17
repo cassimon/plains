@@ -297,8 +297,10 @@ describe("resolveProcessingTimeEdit — single row", () => {
     })
   })
 
-  test("forward chain: raising an early step above a later one is rejected", () => {
-    // t0 < t1 < t2 established, then the user drags t0 up past t1.
+  test("forward chain (dependent failure): raising an early step above a later one keeps the current time", () => {
+    // t0 < t1 < t2 established, then the user drags t0 up past t1. The edited
+    // cell isn't itself out of order — committing it would make *t1* invalid —
+    // so the current time stays and the message explains the conflict.
     const chain = {
       "stage:0": "2024-01-01T10:00",
       "stage:1": "2024-01-01T11:00",
@@ -306,8 +308,47 @@ describe("resolveProcessingTimeEdit — single row", () => {
     }
     const result = edit(chain, 0, "2024-01-01T11:30")
     expect(result.rejected).toBe(true)
-    // No previous step before stage 0 → nothing to cascade, blank it out.
+    expect(result.storedValue).toBe("2024-01-01T10:00")
+    expect(result.message).toMatch(/kept/i)
+  })
+
+  test("dependent failure with a previously-blank cell keeps it blank", () => {
+    // t1 and t2 are set; the user enters a fresh t0 above t1 — valid against
+    // its own (non-existent) previous step, but it would break t1.
+    const times = {
+      "stage:1": "2024-01-01T11:00",
+      "stage:2": "2024-01-01T12:00",
+    }
+    const result = edit(times, 0, "2024-01-01T11:30")
+    expect(result.rejected).toBe(true)
     expect(result.storedValue).toBe("")
+  })
+
+  test("a still-invalid retry on an already-flagged cell is rejected, not masked", () => {
+    // stage:1 already regresses (legacy/imported). Entering *another* invalid
+    // time there must not slip through just because the key was flagged before.
+    const legacy = {
+      "stage:0": "2024-01-01T10:00",
+      "stage:1": "2024-01-01T09:00", // already flagged
+    }
+    const result = edit(legacy, 1, "2024-01-01T08:00")
+    expect(result.rejected).toBe(true)
+    // Direct failure → cleared back to the previous step's date, blank time.
+    expect(result.storedValue).toBe("2024-01-01")
+    expect(hasTime(result.storedValue)).toBe(false)
+  })
+
+  test("clearing a time that shields a later step from an earlier one is refused (dependent)", () => {
+    // Legacy shape: t0=11:00, t1=09:00 (flagged), t2=10:00 (fine vs t1).
+    // Clearing t1 would newly make t2 < t0 — refused, current value kept.
+    const legacy = {
+      "stage:0": "2024-01-01T11:00",
+      "stage:1": "2024-01-01T09:00",
+      "stage:2": "2024-01-01T10:00",
+    }
+    const result = edit(legacy, 1, "")
+    expect(result.rejected).toBe(true)
+    expect(result.storedValue).toBe("2024-01-01T09:00")
   })
 
   test("the end cell earlier than the last step is rejected with an end-specific message", () => {

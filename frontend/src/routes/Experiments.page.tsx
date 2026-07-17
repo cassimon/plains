@@ -1139,12 +1139,25 @@ function ExperimentGrid({
     ],
   )
 
+  // A rejected edit must never remain *visible* either: `DeferredTextInput`
+  // keeps its local (typed) value while the committed prop is unchanged, so a
+  // rejection that stores the same value the cell already had (e.g. re-imposing
+  // an already-cascaded date, or keeping the current time on a dependent
+  // failure) would leave the refused entry sitting in the field looking
+  // accepted. Bumping a per-cell nonce remounts the cell's inputs, snapping
+  // them back to the committed value.
+  const [timeCellResetNonces, setTimeCellResetNonces] = useState<
+    Record<string, number>
+  >({})
+
   // Combine a date part and a time part back into a stored `datetime-local`
   // value, then run it past the ordering gate: keep the date alone while the
   // time is still missing (so the cell stays "incomplete" and keeps buzzing),
-  // and — when a full time would start before the previous step — reject it,
-  // re-imposing the previous step's date with a blank time and telling the user
-  // why, so an out-of-order value can never be committed.
+  // and — when the full time would break the ordering — refuse it: a *direct*
+  // failure (earlier than the previous step) clears the cell back to buzzing,
+  // while a *dependent* failure (other steps would become invalid) keeps the
+  // current time; both tell the user why, so an out-of-order value can never
+  // be committed and never goes unannounced.
   const handleProcessingDateTimeChange = useCallback(
     (stageIdx: number, stackKey: string | null, date: string, time: string) => {
       const proposed = date && time ? `${date}T${time}` : date ? date : ""
@@ -1161,16 +1174,20 @@ function ExperimentGrid({
         processingDivergeIdx >= 0 && stageIdx >= processingDivergeIdx
           ? stackKey
           : null
-      handleProcessingTimeChange(
-        processingTimeKey(stageIdx, effectiveStackKey),
-        result.storedValue,
-      )
-      if (result.rejected && result.message) {
-        notifications.show({
-          color: "orange",
-          title: "Time not accepted",
-          message: result.message,
-        })
+      const cellKey = processingTimeKey(stageIdx, effectiveStackKey)
+      handleProcessingTimeChange(cellKey, result.storedValue)
+      if (result.rejected) {
+        setTimeCellResetNonces((nonces) => ({
+          ...nonces,
+          [cellKey]: (nonces[cellKey] ?? 0) + 1,
+        }))
+        if (result.message) {
+          notifications.show({
+            color: "orange",
+            title: "Time not accepted",
+            message: result.message,
+          })
+        }
       }
     },
     [
@@ -1699,6 +1716,9 @@ function ExperimentGrid({
                           const isFlagged = processingRegressions.has(cellKey)
                           const dateVal = datePart(resolvedValue)
                           const timeVal = timePart(resolvedValue)
+                          // Bumped on every rejected edit — remounts the two
+                          // inputs so a refused entry can't linger on screen.
+                          const resetNonce = timeCellResetNonces[cellKey] ?? 0
                           return (
                             <td
                               key={`ptime-${row.rowKey}-${idx}`}
@@ -1718,6 +1738,7 @@ function ExperimentGrid({
                                     align="flex-start"
                                   >
                                     <DeferredTextInput
+                                      key={`date-${resetNonce}`}
                                       size="xs"
                                       type="date"
                                       pulseWhenEmpty
@@ -1733,6 +1754,7 @@ function ExperimentGrid({
                                       style={{ minWidth: 130 }}
                                     />
                                     <DeferredTextInput
+                                      key={`time-${resetNonce}`}
                                       size="xs"
                                       type="time"
                                       pulseWhenEmpty
