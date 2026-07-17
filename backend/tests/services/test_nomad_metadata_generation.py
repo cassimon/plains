@@ -1,5 +1,5 @@
-from types import SimpleNamespace
 import uuid
+from types import SimpleNamespace
 
 from app.services.nomad import create_nomad_metadata_yaml
 
@@ -32,16 +32,20 @@ def _orm_material(d):
     return SimpleNamespace(
         id=d["id"],
         name=d.get("name"),
+        category=d.get("category"),
         type=d.get("type"),
         cas_number=d.get("casNumber"),
         pubchem_cid=d.get("pubchemCid"),
         molecular_weight=d.get("molecularWeight"),
         density=d.get("density"),
+        density_unit=d.get("densityUnit"),
         supplier=d.get("supplier"),
         supplier_number=d.get("supplierNumber"),
+        inventory_label=d.get("inventoryLabel"),
         purity=d.get("purity"),
         state_at_rt=d.get("stateAtRt"),
         height_mm=d.get("heightMm"),
+        notes=d.get("notes"),
     )
 
 
@@ -53,6 +57,10 @@ def _orm_solution(d):
         id=d["id"],
         name=d.get("name"),
         type=d.get("type"),
+        handling=d.get("handling"),
+        storage=d.get("storage"),
+        creation_time=d.get("creationTime"),
+        notes=d.get("notes"),
         components=[
             SimpleNamespace(
                 material_id=c.get("materialId"),

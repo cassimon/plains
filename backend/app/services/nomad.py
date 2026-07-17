@@ -775,16 +775,22 @@ def create_nomad_metadata_yaml(
         str(m.id): {
             "id": str(m.id),
             "name": m.name,
+            # New inventory fields are read defensively: real LabMaterial rows carry
+            # every column, but some tests fake a material with a subset.
+            "category": getattr(m, "category", None),
             "type": m.type,
             "casNumber": m.cas_number,
             "pubchemCid": m.pubchem_cid,
             "molecularWeight": m.molecular_weight,
             "density": m.density,
+            "densityUnit": getattr(m, "density_unit", None),
             "supplier": m.supplier,
             "supplierNumber": m.supplier_number,
+            "inventoryLabel": getattr(m, "inventory_label", None),
             "purity": m.purity,
             "stateAtRt": m.state_at_rt,
             "heightMm": m.height_mm,
+            "notes": getattr(m, "notes", None),
         }
         for m in owner_materials
     }
@@ -793,6 +799,14 @@ def create_nomad_metadata_yaml(
             "id": str(s.id),
             "name": s.name,
             "type": s.type,
+            "handling": getattr(s, "handling", None),
+            "storage": getattr(s, "storage", None),
+            "creationTime": (
+                s.creation_time.isoformat()
+                if getattr(s, "creation_time", None)
+                else None
+            ),
+            "notes": getattr(s, "notes", None),
             "components": [
                 {
                     "materialId": str(c.material_id) if c.material_id else None,
@@ -814,6 +828,15 @@ def create_nomad_metadata_yaml(
         if isinstance(recipe, dict) and recipe.get("id")
     }
 
+    # Material and solution ELN entities are emitted once per upload (see
+    # `_emit_entities`), and steps reference them by these maps: id -> raw-file
+    # reference, and id -> which kind of entity it became ('material' or
+    # 'solution'). A commercial recipe is a bought product, so it becomes a
+    # material even though it is referenced as a recipe. Populated before the
+    # substrate loop so `_step_material_payload` can wire the references.
+    entity_ref_by_id: dict[str, str] = {}
+    entity_kind_by_id: dict[str, str] = {}
+
     # ── 3. Build step map: step_id → ProcessStep dict ─────────────────────────
     step_map: dict[str, dict[str, Any]] = {}
     if process_data:
@@ -834,6 +857,19 @@ def create_nomad_metadata_yaml(
                 continue
             if stack.get("combination") not in deleted_combinations:
                 active_stacks.append(stack)
+
+    # Which layer each step produces, keyed by step id: generated-stack layers
+    # carry the id of the step that deposits them (`step_ref`), plus the layer's
+    # name and thickness. Used to record `layer_name`/`layer_thickness` on the
+    # deposition step.
+    layer_by_step_id: dict[str, dict[str, Any]] = {}
+    for stack in active_stacks:
+        for layer in stack.get("layers") or []:
+            if not isinstance(layer, dict):
+                continue
+            layer_id = str(layer.get("id") or "").strip()
+            if layer_id and layer_id not in layer_by_step_id:
+                layer_by_step_id[layer_id] = layer
 
     # ── 5. Experiment-level metadata ──────────────────────────────────────────
     substrate_material = exp_data.get("substrateMaterial", "Unknown")
@@ -1464,6 +1500,10 @@ def create_nomad_metadata_yaml(
         except (ValueError, TypeError):
             return None
 
+    def _to_int(value: Any) -> int | None:
+        number = _to_float(value)
+        return int(number) if number is not None else None
+
     def _resolve_substrate_material(
         substrate: dict[str, Any] | None,
     ) -> dict[str, Any] | None:
@@ -1969,6 +2009,40 @@ def create_nomad_metadata_yaml(
                 result["vacuum"] = vacuum_params
 
         return result
+
+    def _step_quenching_payload(
+        step: dict[str, Any], substrate: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """A `QuenchingParameters` payload for the step, or None when it does not quench.
+
+        Same parse the device sample's `perovskite_deposition` uses, but attached
+        to the step that performed it. When the antisolvent is one of the lab's
+        solutions, its emitted entity is linked via `media_reference`.
+        """
+        drying = _get_step_param(step, "dryingMethod", substrate, "")
+        if not drying or drying == "Unknown":
+            return None
+        parsed = _parse_quenching_string(drying)
+        if not parsed.get("type"):
+            return None
+
+        payload: dict[str, Any] = {}
+        if parsed.get("time_until_start") is not None:
+            payload["time_until_start"] = parsed["time_until_start"]
+        if parsed.get("gas"):
+            payload["gas"] = parsed["gas"]
+        if parsed.get("vacuum"):
+            payload["vacuum"] = parsed["vacuum"]
+        if parsed.get("antisolvent"):
+            antisolvent = dict(parsed["antisolvent"])
+            kind, _, ref_id = str(parsed.get("media_ref") or "").partition(":")
+            if kind.strip().lower() == "solution" and ref_id.strip():
+                reference = entity_ref_by_id.get(ref_id.strip())
+                if reference:
+                    antisolvent["media_reference"] = reference
+            payload["antisolvent"] = antisolvent
+
+        return payload or None
 
     def _build_section(
         entries: list[tuple[dict[str, Any], str]],
@@ -2768,6 +2842,20 @@ def create_nomad_metadata_yaml(
             return None
         return round(moles / total_volume_l, 6)
 
+    def _attach_entity_reference(payload: dict[str, Any], entity_id: str) -> None:
+        """Point a `DepositedMaterial` payload at the entity emitted for `entity_id`.
+
+        The link goes on `solution_reference` or `material_reference` depending on
+        which kind of entity the id became; a commercial recipe is a material.
+        """
+        reference = entity_ref_by_id.get(entity_id)
+        if not reference:
+            return
+        if entity_kind_by_id.get(entity_id) == "material":
+            payload["material_reference"] = reference
+        else:
+            payload["solution_reference"] = reference
+
     def _step_material_payload(step: dict[str, Any]) -> dict[str, Any] | None:
         recipe_id = str(step.get("chemRecipeId") or "").strip()
         if recipe_id:
@@ -2785,6 +2873,7 @@ def create_nomad_metadata_yaml(
                 concentration = _recipe_molar_concentration(recipe_id)
                 if concentration is not None:
                     payload["concentration"] = concentration
+                _attach_entity_reference(payload, recipe_id)
                 return payload
 
         inline = step.get("inlineMaterial")
@@ -2805,17 +2894,364 @@ def create_nomad_metadata_yaml(
                 concentration = _solution_molar_concentration(solution_id)
                 if concentration is not None:
                     solution_payload["concentration"] = concentration
+                _attach_entity_reference(solution_payload, solution_id)
                 return solution_payload
 
         material_id = str(step.get("materialId") or "").strip()
         if material_id:
             material = materials_by_id.get(material_id)
-            return {
+            payload = {
                 "name": _material_name(material, material_id),
                 "supplier": _material_supplier(material),
             }
+            _attach_entity_reference(payload, material_id)
+            return payload
 
         return None
+
+    # ── Material & solution ELN entities ──────────────────────────────────────
+    # Each app material and solution used by this experiment is emitted as its own
+    # NOMAD ELN entry (PlainsMaterial / PlainsSolution), and the deposition steps
+    # reference them. This replaces the previous flattening (everything reduced to
+    # `;`-joined strings and a name-only `DepositedMaterial`), which dropped the
+    # identifiers, composition, stock-solution structure, supplier and inventory
+    # metadata the app records.
+
+    MATERIAL_MDEF = (
+        'nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals.'
+        'PlainsMaterial'
+    )
+    SOLUTION_MDEF = (
+        'nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals.'
+        'PlainsSolution'
+    )
+
+    def _state_of_matter(material: dict[str, Any] | None) -> str | None:
+        state = str((material or {}).get("stateAtRt") or "").strip().lower()
+        return {"liquid": "Liquid", "solid": "Solid", "gas": "Gas"}.get(state)
+
+    def _pubchem_inline(name: str, cid: Any) -> dict[str, Any]:
+        """An inline PubChem identity section, pre-filled and never re-fetched.
+
+        `load_data=False` keeps NOMAD processing offline and deterministic: the
+        app already resolved and verified the CID, so nothing is queried live.
+        """
+        section: dict[str, Any] = {"load_data": False}
+        clean_name = _clean_value(name, "")
+        if clean_name:
+            section["name"] = clean_name
+        cid_int = _to_int(cid)
+        if cid_int is not None:
+            section["pub_chem_cid"] = cid_int
+        return section
+
+    def _set_solution_amount(row: dict[str, Any], amount: Any, unit: str) -> None:
+        """Route a component amount onto the SolutionChemical quantity for its unit."""
+        value = _to_float(amount)
+        if value is None:
+            return
+        key = {"ml": "chemical_volume", "mg": "chemical_mass", "mol": "amount_mol"}.get(
+            str(unit or "").strip().lower()
+        )
+        if key:
+            row[key] = value
+
+    # Phase 1: reserve a filename (and thus a reference) for every entity that will
+    # be emitted, closing transitively over solution components and mixed-in
+    # recipes so every reference has a target. Kinds: a commercial recipe is a
+    # bought product -> a material; everything else that is mixed -> a solution.
+    entity_fname_by_id: dict[str, str] = {}
+
+    def _register_entity(kind: str, entity_id: str) -> None:
+        entity_id = str(entity_id or "").strip()
+        if not entity_id or entity_id in entity_ref_by_id:
+            return
+
+        if kind == "material":
+            if entity_id not in materials_by_id:
+                return
+            resolved_kind = "material"
+        elif kind == "solution":
+            if entity_id not in solutions_by_id:
+                return
+            resolved_kind = "solution"
+        elif kind == "recipe":
+            recipe = recipes_by_id.get(entity_id)
+            if not isinstance(recipe, dict):
+                return
+            resolved_kind = "material" if recipe.get("isCommercial") else "solution"
+        else:
+            return
+
+        prefix = "materials" if resolved_kind == "material" else "solutions"
+        suffix = "material" if resolved_kind == "material" else "solution"
+        fname = _reserve_archive_filename(f"{prefix}_{_slug(entity_id)}.{suffix}.archive.yaml")
+        entity_fname_by_id[entity_id] = fname
+        entity_ref_by_id[entity_id] = _upload_raw_reference(fname, "/data")
+        entity_kind_by_id[entity_id] = resolved_kind
+
+        # Recurse into what this entity references, now that its own reference is
+        # recorded (so a solution that contains itself, directly or transitively,
+        # terminates).
+        if kind == "solution":
+            for component in solutions_by_id[entity_id].get("components") or []:
+                if not isinstance(component, dict):
+                    continue
+                if component.get("materialId"):
+                    _register_entity("material", component["materialId"])
+                elif component.get("solutionId"):
+                    _register_entity("solution", component["solutionId"])
+        elif kind == "recipe" and resolved_kind == "solution":
+            for added in recipes_by_id[entity_id].get("addedSolutions") or []:
+                if isinstance(added, dict) and added.get("recipeId"):
+                    _register_entity("recipe", added["recipeId"])
+
+    def _build_material_entity(entity_id: str) -> dict[str, Any]:
+        material = materials_by_id.get(entity_id) or {}
+        data: dict[str, Any] = {
+            "m_def": MATERIAL_MDEF,
+            "name": _material_name(material, entity_id),
+        }
+        inventory = _clean_value(material.get("inventoryLabel"), "")
+        data["lab_id"] = inventory or entity_id
+
+        cas = _clean_value(material.get("casNumber"), "")
+        if cas:
+            data["cas_number"] = cas
+        molar_mass = _to_float(material.get("molecularWeight"))
+        if molar_mass is not None:
+            # `molecular_mass` is stored in daltons, numerically equal to g/mol.
+            data["molecular_mass"] = molar_mass
+        density = _to_float(material.get("density"))
+        if density is not None:
+            data["density"] = density
+        purity = _clean_value(material.get("purity"), "")
+        if purity:
+            data["purity"] = purity
+        state = _state_of_matter(material)
+        if state:
+            data["state_of_matter"] = state
+        category = _clean_value(material.get("category") or material.get("type"), "")
+        if category:
+            data["material_category"] = category
+        notes = _clean_value(material.get("notes"), "")
+        if notes:
+            data["description"] = notes
+
+        cid = _to_int(material.get("pubchemCid"))
+        if cid is not None:
+            substance = _pubchem_inline(material.get("name") or "", cid)
+            if molar_mass is not None:
+                substance["molar_mass"] = molar_mass
+            if cas:
+                substance["cas_number"] = cas
+            data["substance"] = substance
+
+        product_info: dict[str, Any] = {}
+        supplier = _clean_value(material.get("supplier"), "")
+        if supplier:
+            product_info["supplier"] = supplier
+        supplier_number = _clean_value(material.get("supplierNumber"), "")
+        if supplier_number:
+            product_info["product_number"] = supplier_number
+        if product_info:
+            data["product_info"] = product_info
+
+        return data
+
+    def _solution_component_rows(
+        solution: dict[str, Any],
+    ) -> dict[str, list[dict[str, Any]]]:
+        solvent: list[dict[str, Any]] = []
+        solute: list[dict[str, Any]] = []
+        other: list[dict[str, Any]] = []
+
+        for component in solution.get("components") or []:
+            if not isinstance(component, dict):
+                continue
+            amount = component.get("amount")
+            unit = str(component.get("unit") or "")
+            material_id = str(component.get("materialId") or "").strip()
+            nested_id = str(component.get("solutionId") or "").strip()
+
+            if material_id:
+                material = materials_by_id.get(material_id)
+                row: dict[str, Any] = {"name": _material_name(material, material_id)}
+                reference = entity_ref_by_id.get(material_id)
+                if reference:
+                    row["chemical"] = reference
+                else:
+                    row["chemical_2"] = _pubchem_inline(
+                        (material or {}).get("name") or row["name"],
+                        (material or {}).get("pubchemCid"),
+                    )
+                _set_solution_amount(row, amount, unit)
+                (solvent if _is_solvent_material(material) else solute).append(row)
+            elif nested_id:
+                nested = solutions_by_id.get(nested_id) or {}
+                entry: dict[str, Any] = {
+                    "name": _clean_value(nested.get("name"), "Solution")
+                }
+                reference = entity_ref_by_id.get(nested_id)
+                if reference:
+                    entry["solution"] = reference
+                volume = _to_float(amount)
+                if volume is not None and str(unit).strip().lower() == "ml":
+                    entry["solution_volume"] = volume
+                other.append(entry)
+
+        return {"solvent": solvent, "solute": solute, "other_solution": other}
+
+    def _build_solution_entity(entity_id: str) -> dict[str, Any]:
+        solution = solutions_by_id.get(entity_id) or {}
+        data: dict[str, Any] = {
+            "m_def": SOLUTION_MDEF,
+            "name": _clean_value(solution.get("name"), "Solution"),
+            "lab_id": entity_id,
+        }
+        creation_time = _clean_value(solution.get("creationTime"), "")
+        if creation_time:
+            data["datetime"] = creation_time
+        handling = _clean_value(solution.get("handling"), "")
+        if handling:
+            data["handling"] = handling
+        storage = _clean_value(solution.get("storage"), "")
+        if storage:
+            data["storage"] = [{"storage_condition": storage}]
+        notes = _clean_value(solution.get("notes"), "")
+        if notes:
+            data["description"] = notes
+
+        rows = _solution_component_rows(solution)
+        for key, value in rows.items():
+            if value:
+                data[key] = value
+        return data
+
+    def _build_recipe_material_entity(recipe_id: str) -> dict[str, Any]:
+        recipe = recipes_by_id.get(recipe_id) or {}
+        data: dict[str, Any] = {
+            "m_def": MATERIAL_MDEF,
+            "name": _clean_value(recipe.get("commercialName") or recipe.get("name")),
+        }
+        supplier_number = _clean_value(recipe.get("supplierNumber"), "")
+        data["lab_id"] = supplier_number or recipe_id
+        if supplier_number:
+            data["product_info"] = {
+                "supplier": supplier_number,
+                "product_number": supplier_number,
+            }
+        return data
+
+    def _build_recipe_solution_entity(recipe_id: str) -> dict[str, Any]:
+        recipe = recipes_by_id.get(recipe_id) or {}
+        data: dict[str, Any] = {
+            "m_def": SOLUTION_MDEF,
+            "name": _clean_value(recipe.get("name"), "Solution"),
+            "lab_id": recipe_id,
+        }
+
+        solvent: list[dict[str, Any]] = []
+        solvents = [s for s in (recipe.get("solvents") or []) if isinstance(s, dict)]
+        for source, volume_ml in zip(
+            solvents, _recipe_solvent_volumes_ml(recipe), strict=False
+        ):
+            row: dict[str, Any] = {
+                "name": _clean_value(source.get("name")),
+                "chemical_2": _pubchem_inline(
+                    source.get("name") or "", source.get("pubchemCid")
+                ),
+            }
+            if volume_ml is not None:
+                row["chemical_volume"] = volume_ml
+            solvent.append(row)
+
+        solute: list[dict[str, Any]] = []
+        for source in recipe.get("solutes") or []:
+            if not isinstance(source, dict):
+                continue
+            row = {
+                "name": _clean_value(source.get("name")),
+                "chemical_2": _pubchem_inline(
+                    source.get("name") or "", source.get("pubchemCid")
+                ),
+            }
+            _set_solution_amount(row, source.get("amount"), str(source.get("unit") or ""))
+            solute.append(row)
+
+        other: list[dict[str, Any]] = []
+        additive: list[dict[str, Any]] = []
+        for added in recipe.get("addedSolutions") or []:
+            if not isinstance(added, dict):
+                continue
+            added_id = str(added.get("recipeId") or "").strip()
+            if not added_id:
+                continue
+            volume_ml = _to_float(added.get("volumeMl"))
+            source = recipes_by_id.get(added_id) or {}
+            name = _clean_value(
+                source.get("name") or source.get("commercialName"), "Solution"
+            )
+            reference = entity_ref_by_id.get(added_id)
+            if entity_kind_by_id.get(added_id) == "material":
+                # A commercial product mixed in: a material, not a sub-solution.
+                row = {"name": name}
+                if reference:
+                    row["chemical"] = reference
+                if volume_ml is not None:
+                    row["chemical_volume"] = volume_ml
+                additive.append(row)
+            else:
+                entry: dict[str, Any] = {"name": name}
+                if reference:
+                    entry["solution"] = reference
+                if volume_ml is not None:
+                    entry["solution_volume"] = volume_ml
+                other.append(entry)
+
+        for key, value in (
+            ("solvent", solvent),
+            ("solute", solute),
+            ("additive", additive),
+            ("other_solution", other),
+        ):
+            if value:
+                data[key] = value
+        return data
+
+    def _build_entity_data(entity_id: str) -> dict[str, Any]:
+        kind = entity_kind_by_id.get(entity_id)
+        if entity_id in solutions_by_id:
+            return _build_solution_entity(entity_id)
+        if entity_id in materials_by_id:
+            return _build_material_entity(entity_id)
+        # A process recipe: material when commercial, otherwise a mixed solution.
+        if kind == "material":
+            return _build_recipe_material_entity(entity_id)
+        return _build_recipe_solution_entity(entity_id)
+
+    def _emit_entities() -> None:
+        """Register and write every material/solution entity this experiment uses."""
+        for substrate in substrates_list:
+            if not isinstance(substrate, dict):
+                continue
+            for _stage_idx, step in _selected_steps_for_substrate(substrate):
+                if step.get("materialId"):
+                    _register_entity("material", step["materialId"])
+                if step.get("solutionId"):
+                    _register_entity("solution", step["solutionId"])
+                if step.get("chemRecipeId"):
+                    _register_entity("recipe", step["chemRecipeId"])
+                # The antisolvent of a quenching step can be one of the lab's
+                # solutions; emit and link it too.
+                drying = _get_step_param(step, "dryingMethod", substrate, "")
+                media_ref = str(_parse_quenching_string(drying).get("media_ref") or "")
+                kind, _, ref_id = media_ref.partition(":")
+                if kind.strip().lower() == "solution" and ref_id.strip():
+                    _register_entity("solution", ref_id.strip())
+
+        for entity_id, fname in entity_fname_by_id.items():
+            archives[fname] = {"data": _build_entity_data(entity_id)}
 
     # ── Processing times ──────────────────────────────────────────────────────
     # Mirror of frontend/src/lib/processingTimes.ts. A substrate follows one
@@ -3188,6 +3624,24 @@ def create_nomad_metadata_yaml(
             if material_payload:
                 step_payload["material"] = material_payload
 
+            # The layer this step produces (name + thickness), from the generated
+            # stack. Without it the deposition entry does not record what the step
+            # was for.
+            layer = layer_by_step_id.get(str(step.get("id") or ""))
+            if isinstance(layer, dict):
+                layer_name = _clean_value(layer.get("name"), "")
+                if layer_name:
+                    step_payload["layer_name"] = layer_name
+                thickness_nm = _to_float(layer.get("thicknessNm"))
+                if thickness_nm is not None:
+                    step_payload["layer_thickness"] = thickness_nm
+
+            # Quenching applied during this step, on the step itself (it used to
+            # live only on the device sample's perovskite_deposition).
+            quench_payload = _step_quenching_payload(step, substrate)
+            if quench_payload:
+                step_payload["quenching"] = quench_payload
+
             step_payloads.append(step_payload)
 
         process_payload: dict[str, Any] = {
@@ -3361,6 +3815,10 @@ def create_nomad_metadata_yaml(
     archives: dict[str, dict[str, Any]] = {}
     # Deposition routines are collected here and written after deduplication.
     _pending_depositions: list[tuple[str, dict[str, Any]]] = []
+
+    # Emit the material/solution ELN entities first, so their references exist
+    # before the deposition steps that point at them are built.
+    _emit_entities()
 
     for sub_idx, substrate in enumerate(substrates_list):
         if isinstance(substrate, dict):
