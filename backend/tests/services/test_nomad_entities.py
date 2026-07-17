@@ -452,3 +452,124 @@ def test_step_quenching_links_the_antisolvent_solution_entity():
     assert antisolvent["volume"] == 150.0
     assert antisolvent["media_reference"].endswith(f"{as_name}#/data")
     assert quench_step["quenching"]["time_until_start"] == 8.0
+
+
+def test_recipe_ingredients_match_inventory_materials_by_cid_and_name():
+    """The modern flow: steps reference a chem recipe only, and the recipe's
+    ingredients carry PubChem CIDs / names — no LabMaterial foreign keys. The
+    inventory must still be emitted (matched by CID first, then name), the
+    solution rows must reference the matched material entries, and the recipe's
+    handling / type / solvent ratios must survive into the solution entry."""
+    experiment_id = str(uuid.uuid4())
+
+    materials = [
+        {
+            "id": "mat-sub",
+            "name": "FTO glass",
+            "type": "substrate",
+            "stateAtRt": "solid",
+            "inventoryLabel": "INV-FTO",
+        },
+        {
+            "id": "mat-pbi2",
+            "name": "Lead iodide",  # name differs from the recipe's — CID matches
+            "type": "salt",
+            "stateAtRt": "solid",
+            "pubchemCid": "24956",
+            "inventoryLabel": "INV-PBI2",
+            "supplier": "TCI",
+        },
+        {
+            "id": "mat-dmf",
+            "name": "DMF",  # no CID — matched case-insensitively by name
+            "type": "solvent",
+            "stateAtRt": "liquid",
+            "inventoryLabel": "INV-DMF",
+        },
+    ]
+
+    process_snapshot = {
+        "id": "process-1",
+        "solutionRecipes": [
+            {
+                "id": "recipe-pvk",
+                "name": "Perovskite ink",
+                "type": "perovskite",
+                "handlingPreparation": "Stir overnight at 60C",
+                "handlingBeforeUse": "Filter with 0.2um PTFE",
+                "totalSolventVolumeMl": 1.0,
+                "solvents": [
+                    {"name": "dmf", "volumeRatio": 4.0},
+                    {"name": "DMSO", "pubchemCid": "679", "volumeRatio": 1.0},
+                ],
+                "solutes": [
+                    {"name": "PbI2", "pubchemCid": "24956", "amount": "461", "unit": "mg"},
+                ],
+                "addedSolutions": [],
+            },
+        ],
+        "stages": [
+            {
+                "index": 0,
+                "alternatives": [
+                    {
+                        "id": "step-pvk",
+                        "name": "Perovskite spin",
+                        "stepCategory": "wet_deposition",
+                        "chemRecipeId": "recipe-pvk",
+                        "depositionMethod": {"value": "Spin coating", "mode": "constant"},
+                    }
+                ],
+            }
+        ],
+        "generatedStacks": [],
+        "deletedStackCombinations": [],
+    }
+    experiment_snapshot = {
+        "id": experiment_id,
+        "name": "Inventory match experiment",
+        "description": "",
+        "architecture": "n-i-p",
+        "substrateMaterial": "substrate: Glass/FTO",
+        "devicesPerSubstrate": 1,
+        "deviceArea": 0.09,
+        "substrates": [
+            {"id": "sub-1", "name": "sub-1", "substrateMaterialId": "mat-sub"}
+        ],
+    }
+
+    archives = _run(experiment_snapshot, process_snapshot, materials, [])
+
+    material_entries = _by_mdef(archives, MATERIAL_MDEF)
+    solution_entries = _by_mdef(archives, SOLUTION_MDEF)
+
+    # Matched inventory materials become entities carrying the inventory label.
+    by_name = {
+        body["data"]["name"]: (name, body["data"])
+        for name, body in material_entries.items()
+    }
+    pbi2_name, pbi2 = by_name["Lead iodide"]  # matched via CID despite the name
+    assert pbi2["lab_id"] == "INV-PBI2"
+    dmf_name, dmf = by_name["DMF"]  # matched by case-insensitive name
+    assert dmf["lab_id"] == "INV-DMF"
+    # The substrate's inventory material is emitted too.
+    assert by_name["FTO glass"][1]["lab_id"] == "INV-FTO"
+    # DMSO matches nothing in the inventory -> no entity for it.
+    assert "DMSO" not in by_name
+
+    (ink,) = (body["data"] for body in solution_entries.values())
+    assert ink["name"] == "Perovskite ink"
+    assert ink["description"] == "perovskite"
+    assert ink["handling"] == "Stir overnight at 60C\n\nFilter with 0.2um PTFE"
+    assert ink["solvent_ratio"] == "4:1"
+
+    dmf_row = next(r for r in ink["solvent"] if r["name"] == "dmf")
+    assert dmf_row["chemical"].endswith(f"{dmf_name}#/data")
+    assert dmf_row["amount_relative"] == 4.0
+    dmso_row = next(r for r in ink["solvent"] if r["name"] == "DMSO")
+    assert "chemical" not in dmso_row  # unmatched: inline identity only
+    assert dmso_row["chemical_2"]["pub_chem_cid"] == 679
+
+    (solute_row,) = ink["solute"]
+    assert solute_row["chemical"].endswith(f"{pbi2_name}#/data")
+    assert solute_row["chemical_mass"] == 461.0

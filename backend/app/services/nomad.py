@@ -2926,6 +2926,40 @@ def create_nomad_metadata_yaml(
         'PlainsSolution'
     )
 
+    # Modern process steps carry no LabMaterial foreign keys: a chem recipe
+    # identifies its ingredients (solvents/solutes) by PubChem CID and name
+    # only. Without a link back to the inventory, no PlainsMaterial entities
+    # were emitted at all for recipe-driven experiments, and the solution rows
+    # lost the inventory metadata (inventory label → lab_id, CAS, supplier,
+    # purity). Match ingredients back to the material library — CID first
+    # (verified identity), then case-insensitive name — so the inventory still
+    # becomes ELN entities and the solution rows reference them.
+    _material_id_by_cid: dict[int, str] = {}
+    _material_id_by_name: dict[str, str] = {}
+    for _mat_id, _mat in materials_by_id.items():
+        _cid = _to_int(_mat.get("pubchemCid"))
+        if _cid is not None and _cid not in _material_id_by_cid:
+            _material_id_by_cid[_cid] = _mat_id
+        _mat_name = str(_mat.get("name") or "").strip().casefold()
+        if _mat_name and _mat_name not in _material_id_by_name:
+            _material_id_by_name[_mat_name] = _mat_id
+
+    def _match_inventory_material_id(name: Any, cid: Any) -> str | None:
+        cid_int = _to_int(cid)
+        if cid_int is not None and cid_int in _material_id_by_cid:
+            return _material_id_by_cid[cid_int]
+        key = str(name or "").strip().casefold()
+        return _material_id_by_name.get(key) if key else None
+
+    def _recipe_ingredients(recipe: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            ingredient
+            for ingredient in (
+                list(recipe.get("solvents") or []) + list(recipe.get("solutes") or [])
+            )
+            if isinstance(ingredient, dict)
+        ]
+
     def _state_of_matter(material: dict[str, Any] | None) -> str | None:
         state = str((material or {}).get("stateAtRt") or "").strip().lower()
         return {"liquid": "Liquid", "solid": "Solid", "gas": "Gas"}.get(state)
@@ -3002,9 +3036,18 @@ def create_nomad_metadata_yaml(
                 elif component.get("solutionId"):
                     _register_entity("solution", component["solutionId"])
         elif kind == "recipe" and resolved_kind == "solution":
-            for added in recipes_by_id[entity_id].get("addedSolutions") or []:
+            recipe = recipes_by_id[entity_id]
+            for added in recipe.get("addedSolutions") or []:
                 if isinstance(added, dict) and added.get("recipeId"):
                     _register_entity("recipe", added["recipeId"])
+            # Recipe ingredients matched back to the inventory become material
+            # entities of their own, referenced from the solution rows.
+            for ingredient in _recipe_ingredients(recipe):
+                matched = _match_inventory_material_id(
+                    ingredient.get("name"), ingredient.get("pubchemCid")
+                )
+                if matched:
+                    _register_entity("material", matched)
 
     def _build_material_entity(entity_id: str) -> dict[str, Any]:
         material = materials_by_id.get(entity_id) or {}
@@ -3118,9 +3161,17 @@ def create_nomad_metadata_yaml(
         storage = _clean_value(solution.get("storage"), "")
         if storage:
             data["storage"] = [{"storage_condition": storage}]
-        notes = _clean_value(solution.get("notes"), "")
-        if notes:
-            data["description"] = notes
+        # Solution type + free-text notes both land in the description.
+        description = "\n\n".join(
+            part
+            for part in (
+                _clean_value(solution.get("type"), ""),
+                _clean_value(solution.get("notes"), ""),
+            )
+            if part
+        )
+        if description:
+            data["description"] = description
 
         rows = _solution_component_rows(solution)
         for key, value in rows.items():
@@ -3137,11 +3188,17 @@ def create_nomad_metadata_yaml(
         supplier_number = _clean_value(recipe.get("supplierNumber"), "")
         data["lab_id"] = supplier_number or recipe_id
         if supplier_number:
-            data["product_info"] = {
-                "supplier": supplier_number,
-                "product_number": supplier_number,
-            }
+            # Only the catalogue number is known for a commercial recipe — the
+            # supplier name is not a recipe field, so don't fake it.
+            data["product_info"] = {"product_number": supplier_number}
         return data
+
+    def _ingredient_chemical_reference(source: dict[str, Any]) -> str | None:
+        """The raw-file reference of the inventory material this ingredient is."""
+        matched = _match_inventory_material_id(
+            source.get("name"), source.get("pubchemCid")
+        )
+        return entity_ref_by_id.get(matched) if matched else None
 
     def _build_recipe_solution_entity(recipe_id: str) -> dict[str, Any]:
         recipe = recipes_by_id.get(recipe_id) or {}
@@ -3150,11 +3207,27 @@ def create_nomad_metadata_yaml(
             "name": _clean_value(recipe.get("name"), "Solution"),
             "lab_id": recipe_id,
         }
+        recipe_type = _clean_value(recipe.get("type"), "")
+        if recipe_type:
+            data["description"] = recipe_type
+        handling = "\n\n".join(
+            part
+            for part in (
+                _clean_value(recipe.get("handlingPreparation"), ""),
+                _clean_value(recipe.get("handlingBeforeUse"), ""),
+            )
+            if part
+        )
+        if handling:
+            data["handling"] = handling
 
         solvent: list[dict[str, Any]] = []
         solvents = [s for s in (recipe.get("solvents") or []) if isinstance(s, dict)]
-        for source, volume_ml in zip(
-            solvents, _recipe_solvent_volumes_ml(recipe), strict=False
+        ratios = [_to_float(s.get("volumeRatio")) for s in solvents]
+        if len(solvents) > 1 and all(r is not None and r > 0 for r in ratios):
+            data["solvent_ratio"] = ":".join(f"{r:g}" for r in ratios if r is not None)
+        for source, volume_ml, ratio in zip(
+            solvents, _recipe_solvent_volumes_ml(recipe), ratios, strict=False
         ):
             row: dict[str, Any] = {
                 "name": _clean_value(source.get("name")),
@@ -3162,8 +3235,13 @@ def create_nomad_metadata_yaml(
                     source.get("name") or "", source.get("pubchemCid")
                 ),
             }
+            reference = _ingredient_chemical_reference(source)
+            if reference:
+                row["chemical"] = reference
             if volume_ml is not None:
                 row["chemical_volume"] = volume_ml
+            if ratio is not None and ratio > 0:
+                row["amount_relative"] = ratio
             solvent.append(row)
 
         solute: list[dict[str, Any]] = []
@@ -3176,6 +3254,9 @@ def create_nomad_metadata_yaml(
                     source.get("name") or "", source.get("pubchemCid")
                 ),
             }
+            reference = _ingredient_chemical_reference(source)
+            if reference:
+                row["chemical"] = reference
             _set_solution_amount(row, source.get("amount"), str(source.get("unit") or ""))
             solute.append(row)
 
@@ -3235,6 +3316,16 @@ def create_nomad_metadata_yaml(
         for substrate in substrates_list:
             if not isinstance(substrate, dict):
                 continue
+            # The substrate itself may be an inventory material (referenced by
+            # `substrateMaterialId` or matched by name) — emit it too, so the
+            # substrate's inventory metadata is searchable in NOMAD.
+            substrate_material_meta = _resolve_substrate_material(substrate)
+            if isinstance(substrate_material_meta, dict):
+                substrate_material_id = str(
+                    substrate_material_meta.get("id") or ""
+                ).strip()
+                if substrate_material_id:
+                    _register_entity("material", substrate_material_id)
             for _stage_idx, step in _selected_steps_for_substrate(substrate):
                 if step.get("materialId"):
                     _register_entity("material", step["materialId"])
@@ -3247,8 +3338,9 @@ def create_nomad_metadata_yaml(
                 drying = _get_step_param(step, "dryingMethod", substrate, "")
                 media_ref = str(_parse_quenching_string(drying).get("media_ref") or "")
                 kind, _, ref_id = media_ref.partition(":")
-                if kind.strip().lower() == "solution" and ref_id.strip():
-                    _register_entity("solution", ref_id.strip())
+                kind = kind.strip().lower()
+                if ref_id.strip() and kind in {"solution", "material"}:
+                    _register_entity(kind, ref_id.strip())
 
         for entity_id, fname in entity_fname_by_id.items():
             archives[fname] = {"data": _build_entity_data(entity_id)}
