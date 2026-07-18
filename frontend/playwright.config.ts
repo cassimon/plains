@@ -54,6 +54,22 @@ export default defineConfig({
 
     {
       name: 'chromium',
+      // Deactivated legacy specs inherited from the full-stack-fastapi-template:
+      // they drive the old username/password UI (email/password form test-ids,
+      // sign-up, mailcatcher-based password reset, user-settings, the removed
+      // /items page) against a live template backend. Plains replaced that UI
+      // with NOMAD/Keycloak SSO and removed the routes, so these fail for
+      // reasons that no longer apply. Auth flows are covered by
+      // plains-auth.spec.ts; admin/user flows would need rewriting against the
+      // current app if ever revived.
+      testIgnore: [
+        'login.spec.ts',
+        'sign-up.spec.ts',
+        'reset-password.spec.ts',
+        'user-settings.spec.ts',
+        'admin.spec.ts',
+        'items.spec.ts',
+      ],
       use: {
         ...devices['Desktop Chrome'],
         storageState: 'playwright/.auth/user.json',

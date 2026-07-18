@@ -13,10 +13,11 @@ import { expect, test } from "@playwright/test"
 // unauthenticated experience.
 test.use({ storageState: { cookies: [], origins: [] } })
 
+// NB: /materials and /solutions are no longer router routes (their pages are
+// reached from within other views), so they 404 instead of hitting the auth
+// guard — they were removed from this list when the routes were dropped.
 const PROTECTED_ROUTES = [
   "/",
-  "/materials",
-  "/solutions",
   "/processes",
   "/experiments",
   "/results",
@@ -180,8 +181,10 @@ test.describe("Authenticated access", () => {
       })
     })
     // Navigate to a protected route — the ensureAuthenticated guard calls
-    // readUserMe() which returns 401, so we should land on /login.
-    await page.goto("/materials")
+    // readUserMe() which returns 401, so we should land on /login. (Must be a
+    // route that still exists: /materials no longer does, and a 404 page never
+    // runs the guard.)
+    await page.goto("/processes")
     await expect(page).toHaveURL(/\/login/, { timeout: 8000 })
   })
 })
