@@ -63,6 +63,10 @@ export default defineConfig({
       // plains-auth.spec.ts; admin/user flows would need rewriting against the
       // current app if ever revived.
       testIgnore: [
+        // The real-stack suite belongs to the 'integration' project only —
+        // without this the chromium (mocked) project re-collects it and fails
+        // whenever the docker test stack isn't running.
+        'integration/**',
         'login.spec.ts',
         'sign-up.spec.ts',
         'reset-password.spec.ts',
