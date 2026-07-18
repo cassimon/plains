@@ -796,6 +796,31 @@ function ExperimentGrid({
     setSelectedSubstrateIds(new Set())
   }
 
+  // Erase every substrate (e.g. after an unwanted automatic name import from
+  // an upload's file names) so the user can start from scratch.
+  const handleDeleteAllSubstrates = () => {
+    if (experiment.substrates.length === 0) {
+      return
+    }
+    modals.openConfirmModal({
+      title: "Delete all substrates?",
+      children: (
+        <Text size="sm">
+          Remove all {experiment.substrates.length} substrate
+          {experiment.substrates.length !== 1 ? "s" : ""} from this experiment
+          and start from scratch? Their per-substrate step selections and
+          parameter values are discarded too.
+        </Text>
+      ),
+      labels: { confirm: "Delete all", cancel: "Cancel" },
+      confirmProps: { color: "red" },
+      onConfirm: () => {
+        setSelectedSubstrateIds(new Set())
+        onUpdate({ ...experiment, numSubstrates: 0, substrates: [] })
+      },
+    })
+  }
+
   const handleDeleteSelectedSubstrates = () => {
     if (selectedSubstrateIds.size === 0) {
       return
@@ -1307,6 +1332,14 @@ function ExperimentGrid({
                   onClick={handleDeleteSelectedSubstrates}
                 >
                   Delete Selected
+                </Button>
+                <Button
+                  size="xs"
+                  color="red"
+                  variant="subtle"
+                  onClick={handleDeleteAllSubstrates}
+                >
+                  Delete all
                 </Button>
               </Group>
             </Group>

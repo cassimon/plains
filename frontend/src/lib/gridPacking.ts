@@ -9,8 +9,80 @@
 import type { CanvasElement, Vec2 } from "../store/AppContext"
 
 // Chessboard grid cell dimensions (px).
+//
+// These two constants are the ONLY place the abstract chessboard is mapped to
+// pixels: an element's identity on the board is its (col,row) cell and its
+// (spanCols,spanRows) footprint, and every stored position/size must be an
+// exact multiple of the cell dimensions (`cellToPx` of some cell). Rendering
+// may add visual niceties (gaps, pan), but positions themselves never leave
+// the lattice — that is what lets a later change of CELL_W/CELL_H (e.g. for
+// other screen sizes) rescale the whole board by converting through
+// `pxToCell`/`cellToPx` without breaking the layout.
 export const CELL_W = 200
 export const CELL_H = 180
+
+/** Abstract board coordinate of the cell containing (or nearest to) `p`. */
+export function pxToCell(p: Vec2): { col: number; row: number } {
+  return { col: Math.round(p.x / CELL_W), row: Math.round(p.y / CELL_H) }
+}
+
+/** Pixel origin (top-left corner) of an abstract board cell. */
+export function cellToPx(col: number, row: number): Vec2 {
+  return { x: col * CELL_W, y: row * CELL_H }
+}
+
+/** Snap a free position onto the nearest cell corner (never inside a cell). */
+export function snapPosToCell(p: Vec2): Vec2 {
+  const { col, row } = pxToCell(p)
+  return cellToPx(Math.max(0, col), Math.max(0, row))
+}
+
+/** Quantize a size to whole cells (at least 1×1) — widths/heights are always
+ *  a whole number of chess fields. */
+export function snapSizeToCells(size: Vec2): Vec2 {
+  return {
+    x: Math.max(1, Math.round(size.x / CELL_W)) * CELL_W,
+    y: Math.max(1, Math.round(size.y / CELL_H)) * CELL_H,
+  }
+}
+
+/**
+ * Force a canvas element onto the board lattice: origin on a cell corner,
+ * size a whole number of cells. Lines are free-form and pass through
+ * untouched. Returns the same object when nothing had to change, so callers
+ * can use identity to skip redundant state updates.
+ */
+export function normalizeGridElement(el: CanvasElement): CanvasElement {
+  if (el.type === "line") return el
+  const sized = el as CanvasElement & { position: Vec2; size?: Vec2 }
+  const position = snapPosToCell(sized.position)
+  const size = sized.size ? snapSizeToCells(sized.size) : undefined
+  const positionChanged =
+    position.x !== sized.position.x || position.y !== sized.position.y
+  const sizeChanged =
+    size !== undefined &&
+    sized.size !== undefined &&
+    (size.x !== sized.size.x || size.y !== sized.size.y)
+  if (!positionChanged && !sizeChanged) return el
+  return {
+    ...sized,
+    position: positionChanged ? position : sized.position,
+    ...(sizeChanged ? { size } : {}),
+  } as CanvasElement
+}
+
+/** Normalize every element of a plane; returns the same array when unchanged. */
+export function normalizePlaneElements(
+  elements: CanvasElement[],
+): CanvasElement[] {
+  let changed = false
+  const next = elements.map((el) => {
+    const normalized = normalizeGridElement(el)
+    if (normalized !== el) changed = true
+    return normalized
+  })
+  return changed ? next : elements
+}
 
 /** Grid-cell key ("col,row") for a snapped element position. */
 export function cellKeyForPos(p: Vec2): string {

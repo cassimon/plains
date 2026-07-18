@@ -209,10 +209,15 @@ const CELL_GAP = 6 // visual gap between grid cells
 const CELL_STRIDE_W = CELL_W + CELL_GAP
 const CELL_STRIDE_H = CELL_H + CELL_GAP
 
+// Positions live in the abstract chessboard domain (multiples of CELL_W/H,
+// no gaps); CELL_STRIDE_* exists only for converting pointer/pixel space to
+// cells when rendering. Snapping a *position* must therefore divide by the
+// cell size, not the stride — mixing the two picked the wrong cell far from
+// the origin.
 function snapToCell(x: number, y: number): Vec2 {
   return {
-    x: Math.round(x / CELL_STRIDE_W) * CELL_W,
-    y: Math.round(y / CELL_STRIDE_H) * CELL_H,
+    x: Math.round(x / CELL_W) * CELL_W,
+    y: Math.round(y / CELL_H) * CELL_H,
   }
 }
 

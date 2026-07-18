@@ -7800,7 +7800,26 @@ export function ProcessesPage() {
                                     >
                                       <AddStepMenu
                                         label="Add Alternative Step"
-                                        categories={orderedStepCategories}
+                                        // Alternatives are alternatives *to the
+                                        // steps already in the stage*: for a
+                                        // substrate-preparation stage only
+                                        // substrate-preparation options make
+                                        // sense, so the other categories are
+                                        // hidden there.
+                                        categories={
+                                          stage.alternatives.length > 0 &&
+                                          stage.alternatives.every(
+                                            (alt) =>
+                                              alt.stepCategory ===
+                                              "substrate_preparation",
+                                          )
+                                            ? orderedStepCategories.filter(
+                                                (c) =>
+                                                  c.value ===
+                                                  "substrate_preparation",
+                                              )
+                                            : orderedStepCategories
+                                        }
                                         onAdd={(category, method) =>
                                           handleAddAlternativeStep(
                                             stage.index,

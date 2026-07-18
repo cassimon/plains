@@ -8,7 +8,14 @@ import {
   useRef,
   useState,
 } from "react"
-import { firstFreeSpanCell } from "../lib/gridPacking"
+import {
+  CELL_H,
+  CELL_W,
+  firstFreeSpanCell,
+  normalizeGridElement,
+  normalizePlaneElements,
+  snapPosToCell,
+} from "../lib/gridPacking"
 import { getTokenSync } from "../lib/keycloakInstance"
 import { discardArchive, takeAllSessionArchivePaths } from "../lib/nomadArchive"
 import type { UploadFlow } from "../lib/uploadFlow"
@@ -975,12 +982,14 @@ export function newPlaneFolder(name?: string, position = 0): PlaneFolder {
   }
 }
 
+// Canvas elements live on the Organization chessboard: their origin is always
+// a cell corner and their size a whole number of cells (see lib/gridPacking).
 function newTextElement(position: Vec2): CanvasTextElement {
   return {
     id: crypto.randomUUID(),
     type: "text",
-    position,
-    size: { x: 200, y: 80 },
+    position: snapPosToCell(position),
+    size: { x: CELL_W, y: CELL_H },
     content: "",
     color: "#000000",
     formatting: {
@@ -999,8 +1008,8 @@ function newPlainTextElement(
   return {
     id: crypto.randomUUID(),
     type: "plaintext",
-    position,
-    size: { x: 200, y: 40 },
+    position: snapPosToCell(position),
+    size: { x: CELL_W, y: CELL_H },
     content: "",
     color,
     formatting,
@@ -1020,8 +1029,8 @@ function newCollectionElement(position: Vec2): CanvasCollectionElement {
   return {
     id: crypto.randomUUID(),
     type: "collection",
-    position,
-    size: { x: 200, y: 160 },
+    position: snapPosToCell(position),
+    size: { x: CELL_W, y: CELL_H },
     name: "Data Collection",
     refs: [],
   }
@@ -1032,6 +1041,24 @@ export {
   newLineElement,
   newPlainTextElement,
   newTextElement,
+}
+
+/**
+ * An element arriving on another plane lands on that plane's first free
+ * cell(s) — never at a fixed pixel offset, which used to park it with its
+ * origin *inside* a chessboard cell and on top of whatever lived there.
+ */
+function landOnPlane(
+  plane: Plane,
+  element: CanvasCollectionElement,
+): CanvasCollectionElement {
+  const normalized = normalizeGridElement(element) as CanvasCollectionElement
+  const spanCols = Math.max(1, Math.round((normalized.size?.x ?? 0) / CELL_W))
+  const spanRows = Math.max(1, Math.round((normalized.size?.y ?? 0) / CELL_H))
+  return {
+    ...normalized,
+    position: firstFreeSpanCell(plane.elements, spanCols, spanRows, 6),
+  }
 }
 
 // ── Dependency tracking ───────────────────────────────────────────────────────
@@ -1592,7 +1619,9 @@ export function AppProvider({
       setPlanes(
         snapshot.planes.map((plane) => ({
           ...plane,
-          elements: plane.elements.map((el) => {
+          // Snap legacy off-lattice elements back onto the chessboard, then
+          // strip refs to stale results.
+          elements: normalizePlaneElements(plane.elements).map((el) => {
             if (el.type !== "collection") return el
             const col = el as CanvasCollectionElement
             const nextRefs = col.refs.filter(
@@ -1943,7 +1972,14 @@ export function AppProvider({
       }
       setFolders(snapshot.folders ?? [])
       if (snapshot.planes.length > 0) {
-        setPlanes(snapshot.planes)
+        // Self-heal legacy data: snap any off-lattice element back onto the
+        // chessboard (origin on a cell corner, whole-cell spans) at load time.
+        setPlanes(
+          snapshot.planes.map((plane) => {
+            const elements = normalizePlaneElements(plane.elements)
+            return elements === plane.elements ? plane : { ...plane, elements }
+          }),
+        )
         // After planes are set, strip collection refs that pointed to stale
         // results (functional update composes on top of the setPlanes above).
         if (staleResultIds.size > 0) {
@@ -2243,13 +2279,16 @@ export function AppProvider({
 
   const updateElement = useCallback(
     (planeId: string, element: CanvasElement) => {
+      // Every write goes through the chessboard normalizer, so an element can
+      // never be stored with its origin inside a cell or a fractional span.
+      const normalized = normalizeGridElement(element)
       setPlanes((prev) =>
         prev.map((p) =>
           p.id === planeId
             ? {
                 ...p,
                 elements: p.elements.map((e) =>
-                  e.id === element.id ? element : e,
+                  e.id === normalized.id ? normalized : e,
                 ),
               }
             : p,
@@ -2392,15 +2431,19 @@ export function AppProvider({
 
   const copyElementToPlane = useCallback(
     (sourceElement: CanvasCollectionElement, targetPlaneId: string) => {
-      const copy: CanvasCollectionElement = {
-        ...sourceElement,
-        id: crypto.randomUUID(),
-        position: { x: 40, y: 40 },
-      }
       setPlanes((prev) =>
         prev.map((p) =>
           p.id === targetPlaneId
-            ? { ...p, elements: [...p.elements, copy] }
+            ? {
+                ...p,
+                elements: [
+                  ...p.elements,
+                  landOnPlane(p, {
+                    ...sourceElement,
+                    id: crypto.randomUUID(),
+                  }),
+                ],
+              }
             : p,
         ),
       )
@@ -2414,11 +2457,6 @@ export function AppProvider({
       sourcePlaneId: string,
       targetPlaneId: string,
     ) => {
-      const moved: CanvasCollectionElement = {
-        ...sourceElement,
-        id: crypto.randomUUID(),
-        position: { x: 40, y: 40 },
-      }
       setPlanes((prev) =>
         prev.map((p) => {
           if (p.id === sourcePlaneId) {
@@ -2428,7 +2466,16 @@ export function AppProvider({
             }
           }
           if (p.id === targetPlaneId) {
-            return { ...p, elements: [...p.elements, moved] }
+            return {
+              ...p,
+              elements: [
+                ...p.elements,
+                landOnPlane(p, {
+                  ...sourceElement,
+                  id: crypto.randomUUID(),
+                }),
+              ],
+            }
           }
           return p
         }),

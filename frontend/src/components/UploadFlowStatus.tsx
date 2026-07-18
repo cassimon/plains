@@ -22,9 +22,11 @@ import { useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { useRevealForFlow } from "@/lib/entityReveal"
 import {
+  buildSubstratesFromNames,
   countDoneSteps,
   getUploadFlowSteps,
   isUploadFlowComplete,
+  recognizeGroupNames,
 } from "@/lib/uploadFlow"
 import { useAppContext } from "@/store/AppContext"
 import { PdfDigestView } from "./PdfDigestView"
@@ -258,9 +260,83 @@ export function UploadFlowPanel({ onClose }: { onClose: () => void }) {
 }
 
 export function UploadFlowStatus() {
-  const { uploadFlow, discardUploadFlow, processes, experiments, results } =
-    useAppContext()
+  const {
+    uploadFlow,
+    discardUploadFlow,
+    processes,
+    experiments,
+    results,
+    setExperiments,
+    updateUploadFlow,
+  } = useAppContext()
   const [opened, setOpened] = useState(false)
+
+  // ── Automatic substrate-name import ────────────────────────────────────────
+  // The moment the flow (carrying staged files) becomes associated with an
+  // experiment whose substrates are not yet named — a fresh experiment created
+  // from the picker, or an existing one with no/only-unnamed substrates — the
+  // device-group names recognized in the staged file names are imported
+  // automatically, replacing any unnamed placeholder rows. Experiments that
+  // already carry named substrates are never touched: the user can still erase
+  // them ("Delete all" on the Experiments page) and re-import manually.
+  // One-directional by design (flow+experiments → one experiments write); the
+  // ref key is set BEFORE the write so the effect can never re-fire for the
+  // same flow/experiment pair (see CLAUDE.md on effect feedback loops).
+  const autoImportKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!uploadFlow?.experimentId) {
+      return
+    }
+    const key = `${uploadFlow.id}:${uploadFlow.experimentId}`
+    if (autoImportKeyRef.current === key) {
+      return
+    }
+    const fileNames = (uploadFlow.pendingFiles ?? []).map((f) => f.name)
+    if (fileNames.length === 0) {
+      return
+    }
+    const experiment = experiments.find((e) => e.id === uploadFlow.experimentId)
+    if (!experiment) {
+      return
+    }
+    const allUnnamed = experiment.substrates.every((s) => s.name.trim() === "")
+    autoImportKeyRef.current = key
+    if (experiment.substrates.length > 0 && !allUnnamed) {
+      // Substrate names were already defined — never overwrite them.
+      return
+    }
+    const names = recognizeGroupNames(fileNames)
+    if (names.length === 0) {
+      return
+    }
+    const process = processes.find((p) => p.id === experiment.processId)
+    const created = buildSubstratesFromNames(
+      [],
+      names,
+      process?.inlineSubstrates?.[0]?.id,
+    )
+    if (created.length === 0) {
+      return
+    }
+    setExperiments((prev) =>
+      prev.map((e) =>
+        e.id === experiment.id
+          ? { ...e, substrates: created, numSubstrates: created.length }
+          : e,
+      ),
+    )
+    updateUploadFlow({
+      substrateNamesImported: true,
+      autoCreatedSubstrateIds: created.map((c) => c.id),
+    })
+    notifications.show({
+      title: "Substrate names imported",
+      message: `${created.length} substrate name${
+        created.length === 1 ? " was" : "s were"
+      } imported from the upload's file names. Use “Delete all” in the experiment's Processing step to start from scratch instead.`,
+      color: "green",
+    })
+  }, [uploadFlow, experiments, processes, setExperiments, updateUploadFlow])
 
   const steps = useMemo(() => {
     if (!uploadFlow) {
