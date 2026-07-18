@@ -69,6 +69,11 @@ async function mockApi(page: Page): Promise<void> {
     planes: [],
     processes: [process],
   }
+  // Playwright matches routes in REVERSE registration order — the catch-all
+  // must be registered first so the specific mocks below take precedence.
+  await page.route("**/api/v1/**", (route) =>
+    route.fulfill({ status: 200, json: {} }),
+  )
   await page.route("**/api/v1/users/me", (route) =>
     route.fulfill({
       status: 200,
@@ -87,29 +92,20 @@ async function mockApi(page: Page): Promise<void> {
   await page.route("**/api/v1/state/", (route) =>
     route.fulfill({ status: 200, json: { data: state } }),
   )
-  await page.route("**/api/v1/**", (route) =>
-    route.fulfill({ status: 200, json: {} }),
-  )
 }
 
-/** Navigate, inject mock Keycloak so the auth guard passes, and open Step 2. */
+/** Navigate with a seeded test session so the auth guard passes, open Step 2. */
 async function openProcessingTab(page: Page): Promise<void> {
   await mockApi(page)
+  // Seed the dev-build test-auth token BEFORE the app boots (see
+  // keycloakInstance.ts): the module reads it at load time and installs a mock
+  // session, so the router guard lets /experiments through on first
+  // navigation. Injecting a session after the fact doesn't work — the guard
+  // has already redirected to /login, and a reload resets the singleton.
+  await page.addInitScript(() => {
+    window.localStorage.setItem("__plains_test_token", "mock-token")
+  })
   await page.goto("/experiments", { waitUntil: "domcontentloaded" })
-  await page.waitForFunction(() => "__plains_setKeycloak" in window, {
-    timeout: 10_000,
-  })
-  await page.evaluate(() => {
-    ;(
-      window as unknown as { __plains_setKeycloak: (kc: unknown) => void }
-    ).__plains_setKeycloak({
-      authenticated: true,
-      token: "mock-token",
-      updateToken: () => Promise.resolve(true),
-      onTokenExpired: undefined,
-      logout: () => {},
-    })
-  })
   await page.getByText("TimingExp", { exact: true }).first().click()
   // The guided steps are clickable boxes ("Step 2" / "Processing"), not tabs.
   await page.getByText("Processing", { exact: true }).first().click()
