@@ -839,6 +839,15 @@ def create_nomad_metadata_yaml(
             "heightMm": m.height_mm,
             "notes": getattr(m, "notes", None),
             "componentCids": getattr(m, "component_cids", None),
+            # Cached PubChem identity (see services/pubchem_enrichment.py).
+            # `molecularFormula` is required for any substance section we emit:
+            # `load_data: False` means NOMAD will not derive it itself.
+            "molecularFormula": getattr(m, "molecular_formula", None),
+            "iupacName": getattr(m, "iupac_name", None),
+            "smiles": getattr(m, "smiles", None),
+            "inchi": getattr(m, "inchi", None),
+            "inchiKey": getattr(m, "inchi_key", None),
+            "monoisotopicMass": getattr(m, "monoisotopic_mass", None),
         }
         for m in owner_materials
     }
@@ -3018,11 +3027,18 @@ def create_nomad_metadata_yaml(
         state = str((material or {}).get("stateAtRt") or "").strip().lower()
         return {"liquid": "Liquid", "solid": "Solid", "gas": "Gas"}.get(state)
 
-    def _pubchem_inline(name: str, cid: Any) -> dict[str, Any]:
+    def _pubchem_inline(
+        name: str, cid: Any, material: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """An inline PubChem identity section, pre-filled and never re-fetched.
 
         `load_data=False` keeps NOMAD processing offline and deterministic: the
         app already resolved and verified the CID, so nothing is queried live.
+
+        The flip side is that `baseclasses` then skips its own PubChem fetch
+        entirely, so every field here has to come from our cached enrichment --
+        see `_material_substance_fields` and `_has_molecular_formula` for why
+        `molecular_formula` in particular is not optional.
         """
         section: dict[str, Any] = {"load_data": False}
         clean_name = _clean_value(name, "")
@@ -3031,7 +3047,45 @@ def create_nomad_metadata_yaml(
         cid_int = _to_int(cid)
         if cid_int is not None:
             section["pub_chem_cid"] = cid_int
+        if material:
+            section.update(_material_substance_fields(material))
         return section
+
+    def _material_substance_fields(material: dict[str, Any]) -> dict[str, Any]:
+        """Cached PubChem identity fields for a `PubChemPureSubstanceSection*`.
+
+        Quantity names are the schema's, not PubChem's: SMILES is `smile` /
+        `canonical_smile` (singular), and both are filled because the app's
+        value is PubChem's *canonical* SMILES while `smile` is the one the ELN
+        surfaces by default.
+        """
+        fields: dict[str, Any] = {}
+        for key, source in (
+            ("molecular_formula", "molecularFormula"),
+            ("iupac_name", "iupacName"),
+            ("smile", "smiles"),
+            ("canonical_smile", "smiles"),
+            ("inchi", "inchi"),
+            ("inchi_key", "inchiKey"),
+        ):
+            value = _clean_value(material.get(source), "")
+            if value:
+                fields[key] = value
+        mono = _to_float(material.get("monoisotopicMass"))
+        if mono is not None:
+            fields["monoisotopic_mass"] = mono
+        return fields
+
+    def _has_molecular_formula(material: dict[str, Any]) -> bool:
+        """Whether a substance section may be emitted for this material at all.
+
+        NOMAD's `CompositeSystem.normalize` calls `Formula(...)` on
+        `pure_substance.molecular_formula` **unguarded**, so a section without
+        one raises `TypeError` and takes the whole entry's normalization with
+        it. Emitting no section at all is strictly better: the entry still
+        normalizes and simply contributes nothing to the elemental composition.
+        """
+        return bool(_clean_value(material.get("molecularFormula"), ""))
 
     def _set_solution_amount(row: dict[str, Any], amount: Any, unit: str) -> None:
         """Route a component amount onto the SolutionChemical quantity for its unit."""
@@ -3137,9 +3191,25 @@ def create_nomad_metadata_yaml(
         if notes:
             data["description"] = notes
 
+        # The `Substance` identifier block on the entity itself. Without these
+        # a material entry shows little beyond its CID and category, since
+        # `load_data: False` stops NOMAD deriving them from PubChem. Note
+        # `eln.Substance` carries no `iupac_name`/`monoisotopic_mass` -- those
+        # exist only on the `substance` subsection below.
+        for key, source in (
+            ("molecular_formula", "molecularFormula"),
+            ("smile", "smiles"),
+            ("canonical_smile", "smiles"),
+            ("inchi", "inchi"),
+            ("inchi_key", "inchiKey"),
+        ):
+            value = _clean_value(material.get(source), "")
+            if value:
+                data[key] = value
+
         cid = _to_int(material.get("pubchemCid"))
         if cid is not None:
-            substance = _pubchem_inline(material.get("name") or "", cid)
+            substance = _pubchem_inline(material.get("name") or "", cid, material)
             if molar_mass is not None:
                 substance["molar_mass"] = molar_mass
             if cas:
@@ -3279,18 +3349,25 @@ def create_nomad_metadata_yaml(
                 continue
             material = materials_by_id.get(material_id) or {}
             name = _material_name(material, material_id)
-            # `pure_substance` is typed as the plain `PureSubstanceSection`,
-            # which has no CID field — the PubChem subclass has to be named.
-            substance = _pubchem_inline(
-                material.get("name") or name, material.get("pubchemCid")
-            )
-            substance["m_def"] = "baseclasses.PubChemPureSubstanceSectionCustom"
             entry: dict[str, Any] = {
                 "m_def": "nomad.datamodel.metainfo.basesections.v1.PureSubstanceComponent",
                 "name": name,
                 "substance_name": name,
-                "pure_substance": substance,
             }
+            # No formula -> no substance section. See `_has_molecular_formula`:
+            # attaching one anyway is what made every PlainsSolution fail to
+            # normalize. The component itself is still emitted, so the solution
+            # keeps its ingredient list either way.
+            if _has_molecular_formula(material):
+                # `pure_substance` is typed as the plain `PureSubstanceSection`,
+                # which has no CID field — the PubChem subclass has to be named.
+                substance = _pubchem_inline(
+                    material.get("name") or name,
+                    material.get("pubchemCid"),
+                    material,
+                )
+                substance["m_def"] = "baseclasses.PubChemPureSubstanceSectionCustom"
+                entry["pure_substance"] = substance
             amount = _to_float(component.get("amount"))
             unit = str(component.get("unit") or "").strip().lower()
             if amount is not None and unit in ("mg", "milligram"):

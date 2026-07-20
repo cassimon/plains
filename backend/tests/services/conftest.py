@@ -40,6 +40,51 @@ STEP_PCBM = uuid.UUID("bbbbbbb1-0000-4000-8000-000000000003")
 STEP_COMMERCIAL = uuid.UUID("bbbbbbb1-0000-4000-8000-000000000004")
 
 
+# A deterministic stand-in for PubChem, keyed by the CIDs the fixture below
+# uses.
+#
+# DMSO (679) is deliberately absent, so one *solution component* always lacks a
+# `molecular_formula`. That is the case that used to make every PlainsSolution
+# fail to normalize, so it has to stay reachable from a component list — an
+# unresolved antisolvent would not exercise it, since antisolvents never appear
+# in `components`.
+_STUB_COMPOUNDS = {
+    6228: ("C3H7NO", "CN(C)C=O", "InChI=1S/C3H7NO/c1-4(2)3-5/h3H,1-2H3"),
+    24931: ("I2Pb", "[Pb](I)I", "InChI=1S/2HI.Pb/h2*1H;/q;;+2/p-2"),
+    53384373: ("C72H14O2", "", ""),
+    61503: ("C6H4O2S", "", ""),
+}
+
+
+@pytest.fixture(autouse=True)
+def stub_pubchem(monkeypatch) -> None:
+    """No service test may reach the real PubChem.
+
+    Autouse because the chemicals materializer enriches every row it creates,
+    so any test that materializes would otherwise make live HTTP calls.
+    """
+    from app.services import pubchem_enrichment
+    from app.services.pubchem import PubChemCompound
+
+    def fake_fetch(cid: int, **_: object) -> PubChemCompound | None:
+        entry = _STUB_COMPOUNDS.get(cid)
+        if entry is None:
+            return None
+        formula, smiles, inchi = entry
+        return PubChemCompound(
+            cid=cid,
+            molecular_formula=formula,
+            smiles=smiles or None,
+            inchi=inchi or None,
+            inchi_key=f"STUB-{cid}",
+            iupac_name=f"stub-iupac-{cid}",
+        )
+
+    monkeypatch.setattr(pubchem_enrichment, "fetch_compound", fake_fetch)
+    monkeypatch.setattr(pubchem_enrichment, "search_cid_by_name", lambda _name: None)
+    monkeypatch.setattr(pubchem_enrichment.time, "sleep", lambda _seconds: None)
+
+
 @pytest.fixture(name="experiment")
 def experiment_fixture(db: Session) -> Generator[Experiment, None, None]:
     """An experiment whose process uses the chemicals described above.

@@ -414,10 +414,46 @@ class LabMaterial(LabMaterialBase, table=True):
     # of `frontend_data`.
     component_cids: list[str] | None = _jsonb_field()
 
+    # ── PubChem enrichment ────────────────────────────────────────────────
+    # Fetched once from PUG-REST and cached here (see
+    # `app/services/pubchem_enrichment.py`). Deliberately NOT on
+    # `LabMaterialBase`: these are backend-derived, so keeping them off
+    # `LabMaterialCreate`/`LabMaterialUpdate` means a frontend write can never
+    # clobber them.
+    #
+    # `molecular_formula` is load-bearing, not decorative. The NOMAD export
+    # emits substance sections with `load_data: False`, which makes
+    # `baseclasses` skip the PubChem fetch entirely -- so if we do not supply a
+    # formula, nobody does, and NOMAD's `CompositeSystem.normalize` blows up on
+    # `Formula(None)`.
+    molecular_formula: str | None = Field(default=None, max_length=255)
+    iupac_name: str | None = None
+    smiles: str | None = None
+    inchi: str | None = None
+    inchi_key: str | None = Field(default=None, max_length=255)
+    pubchem_name: str | None = Field(default=None, max_length=255)
+    monoisotopic_mass: float | None = None
+    # Set only on a successful fetch, so a failed one stays retryable.
+    pubchem_synced_at: datetime | None = Field(
+        default=None, sa_type=DateTime(timezone=True)
+    )
+    # Which CID the cached data above actually came from. Needed as its own
+    # column: comparing against `pubchem_cid` would be circular, since a
+    # successful sync writes that field itself — so an edited CID would always
+    # look up-to-date and never be re-fetched.
+    pubchem_synced_cid: str | None = Field(default=None, max_length=255)
+
 
 class LabMaterialPublic(LabMaterialBase):
     id: uuid.UUID
     owner_id: uuid.UUID
+    molecular_formula: str | None = None
+    iupac_name: str | None = None
+    smiles: str | None = None
+    inchi: str | None = None
+    inchi_key: str | None = None
+    pubchem_name: str | None = None
+    monoisotopic_mass: float | None = None
     created_at: datetime | None = None
 
 

@@ -46,6 +46,16 @@ def _orm_material(d):
         state_at_rt=d.get("stateAtRt"),
         height_mm=d.get("heightMm"),
         notes=d.get("notes"),
+        component_cids=d.get("componentCids"),
+        # Cached PubChem enrichment. `molecular_formula` decides whether a
+        # substance section may be emitted at all — see
+        # `_has_molecular_formula` in app/services/nomad.py.
+        molecular_formula=d.get("molecularFormula"),
+        iupac_name=d.get("iupacName"),
+        smiles=d.get("smiles"),
+        inchi=d.get("inchi"),
+        inchi_key=d.get("inchiKey"),
+        monoisotopic_mass=d.get("monoisotopicMass"),
     )
 
 

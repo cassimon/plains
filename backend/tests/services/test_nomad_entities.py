@@ -773,3 +773,113 @@ def test_every_entity_reference_resolves_to_an_emitted_archive(db, experiment):
     for reference in references:
         filename = reference[len("../upload/raw/") : -len("#/data")]
         assert filename in archives, f"dangling reference: {reference}"
+
+
+# ── PubChem enrichment: identity on the entities, and the crash it prevents ──
+#
+# The export writes substance sections with `load_data: False`, which makes
+# `baseclasses` skip its own PubChem fetch entirely. Everything a substance
+# section carries therefore has to come from our cached enrichment, and a
+# section without `molecular_formula` is not merely poorer — NOMAD's
+# `CompositeSystem.normalize` calls `Formula(...)` on it unguarded, raising
+# `TypeError` and taking the whole entry's normalization down with it.
+
+
+def _substance_sections(node: object) -> list[dict]:
+    """Every `pure_substance` section anywhere in the archives."""
+    found: list[dict] = []
+
+    def walk(value: object) -> None:
+        if isinstance(value, dict):
+            substance = value.get("pure_substance")
+            if isinstance(substance, dict):
+                found.append(substance)
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(node)
+    return found
+
+
+def test_enriched_material_carries_its_full_identity(db, experiment):
+    """The reported symptom: a material entry showed almost nothing."""
+    archives = _export(db, experiment)
+
+    materials = _by_mdef(archives, MATERIAL_MDEF)
+    dmf = next(
+        body["data"]
+        for body in materials.values()
+        if body["data"]["lab_id"] == "INV-DMF"
+    )
+
+    # On the entity itself, so the ELN overview is populated.
+    assert dmf["molecular_formula"] == "C3H7NO"
+    assert dmf["smile"] == "CN(C)C=O"
+    assert dmf["inchi"].startswith("InChI=1S/C3H7NO")
+    assert dmf["inchi_key"] == "STUB-6228"
+
+    # And on the substance subsection, which additionally has iupac_name.
+    assert dmf["substance"]["molecular_formula"] == "C3H7NO"
+    assert dmf["substance"]["iupac_name"] == "stub-iupac-6228"
+    assert dmf["substance"]["load_data"] is False
+
+
+def test_solution_components_carry_a_formula_when_one_is_known(db, experiment):
+    archives = _export(db, experiment)
+
+    solutions = _by_mdef(archives, SOLUTION_MDEF)
+    pvk = next(
+        body["data"] for body in solutions.values() if body["data"]["name"] == "PVK"
+    )
+
+    pbi2 = next(c for c in pvk["components"] if c["substance_name"] == "Lead(II) iodide")
+    assert pbi2["pure_substance"]["molecular_formula"] == "I2Pb"
+
+
+def test_component_without_a_formula_emits_no_substance_section(db, experiment):
+    """The regression test for the normalization crash.
+
+    DMSO has no stubbed PubChem record, so it never gets a formula. The
+    component must still be emitted — the solution keeps its full ingredient
+    list — but with no `pure_substance` at all, because attaching a formula-less
+    one is exactly what killed every PlainsSolution entry.
+    """
+    archives = _export(db, experiment)
+
+    solutions = _by_mdef(archives, SOLUTION_MDEF)
+    pvk = next(
+        body["data"] for body in solutions.values() if body["data"]["name"] == "PVK"
+    )
+
+    dmso = next(
+        c for c in pvk["components"] if c["substance_name"] == "Dimethyl sulfoxide"
+    )
+    assert "pure_substance" not in dmso
+    # Still a full component, so the ingredient is not lost from the entry.
+    assert dmso["name"] == "Dimethyl sulfoxide"
+
+    # ...while its resolvable neighbours are unaffected.
+    dmf = next(
+        c for c in pvk["components"] if c["substance_name"] == "N,N-Dimethylformamide"
+    )
+    assert dmf["pure_substance"]["molecular_formula"] == "C3H7NO"
+
+
+def test_no_substance_section_anywhere_lacks_a_molecular_formula(db, experiment):
+    """The invariant, checked across every archive the export writes.
+
+    Asserted globally rather than per-builder so that a new emission site cannot
+    quietly reintroduce the crash.
+    """
+    archives = _export(db, experiment)
+
+    sections = _substance_sections(archives)
+    assert sections, "expected at least one substance section to check"
+    offenders = [s for s in sections if not s.get("molecular_formula")]
+    assert offenders == [], (
+        "a pure_substance without molecular_formula makes NOMAD's "
+        f"CompositeSystem.normalize raise on Formula(None): {offenders}"
+    )

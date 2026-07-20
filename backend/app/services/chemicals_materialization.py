@@ -38,6 +38,7 @@ from app.models import (
     ProcessStep,
     SolutionComponent,
 )
+from app.services.pubchem_enrichment import enrich_materials
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class MaterializationReport:
 
     materials_created: int = 0
     materials_updated: int = 0
+    materials_enriched: int = 0
     solutions_created: int = 0
     solutions_updated: int = 0
     #: Names of chemicals skipped because the user never gave them a lab ID.
@@ -474,6 +476,15 @@ def materialize_experiment_chemicals(
         if inline_material is not None and step.material_id != inline_material.id:
             step.material_id = inline_material.id
             session.add(step)
+
+    # Cache each material's PubChem identity, so the NOMAD export has a
+    # `molecular_formula` to emit. Chemicals that only ever live in
+    # `chemicals_prep` JSONB never pass through the materials route, so this is
+    # their only chance to be enriched. Already-synced rows are skipped, and a
+    # failed fetch is logged and left retryable — never fatal to the upload.
+    report.materials_enriched = enrich_materials(
+        session, list(material_by_label.values())
+    )
 
     session.commit()
     return report
