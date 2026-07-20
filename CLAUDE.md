@@ -49,6 +49,48 @@ the dev database. Those scripts now guard it automatically:
   cd backend && POSTGRES_DB=app_test uv run pytest tests/services/test_foo.py -q
   ```
 
+## ⚠️ `git stash` — never pop blind
+
+A real incident in this repo (2026-07): a command of the shape
+
+```bash
+git stash push -u -- backend/ && cd backend && <work> ; cd /home/simon/plains && git stash pop
+```
+
+was run while the shell was **already** in `backend/`. The pathspec `backend/`
+matched nothing, so `git stash push` stashed nothing **and still exited 0**. The
+`cd backend` then failed, breaking the `&&` chain — but `git stash pop` was
+joined with `;`, so it ran anyway and popped a *pre-existing, unrelated* stash
+entry (`recovery-before-checkout`) left over from an older session. That entry
+held near-total deletions of 9 files nobody had touched, producing `UU`/`DU`
+conflicts with literal `<<<<<<< Updated upstream` markers written into working
+files, including a zero-byte `.env`.
+
+**Rules:**
+
+- **Check `git stash list` before any `pop`/`apply`.** This repo can carry stale
+  stash entries from previous sessions. Never assume `stash@{0}` is yours; pop
+  by explicit ref (`git stash pop stash@{2}`) after reading `git stash show -p`.
+- **Only pop if the matching push actually stashed something.** `git stash push`
+  with a non-matching pathspec is a silent no-op that exits 0. Verify with
+  `git stash list` (or `git rev-parse -q --verify refs/stash`) between push and
+  pop — never chain a pop with `;`, and never chain it at all across a `cd`.
+- **Confirm `pwd` before any pathspec- or `cd`-relative git command.** The
+  session's cwd is `/home/simon/plains/backend`, not the repo root; repo-root
+  pathspecs like `backend/` silently match nothing from there. Use absolute
+  paths or `git -C /home/simon/plains …`.
+- **Prefer a throwaway commit or `git worktree` over stashing** when you need a
+  clean tree temporarily — both are named, visible in `git log`/`git worktree
+  list`, and cannot be popped onto the wrong state by accident.
+- **Never pipe a git command through `| tail -N`** when you care whether it
+  worked: the pipeline's exit code is `tail`'s (always 0) and per-file errors
+  scroll away. Run it plain, one path at a time, and read the real exit code.
+- If conflicts do appear: `git checkout --ours -- <path>` updates the working
+  tree but does **not** resolve the index — `git add <path>` afterwards. Verify
+  with `git diff --stat HEAD -- <paths>` (empty means recovered) and
+  `grep -rl '^<<<<<<<' ` before declaring it fixed. Don't `git stash drop` the
+  offending entry without asking — it may be someone's only copy of something.
+
 ## Commands
 
 ### Full Stack (Docker Compose)

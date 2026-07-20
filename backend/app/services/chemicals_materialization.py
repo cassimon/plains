@@ -114,6 +114,24 @@ def _parse_datetime(value: Any) -> datetime | None:
         return None
 
 
+def joined_handling(preparation: str | None, before_use: str | None) -> str | None:
+    """The recipe's two handling fields as one labelled string.
+
+    A bare join loses which half was which — this keeps both directions of a
+    round-trip: shared by the materializer (a real batch's handling) and the
+    NOMAD exporter's recipe fallback (`_build_recipe_solution_entity`), so both
+    paths produce the identical, splittable format.
+    """
+    parts: list[str] = []
+    preparation_text = _clean(preparation)
+    if preparation_text:
+        parts.append(f"Preparation: {preparation_text}")
+    before_use_text = _clean(before_use)
+    if before_use_text:
+        parts.append(f"Before use: {before_use_text}")
+    return "\n\n".join(parts) or None
+
+
 def _collect_chemicals(
     steps: list[ProcessStep],
     recipes: list[ProcessSolutionRecipe],
@@ -393,24 +411,26 @@ def materialize_experiment_chemicals(
             continue
         batch: dict[str, Any] = batches.get(f"recipe:{recipe.id}") or {}
         label = _clean(batch.get("vialLabel"))
-        handling = "\n\n".join(
-            part
-            for part in (
-                _clean(recipe.handling_preparation),
-                _clean(recipe.handling_before_use),
-            )
-            if part
-        )
         values: dict[str, Any] = {
             "name": (_clean(recipe.name) or "Solution")[:255],
             "type": _clean(recipe.type),
-            "handling": handling or None,
+            "handling": joined_handling(
+                recipe.handling_preparation, recipe.handling_before_use
+            ),
             "creation_time": _parse_datetime(batch.get("preparedAt")),
             "total_volume_ml": _to_float(batch.get("totalVolumeMl")),
             "source_recipe_id": recipe.id,
         }
         if batch.get("mode") == "take":
-            values["notes"] = "Taken from a batch prepared in another experiment."
+            source_exp = _clean(batch.get("takenFromExpId"))
+            source_batch = _clean(batch.get("takenFromBatchId"))
+            note = "Taken from a batch prepared in another experiment"
+            if source_exp:
+                note += f" (experiment {source_exp}"
+                if source_batch:
+                    note += f", batch {source_batch}"
+                note += ")"
+            values["notes"] = note + "."
 
         solution_row: LabSolution | None = None
         if label:
@@ -541,6 +561,8 @@ def _write_components(
                 amount=volume_ml,
                 unit="ml",
                 material_id=material.id if material else None,
+                role="solvent",
+                amount_relative=solvent.volume_ratio or None,
             )
         )
 
@@ -555,6 +577,7 @@ def _write_components(
                 amount=round(amount * factor, 6),
                 unit=solute.unit or "mg",
                 material_id=material.id if material else None,
+                role="solute",
             )
         )
 
@@ -573,6 +596,7 @@ def _write_components(
                 unit="ml",
                 solution_ref_id=referenced.id if referenced else None,
                 material_id=commercial.id if commercial else None,
+                role="stock" if referenced is not None else "commercial",
             )
         )
 

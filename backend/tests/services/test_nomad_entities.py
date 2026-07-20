@@ -602,8 +602,11 @@ def test_recipe_ingredients_match_inventory_materials_by_cid_and_name():
 
     (ink,) = (body["data"] for body in solution_entries.values())
     assert ink["name"] == "Perovskite ink"
-    assert ink["description"] == "perovskite"
-    assert ink["handling"] == "Stir overnight at 60C\n\nFilter with 0.2um PTFE"
+    assert ink["solution_type"] == "perovskite"
+    assert "description" not in ink
+    assert ink["handling"] == (
+        "Preparation: Stir overnight at 60C\n\nBefore use: Filter with 0.2um PTFE"
+    )
     assert ink["solvent_ratio"] == "4:1"
 
     dmf_row = next(r for r in ink["solvent"] if r["name"] == "dmf")
@@ -696,7 +699,9 @@ def test_materialized_batch_is_an_identifiable_solution_entity(db, experiment):
     # findable in NOMAD.
     assert pvk["lab_id"] == "PVK_2026-07-19"
     assert pvk["datetime"].startswith("2026-07-19T14:30")
-    assert pvk["handling"] == "Stir at 60 C\n\nFilter with 0.45 um PTFE"
+    assert pvk["handling"] == (
+        "Preparation: Stir at 60 C\n\nBefore use: Filter with 0.45 um PTFE"
+    )
     assert pvk["properties"]["final_volume"] == 2.0
 
     # Amounts are the batch the user actually mixed (2 mL of a 1 mL recipe).
@@ -835,7 +840,9 @@ def test_solution_components_carry_a_formula_when_one_is_known(db, experiment):
         body["data"] for body in solutions.values() if body["data"]["name"] == "PVK"
     )
 
-    pbi2 = next(c for c in pvk["components"] if c["substance_name"] == "Lead(II) iodide")
+    pbi2 = next(
+        c for c in pvk["components"] if c["substance_name"] == "Lead(II) iodide"
+    )
     assert pbi2["pure_substance"]["molecular_formula"] == "I2Pb"
 
 
@@ -883,3 +890,108 @@ def test_no_substance_section_anywhere_lacks_a_molecular_formula(db, experiment)
         "a pure_substance without molecular_formula makes NOMAD's "
         f"CompositeSystem.normalize raise on Formula(None): {offenders}"
     )
+
+
+# ── Solution composition fidelity: a solution reconstructable from its archive ──
+
+
+def test_solvent_ratio_and_row_ratios_are_carried(db, experiment):
+    """The recipe's 4:1 DMF:DMSO ratio, both as a top-level string and per-row."""
+    archives = _export(db, experiment)
+
+    solutions = _by_mdef(archives, SOLUTION_MDEF)
+    pvk = next(
+        body["data"] for body in solutions.values() if body["data"]["name"] == "PVK"
+    )
+
+    assert pvk["solvent_ratio"] == "4:1"
+    dmf_row = next(r for r in pvk["solvent"] if r["name"] == "N,N-Dimethylformamide")
+    assert dmf_row["amount_relative"] == 4.0
+    # The row's inventory label, so a solvent can be matched back to its shelf
+    # entry even if the `chemical` reference is ever lost.
+    assert dmf_row["chemical_id"] == "INV-DMF"
+    dmso_row = next(r for r in pvk["solvent"] if r["name"] == "Dimethyl sulfoxide")
+    assert dmso_row["amount_relative"] == 1.0
+
+
+def test_solution_type_is_not_merged_into_description(db, experiment):
+    """`type` and `notes` used to be joined into one unsplittable `description`."""
+    archives = _export(db, experiment)
+
+    solutions = _by_mdef(archives, SOLUTION_MDEF)
+    pvk = next(
+        body["data"] for body in solutions.values() if body["data"]["name"] == "PVK"
+    )
+
+    assert pvk["solution_type"] == "perovskite precursor"
+    # No notes were ever recorded for this batch, so there is nothing left to
+    # put in `description` -- in particular, not the type that used to leak in.
+    assert "description" not in pvk
+
+
+def test_nested_solution_is_visible_in_the_composition_list(db, experiment):
+    """A solution mixed into another solution used to be invisible in `components`."""
+    archives = _export(db, experiment)
+
+    solutions = _by_mdef(archives, SOLUTION_MDEF)
+    pcbm = next(
+        body["data"] for body in solutions.values() if body["data"]["name"] == "PCBM"
+    )
+
+    # Still present as an `other_solution` row (existing behaviour), now with
+    # its recipe-relative share carried too.
+    (mixed_in,) = pcbm["other_solution"]
+    assert mixed_in["name"] == "PVK"
+    assert mixed_in["solution_volume"] == 0.5
+
+    # And now also listed in `components`, so it is not invisible to NOMAD's
+    # composition/material overview. Deliberately the plain base `Component`
+    # (name only) rather than `SystemComponent` -- see the comment at its
+    # emission site in `nomad.py` for why a `system` reference is not safe
+    # there.
+    nested = next(c for c in pcbm["components"] if c["name"] == "PVK")
+    assert nested["m_def"] == "nomad.datamodel.metainfo.basesections.v1.Component"
+    assert "system" not in nested
+
+
+def test_solution_is_reconstructable_from_its_archive(db, experiment):
+    """The user's ask: nothing the app knew about a solution should be lost.
+
+    Rebuilds the PVK recipe + batch from the exported archive alone and checks
+    it against the fixture's own recipe/batch values (`conftest.py`), rather
+    than re-deriving the numbers here.
+    """
+    archives = _export(db, experiment)
+
+    solutions = _by_mdef(archives, SOLUTION_MDEF)
+    pvk = next(
+        body["data"] for body in solutions.values() if body["data"]["name"] == "PVK"
+    )
+
+    # Identity + provenance.
+    assert pvk["name"] == "PVK"
+    assert pvk["solution_type"] == "perovskite precursor"
+    assert pvk["lab_id"] == "PVK_2026-07-19"
+    assert pvk["datetime"].startswith("2026-07-19T14:30")
+    assert pvk["properties"]["final_volume"] == 2.0
+
+    # Handling, split back into its two original halves by the labels the
+    # exporter writes -- pinning that the labelled-join format is a contract.
+    preparation, before_use = pvk["handling"].split("\n\n")
+    assert preparation == "Preparation: Stir at 60 C"
+    assert before_use == "Before use: Filter with 0.45 um PTFE"
+
+    # Solvents: name, CID (via the inline PubChem identity), ratio, volume.
+    solvents = {row["name"]: row for row in pvk["solvent"]}
+    assert solvents.keys() == {"N,N-Dimethylformamide", "Dimethyl sulfoxide"}
+    assert solvents["N,N-Dimethylformamide"]["chemical_2"]["pub_chem_cid"] == 6228
+    assert solvents["N,N-Dimethylformamide"]["amount_relative"] == 4.0
+    assert solvents["N,N-Dimethylformamide"]["chemical_volume"] == 1.6
+    assert solvents["Dimethyl sulfoxide"]["amount_relative"] == 1.0
+    assert solvents["Dimethyl sulfoxide"]["chemical_volume"] == 0.4
+
+    # Solutes: name, CID, mass.
+    (solute,) = pvk["solute"]
+    assert solute["name"] == "Lead(II) iodide"
+    assert solute["chemical_2"]["pub_chem_cid"] == 24931
+    assert solute["chemical_mass"] == 922.0

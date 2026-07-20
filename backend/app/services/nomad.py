@@ -879,6 +879,11 @@ def create_nomad_metadata_yaml(
                     "solutionId": str(c.solution_ref_id) if c.solution_ref_id else None,
                     "amount": c.amount,
                     "unit": c.unit,
+                    # Written by the chemicals materializer; None on rows the
+                    # GUI created directly, which the exporter then routes by
+                    # the old type-based inference instead.
+                    "role": getattr(c, "role", None),
+                    "amountRelative": getattr(c, "amount_relative", None),
                 }
                 for c in s.components
             ],
@@ -3244,6 +3249,7 @@ def create_nomad_metadata_yaml(
     ) -> dict[str, list[dict[str, Any]]]:
         solvent: list[dict[str, Any]] = []
         solute: list[dict[str, Any]] = []
+        additive: list[dict[str, Any]] = []
         other: list[dict[str, Any]] = []
 
         for component in solution.get("components") or []:
@@ -3253,6 +3259,8 @@ def create_nomad_metadata_yaml(
             unit = str(component.get("unit") or "")
             material_id = str(component.get("materialId") or "").strip()
             nested_id = str(component.get("solutionId") or "").strip()
+            role = str(component.get("role") or "").strip().lower()
+            relative = _to_float(component.get("amountRelative"))
 
             if material_id:
                 material = materials_by_id.get(material_id)
@@ -3269,8 +3277,15 @@ def create_nomad_metadata_yaml(
                     (material or {}).get("pubchemCid"),
                 )
                 _set_solution_amount(row, amount, unit)
-                if _is_solvent_material(material):
+                if relative is not None and relative > 0:
+                    row["amount_relative"] = relative
+                label = _clean_value((material or {}).get("inventoryLabel"), "")
+                if label:
+                    row["chemical_id"] = label
+                if role == "solvent" or (not role and _is_solvent_material(material)):
                     solvent.append(row)
+                elif role == "commercial":
+                    additive.append(row)
                 else:
                     _set_row_concentrations(row, material, volume_ml)
                     solute.append(row)
@@ -3285,9 +3300,16 @@ def create_nomad_metadata_yaml(
                 volume = _to_float(amount)
                 if volume is not None and str(unit).strip().lower() == "ml":
                     entry["solution_volume"] = volume
+                if relative is not None and relative > 0:
+                    entry["amount_relative"] = relative
                 other.append(entry)
 
-        return {"solvent": solvent, "solute": solute, "other_solution": other}
+        return {
+            "solvent": solvent,
+            "solute": solute,
+            "additive": additive,
+            "other_solution": other,
+        }
 
     def _solution_total_volume_ml(solution: dict[str, Any]) -> float | None:
         """How much of this solution was actually made, in mL.
@@ -3345,35 +3367,57 @@ def create_nomad_metadata_yaml(
             if not isinstance(component, dict):
                 continue
             material_id = str(component.get("materialId") or "").strip()
-            if not material_id:
-                continue
-            material = materials_by_id.get(material_id) or {}
-            name = _material_name(material, material_id)
-            entry: dict[str, Any] = {
-                "m_def": "nomad.datamodel.metainfo.basesections.v1.PureSubstanceComponent",
-                "name": name,
-                "substance_name": name,
-            }
-            # No formula -> no substance section. See `_has_molecular_formula`:
-            # attaching one anyway is what made every PlainsSolution fail to
-            # normalize. The component itself is still emitted, so the solution
-            # keeps its ingredient list either way.
-            if _has_molecular_formula(material):
-                # `pure_substance` is typed as the plain `PureSubstanceSection`,
-                # which has no CID field — the PubChem subclass has to be named.
-                substance = _pubchem_inline(
-                    material.get("name") or name,
-                    material.get("pubchemCid"),
-                    material,
+            nested_id = str(component.get("solutionId") or "").strip()
+
+            if material_id:
+                material = materials_by_id.get(material_id) or {}
+                name = _material_name(material, material_id)
+                entry: dict[str, Any] = {
+                    "m_def": "nomad.datamodel.metainfo.basesections.v1.PureSubstanceComponent",
+                    "name": name,
+                    "substance_name": name,
+                }
+                # No formula -> no substance section. See `_has_molecular_formula`:
+                # attaching one anyway is what made every PlainsSolution fail to
+                # normalize. The component itself is still emitted, so the
+                # solution keeps its ingredient list either way.
+                if _has_molecular_formula(material):
+                    # `pure_substance` is typed as the plain `PureSubstanceSection`,
+                    # which has no CID field — the PubChem subclass has to be named.
+                    substance = _pubchem_inline(
+                        material.get("name") or name,
+                        material.get("pubchemCid"),
+                        material,
+                    )
+                    substance["m_def"] = "baseclasses.PubChemPureSubstanceSectionCustom"
+                    entry["pure_substance"] = substance
+                amount = _to_float(component.get("amount"))
+                unit = str(component.get("unit") or "").strip().lower()
+                if amount is not None and unit in ("mg", "milligram"):
+                    # `Component.mass` is a mass in kg; the app records mg.
+                    entry["mass"] = amount / 1_000_000.0
+                components.append(entry)
+            elif nested_id:
+                # Deliberately the plain base `Component`, not `SystemComponent`,
+                # and deliberately no `system` reference. `CompositeSystem.normalize`
+                # reads `component.system.elemental_composition` for a
+                # `SystemComponent` with no try/except around it -- unlike the
+                # `PureSubstanceComponent` branch above, which guards `Formula()`.
+                # A same-upload cross-entry reference is not guaranteed resolved
+                # by the time this runs, so that access can raise
+                # `MetainfoReferenceError` and take the whole entry down with it
+                # -- the exact failure mode this project started by fixing. The
+                # nested solution is still fully reconstructable via its
+                # `other_solution` row (`solution` reference + volume +
+                # `amount_relative`); this entry only keeps it visible in the
+                # ingredient list.
+                nested = solutions_by_id.get(nested_id) or {}
+                components.append(
+                    {
+                        "m_def": "nomad.datamodel.metainfo.basesections.v1.Component",
+                        "name": _clean_value(nested.get("name"), "Solution"),
+                    }
                 )
-                substance["m_def"] = "baseclasses.PubChemPureSubstanceSectionCustom"
-                entry["pure_substance"] = substance
-            amount = _to_float(component.get("amount"))
-            unit = str(component.get("unit") or "").strip().lower()
-            if amount is not None and unit in ("mg", "milligram"):
-                # `Component.mass` is a mass in kg; the app records mg.
-                entry["mass"] = amount / 1_000_000.0
-            components.append(entry)
         return components
 
     def _build_solution_entity(entity_id: str) -> dict[str, Any]:
@@ -3395,17 +3439,16 @@ def create_nomad_metadata_yaml(
         storage = _clean_value(solution.get("storage"), "")
         if storage:
             data["storage"] = [{"storage_condition": storage}]
-        # Solution type + free-text notes both land in the description.
-        description = "\n\n".join(
-            part
-            for part in (
-                _clean_value(solution.get("type"), ""),
-                _clean_value(solution.get("notes"), ""),
-            )
-            if part
-        )
-        if description:
-            data["description"] = description
+        # `type` and `notes` used to be merged into one `description` string,
+        # which could not be split apart again. `solution_type` (a plugin
+        # field on `PlainsSolution`) now carries the category on its own, so
+        # `description` is free-text `notes` alone.
+        solution_type = _clean_value(solution.get("type"), "")
+        if solution_type:
+            data["solution_type"] = solution_type
+        notes = _clean_value(solution.get("notes"), "")
+        if notes:
+            data["description"] = notes
 
         volume_ml = _solution_total_volume_ml(solution)
         if volume_ml:
@@ -3415,6 +3458,14 @@ def create_nomad_metadata_yaml(
         for key, value in rows.items():
             if value:
                 data[key] = value
+
+        # A top-level ratio string, mirroring the per-row `amount_relative` on
+        # `solvent` -- only meaningful with >=2 solvents that all carry one.
+        solvent_ratios = [row.get("amount_relative") for row in rows.get("solvent", [])]
+        if len(solvent_ratios) > 1 and all(
+            isinstance(r, (int, float)) and r > 0 for r in solvent_ratios
+        ):
+            data["solvent_ratio"] = ":".join(f"{r:g}" for r in solvent_ratios)
 
         components = _solution_components(solution)
         if components:
@@ -3443,6 +3494,10 @@ def create_nomad_metadata_yaml(
         return entity_ref_by_id.get(matched) if matched else None
 
     def _build_recipe_solution_entity(recipe_id: str) -> dict[str, Any]:
+        # Deferred: `chemicals_materialization` pulls in `app.core.db` -> `app.crud`
+        # -> this module at top level, so a module-level import here is circular.
+        from app.services.chemicals_materialization import joined_handling
+
         recipe = recipes_by_id.get(recipe_id) or {}
         data: dict[str, Any] = {
             "m_def": SOLUTION_MDEF,
@@ -3451,14 +3506,9 @@ def create_nomad_metadata_yaml(
         }
         recipe_type = _clean_value(recipe.get("type"), "")
         if recipe_type:
-            data["description"] = recipe_type
-        handling = "\n\n".join(
-            part
-            for part in (
-                _clean_value(recipe.get("handlingPreparation"), ""),
-                _clean_value(recipe.get("handlingBeforeUse"), ""),
-            )
-            if part
+            data["solution_type"] = recipe_type
+        handling = joined_handling(
+            recipe.get("handlingPreparation"), recipe.get("handlingBeforeUse")
         )
         if handling:
             data["handling"] = handling

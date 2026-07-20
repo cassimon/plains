@@ -114,8 +114,12 @@ def test_solution_batch_identity(db: Session, experiment: Experiment) -> None:
     assert pvk.creation_time is not None
     assert pvk.creation_time.isoformat().startswith("2026-07-19T14:30")
     assert pvk.source_recipe_id == PVK_RECIPE
-    # Both recipe handling fields survive; VARCHAR(255) used to truncate them.
-    assert pvk.handling == "Stir at 60 C\n\nFilter with 0.45 um PTFE"
+    # Both recipe handling fields survive, labelled so they can be told apart
+    # again later — a bare join used to make that impossible, and
+    # VARCHAR(255) used to truncate the pair besides.
+    assert pvk.handling == (
+        "Preparation: Stir at 60 C\n\nBefore use: Filter with 0.45 um PTFE"
+    )
 
     # The commercial recipe must not have become a solution.
     assert not [
@@ -144,6 +148,16 @@ def test_components_are_scaled_to_the_batch_volume(
     assert by_material[materials["INV-PBI2"].id].amount == pytest.approx(922.0)
     assert by_material[materials["INV-PBI2"].id].unit == "mg"
 
+    # Every solvent row carries the recipe's ratio (4:1) alongside the
+    # batch-scaled absolute amount, and every row is tagged by role instead of
+    # leaving the exporter to guess from the material's type.
+    assert by_material[materials["INV-DMF"].id].role == "solvent"
+    assert by_material[materials["INV-DMF"].id].amount_relative == pytest.approx(4.0)
+    assert by_material[materials["INV-DMSO"].id].role == "solvent"
+    assert by_material[materials["INV-DMSO"].id].amount_relative == pytest.approx(1.0)
+    assert by_material[materials["INV-PBI2"].id].role == "solute"
+    assert by_material[materials["INV-PBI2"].id].amount_relative is None
+
     # A stock solution mixed into another recipe references the batch, not a
     # material: PCBM's recipe is 2 mL and the batch is 2 mL, so 0.5 mL as-is.
     pcbm = solutions["PCBM_2026-07-19"]
@@ -157,6 +171,7 @@ def test_components_are_scaled_to_the_batch_volume(
     assert len(mixed_in) == 1
     assert mixed_in[0].solution_ref_id == pvk.id
     assert mixed_in[0].amount == pytest.approx(0.5)
+    assert mixed_in[0].role == "stock"
 
 
 def test_process_steps_point_at_the_materialized_entities(

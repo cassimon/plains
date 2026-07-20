@@ -77,6 +77,10 @@ def _orm_solution(d):
                 solution_ref_id=c.get("solutionId"),
                 amount=c.get("amount"),
                 unit=c.get("unit"),
+                # Materializer-owned routing metadata -- see
+                # `SolutionComponent.role`/`.amount_relative` in models.py.
+                role=c.get("role"),
+                amount_relative=c.get("amountRelative"),
             )
             for c in d.get("components") or []
         ],

@@ -491,6 +491,26 @@ class SolutionComponent(SolutionComponentBase, table=True):
         sa_relationship_kwargs={"foreign_keys": "[SolutionComponent.solution_id]"},
     )
 
+    # ── Materializer-owned composition metadata ─────────────────────────────
+    # Deliberately NOT on `SolutionComponentBase`: only the chemicals
+    # materializer writes these, so keeping them off `Create`/`Update` means a
+    # frontend write can never clobber them.
+    #
+    # Which recipe list this component came from. The NOMAD exporter routes
+    # rows into the solvent/solute/additive/other_solution buckets by this
+    # instead of guessing from the material's type. Null on rows the GUI
+    # created directly (outside the chemicals materializer); the exporter then
+    # falls back to the old type-based inference.
+    # Vocabulary: "solvent", "solute", "stock" (a mixed-in LabSolution batch),
+    # "commercial" (a mixed-in commercial product, materialized as a
+    # LabMaterial).
+    role: str | None = Field(default=None, max_length=20)
+    # The recipe's ratio for this row (solvent volumeRatio / stock share). The
+    # `amount` column already carries the absolute, batch-scaled quantity;
+    # this keeps the recipe-level ratio too, so the recipe is reconstructable
+    # from the archive alone.
+    amount_relative: float | None = None
+
 
 class SolutionComponentPublic(SolutionComponentBase):
     id: uuid.UUID
