@@ -36,6 +36,18 @@ the dev database. Those scripts now guard it automatically:
   the DB the same way `scripts/test.sh` does (backup first, `trap` restore on
   EXIT), or run against an isolated Compose project/volume.
 - `db_backups/` is gitignored — never commit dumps.
+- **Never run `pytest` directly against the dev stack.** `down -v` is not the only
+  way to lose the dev data: the session-scoped `db` fixture in
+  `backend/tests/conftest.py` ends every run with `delete(User)`, and every table
+  cascades from `user`, so a bare `uv run pytest` wipes all planes, processes and
+  experiments even when every test passes. `scripts/test.sh` is safe because it
+  backs up and restores around the run. For quick iteration use an isolated
+  database instead — it needs no migration, `init_db` creates the schema:
+
+  ```bash
+  docker compose exec -T db psql -U postgres -d postgres -c "CREATE DATABASE app_test;"
+  cd backend && POSTGRES_DB=app_test uv run pytest tests/services/test_foo.py -q
+  ```
 
 ## Commands
 

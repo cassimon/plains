@@ -38,12 +38,14 @@ from app.api.deps import (
 )
 from app.core.config import settings
 from app.models import (
+    Experiment,
     ExperimentResults,
     NomadUploadLog,
     NomadUploadLogPublic,
     NomadUploadLogsPublic,
     User,
 )
+from app.services.chemicals_materialization import materialize_experiment_chemicals
 from app.services.nomad import (
     TEMP_UPLOAD_DIR,
     NomadAuthError,
@@ -106,6 +108,42 @@ _QuotedDumper.add_representer(list, _represent_list_flow_if_flat)
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/nomad", tags=["nomad"])
+
+
+def _materialize_chemicals(session: SessionDep, experiment_id: str) -> None:
+    """Sync the experiment's chemicals into the inventory before exporting.
+
+    The NOMAD exporter is driven entirely off `lab_material` / `lab_solution`,
+    while the Chemicals step records its answers in `Experiment.chemicals_prep`.
+    Materializing here — rather than when the user fills the step in — means the
+    export always reflects the latest answers, and re-uploading an edited
+    experiment updates the inventory instead of duplicating it.
+
+    A failure here must not block an upload: the archives are still valid
+    without the chemical entities, so it is logged rather than raised.
+    """
+    try:
+        experiment = session.exec(
+            select(Experiment).where(Experiment.id == uuid.UUID(str(experiment_id)))
+        ).first()
+        if experiment is None:
+            return
+        report = materialize_experiment_chemicals(session, experiment)
+        if report.skipped_unlabelled:
+            logger.warning(
+                "Experiment %s: %d chemical(s) had no inventory label and were "
+                "not materialized: %s",
+                experiment_id,
+                len(report.skipped_unlabelled),
+                ", ".join(sorted(set(report.skipped_unlabelled))),
+            )
+    except Exception:
+        session.rollback()
+        logger.exception(
+            "Failed to materialize chemicals for experiment %s; "
+            "continuing without chemical entities",
+            experiment_id,
+        )
 
 
 def _require_nomad_upload_authorized(current_user: CurrentUser) -> None:
@@ -422,6 +460,8 @@ async def upload_files_for_nomad(
             ]
             device_groups_dicts = [g.model_dump() for g in upload_request.device_groups]
 
+            _materialize_chemicals(session, upload_request.experiment_id)
+
             # Generate per-archive YAML files
             archives = create_nomad_metadata_yaml(
                 experiment_id=upload_request.experiment_id,
@@ -583,6 +623,8 @@ async def add_metadata_to_archive(
 
         measurement_files_dicts = [f.model_dump() for f in request.measurement_files]
         device_groups_dicts = [g.model_dump() for g in request.device_groups]
+
+        _materialize_chemicals(session, request.experiment_id)
 
         # Generate per-archive YAML files
         archives = create_nomad_metadata_yaml(
@@ -821,6 +863,8 @@ async def upload_to_nomad_endpoint(
 
         measurement_files_dicts = [f.model_dump() for f in request.measurement_files]
         device_groups_dicts = [g.model_dump() for g in request.device_groups]
+
+        _materialize_chemicals(session, request.experiment_id)
 
         # Generate per-archive YAML files
         archives = create_nomad_metadata_yaml(

@@ -559,6 +559,12 @@ function MaterialQueryCard({
     ),
   )
   const inputRef = useRef<HTMLInputElement>(null)
+  // The "same as last time" hint disappears the moment the user commits an
+  // answer (`usingDefault` goes false), which used to shrink the card and make
+  // the confirm button jump out from under the cursor mid-click. Remember
+  // whether this card ever showed the hint and keep its space reserved for the
+  // card's whole lifetime — cards that never had a default stay compact.
+  const reserveHintSpace = useRef(usingDefault).current
 
   React.useEffect(() => {
     const t = requestAnimationFrame(() => {
@@ -641,8 +647,15 @@ function MaterialQueryCard({
           }}
         />
 
-        {usingDefault && (
-          <Text size="xs" c="teal.7">
+        {reserveHintSpace && (
+          <Text
+            size="xs"
+            c="teal.7"
+            // Kept mounted (just invisible) once answered so the card height —
+            // and therefore the confirm button's position — never changes.
+            style={{ visibility: usingDefault ? "visible" : "hidden" }}
+            aria-hidden={!usingDefault}
+          >
             Same as last time ({defaultSourceLabel}) — press Enter to keep, or
             edit above.
           </Text>

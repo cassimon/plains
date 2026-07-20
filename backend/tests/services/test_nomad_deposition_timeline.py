@@ -437,11 +437,16 @@ def test_a_recipe_step_carries_its_chemistry():
     )
 
     _routine, steps = _steps_of(archives)
-    material = steps[0]["material"]
-    assert material["name"] == "Perovskite precursor"
-    assert material["supplier"] == "AB-1"
+    # Nothing has been materialized here (no chemicals step answers), so the
+    # step falls back to referencing the recipe's own solution entry.
+    solution_file = next(
+        name
+        for name, body in archives.items()
+        if body["data"].get("name") == "Perovskite precursor"
+    )
+    assert steps[0]["solution"].endswith(f"{solution_file}#/data")
     # 461.01 mg / 461.01 g/mol = 1 mmol in 1 mL → 1.0 mol/l
-    assert material["concentration"] == 1.0
+    assert steps[0]["solution_concentration"] == 1.0
 
     # ...and the perovskite-database sections see the same chemistry.
     sample = next(v["data"] for k, v in archives.items() if "_sample." in k)

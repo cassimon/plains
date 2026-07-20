@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from pydantic import ConfigDict, EmailStr
-from sqlalchemy import Column, DateTime, UniqueConstraint
+from sqlalchemy import Column, DateTime, Index, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -384,6 +384,21 @@ class LabMaterialUpdate(LabMaterialBase):
 
 class LabMaterial(LabMaterialBase, table=True):
     __tablename__ = "lab_material"
+    # An inventory label is the lab-unique identifier of a chemical (it becomes
+    # `PlainsMaterial.lab_id` in NOMAD), so at most one material per owner may
+    # carry a given one. This is what makes the chemicals materializer's
+    # get-or-create safe, and "one NOMAD entity per unique lab ID" an invariant
+    # of the data rather than of the exporter. Partial: unlabelled materials
+    # (the legacy inventory rows) are unconstrained.
+    __table_args__ = (
+        Index(
+            "ix_lab_material_owner_inventory_label",
+            "owner_id",
+            "inventory_label",
+            unique=True,
+            postgresql_where=text("inventory_label IS NOT NULL"),
+        ),
+    )
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     owner_id: uuid.UUID = Field(
         foreign_key="user.id", nullable=False, ondelete="CASCADE"
@@ -394,6 +409,10 @@ class LabMaterial(LabMaterialBase, table=True):
         sa_type=DateTime(timezone=True),
     )
     frontend_data: dict[str, Any] | None = _jsonb_field()
+    # PubChem CIDs of the individual components of a mixture (e.g. PEDOT:PSS).
+    # Scientific data, not UI state, hence its own column rather than a corner
+    # of `frontend_data`.
+    component_cids: list[str] | None = _jsonb_field()
 
 
 class LabMaterialPublic(LabMaterialBase):
@@ -444,7 +463,9 @@ class SolutionComponentPublic(SolutionComponentBase):
 class LabSolutionBase(SQLModel):
     name: str = Field(min_length=1, max_length=255)
     type: str | None = Field(default=None, max_length=100)
-    handling: str | None = Field(default=None, max_length=255)
+    # Unbounded: a materialized batch joins the recipe's two handling fields
+    # (preparation + before-use), which 255 characters truncates.
+    handling: str | None = None
     storage: str | None = Field(default=None, max_length=255)
     creation_time: datetime | None = Field(
         default=None, sa_type=DateTime(timezone=True)
@@ -453,6 +474,17 @@ class LabSolutionBase(SQLModel):
     plane_id: uuid.UUID | None = Field(
         default=None, foreign_key="plane.id", ondelete="SET NULL"
     )
+    # The vial label the user gave this batch in the Experiment chemicals step.
+    # Becomes `PlainsSolution.lab_id`, which is how the batch is found in NOMAD.
+    inventory_label: str | None = Field(default=None, max_length=255)
+    # Volume actually prepared (mL). All component amounts are scaled to it.
+    total_volume_ml: float | None = None
+    # The `process_solution_recipe` this batch was mixed from. Deliberately a
+    # bare UUID with no foreign key: a recipe is process-scoped and may be
+    # edited or deleted independently of a batch that was really prepared, and
+    # an FK here would resurrect the masked-500 class of bug documented in
+    # CLAUDE.md for `lab_substrate.substrate_material_id`.
+    source_recipe_id: uuid.UUID | None = Field(default=None, index=True)
 
 
 class LabSolutionCreate(ClientIdCreate, LabSolutionBase):
@@ -465,6 +497,16 @@ class LabSolutionUpdate(LabSolutionBase):
 
 class LabSolution(LabSolutionBase, table=True):
     __tablename__ = "lab_solution"
+    # Same rationale as `LabMaterial`: a vial label identifies one batch.
+    __table_args__ = (
+        Index(
+            "ix_lab_solution_owner_inventory_label",
+            "owner_id",
+            "inventory_label",
+            unique=True,
+            postgresql_where=text("inventory_label IS NOT NULL"),
+        ),
+    )
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     owner_id: uuid.UUID = Field(
         foreign_key="user.id", nullable=False, ondelete="CASCADE"

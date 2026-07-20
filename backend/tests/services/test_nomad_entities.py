@@ -18,10 +18,10 @@ from tests.services.test_nomad_metadata_generation import (
 )
 
 MATERIAL_MDEF = (
-    'nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals.PlainsMaterial'
+    "nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals.PlainsMaterial"
 )
 SOLUTION_MDEF = (
-    'nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals.PlainsSolution'
+    "nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals.PlainsSolution"
 )
 
 
@@ -35,6 +35,10 @@ def _experiment(experiment_id, owner_id, name):
         description="",
         architecture="n-i-p",
         frontend_data=None,
+        # These snapshot-driven tests carry no process row, so the exporter has
+        # nothing to back-fill materialized material/solution links from.
+        process_id=None,
+        chemicals_prep=None,
     )
 
 
@@ -144,7 +148,10 @@ def test_lab_solution_and_materials_emit_linked_eln_entities():
                         "name": "Perovskite spin",
                         "stepCategory": "wet_deposition",
                         "solutionId": "sol-main",
-                        "depositionMethod": {"value": "Spin coating", "mode": "constant"},
+                        "depositionMethod": {
+                            "value": "Spin coating",
+                            "mode": "constant",
+                        },
                     }
                 ],
             }
@@ -183,7 +190,9 @@ def test_lab_solution_and_materials_emit_linked_eln_entities():
     # ── The material entity ──────────────────────────────────────────────────
     material_entries = _by_mdef(archives, MATERIAL_MDEF)
     pbi2 = next(
-        body["data"] for body in material_entries.values() if body["data"]["name"] == "PbI2"
+        body["data"]
+        for body in material_entries.values()
+        if body["data"]["name"] == "PbI2"
     )
     assert pbi2["lab_id"] == "INV-PBI2"  # inventory label, not the UUID
     assert pbi2["cas_number"] == "13462-72-8"
@@ -212,7 +221,9 @@ def test_lab_solution_and_materials_emit_linked_eln_entities():
     assert solute["name"] == "PbI2"
     assert solute["amount_mol"] == 1.4  # unit "mol" -> amount_mol
     pbi2_name = next(
-        name for name, body in material_entries.items() if body["data"]["name"] == "PbI2"
+        name
+        for name, body in material_entries.items()
+        if body["data"]["name"] == "PbI2"
     )
     assert solute["chemical"].endswith(f"{pbi2_name}#/data")
 
@@ -236,8 +247,8 @@ def test_lab_solution_and_materials_emit_linked_eln_entities():
         if body["data"]["name"] == "Perovskite ink"
     )
     steps = _deposition_steps(archives)
-    (deposited,) = [s for s in steps if s.get("material")]
-    assert deposited["material"]["solution_reference"].endswith(f"{main_name}#/data")
+    (deposited,) = [s for s in steps if s.get("solution")]
+    assert deposited["solution"].endswith(f"{main_name}#/data")
     # And the layer it produced was recorded on the step.
     assert deposited["layer_name"] == "Perovskite"
     assert deposited["layer_thickness"] == 550.0
@@ -247,7 +258,12 @@ def test_commercial_recipe_is_a_material_and_mixed_recipe_is_a_solution():
     experiment_id = str(uuid.uuid4())
 
     materials = [
-        {"id": "mat-sub", "name": "FTO glass", "type": "substrate", "stateAtRt": "solid"},
+        {
+            "id": "mat-sub",
+            "name": "FTO glass",
+            "type": "substrate",
+            "stateAtRt": "solid",
+        },
     ]
 
     process_snapshot = {
@@ -297,7 +313,10 @@ def test_commercial_recipe_is_a_material_and_mixed_recipe_is_a_solution():
                         "name": "HTL spin",
                         "stepCategory": "wet_deposition",
                         "chemRecipeId": "recipe-htl",
-                        "depositionMethod": {"value": "Spin coating", "mode": "constant"},
+                        "depositionMethod": {
+                            "value": "Spin coating",
+                            "mode": "constant",
+                        },
                     }
                 ],
             },
@@ -309,7 +328,10 @@ def test_commercial_recipe_is_a_material_and_mixed_recipe_is_a_solution():
                         "name": "PEDOT spin",
                         "stepCategory": "wet_deposition",
                         "chemRecipeId": "recipe-buy",
-                        "depositionMethod": {"value": "Spin coating", "mode": "constant"},
+                        "depositionMethod": {
+                            "value": "Spin coating",
+                            "mode": "constant",
+                        },
                     }
                 ],
             },
@@ -372,22 +394,32 @@ def test_commercial_recipe_is_a_material_and_mixed_recipe_is_a_solution():
     # Steps link to the right kind of reference.
     steps = _deposition_steps(archives)
     htl_step = next(s for s in steps if s.get("name") == "HTL spin")
-    assert htl_step["material"]["solution_reference"].endswith(f"{htl_name}#/data")
+    assert htl_step["solution"].endswith(f"{htl_name}#/data")
     buy_name = next(
         name
         for name, body in material_entries.items()
         if body["data"]["name"] == "Clevios P VP AI 4083"
     )
     buy_step = next(s for s in steps if s.get("name") == "PEDOT spin")
-    assert buy_step["material"]["material_reference"].endswith(f"{buy_name}#/data")
+    assert buy_step["chemical"].endswith(f"{buy_name}#/data")
 
 
 def test_step_quenching_links_the_antisolvent_solution_entity():
     experiment_id = str(uuid.uuid4())
 
     materials = [
-        {"id": "mat-sub", "name": "FTO glass", "type": "substrate", "stateAtRt": "solid"},
-        {"id": "mat-cb", "name": "Chlorobenzene", "type": "solvent", "stateAtRt": "liquid"},
+        {
+            "id": "mat-sub",
+            "name": "FTO glass",
+            "type": "substrate",
+            "stateAtRt": "solid",
+        },
+        {
+            "id": "mat-cb",
+            "name": "Chlorobenzene",
+            "type": "solvent",
+            "stateAtRt": "liquid",
+        },
     ]
     solutions = [
         {
@@ -409,7 +441,10 @@ def test_step_quenching_links_the_antisolvent_solution_entity():
                         "id": "step-pvk",
                         "name": "Perovskite spin",
                         "stepCategory": "wet_deposition",
-                        "depositionMethod": {"value": "Spin coating", "mode": "constant"},
+                        "depositionMethod": {
+                            "value": "Spin coating",
+                            "mode": "constant",
+                        },
                         "dryingMethod": {
                             "value": (
                                 "type=Antisolvent|media=solution:sol-as"
@@ -450,7 +485,7 @@ def test_step_quenching_links_the_antisolvent_solution_entity():
     quench_step = next(s for s in steps if s.get("quenching"))
     antisolvent = quench_step["quenching"]["antisolvent"]
     assert antisolvent["volume"] == 150.0
-    assert antisolvent["media_reference"].endswith(f"{as_name}#/data")
+    assert antisolvent["media_solution"].endswith(f"{as_name}#/data")
     assert quench_step["quenching"]["time_until_start"] == 8.0
 
 
@@ -503,7 +538,12 @@ def test_recipe_ingredients_match_inventory_materials_by_cid_and_name():
                     {"name": "DMSO", "pubchemCid": "679", "volumeRatio": 1.0},
                 ],
                 "solutes": [
-                    {"name": "PbI2", "pubchemCid": "24956", "amount": "461", "unit": "mg"},
+                    {
+                        "name": "PbI2",
+                        "pubchemCid": "24956",
+                        "amount": "461",
+                        "unit": "mg",
+                    },
                 ],
                 "addedSolutions": [],
             },
@@ -517,7 +557,10 @@ def test_recipe_ingredients_match_inventory_materials_by_cid_and_name():
                         "name": "Perovskite spin",
                         "stepCategory": "wet_deposition",
                         "chemRecipeId": "recipe-pvk",
-                        "depositionMethod": {"value": "Spin coating", "mode": "constant"},
+                        "depositionMethod": {
+                            "value": "Spin coating",
+                            "mode": "constant",
+                        },
                     }
                 ],
             }
@@ -573,3 +616,160 @@ def test_recipe_ingredients_match_inventory_materials_by_cid_and_name():
     (solute_row,) = ink["solute"]
     assert solute_row["chemical"].endswith(f"{pbi2_name}#/data")
     assert solute_row["chemical_mass"] == 461.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The other half of the round trip: exporting from materialized inventory rows.
+#
+# The tests above drive the exporter from GUI snapshots, which is the path an
+# experiment takes before its chemicals have been materialized. These drive it
+# from the database instead — `materialize_experiment_chemicals` writes the
+# inventory rows, and the exporter reads them back with no snapshot at all.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _entity_references(archives: dict) -> list[str]:
+    """Every `../upload/raw/....archive.yaml#/data` reference in the archives."""
+    found: list[str] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+        elif isinstance(node, str) and node.startswith("../upload/raw/"):
+            if node.endswith(".archive.yaml#/data"):
+                found.append(node)
+
+    walk(archives)
+    return found
+
+
+def _export(db, experiment):
+    from app.services.chemicals_materialization import materialize_experiment_chemicals
+
+    materialize_experiment_chemicals(db, experiment)
+    return create_nomad_metadata_yaml(
+        experiment_id=str(experiment.id),
+        user_name="Tester",
+        session=db,
+    )
+
+
+def test_materialized_chemicals_become_material_entities(db, experiment):
+    archives = _export(db, experiment)
+
+    materials = _by_mdef(archives, MATERIAL_MDEF)
+    by_lab_id = {body["data"]["lab_id"]: body["data"] for body in materials.values()}
+
+    # Every labelled chemical the process uses, and nothing invented for the
+    # unlabelled one. Before the chemicals were materialized this was empty.
+    assert "INV-DMF" in by_lab_id
+    assert "INV-PBI2" in by_lab_id
+    assert not [d for d in by_lab_id.values() if d["name"] == "PC61BM"]
+
+    dmf = by_lab_id["INV-DMF"]
+    assert dmf["name"] == "N,N-Dimethylformamide"
+    assert dmf["purity"] == "99.8%"
+    assert dmf["molecular_mass"] == 73.09
+    assert dmf["density"] == 0.944
+    assert dmf["substance"]["pub_chem_cid"] == 6228
+    assert dmf["substance"]["load_data"] is False
+    assert dmf["product_info"] == {"supplier": "Sigma", "product_number": "227056"}
+
+    # A mixture has no CID of its own, so its constituents are listed instead.
+    pedot = by_lab_id["INV-PEDOT"]
+    assert [s["pub_chem_cid"] for s in pedot["component_substances"]] == [61503, 62717]
+
+
+def test_materialized_batch_is_an_identifiable_solution_entity(db, experiment):
+    archives = _export(db, experiment)
+
+    solutions = _by_mdef(archives, SOLUTION_MDEF)
+    pvk = next(
+        body["data"] for body in solutions.values() if body["data"]["name"] == "PVK"
+    )
+
+    # The vial label, not an opaque row id — this is what makes the entry
+    # findable in NOMAD.
+    assert pvk["lab_id"] == "PVK_2026-07-19"
+    assert pvk["datetime"].startswith("2026-07-19T14:30")
+    assert pvk["handling"] == "Stir at 60 C\n\nFilter with 0.45 um PTFE"
+    assert pvk["properties"]["final_volume"] == 2.0
+
+    # Amounts are the batch the user actually mixed (2 mL of a 1 mL recipe).
+    dmf_row = next(r for r in pvk["solvent"] if r["name"] == "N,N-Dimethylformamide")
+    assert dmf_row["chemical_volume"] == 1.6
+    (solute_row,) = pvk["solute"]
+    assert solute_row["chemical_mass"] == 922.0
+    # 922 mg of a 461 g/mol solute in 2 mL is 1 mol/l — a strength, not just an
+    # amount. `baseclasses` derives none of this itself.
+    assert solute_row["concentration_mass"] == 461.0
+    assert solute_row["concentration_mol"] == 0.001
+
+    # `components` is what NOMAD's composition overview reads; the solvent /
+    # solute rows alone leave it blank.
+    component_names = [c["substance_name"] for c in pvk["components"]]
+    assert "Lead(II) iodide" in component_names
+    assert all(c["m_def"].endswith("PureSubstanceComponent") for c in pvk["components"])
+
+
+def test_solution_rows_reference_the_material_entities(db, experiment):
+    archives = _export(db, experiment)
+
+    materials = _by_mdef(archives, MATERIAL_MDEF)
+    solutions = _by_mdef(archives, SOLUTION_MDEF)
+    dmf_file = next(
+        name for name, body in materials.items() if body["data"]["lab_id"] == "INV-DMF"
+    )
+    pvk = next(
+        body["data"] for body in solutions.values() if body["data"]["name"] == "PVK"
+    )
+
+    dmf_row = next(r for r in pvk["solvent"] if r["name"] == "N,N-Dimethylformamide")
+    assert dmf_row["chemical"].endswith(f"{dmf_file}#/data")
+    # The inline identity is kept alongside the link, so the row still reads
+    # correctly if the reference cannot be resolved.
+    assert dmf_row["chemical_2"]["pub_chem_cid"] == 6228
+
+
+def test_deposition_steps_reference_entities_instead_of_summarizing_them(
+    db, experiment
+):
+    archives = _export(db, experiment)
+
+    solutions = _by_mdef(archives, SOLUTION_MDEF)
+    pvk_file = next(
+        name for name, body in solutions.items() if body["data"]["name"] == "PVK"
+    )
+    steps = _deposition_steps(archives)
+
+    pvk_step = next(s for s in steps if s.get("solution", "").find(pvk_file) != -1)
+    assert pvk_step["solution"].endswith(f"{pvk_file}#/data")
+    assert pvk_step["solution_concentration"] == 1.0
+
+    # The `DepositedMaterial` summary section is gone for good.
+    assert not any("material" in step for step in steps)
+
+    # The antisolvent was free text ("Chlorobenzene"); the chemicals step gave
+    # it a lab ID, so the quench links to that chemical entry.
+    quench_step = next(s for s in steps if s.get("quenching"))
+    antisolvent = quench_step["quenching"]["antisolvent"]
+    materials = _by_mdef(archives, MATERIAL_MDEF)
+    cb_file = next(
+        name for name, body in materials.items() if body["data"]["lab_id"] == "INV-CB"
+    )
+    assert antisolvent["media_chemical"].endswith(f"{cb_file}#/data")
+
+
+def test_every_entity_reference_resolves_to_an_emitted_archive(db, experiment):
+    """A reference to a file that was never written is a broken NOMAD entry."""
+    archives = _export(db, experiment)
+
+    references = _entity_references(archives)
+    assert references, "expected the export to link at least one entity"
+    for reference in references:
+        filename = reference[len("../upload/raw/") : -len("#/data")]
+        assert filename in archives, f"dangling reference: {reference}"

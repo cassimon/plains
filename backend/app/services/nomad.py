@@ -670,6 +670,26 @@ def create_nomad_metadata_yaml(
                             "value": step.solution_volume_value,
                             "mode": step.solution_volume_mode,
                         },
+                        # Without these the DB-driven export silently loses the
+                        # quenching (which is encoded in `dryingMethod`), the
+                        # deposition parameters and both start times — the GUI
+                        # snapshot path always carried them.
+                        "dryingMethod": {
+                            "value": step.drying_method_value,
+                            "mode": step.drying_method_mode,
+                        },
+                        "depositionParameters": {
+                            "value": step.deposition_parameters_value,
+                            "mode": step.deposition_parameters_mode,
+                        },
+                        "depositionStartTime": {
+                            "value": step.deposition_start_time_value,
+                            "mode": step.deposition_start_time_mode,
+                        },
+                        "annealingStartTime": {
+                            "value": step.annealing_start_time_value,
+                            "mode": step.annealing_start_time_mode,
+                        },
                         "notes": step.notes,
                     }
                 )
@@ -764,6 +784,33 @@ def create_nomad_metadata_yaml(
             "generated stacks unavailable – layer sections will be empty"
         )
 
+    # A snapshot comes straight from the GUI, whose `Process` type has no notion
+    # of `materialId`/`solutionId` — those links are written by the chemicals
+    # materializer onto the `process_step` rows. Back-fill them by step id so a
+    # GUI upload emits the same entity references a DB-driven one does; the
+    # snapshot stays authoritative for everything it actually knows about.
+    snapshot_process_id = getattr(experiment, "process_id", None)
+    if process_snapshot and isinstance(process_data, dict) and snapshot_process_id:
+        links_by_step_id = {
+            str(step.id): (step.material_id, step.solution_id)
+            for step in session.exec(
+                select(ProcessStep).where(ProcessStep.process_id == snapshot_process_id)
+            ).all()
+        }
+        for stage in process_data.get("stages") or []:
+            if not isinstance(stage, dict):
+                continue
+            for step in stage.get("alternatives") or []:
+                if not isinstance(step, dict):
+                    continue
+                material_id, solution_id = links_by_step_id.get(
+                    str(step.get("id") or ""), (None, None)
+                )
+                if material_id and not step.get("materialId"):
+                    step["materialId"] = str(material_id)
+                if solution_id and not step.get("solutionId"):
+                    step["solutionId"] = str(solution_id)
+
     # Load materials and solutions from normalised tables
     owner_materials = session.exec(
         select(LabMaterial).where(LabMaterial.owner_id == experiment.owner_id)
@@ -791,6 +838,7 @@ def create_nomad_metadata_yaml(
             "stateAtRt": m.state_at_rt,
             "heightMm": m.height_mm,
             "notes": getattr(m, "notes", None),
+            "componentCids": getattr(m, "component_cids", None),
         }
         for m in owner_materials
     }
@@ -807,6 +855,15 @@ def create_nomad_metadata_yaml(
                 else None
             ),
             "notes": getattr(s, "notes", None),
+            # Batch identity, written by the chemicals materializer: the vial
+            # label the user gave this batch and the volume actually prepared.
+            "inventoryLabel": getattr(s, "inventory_label", None),
+            "totalVolumeMl": getattr(s, "total_volume_ml", None),
+            "sourceRecipeId": (
+                str(s.source_recipe_id)
+                if getattr(s, "source_recipe_id", None)
+                else None
+            ),
             "components": [
                 {
                     "materialId": str(c.material_id) if c.material_id else None,
@@ -2017,7 +2074,8 @@ def create_nomad_metadata_yaml(
 
         Same parse the device sample's `perovskite_deposition` uses, but attached
         to the step that performed it. When the antisolvent is one of the lab's
-        solutions, its emitted entity is linked via `media_reference`.
+        entities, it is linked: `media_solution` for a solution, `media_chemical`
+        for a pure chemical — which is what an antisolvent usually is.
         """
         drying = _get_step_param(step, "dryingMethod", substrate, "")
         if not drying or drying == "Unknown":
@@ -2035,11 +2093,24 @@ def create_nomad_metadata_yaml(
             payload["vacuum"] = parsed["vacuum"]
         if parsed.get("antisolvent"):
             antisolvent = dict(parsed["antisolvent"])
-            kind, _, ref_id = str(parsed.get("media_ref") or "").partition(":")
-            if kind.strip().lower() == "solution" and ref_id.strip():
-                reference = entity_ref_by_id.get(ref_id.strip())
-                if reference:
-                    antisolvent["media_reference"] = reference
+            _, _, ref_id = str(parsed.get("media_ref") or "").partition(":")
+            entity_id = ref_id.strip()
+            if not entity_id:
+                # Free-text media (the usual case — the user typed
+                # "Chlorobenzene"): the chemicals step gave it a lab ID, so it
+                # has an inventory row to point at.
+                entity_id = (
+                    _match_inventory_material_id(
+                        antisolvent.get("media"), antisolvent.get("media_pubchem_cid")
+                    )
+                    or ""
+                )
+            reference = entity_ref_by_id.get(entity_id) if entity_id else None
+            if reference:
+                if entity_kind_by_id.get(entity_id) == "material":
+                    antisolvent["media_chemical"] = reference
+                else:
+                    antisolvent["media_solution"] = reference
             payload["antisolvent"] = antisolvent
 
         return payload or None
@@ -2843,71 +2914,54 @@ def create_nomad_metadata_yaml(
         return round(moles / total_volume_l, 6)
 
     def _attach_entity_reference(payload: dict[str, Any], entity_id: str) -> None:
-        """Point a `DepositedMaterial` payload at the entity emitted for `entity_id`.
+        """Point a deposition step at the entity emitted for `entity_id`.
 
-        The link goes on `solution_reference` or `material_reference` depending on
-        which kind of entity the id became; a commercial recipe is a material.
+        The link goes on `solution` or `chemical` depending on which kind of
+        entity the id became; a commercial recipe is a material.
         """
         reference = entity_ref_by_id.get(entity_id)
         if not reference:
             return
         if entity_kind_by_id.get(entity_id) == "material":
-            payload["material_reference"] = reference
+            payload["chemical"] = reference
         else:
-            payload["solution_reference"] = reference
+            payload["solution"] = reference
 
-    def _step_material_payload(step: dict[str, Any]) -> dict[str, Any] | None:
-        recipe_id = str(step.get("chemRecipeId") or "").strip()
-        if recipe_id:
-            recipe = recipes_by_id.get(recipe_id)
-            if isinstance(recipe, dict):
-                payload: dict[str, Any] = {
-                    "name": _clean_value(
-                        recipe.get("commercialName")
-                        if recipe.get("isCommercial")
-                        else recipe.get("name"),
-                        "Unknown",
-                    ),
-                    "supplier": _clean_value(recipe.get("supplierNumber")),
-                }
-                concentration = _recipe_molar_concentration(recipe_id)
-                if concentration is not None:
-                    payload["concentration"] = concentration
-                _attach_entity_reference(payload, recipe_id)
-                return payload
+    def _step_chemistry_payload(step: dict[str, Any]) -> dict[str, Any]:
+        """What a step deposits, as references onto the emitted ELN entities.
 
-        inline = step.get("inlineMaterial")
-        if isinstance(inline, dict) and _clean_value(inline.get("name"), ""):
-            return {
-                "name": _clean_value(inline.get("name")),
-                "supplier": "Unknown",
-            }
+        This used to be a `DepositedMaterial` summary section — a name, a
+        supplier string and a concentration, duplicating what the material and
+        solution entries already say properly. Now the step just points at them,
+        and keeps only the molar concentration, which is a property of *this*
+        deposition rather than of the solution on the shelf.
+        """
+        payload: dict[str, Any] = {}
 
+        # A materialized batch is the most specific answer: it is the solution
+        # actually taken off the shelf for this step.
         solution_id = str(step.get("solutionId") or "").strip()
-        if solution_id:
-            solution = solutions_by_id.get(solution_id)
-            if isinstance(solution, dict):
-                solution_payload: dict[str, Any] = {
-                    "name": _clean_value(solution.get("name"), "Unknown"),
-                    "supplier": "Unknown",
-                }
-                concentration = _solution_molar_concentration(solution_id)
-                if concentration is not None:
-                    solution_payload["concentration"] = concentration
-                _attach_entity_reference(solution_payload, solution_id)
-                return solution_payload
+        if solution_id and solution_id in solutions_by_id:
+            _attach_entity_reference(payload, solution_id)
+            concentration = _solution_molar_concentration(solution_id)
+            if concentration is not None:
+                payload["solution_concentration"] = concentration
 
         material_id = str(step.get("materialId") or "").strip()
-        if material_id:
-            material = materials_by_id.get(material_id)
-            payload = {
-                "name": _material_name(material, material_id),
-                "supplier": _material_supplier(material),
-            }
+        if material_id and material_id in materials_by_id:
             _attach_entity_reference(payload, material_id)
-            return payload
 
-        return None
+        # Fall back to the recipe itself when nothing was materialized (an older
+        # experiment, or a preview before the chemicals step was completed).
+        recipe_id = str(step.get("chemRecipeId") or "").strip()
+        if recipe_id and not payload:
+            if isinstance(recipes_by_id.get(recipe_id), dict):
+                _attach_entity_reference(payload, recipe_id)
+                concentration = _recipe_molar_concentration(recipe_id)
+                if concentration is not None:
+                    payload["solution_concentration"] = concentration
+
+        return payload
 
     # ── Material & solution ELN entities ──────────────────────────────────────
     # Each app material and solution used by this experiment is emitted as its own
@@ -2918,12 +2972,12 @@ def create_nomad_metadata_yaml(
     # metadata the app records.
 
     MATERIAL_MDEF = (
-        'nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals.'
-        'PlainsMaterial'
+        "nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals."
+        "PlainsMaterial"
     )
     SOLUTION_MDEF = (
-        'nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals.'
-        'PlainsSolution'
+        "nomad_perovskite_solar_cell_sample_plains.schema_packages.chemicals."
+        "PlainsSolution"
     )
 
     # Modern process steps carry no LabMaterial foreign keys: a chem recipe
@@ -3019,7 +3073,9 @@ def create_nomad_metadata_yaml(
 
         prefix = "materials" if resolved_kind == "material" else "solutions"
         suffix = "material" if resolved_kind == "material" else "solution"
-        fname = _reserve_archive_filename(f"{prefix}_{_slug(entity_id)}.{suffix}.archive.yaml")
+        fname = _reserve_archive_filename(
+            f"{prefix}_{_slug(entity_id)}.{suffix}.archive.yaml"
+        )
         entity_fname_by_id[entity_id] = fname
         entity_ref_by_id[entity_id] = _upload_raw_reference(fname, "/data")
         entity_kind_by_id[entity_id] = resolved_kind
@@ -3090,6 +3146,16 @@ def create_nomad_metadata_yaml(
                 substance["cas_number"] = cas
             data["substance"] = substance
 
+        # A mixture (PEDOT:PSS and friends) has no single PubChem identity; the
+        # app resolves each constituent instead, so each gets its own section.
+        component_sections = [
+            _pubchem_inline("", component_cid)
+            for component_cid in (material.get("componentCids") or [])
+            if _to_int(component_cid) is not None
+        ]
+        if component_sections:
+            data["component_substances"] = component_sections
+
         product_info: dict[str, Any] = {}
         supplier = _clean_value(material.get("supplier"), "")
         if supplier:
@@ -3104,6 +3170,7 @@ def create_nomad_metadata_yaml(
 
     def _solution_component_rows(
         solution: dict[str, Any],
+        volume_ml: float | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
         solvent: list[dict[str, Any]] = []
         solute: list[dict[str, Any]] = []
@@ -3123,13 +3190,20 @@ def create_nomad_metadata_yaml(
                 reference = entity_ref_by_id.get(material_id)
                 if reference:
                     row["chemical"] = reference
-                else:
-                    row["chemical_2"] = _pubchem_inline(
-                        (material or {}).get("name") or row["name"],
-                        (material or {}).get("pubchemCid"),
-                    )
+                # The inline identity goes on the row either way: the reference
+                # gives navigability, `chemical_2` keeps the row readable (and
+                # correctly labelled — `SolutionChemical.normalize` names the row
+                # from it) even when the reference cannot be resolved.
+                row["chemical_2"] = _pubchem_inline(
+                    (material or {}).get("name") or row["name"],
+                    (material or {}).get("pubchemCid"),
+                )
                 _set_solution_amount(row, amount, unit)
-                (solvent if _is_solvent_material(material) else solute).append(row)
+                if _is_solvent_material(material):
+                    solvent.append(row)
+                else:
+                    _set_row_concentrations(row, material, volume_ml)
+                    solute.append(row)
             elif nested_id:
                 nested = solutions_by_id.get(nested_id) or {}
                 entry: dict[str, Any] = {
@@ -3145,12 +3219,95 @@ def create_nomad_metadata_yaml(
 
         return {"solvent": solvent, "solute": solute, "other_solution": other}
 
+    def _solution_total_volume_ml(solution: dict[str, Any]) -> float | None:
+        """How much of this solution was actually made, in mL.
+
+        The batch volume the user recorded, else the sum of the solvent volumes.
+        """
+        recorded = _to_float(solution.get("totalVolumeMl"))
+        if recorded is not None and recorded > 0:
+            return recorded
+
+        total = 0.0
+        for component in solution.get("components") or []:
+            if not isinstance(component, dict):
+                continue
+            material = materials_by_id.get(str(component.get("materialId") or ""))
+            if not _is_solvent_material(material):
+                continue
+            amount = _to_float(component.get("amount"))
+            if amount is not None and str(component.get("unit") or "").lower() == "ml":
+                total += amount
+        return total or None
+
+    def _set_row_concentrations(
+        row: dict[str, Any], material: dict[str, Any] | None, volume_ml: float | None
+    ) -> None:
+        """Concentration of one solute row, in the units `SolutionChemical` uses.
+
+        `baseclasses` derives nothing here — `concentration_mol` (mol/ml) and
+        `concentration_mass` (mg/ml) are only ever what the uploader writes — so
+        without this a solution says how much went in but never how strong it is.
+        """
+        if not volume_ml or volume_ml <= 0:
+            return
+        mass_mg = _to_float(row.get("chemical_mass"))
+        if mass_mg is not None:
+            row["concentration_mass"] = round(mass_mg / volume_ml, 6)
+        moles = _to_float(row.get("amount_mol"))
+        if moles is None and mass_mg is not None:
+            molar_mass = _to_float((material or {}).get("molecularWeight"))
+            if molar_mass and molar_mass > 0:
+                moles = (mass_mg / 1000.0) / molar_mass
+        if moles is not None:
+            row["concentration_mol"] = round(moles / volume_ml, 9)
+
+    def _solution_components(solution: dict[str, Any]) -> list[dict[str, Any]]:
+        """`CompositeSystem.components` entries for a solution's ingredients.
+
+        The `solvent`/`solute`/`additive` rows of a `Solution` are *not*
+        `components` in `baseclasses`, and it is `components` that NOMAD's
+        composition/material overview is built from — which is why a solution
+        entry looks empty there until this is filled.
+        """
+        components: list[dict[str, Any]] = []
+        for component in solution.get("components") or []:
+            if not isinstance(component, dict):
+                continue
+            material_id = str(component.get("materialId") or "").strip()
+            if not material_id:
+                continue
+            material = materials_by_id.get(material_id) or {}
+            name = _material_name(material, material_id)
+            # `pure_substance` is typed as the plain `PureSubstanceSection`,
+            # which has no CID field — the PubChem subclass has to be named.
+            substance = _pubchem_inline(
+                material.get("name") or name, material.get("pubchemCid")
+            )
+            substance["m_def"] = "baseclasses.PubChemPureSubstanceSectionCustom"
+            entry: dict[str, Any] = {
+                "m_def": "nomad.datamodel.metainfo.basesections.v1.PureSubstanceComponent",
+                "name": name,
+                "substance_name": name,
+                "pure_substance": substance,
+            }
+            amount = _to_float(component.get("amount"))
+            unit = str(component.get("unit") or "").strip().lower()
+            if amount is not None and unit in ("mg", "milligram"):
+                # `Component.mass` is a mass in kg; the app records mg.
+                entry["mass"] = amount / 1_000_000.0
+            components.append(entry)
+        return components
+
     def _build_solution_entity(entity_id: str) -> dict[str, Any]:
         solution = solutions_by_id.get(entity_id) or {}
         data: dict[str, Any] = {
             "m_def": SOLUTION_MDEF,
             "name": _clean_value(solution.get("name"), "Solution"),
-            "lab_id": entity_id,
+            # The vial label the user gave this batch, which is how it is found
+            # in NOMAD. Only a batch that was never labelled falls back to the
+            # opaque row id.
+            "lab_id": _clean_value(solution.get("inventoryLabel"), "") or entity_id,
         }
         creation_time = _clean_value(solution.get("creationTime"), "")
         if creation_time:
@@ -3173,10 +3330,18 @@ def create_nomad_metadata_yaml(
         if description:
             data["description"] = description
 
-        rows = _solution_component_rows(solution)
+        volume_ml = _solution_total_volume_ml(solution)
+        if volume_ml:
+            data["properties"] = {"final_volume": volume_ml}
+
+        rows = _solution_component_rows(solution, volume_ml)
         for key, value in rows.items():
             if value:
                 data[key] = value
+
+        components = _solution_components(solution)
+        if components:
+            data["components"] = components
         return data
 
     def _build_recipe_material_entity(recipe_id: str) -> dict[str, Any]:
@@ -3257,7 +3422,9 @@ def create_nomad_metadata_yaml(
             reference = _ingredient_chemical_reference(source)
             if reference:
                 row["chemical"] = reference
-            _set_solution_amount(row, source.get("amount"), str(source.get("unit") or ""))
+            _set_solution_amount(
+                row, source.get("amount"), str(source.get("unit") or "")
+            )
             solute.append(row)
 
         other: list[dict[str, Any]] = []
@@ -3327,20 +3494,37 @@ def create_nomad_metadata_yaml(
                 if substrate_material_id:
                     _register_entity("material", substrate_material_id)
             for _stage_idx, step in _selected_steps_for_substrate(substrate):
-                if step.get("materialId"):
+                materialized = False
+                if step.get("materialId") in materials_by_id:
                     _register_entity("material", step["materialId"])
-                if step.get("solutionId"):
+                    materialized = True
+                if step.get("solutionId") in solutions_by_id:
                     _register_entity("solution", step["solutionId"])
-                if step.get("chemRecipeId"):
+                    materialized = True
+                # Only fall back to the recipe when the chemicals step has not
+                # been materialized into inventory rows yet — emitting both
+                # would duplicate every solution, once as a batch and once as
+                # the recipe it was mixed from.
+                if step.get("chemRecipeId") and not materialized:
                     _register_entity("recipe", step["chemRecipeId"])
-                # The antisolvent of a quenching step can be one of the lab's
-                # solutions; emit and link it too.
+                # The antisolvent of a quenching step is a chemical in its own
+                # right; emit and link it too.
                 drying = _get_step_param(step, "dryingMethod", substrate, "")
-                media_ref = str(_parse_quenching_string(drying).get("media_ref") or "")
+                parsed_quench = _parse_quenching_string(drying)
+                media_ref = str(parsed_quench.get("media_ref") or "")
                 kind, _, ref_id = media_ref.partition(":")
                 kind = kind.strip().lower()
                 if ref_id.strip() and kind in {"solution", "material"}:
                     _register_entity(kind, ref_id.strip())
+                elif media_ref:
+                    # Free-text media, matched back to the inventory row the
+                    # chemicals step created for it.
+                    antisolvent = parsed_quench.get("antisolvent") or {}
+                    matched = _match_inventory_material_id(
+                        antisolvent.get("media"), antisolvent.get("media_pubchem_cid")
+                    )
+                    if matched:
+                        _register_entity("material", matched)
 
         for entity_id, fname in entity_fname_by_id.items():
             archives[fname] = {"data": _build_entity_data(entity_id)}
@@ -3711,10 +3895,8 @@ def create_nomad_metadata_yaml(
             if annealing_atmos and annealing_atmos != "Unknown":
                 step_payload["annealing_atmosphere"] = annealing_atmos
 
-            # Add material/solution
-            material_payload = _step_material_payload(step)
-            if material_payload:
-                step_payload["material"] = material_payload
+            # Link the step to the material / solution entries it deposits.
+            step_payload.update(_step_chemistry_payload(step))
 
             # The layer this step produces (name + thickness), from the generated
             # stack. Without it the deposition entry does not record what the step

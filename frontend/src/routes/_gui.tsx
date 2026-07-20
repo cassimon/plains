@@ -18,7 +18,7 @@ function GuiLayout() {
       {/* Renders Mantine `notifications.show(...)` toasts — without this the
           upload-flow warnings (e.g. "Upload already in progress") fire into the
           void. zIndex sits above modals (1000) so warnings stay visible. */}
-      <Notifications position="top-right" zIndex={2000} />
+      <Notifications position="top-center" zIndex={2000} />
       <AppProvider>
         {/* Mantine's default modal z-index (200) is below Popover's (300), so a
             confirm modal opened from inside a Popover.Dropdown (e.g. the upload
