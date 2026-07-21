@@ -43,13 +43,28 @@
 #   ROOT_PATH=/plains
 
 services:
+  # `prestart` is the service that builds the shared backend image
+  # (${DOCKER_IMAGE_BACKEND}); `backend` reuses the same tag. Building here with
+  # RUN_AS_USER=appuser makes the production image run as a non-root user. The
+  # dev stack builds without this arg, so it stays root (bind-mounted source
+  # under /app/backend must remain writable for hot-reload).
+  prestart:
+    build:
+      args:
+        RUN_AS_USER: appuser
+
   backend:
     ports:
       - "127.0.0.1:8000:8000"
 
   frontend:
+    # Build the non-root nginx stage (UID 101, listens on 8080). The container
+    # side of the mapping is 8080 to match; host 9000 is unchanged, so the
+    # external-nginx sample (proxy_pass http://127.0.0.1:9000) needs no edit.
+    build:
+      target: runtime-unprivileged
     ports:
-      - "127.0.0.1:9000:80"
+      - "127.0.0.1:9000:8080"
 
   adminer:
     ports:

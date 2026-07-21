@@ -1,0 +1,61 @@
+# Docker build-context excludes.
+#
+# Both the backend and frontend images build with `context: .` (the repo root),
+# so THIS file is the one Docker applies — backend/.dockerignore and
+# frontend/.dockerignore sit below the context root and are never read.
+#
+# Goal: keep secrets and large regenerable dirs out of the build context so they
+# can't be baked into an image layer or slow the build. Anything a Dockerfile
+# COPYs or bind-mounts (root uv.lock / pyproject.toml / package.json / bun.lock /
+# patches/, backend/app|scripts|alembic.ini, frontend/ source + nginx.conf) is
+# intentionally NOT excluded.
+
+# ── Secrets / credentials (never ship these in an image) ──
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets/
+**/.nomad_auth
+db_backups/
+
+# ── Version control & CI ──
+.git/
+.gitignore
+.github/
+.pre-commit-config.yaml
+
+# ── Python caches / virtualenvs ──
+**/__pycache__/
+*.py[cod]
+**/.venv/
+.venv/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.pytest_cache/
+.coverage
+htmlcov/
+
+# ── Node / frontend build artifacts (reinstalled/rebuilt inside the image) ──
+**/node_modules/
+frontend/dist/
+
+# ── Test output & Playwright ──
+test-results/
+playwright-report/
+playwright/.cache/
+**/*.spec.ts
+
+# ── Editor / tooling / local-only ──
+.vscode/
+.claude/
+.copier/
+
+# ── Docs & planning (not needed at runtime) ──
+docs/
+tasks/
+specs/
+*.md
+!README.md

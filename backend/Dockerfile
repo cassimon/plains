@@ -42,4 +42,18 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 WORKDIR /app/backend/
 
+# Create an unprivileged user and give it ownership of the writable NOMAD stash
+# dir. A freshly-created `nomad-stash` named volume inherits this owner/perms on
+# first mount, so the non-root process can write to it. (The temp upload dir
+# lives under /tmp, which is world-writable, so it needs no special handling.)
+RUN groupadd -r appuser && useradd -r -g appuser appuser \
+    && mkdir -p /var/lib/plains/nomad_stash \
+    && chown -R appuser:appuser /var/lib/plains
+
+# Run as root by default so the dev stack — which bind-mounts host-owned source
+# into /app/backend for hot-reload — keeps write access. Production opts into the
+# non-root user via compose.prod.yml: `build.args: { RUN_AS_USER: appuser }`.
+ARG RUN_AS_USER=root
+USER ${RUN_AS_USER}
+
 CMD ["fastapi", "run", "--workers", "4", "app/main.py"]
