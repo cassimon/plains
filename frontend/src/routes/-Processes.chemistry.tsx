@@ -1711,18 +1711,22 @@ function concTriple(e: ConcentrationEntry): string {
  * leads with its solvent-basis molarity (4 dp) and repeats the full triple in
  * small letters beneath, mirroring the per-solute lines.
  */
-function ConcentrationBar({ summary }: { summary: ConcentrationSummary }) {
-  const { entries, total, dilution, incomplete } = summary
-
-  // The total always leads with its solvent-basis molarity (4 dp); it falls back
-  // to the total-volume basis, then %w/w, when solvent volume is unknown.
-  const headlineBig = total
-    ? (fmtM(total.molPerMlSolvent) &&
-        `${fmtM(total.molPerMlSolvent)} per solv. vol.`) ||
-      fmtM(total.molPerMlTotal) ||
-      fmtPct(total.wPercent) ||
-      "—"
+/** The total always leads with its solvent-basis molarity (4 dp); it falls back
+ * to the total-volume basis, then %w/w, when solvent volume is unknown. */
+function headline(entry: ConcentrationEntry | null): string {
+  return entry
+    ? (fmtM(entry.molPerMlSolvent) &&
+        `${fmtM(entry.molPerMlSolvent)} per solv. vol.`) ||
+        fmtM(entry.molPerMlTotal) ||
+        fmtPct(entry.wPercent) ||
+        "—"
     : "—"
+}
+
+function ConcentrationBar({ summary }: { summary: ConcentrationSummary }) {
+  const { entries, total, totalPbX2, dilution, incomplete } = summary
+  const headlineBig = headline(total)
+  const headlineBigPbX2 = headline(totalPbX2)
 
   return (
     <Box
@@ -1775,20 +1779,38 @@ function ConcentrationBar({ summary }: { summary: ConcentrationSummary }) {
           )}
         </Box>
 
-        {/* The total, always shown when a total can be computed. */}
-        {total && (
-          <Box style={{ flexShrink: 0, textAlign: "right" }}>
-            <Text size="xs" fw={600} c="dimmed" truncate>
-              Total
-            </Text>
-            <Text size="sm" fw={700} c="teal">
-              {headlineBig}
-            </Text>
-            <Text size="10px" c="dimmed">
-              {concTriple(total)}
-            </Text>
-          </Box>
-        )}
+        <Group gap="md" wrap="nowrap" align="flex-start">
+          {/* Lead-halide-only total: the "mols of perovskite unit cells" basis
+              standard in perovskite literature, shown alongside the plain sum. */}
+          {totalPbX2 && (
+            <Box style={{ flexShrink: 0, textAlign: "right" }}>
+              <Text size="xs" fw={600} c="dimmed" truncate>
+                Total (PbX2)
+              </Text>
+              <Text size="sm" fw={700} c="grape">
+                {headlineBigPbX2}
+              </Text>
+              <Text size="10px" c="dimmed">
+                {concTriple(totalPbX2)}
+              </Text>
+            </Box>
+          )}
+
+          {/* The total, always shown when a total can be computed. */}
+          {total && (
+            <Box style={{ flexShrink: 0, textAlign: "right" }}>
+              <Text size="xs" fw={600} c="dimmed" truncate>
+                Total
+              </Text>
+              <Text size="sm" fw={700} c="teal">
+                {headlineBig}
+              </Text>
+              <Text size="10px" c="dimmed">
+                {concTriple(total)}
+              </Text>
+            </Box>
+          )}
+        </Group>
       </Group>
     </Box>
   )

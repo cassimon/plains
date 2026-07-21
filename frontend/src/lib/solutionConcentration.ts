@@ -36,9 +36,23 @@ export function soluteMassG(s: ProcessSolute): number | null {
 /** One solute of a solution, after stock solutions have been folded in. */
 export type ResolvedComponent = {
   name: string
+  pubchemCid: string
   /** null when the amount cannot be converted to moles (e.g. missing molar mass). */
   mol: number | null
   massG: number | null
+}
+
+// PubChem CIDs for the three lead(II) halides (PbI2, PbBr2, PbCl2) — the
+// "PbX2" precursors whose combined molarity is the standard way perovskite
+// literature reports precursor-solution concentration. Kept in sync with the
+// matching entries in PEROVSKITE_MATERIAL_SUGGESTIONS (-Processes.chemistry.tsx).
+const LEAD_HALIDE_PUBCHEM_CIDS = new Set(["24931", "139549", "24459"])
+const LEAD_HALIDE_NAME_RE = /^pb(i2|br2|cl2)\b/i
+
+/** Whether a component is a lead(II) halide (PbI2 / PbBr2 / PbCl2) precursor. */
+function isLeadHalide(c: ResolvedComponent): boolean {
+  if (c.pubchemCid && LEAD_HALIDE_PUBCHEM_CIDS.has(c.pubchemCid)) return true
+  return LEAD_HALIDE_NAME_RE.test(c.name.trim())
 }
 
 /**
@@ -62,12 +76,13 @@ export type ResolvedSolution = {
 function addComponent(
   map: Map<string, ResolvedComponent>,
   name: string,
+  pubchemCid: string,
   mol: number | null,
   massG: number | null,
 ) {
   const prev = map.get(name)
   if (!prev) {
-    map.set(name, { name, mol, massG })
+    map.set(name, { name, pubchemCid, mol, massG })
     return
   }
   prev.mol = prev.mol === null || mol === null ? null : prev.mol + mol
@@ -127,7 +142,7 @@ export function resolveSolution(
     const mol = soluteMoles(s)
     const massG = soluteMassG(s)
     if (mol === null) out.incomplete = true
-    addComponent(out.components, s.name || "?", mol, massG)
+    addComponent(out.components, s.name || "?", s.pubchemCid, mol, massG)
     out.totalVolMl += soluteVolumeMl(s) ?? 0
     if (massG === null) out.massG = null
     else if (out.massG !== null) out.massG += massG
@@ -161,6 +176,7 @@ export function resolveSolution(
       addComponent(
         out.components,
         c.name,
+        c.pubchemCid,
         c.mol === null ? null : c.mol * fraction,
         c.massG === null ? null : c.massG * fraction,
       )
@@ -184,6 +200,13 @@ export type ConcentrationSummary = {
   entries: ConcentrationEntry[]
   /** All solutes summed — the concentration of the solution as a whole. */
   total: ConcentrationEntry | null
+  /**
+   * Sum of only the lead(II) halide (PbI2/PbBr2/PbCl2) components — the "total
+   * mols of perovskite unit cells" molarity standard in perovskite literature,
+   * as opposed to `total`'s sum over every solute. Null when the solution
+   * contains no lead halide precursor.
+   */
+  totalPbX2: ConcentrationEntry | null
   /** Set when commercial product is mixed in: how far it has been diluted. */
   dilution: { factor: number; percentVv: number } | null
   /** Some content is unquantifiable, so the figures shown are a lower bound. */
@@ -226,14 +249,19 @@ export function concentrationSummary(
         e.wPercent !== null,
     )
 
-  const sum = (pick: (c: ResolvedComponent) => number | null) =>
-    components.reduce<number | null>(
+  const sumOf = (
+    comps: ResolvedComponent[],
+    pick: (c: ResolvedComponent) => number | null,
+  ) =>
+    comps.reduce<number | null>(
       (acc, c) => {
         const v = pick(c)
         return acc === null || v === null ? null : acc + v
       },
-      components.length > 0 ? 0 : null,
+      comps.length > 0 ? 0 : null,
     )
+  const sum = (pick: (c: ResolvedComponent) => number | null) =>
+    sumOf(components, pick)
   const totalEntry = {
     ...conc(
       sum((c) => c.mol),
@@ -248,6 +276,22 @@ export function concentrationSummary(
       ? totalEntry
       : null
 
+  const pbHalideComponents = components.filter(isLeadHalide)
+  const totalPbX2Entry = {
+    ...conc(
+      sumOf(pbHalideComponents, (c) => c.mol),
+      sumOf(pbHalideComponents, (c) => c.massG),
+    ),
+    name: "Total (PbX2)",
+  }
+  const totalPbX2 =
+    pbHalideComponents.length > 0 &&
+    (totalPbX2Entry.molPerMlSolvent !== null ||
+      totalPbX2Entry.molPerMlTotal !== null ||
+      totalPbX2Entry.wPercent !== null)
+      ? totalPbX2Entry
+      : null
+
   const dilution =
     r.commercialVolMl > 0 && r.totalVolMl > 0
       ? {
@@ -256,5 +300,5 @@ export function concentrationSummary(
         }
       : null
 
-  return { entries, total, dilution, incomplete: r.incomplete }
+  return { entries, total, totalPbX2, dilution, incomplete: r.incomplete }
 }

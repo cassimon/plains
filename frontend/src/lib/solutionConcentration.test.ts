@@ -48,6 +48,10 @@ const totalMolarity = (s: ReturnType<typeof concentrationSummary>) =>
   s.total?.molPerMlTotal === null || s.total == null
     ? null
     : s.total.molPerMlTotal * 1000
+const totalPbX2Molarity = (s: ReturnType<typeof concentrationSummary>) =>
+  s.totalPbX2?.molPerMlTotal === null || s.totalPbX2 == null
+    ? null
+    : s.totalPbX2.molPerMlTotal * 1000
 
 describe("single solute", () => {
   // 461 mg PbI2 (M = 461 g/mol) = 1 mmol, in 1 mL DMF. PbI2 density 6.16 g/mL
@@ -179,6 +183,92 @@ describe("multi-solute total", () => {
   test("total %w/w is the sum of the component %w/w", () => {
     const sum = s.entries.reduce((a, e) => a + e.wPercent!, 0)
     expect(s.total!.wPercent!).toBeCloseTo(sum, 6)
+  })
+})
+
+describe("PbX2 total", () => {
+  // 1 mmol PbI2 + 3 mmol MAI in 1 mL → PbX2-only total is just the PbI2, 1 mol/L,
+  // whereas the plain Total sums all solutes to 4 mol/L.
+  const r = recipe({
+    id: "a",
+    totalSolventVolumeMl: "1",
+    solvents: [solvent({ name: "DMF", density: 1.0 })],
+    solutes: [
+      solute({ name: "PbI2", amount: "0.001", unit: "mol", molarMass: 461 }),
+      solute({ name: "MAI", amount: "0.003", unit: "mol", molarMass: 158.97 }),
+    ],
+  })
+  const s = concentrationSummary(r, [r])
+
+  test("counts only the lead halide, not the organic salt", () => {
+    expect(totalPbX2Molarity(s)!).toBeCloseTo(1, 6)
+    expect(totalPbX2Molarity(s)!).not.toBeCloseTo(totalMolarity(s)!, 6)
+  })
+
+  test("is labelled 'Total (PbX2)'", () => {
+    expect(s.totalPbX2!.name).toBe("Total (PbX2)")
+  })
+
+  test("mixed lead halides (PbI2 + PbBr2) are both counted", () => {
+    const mixed = recipe({
+      id: "b",
+      totalSolventVolumeMl: "1",
+      solvents: [solvent({ name: "DMF", density: 1.0 })],
+      solutes: [
+        solute({ name: "PbI2", amount: "0.0007", unit: "mol", molarMass: 461 }),
+        solute({
+          name: "PbBr2",
+          amount: "0.0003",
+          unit: "mol",
+          molarMass: 367,
+        }),
+        solute({
+          name: "MAI",
+          amount: "0.003",
+          unit: "mol",
+          molarMass: 158.97,
+        }),
+      ],
+    })
+    const sMixed = concentrationSummary(mixed, [mixed])
+    expect(totalPbX2Molarity(sMixed)!).toBeCloseTo(1, 6)
+  })
+
+  test("recognizes a lead halide via pubchemCid even with a nonstandard name", () => {
+    const r2 = recipe({
+      id: "c",
+      totalSolventVolumeMl: "1",
+      solvents: [solvent({ name: "DMF", density: 1.0 })],
+      solutes: [
+        solute({
+          name: "Lead iodide",
+          pubchemCid: "24931",
+          amount: "0.001",
+          unit: "mol",
+          molarMass: 461,
+        }),
+      ],
+    })
+    const s2 = concentrationSummary(r2, [r2])
+    expect(totalPbX2Molarity(s2)!).toBeCloseTo(1, 6)
+  })
+
+  test("no lead halide present → totalPbX2 is null", () => {
+    const noLead = recipe({
+      id: "d",
+      totalSolventVolumeMl: "1",
+      solvents: [solvent({ name: "DMF", density: 1.0 })],
+      solutes: [
+        solute({
+          name: "MAI",
+          amount: "0.003",
+          unit: "mol",
+          molarMass: 158.97,
+        }),
+      ],
+    })
+    const sNoLead = concentrationSummary(noLead, [noLead])
+    expect(sNoLead.totalPbX2).toBeNull()
   })
 })
 
