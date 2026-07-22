@@ -15,6 +15,20 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import Self
 
+# Values treated as "not really set" for a secret/password. Kept in sync with
+# security_audit.py's PLACEHOLDER_SECRETS (compared case-insensitively). The
+# empty string is included so a blank POSTGRES_PASSWORD can never boot a
+# staging/production instance.
+_PLACEHOLDER_SECRETS = {
+    "",
+    "changethis",
+    "change_this",
+    "changeme",
+    "change_this_to_a_random_secret",
+    "your-secret-here",
+    "secret",
+}
+
 
 def parse_cors(v: Any) -> list[str] | str:
     if isinstance(v, str) and not v.startswith("["):
@@ -211,15 +225,52 @@ class Settings(BaseSettings):
         )
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
-        if value == "changethis":
-            message = (
-                f'The value of {var_name} is "changethis", '
-                "for security, please change it, at least for deployments."
+        """Refuse to boot staging/production with an unset, placeholder, or
+        too-short secret.
+
+        Previously this only caught the literal string ``"changethis"``, so an
+        *empty* ``POSTGRES_PASSWORD`` (its default) would boot a production
+        instance with a blank DB password. Now every value in
+        ``_PLACEHOLDER_SECRETS`` (including ``""``) is rejected in
+        staging/production, and ``SECRET_KEY`` must be at least 32 chars.
+
+        Local/dev never hard-fails: an empty secret is normal for local work,
+        so we only nag about an obvious leftover placeholder there.
+        """
+        normalized = (value or "").strip().lower()
+        is_empty = normalized == ""
+        is_placeholder = normalized in _PLACEHOLDER_SECRETS  # includes ""
+        too_short = (
+            var_name == "SECRET_KEY"
+            and value is not None
+            and 0 < len(value.strip()) < 32
+        )
+
+        if self.ENVIRONMENT in ("local", "dev"):
+            # Only nag on a non-empty leftover placeholder; never block boot.
+            if not is_empty and is_placeholder:
+                warnings.warn(
+                    f'The value of {var_name} is a placeholder ("{value}"); '
+                    "change it before deploying.",
+                    stacklevel=1,
+                )
+            return
+
+        # staging / production — these all block startup.
+        if is_empty:
+            raise ValueError(
+                f"{var_name} must be set to a non-empty value in {self.ENVIRONMENT}."
             )
-            if self.ENVIRONMENT in ("local", "dev"):
-                warnings.warn(message, stacklevel=1)
-            else:
-                raise ValueError(message)
+        if is_placeholder:
+            raise ValueError(
+                f'The value of {var_name} is a placeholder ("{value}"); '
+                "set a strong, unique value before deploying."
+            )
+        if too_short:
+            raise ValueError(
+                f"{var_name} is too short (<32 chars); regenerate with "
+                "secrets.token_urlsafe(32)."
+            )
 
     @model_validator(mode="after")
     def _enforce_non_default_secrets(self) -> Self:

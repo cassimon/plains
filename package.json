@@ -12,5 +12,8 @@
   },
   "patchedDependencies": {
     "@mantine/core@7.17.8": "patches/@mantine%2Fcore@7.17.8.patch"
+  },
+  "overrides": {
+    "form-data": "^4.0.6"
   }
 }

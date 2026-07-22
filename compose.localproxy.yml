@@ -1,0 +1,44 @@
+# Local-only overlay for testing the PRODUCTION build on this machine.
+#
+# Why this exists:
+#   compose.prod.yml binds frontend/backend to 127.0.0.1 and assumes the HOST's
+#   own nginx terminates TLS and strips /plains/ before proxying — exactly like
+#   your target server (domain.com/plains/ -> frontend, /plains/api/ -> backend).
+#   That host proxy is NOT part of the compose stack, so locally nothing answers
+#   on :81. This overlay supplies an equivalent stripping proxy so you can reach
+#   the real prod images at http://localhost:81/plains/ without installing or
+#   editing host nginx, and without touching the dev stack.
+#
+# Usage — pass all three -f files, in this order, and rebuild:
+#   docker network create traefik-public   # once; compose.yml wants it (ignore "exists")
+#   docker compose -f compose.yml -f compose.prod.yml -f compose.localproxy.yml up -d --build
+#   # then open:  http://localhost:81/plains/
+#   docker compose -f compose.yml -f compose.prod.yml -f compose.localproxy.yml down   # NO -v
+#
+# Dev safety: this file is loaded ONLY when named explicitly. A bare
+# `docker compose up` (dev) auto-loads compose.override.yml instead and never
+# sees this, so the dev build/stack is completely untouched.
+services:
+  frontend:
+    # The prod image bakes VITE_API_URL from ${DOMAIN} -> https://localhost/plains,
+    # which the browser cannot reach locally (no TLS terminator on :443). Point it
+    # at the local proxy origin so the SPA's API calls are same-origin (no CORS,
+    # no TLS). This overrides ONLY this local test build — the image you deploy to
+    # the server (built without this file) still bakes the real https://DOMAIN url.
+    build:
+      args:
+        VITE_API_URL: http://localhost:81/plains
+
+  localproxy:
+    image: nginx:1
+    restart: "no"
+    depends_on:
+      - frontend
+      - backend
+    # Bound to localhost only — this is a local test aid, not a public surface.
+    ports:
+      - "127.0.0.1:81:81"
+    volumes:
+      - ./nginx-localproxy.conf:/etc/nginx/conf.d/default.conf:ro
+    # No `networks:` key -> joins the compose `default` network, where it can
+    # reach `frontend` and `backend` by name. It does not need traefik-public.

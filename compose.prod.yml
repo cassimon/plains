@@ -5,6 +5,11 @@
 #
 # External nginx config (add to your server block for domain.com):
 #
+#   # NOMAD staging uploads measurement files; nginx's 1 MB default returns
+#   # "413 Request Entity Too Large" before the request reaches the backend.
+#   # Raise it (server-level covers every location):
+#   client_max_body_size 512m;
+#
 #   # Backend API  — strip /plains/api, forward /api to backend
 #   location /plains/api/ {
 #       proxy_pass         http://127.0.0.1:8000/api/;

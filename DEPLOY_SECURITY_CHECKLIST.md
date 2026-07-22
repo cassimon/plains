@@ -7,9 +7,20 @@ mostly deployment configuration you set per environment.
 Verify everything mechanically with:
 
 ```bash
-python security_audit.py --check      # deploy-readiness checks only (exit != 0 on failure)
-python security_audit.py              # full audit (deps + URLs + pip/bun audit + checks)
+python security_audit.py              # default: VERY concise — one line when healthy,
+                                      #   detail only on a critical issue (failed REQUIRED
+                                      #   check or a *shipped* dependency vuln). exit != 0 on problems.
+python security_audit.py --check      # fast deploy-readiness gate (config only, no dep scans);
+                                      #   lists every check with PASS/FAIL.
+python security_audit.py --verbose    # full audit: every dep + version, all external URLs /
+                                      #   HTTP call sites, full pip/bun vuln scans, and every check.
 ```
+
+The default run reads secrets from both `.env` **and** the process environment, so a
+deployment that injects secrets as env vars is verified too (it can no longer pass by
+having no `.env` file). Build-time-only dependency advisories (e.g. in the OpenAPI client
+generator) are reported as a non-blocking note; only vulns that reach the shipped bundle
+count as critical.
 
 ---
 
@@ -23,9 +34,10 @@ These were fixed in the hardening work and are guarded by `security_audit.py --c
 - NOMAD `archive_path` validation uses `Path.is_relative_to` (no prefix-bypass traversal).
 - CORS is restricted to specific methods/headers (no `"*"`).
 - Security headers set on both nginx (`frontend/nginx.conf`) and API (`SecurityHeadersMiddleware`).
-- Auth rate limiting via `slowapi` on the login route.
-- Config validators **refuse to boot** in `staging`/`production` when a secret is left at
-  `changethis`, or when `NOMAD_OAUTH_ENABLED` is false.
+- Auth rate limiting via `slowapi` on **both** the login (10/min) and signup (5/min) routes.
+- Config validators **refuse to boot** in `staging`/`production` when a secret is **empty or a
+  placeholder** (not just the literal `changethis`), when `SECRET_KEY` is shorter than 32 chars,
+  or when `NOMAD_OAUTH_ENABLED` is false. (Local/dev only warns, so an empty dev password is fine.)
 
 ---
 
@@ -44,6 +56,9 @@ Set these in your **untracked** `.env` (or inject as secrets). Every line maps t
 - [ ] `NOMAD_OAUTH_ENABLED=true` — required in staging/production (local login is unsafe on a shared host).
 - [ ] `BACKEND_CORS_ORIGINS` / `FRONTEND_HOST` — set to your real HTTPS origin, not localhost, not `*`.
 - [ ] `DOMAIN=your.domain` and `ROOT_PATH=/plains` (matching your reverse proxy).
+- [ ] **Host nginx** `client_max_body_size` raised (e.g. `512m`). The default 1 MB makes
+      NOMAD file staging fail with `413 Request Entity Too Large`. See the sample block in
+      `compose.prod.yml`; the local test proxy (`nginx-localproxy.conf`) already sets it.
 
 If any secret is still at `changethis` in a prod `ENVIRONMENT`, the backend **will not start** —
 that is intentional.
@@ -92,6 +107,25 @@ To stop **without** destroying data (the DB lives in the `app-db-data` volume):
 ```bash
 docker compose -f compose.yml -f compose.prod.yml down      # NO -v — never pass -v here
 ```
+
+### Test the production build locally first
+
+The prod stack binds everything to `127.0.0.1` and expects the *host's* nginx to
+strip `/plains/` and proxy to it — so on your laptop nothing answers on `:81`. Add
+`compose.localproxy.yml` (a localhost-only nginx that mimics the server: strips
+`/plains/`, routes `/plains/api/ → backend`, `/plains/ → frontend`, and repoints the
+frontend's baked API URL at the local proxy) to test the real prod images end-to-end:
+
+```bash
+docker compose -f compose.yml -f compose.prod.yml -f compose.localproxy.yml up -d --build
+# then open  http://localhost:81/plains/   (http, not https — nothing terminates TLS locally)
+```
+
+This overlay is **local-only**: it is loaded solely when named explicitly, so it never
+touches the dev stack (`compose.override.yml`) and never reaches the server — the deploy
+command above (`compose.yml` + `compose.prod.yml`) does not include it, and the
+`localhost:81` API URL does not leak into the deployed build. **Rebuild on the server**
+(the deploy command already uses `--build`) so the real domain is re-baked.
 
 ---
 

@@ -1,11 +1,23 @@
 #!/usr/bin/env python3
 """Security audit script for Plains project.
 
-Prints all dependencies (backend + frontend) with versions,
-and all external HTTP/URL references found in source code.
+Three output modes:
+
+  python security_audit.py            # default: VERY concise. One line when
+                                      #   healthy; expands detail only on a
+                                      #   critical issue (failed REQUIRED check
+                                      #   or a dependency vulnerability).
+  python security_audit.py --verbose  # full report: every dependency + version,
+                                      #   all external URLs / HTTP call sites,
+                                      #   full vuln scans, and every check.
+  python security_audit.py --check    # fast deploy-readiness gate (config only,
+                                      #   no dependency scans); lists all checks.
+
+All modes exit non-zero when something that blocks deployment is found.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -261,6 +273,72 @@ def check_npm_audit() -> str:
     return "\n".join(annotated)
 
 
+# Structured vuln-scan wrappers for the concise summary. Each returns
+# (status, summary, detail) where status is "clean" | "vuln" | "skipped".
+
+def scan_backend_vulns() -> tuple[str, str, str]:
+    out = run_pip_audit_direct()
+    if not out.strip():
+        return ("skipped", "pip-audit unavailable", "")
+    ids = sorted(set(re.findall(r"\b(?:PYSEC|GHSA|CVE)-[0-9A-Za-z]+[0-9A-Za-z-]*", out)))
+    if not ids:
+        return ("clean", "no known vulnerabilities", out)
+    return ("vuln", f"{len(ids)} advisory(ies): {', '.join(ids[:6])}", out)
+
+
+def _frontend_shipped_advisories(annotated: str) -> str:
+    """Extract only the DEPLOY-TIME (shipped) advisory blocks from the annotated
+    bun/npm-audit output, as a compact list. The raw output interleaves shipped
+    and build-time-only packages, so a naive head() shows the wrong ones."""
+    lines = annotated.splitlines()
+    blocks: list[list[str]] = []
+    cur: list[str] = []
+    for line in lines:
+        # A package header is a non-indented "name  <version-range>" line.
+        if line and not line[0].isspace() and re.match(r"\S+\s{2,}\S", line):
+            if cur:
+                blocks.append(cur)
+            cur = [line]
+        elif cur:
+            cur.append(line)
+    if cur:
+        blocks.append(cur)
+
+    out: list[str] = []
+    for block in blocks:
+        if not any("DEPLOY-TIME" in ln for ln in block):
+            continue
+        out.append(block[0].strip())  # "name  <range>"
+        for ln in block[1:]:
+            s = ln.strip()
+            if s.split(":", 1)[0] in ("critical", "high", "moderate", "low"):
+                out.append("  " + s.split(" - http")[0])
+    return "\n".join(out)
+
+
+def scan_frontend_vulns() -> tuple[str, str, str]:
+    """Status is "vuln" only when a vulnerability reaches the *shipped* bundle.
+
+    check_npm_audit() tags each advisory DEPLOY-TIME (in the production bundle)
+    or BUILD-TIME ONLY (dev/build tooling, never shipped). Build-time-only
+    advisories are reported as "vuln_build" so the concise mode can note them
+    without treating them as a deploy blocker.
+    """
+    out = check_npm_audit()
+    if not out.strip():
+        return ("skipped", "bun/npm audit unavailable", "")
+    low = out.lower()
+    if "no vulnerabilities" in low or re.search(r"\b0 vulnerabilit", low):
+        return ("clean", "no known vulnerabilities", out)
+    sev = [s for s in ("critical", "high", "moderate", "low") if s in low]
+    label = f"advisories ({', '.join(sev)})" if sev else "advisories found"
+    if "DEPLOY-TIME" in out:
+        # Show only the shipped blocks — that's what actually blocks deploy.
+        shipped = _frontend_shipped_advisories(out) or out
+        return ("vuln", f"{label} — some in the production bundle", shipped)
+    return ("vuln_build", f"{label} — build-time only, not shipped", out)
+
+
 # ─────────────────────────────────────────────
 # 5. DEPLOY-READINESS CHECKS
 # ─────────────────────────────────────────────
@@ -339,11 +417,75 @@ def _git_tracks_env() -> bool:
     return result.returncode == 0
 
 
+# Keys whose values we audit. We overlay the process environment for these so a
+# deployment that injects secrets as env vars (Docker secrets, systemd, CI) is
+# verified too — not silently skipped because there is no .env file on disk.
+RELEVANT_ENV_KEYS = (
+    "ENVIRONMENT",
+    "SECRET_KEY",
+    "POSTGRES_PASSWORD",
+    "FIRST_SUPERUSER_PASSWORD",
+    "USERS_OPEN_REGISTRATION",
+    "ALLOWED_EMAILS",
+    "NOMAD_OAUTH_ENABLED",
+    "BACKEND_CORS_ORIGINS",
+)
+
+
+def collect_env() -> dict[str, str]:
+    """Merge the untracked .env file with the process environment.
+
+    Process env wins over the file. This is what closes the "no .env" blind
+    spot: previously, injecting secrets as environment variables meant every
+    REQUIRED secret check was skipped and ``--check`` still exited 0.
+    """
+    env = parse_env_file(ROOT / ".env")
+    for key in RELEVANT_ENV_KEYS:
+        val = os.environ.get(key)
+        if val:
+            env[key] = val
+    return env
+
+
+def _gitignore_ignores_env(gitignore: str) -> bool:
+    """True only if a real pattern ignores the ``.env`` file itself.
+
+    A plain substring match passes when only ``.env.example`` is listed — which
+    does NOT ignore ``.env``. Match actual ignore patterns instead, skipping
+    comments and negations.
+    """
+    for raw in gitignore.splitlines():
+        line = raw.strip().rstrip("/")
+        if not line or line.startswith("#") or line.startswith("!"):
+            continue
+        if line.lstrip("/") in (".env", ".env*", "*.env"):
+            return True
+    return False
+
+
+def _route_is_rate_limited(src: str, func_name: str) -> bool:
+    """True if ``func_name`` has an @limiter.limit decorator directly above it.
+
+    A bare 'limiter.limit in the file' substring passes as long as *any* route
+    is limited; this pins the check to the specific handler.
+    """
+    lines = src.splitlines()
+    for i, line in enumerate(lines):
+        if re.match(rf"\s*(async\s+)?def\s+{re.escape(func_name)}\b", line):
+            window = lines[max(0, i - 8):i]
+            if any("limiter.limit" in w for w in window):
+                return True
+    return False
+
+
 def deploy_checks() -> list[Check]:
     """Run every deploy-readiness check and return the results."""
     checks: list[Check] = []
-    env = parse_env_file(ROOT / ".env")
-    have_env = bool(env)
+    # Merge .env with injected env vars so secrets provided either way are audited.
+    env = collect_env()
+    have_env = any(env.get(k) for k in RELEVANT_ENV_KEYS)
+    environment = env.get("ENVIRONMENT", "")
+    is_prod = environment in ("staging", "production")
 
     # ── Secret / git hygiene ──
     checks.append(Check(
@@ -354,21 +496,23 @@ def deploy_checks() -> list[Check]:
 
     gitignore = _read(ROOT / ".gitignore")
     checks.append(Check(
-        ".gitignore covers .env", REQUIRED,
-        ".env" in gitignore,
-        "Add '.env' and '.env.*' to .gitignore.",
+        ".gitignore ignores .env", REQUIRED,
+        _gitignore_ignores_env(gitignore),
+        "Add a '.env' (or '.env*') line to .gitignore — a lone '.env.example' "
+        "entry does NOT ignore the real .env.",
     ))
 
-    # ── .env configuration (only meaningful if a .env is present) ──
-    if not have_env:
+    # ── .env / injected-secret configuration ──
+    # Run the value checks whenever ANY config is present OR the environment
+    # claims to be prod. A prod deployment with no secrets found now FAILS here
+    # (the secrets read as empty placeholders) instead of being silently skipped.
+    if not have_env and not is_prod:
         checks.append(Check(
-            ".env present at repo root", RECOMMENDED, False,
-            "No .env found — skipping value checks (fine if secrets are injected "
-            "as environment variables at runtime; verify those instead).",
+            "Deployment secrets present (.env or injected)", RECOMMENDED, False,
+            "No .env and no known secret env vars found — skipping value checks. "
+            "Set ENVIRONMENT and the secrets (file or injected env) before deploy.",
         ))
     else:
-        environment = env.get("ENVIRONMENT", "")
-        is_prod = environment in ("staging", "production")
         checks.append(Check(
             "ENVIRONMENT is staging/production", REQUIRED, is_prod,
             f"ENVIRONMENT={environment or '(unset)'}; set to 'production' to enable "
@@ -422,9 +566,19 @@ def deploy_checks() -> list[Check]:
         "CORS was widened back to '*' — restrict methods/headers in main.py.",
     ))
     checks.append(Check(
-        "Security headers middleware present", REQUIRED,
-        "SecurityHeadersMiddleware" in main_py,
-        "SecurityHeadersMiddleware missing from backend/app/main.py.",
+        "Security headers middleware registered", REQUIRED,
+        "add_middleware(SecurityHeadersMiddleware)" in main_py.replace(" ", ""),
+        "SecurityHeadersMiddleware must be registered via app.add_middleware() "
+        "in backend/app/main.py — defining the class alone does nothing.",
+    ))
+
+    config_py = _read(ROOT / "backend" / "app" / "core" / "config.py")
+    checks.append(Check(
+        "Config rejects empty/placeholder secrets in prod", REQUIRED,
+        "_PLACEHOLDER_SECRETS" in config_py,
+        "config.py _check_default_secret must reject empty/placeholder secrets "
+        "(not only the literal 'changethis') so production cannot boot with a "
+        "blank POSTGRES_PASSWORD.",
     ))
 
     nginx = _read(ROOT / "frontend" / "nginx.conf")
@@ -441,13 +595,16 @@ def deploy_checks() -> list[Check]:
         "archive_path validation must use Path.is_relative_to (not startswith).",
     ))
 
-    limiter_used = any(
-        "limiter.limit" in _read(ROOT / "backend" / "app" / "api" / "routes" / f)
-        for f in ("login.py", "users.py")
-    )
+    login_src = _read(ROOT / "backend" / "app" / "api" / "routes" / "login.py")
+    users_src = _read(ROOT / "backend" / "app" / "api" / "routes" / "users.py")
+    login_limited = _route_is_rate_limited(login_src, "login_access_token")
+    signup_limited = _route_is_rate_limited(users_src, "register_user")
     checks.append(Check(
-        "Auth rate limiting present", RECOMMENDED, limiter_used,
-        "No @limiter.limit found on auth routes — add slowapi limits.",
+        "Auth routes rate limited (login + signup)", RECOMMENDED,
+        login_limited and signup_limited,
+        "Both the login and signup routes need @limiter.limit — an unthrottled "
+        "endpoint allows brute force / account-enumeration "
+        f"(login={login_limited}, signup={signup_limited}).",
     ))
 
     # ── Container / build hygiene (recommended) ──
@@ -520,6 +677,68 @@ def run_deploy_checks() -> int:
         return 0
     print("  ✅ All checks pass — repo meets the deploy-readiness bar.")
     return 0
+
+
+def concise_report() -> int:
+    """Default output: one very concise line when healthy; detail only on problems.
+
+    "Critical" = any REQUIRED deploy-readiness check failing, or any dependency
+    vulnerability. Recommended items are summarised as a count, not expanded.
+    Exits non-zero when a critical issue is present.
+    """
+    checks = deploy_checks()
+    required = [c for c in checks if c.severity == REQUIRED]
+    recommended = [c for c in checks if c.severity == RECOMMENDED]
+    req_failed = [c for c in required if not c.passed]
+    rec_failed = [c for c in recommended if not c.passed]
+
+    be_status, be_summary, be_detail = scan_backend_vulns()
+    fe_status, fe_summary, fe_detail = scan_frontend_vulns()
+
+    # Critical = blocks deploy: a failed REQUIRED check, or a vuln that ships.
+    critical = bool(req_failed) or be_status == "vuln" or fe_status == "vuln"
+
+    # Non-critical items worth one line each, but never a deploy blocker.
+    notes: list[str] = []
+    if fe_status == "vuln_build":
+        notes.append(f"frontend build-time deps: {fe_summary} (see --verbose)")
+    for label, status in (("backend", be_status), ("frontend", fe_status)):
+        if status == "skipped":
+            notes.append(f"{label} deps not scanned")
+    if rec_failed:
+        notes.append(f"{len(rec_failed)} recommended item(s) open — see --check")
+
+    if not critical:
+        print(
+            f"✅ Plains security audit: no critical issues — "
+            f"{len(required)}/{len(required)} required checks pass, shipped deps clean."
+        )
+        for n in notes:
+            print(f"   • {n}")
+        return 0
+
+    print("❌ Plains security audit — critical issue(s) found:\n")
+    if req_failed:
+        passed = len(required) - len(req_failed)
+        print(f"  Deploy-readiness ({passed}/{len(required)} required passed):")
+        for c in req_failed:
+            print(f"    [FAIL] {c.name}")
+            print(f"           → {c.detail}")
+        print()
+    for name, status, summary, detail in (
+        ("Backend deps (pip-audit)", be_status, be_summary, be_detail),
+        ("Frontend deps (bun/npm audit)", fe_status, fe_summary, fe_detail),
+    ):
+        if status == "vuln":
+            print(f"  {name}: {summary}")
+            snippet = "\n".join(detail.strip().splitlines()[:20]).strip()
+            if snippet:
+                print("    " + snippet.replace("\n", "\n    "))
+            print()
+    for n in notes:
+        print(f"  • {n}")
+    print("\nRun `python security_audit.py --verbose` for the full report.")
+    return 1
 
 
 # ─────────────────────────────────────────────
@@ -603,7 +822,12 @@ def main():
 
 
 if __name__ == "__main__":
-    if "--check" in sys.argv or "check" in sys.argv[1:]:
+    args = sys.argv[1:]
+    if "--check" in args or "check" in args:
         # Deploy-readiness checks only (fast, no dependency scans).
         sys.exit(run_deploy_checks())
-    sys.exit(main() or 0)
+    if "--verbose" in args or "-v" in args:
+        # Full report: all lists always printed.
+        sys.exit(main() or 0)
+    # Default: very concise, detail only on critical issues.
+    sys.exit(concise_report())
