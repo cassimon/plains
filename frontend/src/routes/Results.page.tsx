@@ -3074,7 +3074,7 @@ function ResultsDetail({
                 nomadStatus === "FAILURE" || nomadStatus === "FAILED"
               const isNotFound = nomadStatus === "NOT_FOUND"
               const isProcessing = !isSuccess && !isFailed && !isNotFound
-              const guiBase = nomadConfig?.url?.replace("/api/v1", "")
+              const guiBase = nomadConfig?.url?.replace(/\/api\/v1\/?$/, "")
               const guiUrl = guiBase
                 ? `${guiBase}/gui/user/uploads/upload/id/${results.nomad.upload_id}`
                 : null

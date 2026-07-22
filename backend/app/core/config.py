@@ -192,6 +192,14 @@ class Settings(BaseSettings):
     TRASH_TTL_DAYS: int = 30
 
     @model_validator(mode="after")
+    def _normalize_nomad_url(self) -> Self:
+        """Strip a trailing slash so `f"{NOMAD_URL}/uploads"` and the frontend's
+        GUI-link construction never produce a double slash (e.g. `/api/v1//uploads`
+        or `/nomad-oasis//gui/...`)."""
+        self.NOMAD_URL = self.NOMAD_URL.rstrip("/")
+        return self
+
+    @model_validator(mode="after")
     def _load_nomad_auth_from_file(self) -> Self:
         """Read NOMAD credentials from the auth file unless already supplied."""
         if self.NOMAD_USERNAME and self.NOMAD_PASSWORD:
