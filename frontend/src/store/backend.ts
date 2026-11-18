@@ -15,7 +15,7 @@
  *     HTTP adapter at construction time.
  */
 
-import { getTokenSync } from "../lib/keycloakInstance"
+import { getTokenSubject, getTokenSync } from "../lib/keycloakInstance"
 import type {
   CanvasElement,
   Experiment,
@@ -296,12 +296,19 @@ export interface BackendAdapter {
 
 const LOCAL_STORAGE_KEY = "plains_app_state"
 
+const UNLOAD_BACKUP_PREFIX = "plains_unload_backup"
+
 /**
- * Key used by AppContext's beforeunload watchdog to persist an emergency
- * snapshot when the page is closed before the debounced HTTP save completes.
- * HttpBackend.load() restores from this key and then pushes to the server.
+ * Per-user emergency-backup key, namespaced by the authenticated user's `sub`
+ * claim so one user's unsaved backup can never be restored into another user's
+ * session on the same browser. Returns null when there is no authenticated
+ * user — in that case no backup is written or read.
  */
-export const UNLOAD_BACKUP_KEY = "plains_unload_backup"
+export function unloadBackupKey(): string | null {
+  const subject = getTokenSubject()
+  if (!subject) return null
+  return `${UNLOAD_BACKUP_PREFIX}:${subject}`
+}
 
 /**
  * Default backend that keeps state in memory with optional localStorage
@@ -524,6 +531,15 @@ export class HttpBackend implements BackendAdapter {
     "plane-folders": new Set(),
   }
 
+  /**
+   * Serialises snapshot persistence. Every save() runs after the previous one
+   * resolves, so two saves can never interleave their per-entity
+   * create/update/delete reconciliation (which would corrupt the server ID
+   * bookkeeping and reorder writes). A failed save does not poison the chain:
+   * later saves still run, while the error still reaches the caller.
+   */
+  private saveChain: Promise<void> = Promise.resolve()
+
   constructor(
     private baseUrl: string = `${import.meta.env.VITE_API_URL}/api/v1`,
   ) {}
@@ -559,13 +575,13 @@ export class HttpBackend implements BackendAdapter {
     return txt ? JSON.parse(txt) : null
   }
 
-  private captureServerIds(): void {
+  private captureServerIds(snapshot: AppSnapshot): void {
     this.serverIds = {
-      processes: new Set(this.data.processes.map((p) => p.id)),
-      experiments: new Set(this.data.experiments.map((e) => e.id)),
-      results: new Set(this.data.results.map((r) => r.id)),
-      planes: new Set(this.data.planes.map((p) => p.id)),
-      "plane-folders": new Set(this.data.folders.map((f) => f.id)),
+      processes: new Set(snapshot.processes.map((p) => p.id)),
+      experiments: new Set(snapshot.experiments.map((e) => e.id)),
+      results: new Set(snapshot.results.map((r) => r.id)),
+      planes: new Set(snapshot.planes.map((p) => p.id)),
+      "plane-folders": new Set(snapshot.folders.map((f) => f.id)),
     }
   }
 
@@ -583,7 +599,7 @@ export class HttpBackend implements BackendAdapter {
       // rich frontend shapes (including DataCollection membership).
       const bulk = await this.request("GET", "/state/bulk")
       this.data = M.bulkToSnapshot(bulk ?? {})
-      this.captureServerIds()
+      this.captureServerIds(this.data)
       console.log(
         "[HttpBackend] loaded from /state/bulk:",
         "processes:",
@@ -616,34 +632,43 @@ export class HttpBackend implements BackendAdapter {
    */
   private restoreUnloadBackup(): boolean {
     const BACKUP_MAX_AGE_MS = 30 * 60 * 1000 // 30 minutes
+    const key = unloadBackupKey()
+    if (!key) return false
     try {
-      const raw = localStorage.getItem(UNLOAD_BACKUP_KEY)
+      const raw = localStorage.getItem(key)
       if (!raw) return false
       const backup = JSON.parse(raw) as {
         snapshot: AppSnapshot
         savedAt: number
       }
       if (!backup?.snapshot || !backup?.savedAt) {
-        localStorage.removeItem(UNLOAD_BACKUP_KEY)
+        localStorage.removeItem(key)
         return false
       }
       if (Date.now() - backup.savedAt > BACKUP_MAX_AGE_MS) {
-        console.log("[HttpBackend] discarding stale unload backup")
-        localStorage.removeItem(UNLOAD_BACKUP_KEY)
+        // Do NOT delete expired backup data: it may be the only recoverable copy
+        // of unsaved research changes. Skip automatic restoration (to avoid
+        // replaying stale data) but keep the data for manual recovery.
+        console.log(
+          "[HttpBackend] not auto-restoring stale unload backup (kept)",
+        )
         return false
       }
       console.log(
         "[HttpBackend] restoring emergency unload backup from",
         new Date(backup.savedAt).toISOString(),
       )
-      this.data = backup.snapshot
-      localStorage.removeItem(UNLOAD_BACKUP_KEY)
-      // Re-push the restored snapshot to the server asynchronously.
-      setTimeout(() => void this.save(this.data), 1_500)
+      const snapshot = backup.snapshot
+      this.data = snapshot
+      // Re-push the exact snapshot just restored — not the mutable `this.data`,
+      // which a concurrent save could change before the timer fires. The backup
+      // itself stays until performSave() confirms the re-push succeeded.
+      setTimeout(() => void this.save(snapshot).catch(() => {}), 1_500)
       return true
     } catch {
+      // Corrupted entry (or storage unavailable): drop the unreadable entry.
       try {
-        localStorage.removeItem(UNLOAD_BACKUP_KEY)
+        localStorage.removeItem(key)
       } catch {
         /* ignore */
       }
@@ -652,25 +677,56 @@ export class HttpBackend implements BackendAdapter {
   }
 
   async save(snapshot: AppSnapshot): Promise<void> {
+    // Chain onto the previous save so reconciliation is never interleaved.
+    const run = this.saveChain.then(() => this.performSave(snapshot))
+    // Keep the chain usable after a failure; `run` still rejects for the caller.
+    this.saveChain = run.catch(() => {})
+    return run
+  }
+
+  private async performSave(snapshot: AppSnapshot): Promise<void> {
     this.data = snapshot
     const token = this.getToken()
     if (!token) {
-      console.warn(
-        "[HttpBackend] save() skipped — no token (already logged out)",
+      // A save without a token cannot persist anything. Report it as a failure
+      // (not a silent success) so the caller restores the dirty flag and keeps
+      // the emergency backup instead of discarding pending edits.
+      const err = new Error(
+        "[HttpBackend] save skipped — no token (already logged out)",
       )
-      return
+      console.warn(err.message)
+      throw err
     }
     try {
       await this.syncToBackend(snapshot)
       console.log("[HttpBackend] save succeeded")
-      // The server now holds the authoritative state — drop the emergency backup.
-      try {
-        localStorage.removeItem(UNLOAD_BACKUP_KEY)
-      } catch {
-        /* ignore */
+      // Drop the emergency backup only when its contents are demonstrably the
+      // same as the snapshot just synchronized. Re-read the backup here so a
+      // replacement written during this async save (e.g. by another tab) is the
+      // one compared — never a stale copy. Timestamps are NOT used as proof of
+      // equivalence: only exact content equality proves the backup is covered.
+      const key = unloadBackupKey()
+      if (key) {
+        try {
+          const raw = localStorage.getItem(key)
+          if (raw) {
+            const backup = JSON.parse(raw) as { snapshot?: AppSnapshot }
+            if (
+              backup?.snapshot &&
+              JSON.stringify(backup.snapshot) === JSON.stringify(snapshot)
+            ) {
+              localStorage.removeItem(key)
+            }
+          }
+        } catch {
+          /* ignore */
+        }
       }
     } catch (err) {
+      // Do not swallow the failure: the caller (AppContext) must be able to
+      // restore the dirty flag so pending edits are not silently lost.
       console.error("[HttpBackend] save failed:", err)
+      throw err
     }
   }
 
@@ -952,8 +1008,10 @@ export class HttpBackend implements BackendAdapter {
       s.folders.map((f) => f.id),
     )
 
-    // Server now matches the snapshot.
-    this.captureServerIds()
+    // Server now matches the snapshot actually synchronised — capture from the
+    // `s` parameter, not `this.data` (which a newer queued save may have
+    // already overwritten).
+    this.captureServerIds(s)
   }
 
   // ── Per-entity methods (delegate to in-memory copy) ────────────────────────

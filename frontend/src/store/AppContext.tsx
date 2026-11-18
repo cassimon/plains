@@ -27,7 +27,7 @@ import {
   type RestoredItem,
   type TrashEntry,
   type TrashedRef,
-  UNLOAD_BACKUP_KEY,
+  unloadBackupKey,
 } from "./backend"
 
 // Kept in sync with the exported constant in ../lib/uploadFlow. Defined locally
@@ -1305,8 +1305,10 @@ type AppContextValue = {
   emptyTrash: () => Promise<void>
   /** Re-apply the authoritative server snapshot (replaces local arrays).
    *  Pass `{ flush: false }` after a server-side mutation (e.g. trash restore)
-   *  so the stale local snapshot is never pushed over it. */
-  reloadFromBackend: (opts?: { flush?: boolean }) => Promise<AppSnapshot>
+   *  so the stale local snapshot is never pushed over it. Returns null (and
+   *  does not reload) when a requested flush fails, so unsaved local edits are
+   *  never overwritten by the server snapshot. */
+  reloadFromBackend: (opts?: { flush?: boolean }) => Promise<AppSnapshot | null>
 
   // ── Upload flow ("File Upload" critical status) ───────────────────────────
   /** The single active upload flow, or null. Only one may exist at a time. */
@@ -1552,7 +1554,10 @@ export function AppProvider({
   const saveTimeoutRef = useRef<number | null>(null)
   const hydratedRef = useRef(false)
 
-  const persistDirtyState = useCallback(async () => {
+  // Returns true when the flush succeeded (or there was nothing to flush), and
+  // false when a save failed — so callers that are about to replace local state
+  // from the server can abort instead of discarding unsaved edits.
+  const persistDirtyState = useCallback(async (): Promise<boolean> => {
     if (!loaded || !dirtyRef.current) {
       console.log(
         "[AppContext] persistDirtyState skipped: loaded=",
@@ -1560,12 +1565,22 @@ export function AppProvider({
         "dirty=",
         dirtyRef.current,
       )
-      return
+      return !dirtyRef.current
     }
     dirtyRef.current = false
     console.log("[AppContext] persistDirtyState: saving state...")
-    await backend.save(stateRef.current)
-    console.log("[AppContext] persistDirtyState: save complete")
+    try {
+      await backend.save(stateRef.current)
+      console.log("[AppContext] persistDirtyState: save complete")
+      return true
+    } catch (err) {
+      // A failed save must not discard pending modifications: restore the dirty
+      // flag so the next debounce/interval/visibility flush retries, and the
+      // beforeunload watchdog still writes the emergency backup.
+      console.error("[AppContext] persistDirtyState failed:", err)
+      dirtyRef.current = true
+      return false
+    }
   }, [backend, loaded])
 
   const scheduleSave = useCallback(() => {
@@ -1603,7 +1618,15 @@ export function AppProvider({
         dirtyRef.current = false
       } else {
         dirtyRef.current = true
-        await persistDirtyState()
+        const flushed = await persistDirtyState()
+        if (!flushed) {
+          // A failed flush means local unsaved changes are not on the server;
+          // reloading now would replace them. Abort and keep the dirty flag so
+          // the next save retries. The caller surfaced its own outcome (e.g. the
+          // trash was emptied server-side) — only the reload is skipped.
+          console.warn("[AppContext] reloadFromBackend aborted: flush failed")
+          return null
+        }
       }
       const snapshot = await backend.load()
       setExperiments(snapshot.experiments)
@@ -1839,7 +1862,13 @@ export function AppProvider({
         window.clearTimeout(saveTimeoutRef.current)
         saveTimeoutRef.current = null
       }
-      await persistDirtyState()
+      const flushed = await persistDirtyState()
+      if (!flushed) {
+        // Local unsaved changes could not be pushed; restoring and reloading
+        // now would discard them. Abort (dirty stays true for retry) and let
+        // the caller's error handler surface the failure.
+        throw new Error("Could not save pending changes before restore")
+      }
 
       // 2. Server-atomic restore (placement included).
       const restored = await backend.restoreTrash(
@@ -2072,9 +2101,13 @@ export function AppProvider({
     // will pick this up on the next session and push it to the server.
     const handleBeforeUnload = () => {
       if (dirtyRef.current) {
+        // Per-user key: never write (or later restore) a backup under a global
+        // key that could belong to another user on the same browser.
+        const key = unloadBackupKey()
+        if (!key) return
         try {
           localStorage.setItem(
-            UNLOAD_BACKUP_KEY,
+            key,
             JSON.stringify({ snapshot: stateRef.current, savedAt: Date.now() }),
           )
         } catch {

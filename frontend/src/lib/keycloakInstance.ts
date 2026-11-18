@@ -50,6 +50,28 @@ export function getTokenSync(): string | null {
 }
 
 /**
+ * Decode the current token's `sub` claim (the stable per-user identifier) from
+ * the JWT payload, without verifying the signature — the backend already
+ * accepted the token. Returns null when there is no session or the token is
+ * not a decodable JWT.
+ */
+export function getTokenSubject(): string | null {
+  const token = getTokenSync()
+  if (!token) return null
+  try {
+    const payload = token.split(".")[1]
+    if (!payload) return null
+    // base64url → base64, then pad to a multiple of 4 for atob.
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/")
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4)
+    const claims = JSON.parse(atob(padded))
+    return typeof claims?.sub === "string" ? claims.sub : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Async token read — silently refreshes the token first so the caller always
  * gets a valid, non-expired value.  Used by the OpenAPI client interceptor.
  */
