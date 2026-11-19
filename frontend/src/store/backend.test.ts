@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
 
 import { clearKeycloak, setKeycloak } from "../lib/keycloakInstance"
 import { HttpBackend, type AppSnapshot, unloadBackupKey } from "./backend"
@@ -39,6 +39,11 @@ function makeStorage() {
     removeItem: (k: string) => void store.delete(k),
     clear: () => void store.clear(),
   }
+}
+
+/** Drain the microtask queue so floating async saves settle deterministically. */
+async function flushMicrotasks() {
+  for (let i = 0; i < 30; i++) await Promise.resolve()
 }
 
 beforeEach(() => {
@@ -328,5 +333,126 @@ describe("HttpBackend persistence", () => {
     expect(loaded.folders.length).toBe(0)
     // A's backup is untouched (still under A's own key).
     expect((globalThis as any).localStorage.getItem(keyA)).not.toBeNull()
+  })
+})
+
+describe("delayed backup replay (PERSISTENCE-FIX-01)", () => {
+  // Fake setTimeout: capture the callback instead of waiting 1.5s, so the
+  // replay can be fired deterministically (no sleeps, no real timers).
+  let timerCallback: (() => unknown) | null = null
+  const realSetTimeout = globalThis.setTimeout.bind(globalThis)
+
+  beforeEach(() => {
+    timerCallback = null
+    ;(globalThis as any).setTimeout = (
+      cb: () => unknown,
+      _ms: number,
+    ): unknown => {
+      timerCallback = cb
+      return 1
+    }
+  })
+
+  afterEach(() => {
+    ;(globalThis as any).setTimeout = realSetTimeout
+  })
+
+  function fireTimer() {
+    const cb = timerCallback
+    timerCallback = null
+    if (cb) cb()
+  }
+
+  function folderPosts() {
+    return fetchCalls
+      .filter((c) => c.method === "POST" && c.url.endsWith("/plane-folders/"))
+      .map((c) => (c.body as { id: string })?.id)
+  }
+
+  function seedEmergencyBackup() {
+    const key = unloadBackupKey()!
+    const snapshot = { ...emptySnapshot(), folders: [folder("A1")] }
+    ;(globalThis as any).localStorage.setItem(
+      key,
+      JSON.stringify({ snapshot, savedAt: Date.now() }),
+    )
+    return key
+  }
+
+  function signInAsUserA() {
+    setKeycloak({
+      authenticated: true,
+      token: jwtToken("userA"),
+      updateToken: () => Promise.resolve(false),
+    } as any)
+  }
+
+  test("1. snapshot A is restored from the emergency backup", async () => {
+    signInAsUserA()
+    const backend = new HttpBackend("http://test/api/v1")
+    seedEmergencyBackup()
+    fetchHandler = () => ({ ok: true, status: 200, json: {} })
+
+    const loaded = await backend.load()
+
+    expect(loaded.folders.map((f) => f.id)).toEqual(["A1"])
+  })
+
+  test("2. snapshot B is saved successfully before the replay fires", async () => {
+    signInAsUserA()
+    const backend = new HttpBackend("http://test/api/v1")
+    seedEmergencyBackup()
+    fetchHandler = () => ({ ok: true, status: 200, json: {} })
+    await backend.load()
+
+    const snapB = { ...emptySnapshot(), folders: [folder("B1")] }
+    await backend.save(snapB)
+
+    expect(folderPosts()).toEqual(["B1"])
+  })
+
+  test("3. the delayed replay writes B, never the older backup A", async () => {
+    signInAsUserA()
+    const backend = new HttpBackend("http://test/api/v1")
+    seedEmergencyBackup()
+    fetchHandler = () => ({ ok: true, status: 200, json: {} })
+    await backend.load()
+
+    const snapB = { ...emptySnapshot(), folders: [folder("B1")] }
+    await backend.save(snapB)
+
+    const saveSpy = spyOn(backend, "save")
+    fireTimer()
+
+    const replayed = saveSpy.mock.calls[saveSpy.mock.calls.length - 1][0]
+    expect(replayed.folders.map((f) => f.id)).toEqual(["B1"])
+  })
+
+  test("4. the replay still persists A when nothing newer exists", async () => {
+    signInAsUserA()
+    const backend = new HttpBackend("http://test/api/v1")
+    seedEmergencyBackup()
+    fetchHandler = () => ({ ok: true, status: 200, json: {} })
+    await backend.load()
+
+    const saveSpy = spyOn(backend, "save")
+    fireTimer()
+
+    const replayed = saveSpy.mock.calls[saveSpy.mock.calls.length - 1][0]
+    expect(replayed.folders.map((f) => f.id)).toEqual(["A1"])
+  })
+
+  test("5. a failed replay retains the recoverable backup", async () => {
+    signInAsUserA()
+    const backend = new HttpBackend("http://test/api/v1")
+    const key = seedEmergencyBackup()
+    fetchHandler = () => ({ ok: true, status: 200, json: {} })
+    await backend.load()
+
+    fetchHandler = () => ({ ok: false, status: 500 })
+    fireTimer()
+    await flushMicrotasks()
+
+    expect((globalThis as any).localStorage.getItem(key)).not.toBeNull()
   })
 })

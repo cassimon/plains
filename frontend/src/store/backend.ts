@@ -658,12 +658,13 @@ export class HttpBackend implements BackendAdapter {
         "[HttpBackend] restoring emergency unload backup from",
         new Date(backup.savedAt).toISOString(),
       )
-      const snapshot = backup.snapshot
-      this.data = snapshot
-      // Re-push the exact snapshot just restored — not the mutable `this.data`,
-      // which a concurrent save could change before the timer fires. The backup
-      // itself stays until performSave() confirms the re-push succeeded.
-      setTimeout(() => void this.save(snapshot).catch(() => {}), 1_500)
+      this.data = backup.snapshot
+      // Re-push the CURRENT state, not the snapshot captured at restore time:
+      // if a newer snapshot is saved before the timer fires, `this.data` already
+      // reflects it, so the delayed replay can never overwrite newer data with
+      // the older backup. The backup itself stays until performSave() confirms
+      // the re-push succeeded.
+      setTimeout(() => void this.save(this.data).catch(() => {}), 1_500)
       return true
     } catch {
       // Corrupted entry (or storage unavailable): drop the unreadable entry.
