@@ -25,7 +25,7 @@ from app.api import deps
 from app.api.routes import nomad as nomad_routes
 from app.core.config import settings
 from app.main import app
-from app.models import NomadUploadLog, User
+from app.models import ExperimentCreate, NomadUploadLog, User
 from app.services import nomad as nomad_service
 from app.services.nomad import TEMP_UPLOAD_DIR
 
@@ -81,8 +81,17 @@ class TestUploadRecordsLogAndStash:
     def test_upload_creates_pending_log_and_stashes_archive(
         self, client: TestClient, db: Session, stash_dir: Path, monkeypatch
     ) -> None:
-        TEMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        archive_path = TEMP_UPLOAD_DIR / f"log_flow_{uuid.uuid4().hex}.zip"
+        # SECURITY-02A: a persisted experiment owned by the caller is required.
+        owner = _superuser(db)
+        seeded_exp = crud.create_experiment(
+            session=db,
+            experiment_in=ExperimentCreate(name="Log Flow"),
+            owner_id=owner.id,
+        )
+
+        archive_dir = nomad_routes._user_upload_dir(owner.id)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archive_path = archive_dir / f"log_flow_{uuid.uuid4().hex}.zip"
         archive_path.write_bytes(b"fake zip content")
 
         monkeypatch.setattr(settings, "NOMAD_USE_GLOBAL_AUTH", True)
@@ -103,7 +112,7 @@ class TestUploadRecordsLogAndStash:
         )
 
         saved = dict(app.dependency_overrides)
-        app.dependency_overrides[deps.get_current_user] = lambda: _superuser(db)
+        app.dependency_overrides[deps.get_current_user] = lambda: owner
         app.dependency_overrides[deps._require_token] = lambda: "tok"
 
         log = None
@@ -113,7 +122,7 @@ class TestUploadRecordsLogAndStash:
                 data={
                     "request_json": json.dumps(
                         {
-                            "experiment_id": str(uuid.uuid4()),
+                            "experiment_id": str(seeded_exp.id),
                             "experiment_name": "Log Flow",
                             "substrates": [],
                             "measurement_files": [],

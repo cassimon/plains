@@ -13,10 +13,44 @@ from app.api import deps
 from app.api.routes import nomad as nomad_routes
 from app.core.config import settings
 from app.main import app
-from app.models import User
 from app.services.nomad import TEMP_UPLOAD_DIR
 
 BASE = f"{settings.API_V1_STR}/nomad"
+
+
+def _seed_user_experiment(
+    db, *, email: str, name: str, is_superuser: bool = False
+):
+    """Create a real user + experiment in the DB; return (user, experiment_id).
+
+    SECURITY-02A: NOMAD endpoints now require the experiment to exist and be
+    owned by the caller, so tests that exercise the upload flow need a persisted
+    experiment instead of a random UUID.
+    """
+    from app import crud
+    from app.models import ExperimentCreate, UserCreate
+
+    user = crud.get_user_by_email(session=db, email=email)
+    if not user:
+        user = crud.create_user(
+            session=db,
+            user_create=UserCreate(
+                email=email, password="seedpassword123", is_superuser=is_superuser
+            ),
+        )
+    exp = crud.create_experiment(
+        session=db, experiment_in=ExperimentCreate(name=name), owner_id=user.id
+    )
+    return user, exp.id
+
+
+def _upload_dir_for_email(db, email: str) -> Path:
+    """The per-user upload directory for a user looked up by email (SECURITY-02B)."""
+    from app import crud
+
+    user = crud.get_user_by_email(session=db, email=email)
+    assert user is not None
+    return nomad_routes._user_upload_dir(user.id)
 
 
 class TestNomadConfig:
@@ -130,10 +164,17 @@ class TestNomadUploadAuthorization:
 
 def test_upload_to_nomad_accepts_archive_path_from_form_data(
     client: TestClient,
+    db,
     monkeypatch,
 ) -> None:
-    TEMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    archive_path = TEMP_UPLOAD_DIR / "test_nomad_upload.zip"
+    # A persisted experiment owned by the caller (SECURITY-02A ownership check).
+    owner, experiment_id = _seed_user_experiment(
+        db, email="superuser@example.com", name="Archive Upload", is_superuser=True
+    )
+
+    archive_dir = nomad_routes._user_upload_dir(owner.id)
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    archive_path = archive_dir / "test_nomad_upload.zip"
     archive_path.write_bytes(b"fake zip content")
 
     upload_calls: list[tuple[str, str, str]] = []
@@ -161,16 +202,11 @@ def test_upload_to_nomad_accepts_archive_path_from_form_data(
     monkeypatch.setattr(nomad_routes, "upload_to_nomad", fake_upload_to_nomad)
 
     saved_overrides = dict(app.dependency_overrides)
-    app.dependency_overrides[deps.get_current_user] = lambda: User(
-        email="superuser@example.com",
-        full_name="Test Superuser",
-        is_superuser=True,
-        is_active=True,
-    )
+    app.dependency_overrides[deps.get_current_user] = lambda: owner
     app.dependency_overrides[deps._require_token] = lambda: "request-token"
 
     request_data = {
-        "experiment_id": str(uuid.uuid4()),
+        "experiment_id": str(experiment_id),
         "experiment_name": "Archive Upload",
         "substrates": [],
         "measurement_files": [],
@@ -289,18 +325,19 @@ class TestNomadUploadFiles:
 class TestNomadMetadataPreview:
     """Test POST /nomad/metadata/preview (read YAML from archive)."""
 
-    def _make_archive_with_yaml(self, content: str = "data: value\n") -> Path:
-        TEMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        archive_path = TEMP_UPLOAD_DIR / f"test_preview_{uuid.uuid4().hex}.zip"
+    def _make_archive_with_yaml(self, db, content: str = "data: value\n") -> Path:
+        d = _upload_dir_for_email(db, settings.EMAIL_TEST_USER)
+        d.mkdir(parents=True, exist_ok=True)
+        archive_path = d / f"test_preview_{uuid.uuid4().hex}.zip"
         with zipfile.ZipFile(archive_path, "w") as zf:
             zf.writestr("measurement.csv", b"col,val\n1,2\n")
             zf.writestr("metadata.archive.yaml", content)
         return archive_path
 
     def test_preview_reads_yaml_files(
-        self, client: TestClient, normal_user_token_headers: dict[str, str]
+        self, client: TestClient, normal_user_token_headers: dict[str, str], db
     ) -> None:
-        archive = self._make_archive_with_yaml("key: value\n")
+        archive = self._make_archive_with_yaml(db, "key: value\n")
         try:
             r = client.post(
                 f"{BASE}/metadata/preview",
@@ -316,9 +353,9 @@ class TestNomadMetadataPreview:
             archive.unlink(missing_ok=True)
 
     def test_preview_lists_all_files(
-        self, client: TestClient, normal_user_token_headers: dict[str, str]
+        self, client: TestClient, normal_user_token_headers: dict[str, str], db
     ) -> None:
-        archive = self._make_archive_with_yaml()
+        archive = self._make_archive_with_yaml(db)
         try:
             r = client.post(
                 f"{BASE}/metadata/preview",
@@ -333,9 +370,9 @@ class TestNomadMetadataPreview:
             archive.unlink(missing_ok=True)
 
     def test_preview_archive_not_found_returns_404(
-        self, client: TestClient, normal_user_token_headers: dict[str, str]
+        self, client: TestClient, normal_user_token_headers: dict[str, str], db
     ) -> None:
-        fake_path = TEMP_UPLOAD_DIR / "nonexistent.zip"
+        fake_path = _upload_dir_for_email(db, settings.EMAIL_TEST_USER) / "nonexistent.zip"
         r = client.post(
             f"{BASE}/metadata/preview",
             data={"archive_path": str(fake_path)},
@@ -362,10 +399,11 @@ class TestNomadArchiveDiscard:
     """Test POST /nomad/upload/archive/discard."""
 
     def test_discard_existing_archive(
-        self, client: TestClient, normal_user_token_headers: dict[str, str]
+        self, client: TestClient, normal_user_token_headers: dict[str, str], db
     ) -> None:
-        TEMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        archive = TEMP_UPLOAD_DIR / f"discard_{uuid.uuid4().hex}.zip"
+        d = _upload_dir_for_email(db, settings.EMAIL_TEST_USER)
+        d.mkdir(parents=True, exist_ok=True)
+        archive = d / f"discard_{uuid.uuid4().hex}.zip"
         archive.write_bytes(b"fake zip")
 
         r = client.post(
@@ -378,9 +416,9 @@ class TestNomadArchiveDiscard:
         assert not archive.exists()
 
     def test_discard_nonexistent_archive_returns_false(
-        self, client: TestClient, normal_user_token_headers: dict[str, str]
+        self, client: TestClient, normal_user_token_headers: dict[str, str], db
     ) -> None:
-        fake = TEMP_UPLOAD_DIR / "never_existed.zip"
+        fake = _upload_dir_for_email(db, settings.EMAIL_TEST_USER) / "never_existed.zip"
         r = client.post(
             f"{BASE}/upload/archive/discard",
             data={"archive_path": str(fake)},
@@ -484,12 +522,16 @@ class TestNomadFullUploadFlow:
     }
 
     def test_upload_with_files_calls_nomad(
-        self, client: TestClient, monkeypatch
+        self, client: TestClient, db, monkeypatch
     ) -> None:
         """Uploading with files triggers the NOMAD upload service."""
         from app.api import deps
         from app.api.routes import nomad as nomad_routes
-        from app.models import User
+
+        # A persisted experiment owned by the caller (SECURITY-02A ownership check).
+        owner, experiment_id = _seed_user_experiment(
+            db, email="su@example.com", name="Full Flow Test", is_superuser=True
+        )
 
         upload_calls: list = []
         TEMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -517,15 +559,15 @@ class TestNomadFullUploadFlow:
         monkeypatch.setattr(nomad_routes, "upload_to_nomad", _fake_upload)
 
         saved_overrides = dict(app.dependency_overrides)
-        app.dependency_overrides[deps.get_current_user] = lambda: User(
-            email="su@example.com", is_superuser=True, is_active=True
-        )
+        app.dependency_overrides[deps.get_current_user] = lambda: owner
         app.dependency_overrides[deps._require_token] = lambda: "tok"
+
+        request_data = {**self._REQUEST, "experiment_id": str(experiment_id)}
 
         try:
             r = client.post(
                 f"{BASE}/upload/nomad",
-                data={"request_json": json.dumps(self._REQUEST)},
+                data={"request_json": json.dumps(request_data)},
                 files=[("files", ("m.csv", io.BytesIO(b"a,b\n1,2\n"), "text/plain"))],
             )
             assert r.status_code == 200
@@ -610,8 +652,9 @@ class TestNomadUploadPersistsNormalisedColumns:
             headers=normal_user_token_headers,
         ).json()
 
-        TEMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        archive_path = TEMP_UPLOAD_DIR / "test_persist_upload.zip"
+        archive_dir = _upload_dir_for_email(db, settings.EMAIL_TEST_USER)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archive_path = archive_dir / "test_persist_upload.zip"
         archive_path.write_bytes(b"fake zip content")
 
         monkeypatch.setattr(settings, "NOMAD_USE_GLOBAL_AUTH", True)

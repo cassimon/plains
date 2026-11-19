@@ -52,13 +52,23 @@ services:
   # (${DOCKER_IMAGE_BACKEND}); `backend` reuses the same tag. Building here with
   # RUN_AS_USER=appuser makes the production image run as a non-root user. The
   # dev stack builds without this arg, so it stays root (bind-mounted source
-  # under /app/backend must remain writable for hot-reload).
+  # under /app/backend must remain writable for hot-reload). Both prestart and
+  # backend declare the same arg so the shared image is always the non-root one,
+  # regardless of which service triggers the build.
   prestart:
     build:
       args:
         RUN_AS_USER: appuser
 
   backend:
+    build:
+      args:
+        RUN_AS_USER: appuser
+    # External-nginx mode: reached via 127.0.0.1, not Traefik. Disable Traefik
+    # advertising so the base compose.yml router labels never publish these
+    # services through a running Traefik.
+    labels:
+      traefik.enable: "false"
     ports:
       - "127.0.0.1:8000:8000"
 
@@ -68,9 +78,13 @@ services:
     # external-nginx sample (proxy_pass http://127.0.0.1:9000) needs no edit.
     build:
       target: runtime-unprivileged
+    labels:
+      traefik.enable: "false"
     ports:
       - "127.0.0.1:9000:8080"
 
   adminer:
+    labels:
+      traefik.enable: "false"
     ports:
       - "127.0.0.1:9001:8080"

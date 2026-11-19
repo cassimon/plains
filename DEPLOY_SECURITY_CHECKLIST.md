@@ -85,8 +85,13 @@ bash scripts/db-backup.sh
 #    with BOTH prod files so the image is the non-root one.
 docker compose -f compose.yml -f compose.prod.yml up -d --build
 
-# 3. Apply DB migrations:
-docker compose -f compose.yml -f compose.prod.yml exec backend alembic upgrade head
+# 3. No migration step at deploy time. The schema is created/updated at startup by
+#    the application (init_db: SQLModel.metadata.create_all + a small set of ad-hoc
+#    ALTER TABLE … ADD COLUMN IF NOT EXISTS). Do NOT run `alembic upgrade head` on an
+#    existing deployment: the historical Alembic revisions are divergent from the
+#    current model and are not part of the automatic schema lifecycle. Schema changes
+#    require a separately validated procedure; a DB backup does not guarantee migration
+#    rollback.
 
 # 4. Tail logs to confirm a clean boot (config validators run at startup):
 docker compose -f compose.yml -f compose.prod.yml logs -f backend

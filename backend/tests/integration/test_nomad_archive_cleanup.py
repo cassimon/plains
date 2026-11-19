@@ -98,12 +98,20 @@ class TestArchiveInactivitySweep:
 
         current = _upload_archive(test_user_client, user_headers)
         try:
+            # SECURITY-02A requires a persisted experiment owned by the caller;
+            # create one instead of relying on a nonexistent id.
+            exp = test_user_client.post(
+                "/api/v1/experiments/", json={"name": "Cleanup sweep"}
+            )
+            assert exp.status_code == 200, exp.text
+            experiment_id = exp.json()["id"]
+
             r = test_user_client.post(
                 "/api/v1/nomad/upload/nomad",
                 headers=user_headers,
                 data={
                     "request_json": (
-                        '{"experiment_id": "cleanup-test", '
+                        f'{{"experiment_id": "{experiment_id}", '
                         '"experiment_name": "Cleanup", "substrates": [], '
                         '"measurement_files": [], "device_groups": []}'
                     ),
@@ -114,10 +122,6 @@ class TestArchiveInactivitySweep:
             assert not stale.exists(), (
                 "stale archive must be swept by the final upload endpoint"
             )
-            # (Deletion of the successfully uploaded archive itself is covered
-            # by the GUI flow tests in nomad-upload-flows.spec.ts — here the
-            # metadata generation fails on the fake experiment id, so the
-            # endpoint returns success=False and keeps the archive.)
         finally:
             current.unlink(missing_ok=True)
             stale.unlink(missing_ok=True)

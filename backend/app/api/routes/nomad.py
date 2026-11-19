@@ -165,8 +165,40 @@ def _require_nomad_upload_authorized(current_user: CurrentUser) -> None:
         )
 
 
-def _validated_archive_path(archive_path: str) -> Path:
-    """Resolve a client-supplied archive path and confine it to TEMP_UPLOAD_DIR.
+def _require_owned_experiment(
+    session: SessionDep, current_user: CurrentUser, experiment_id: str
+) -> Experiment:
+    """Load a client-supplied experiment id and require the caller to own it.
+
+    NOMAD export materializes the experiment's chemicals and reads the owner's
+    material/solution inventory, so a client must never be able to process
+    another user's experiment. Missing/malformed ids are reported as 404 (they
+    cannot reference an experiment); an experiment owned by someone else is 403.
+    """
+    exp_uuid = _maybe_uuid(experiment_id)
+    if exp_uuid is None:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    experiment = session.get(Experiment, exp_uuid)
+    if experiment is None:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if not current_user.is_superuser and experiment.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+    return experiment
+
+
+def _user_upload_dir(user_id: uuid.UUID) -> Path:
+    """Per-user directory for temporary NOMAD upload archives.
+
+    SECURITY-02B: archives live under ``TEMP_UPLOAD_DIR/<user_id>`` so ownership
+    is established by filesystem location and survives multiple requests and
+    process restarts without a database table.
+    """
+    return TEMP_UPLOAD_DIR / str(user_id)
+
+
+def _validated_archive_path(current_user: CurrentUser, archive_path: str) -> Path:
+    """Resolve a client-supplied archive path and confine it to the caller's
+    per-user upload directory.
 
     Existence is *not* checked here — callers decide whether a missing archive
     is an error (metadata step) or a fall-back to creating a fresh one (drop
@@ -177,7 +209,7 @@ def _validated_archive_path(archive_path: str) -> Path:
     except Exception as e:
         raise HTTPException(status_code=400, detail="Invalid archive path") from e
 
-    allowed_root = TEMP_UPLOAD_DIR.resolve()
+    allowed_root = _user_upload_dir(current_user.id).resolve()
     if not candidate.is_relative_to(allowed_root):
         raise HTTPException(status_code=403, detail="Archive path is not allowed")
     return candidate
@@ -443,6 +475,12 @@ async def upload_files_for_nomad(
         try:
             upload_request = NomadUploadRequest.model_validate_json(request_json)
 
+            # Authorization: the referenced experiment must belong to the caller
+            # before any materialization or metadata generation happens.
+            _require_owned_experiment(
+                session, current_user, upload_request.experiment_id
+            )
+
             experiment_snapshot = None
             process_snapshot = None
             if upload_request.custom_metadata and isinstance(
@@ -493,6 +531,8 @@ async def upload_files_for_nomad(
             logger.info(
                 f"Generated {len(archive_yaml_files)} YAML metadata files for archive"
             )
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Failed to generate YAML metadata: {e}", exc_info=True)
             raise HTTPException(
@@ -503,7 +543,7 @@ async def upload_files_for_nomad(
     # otherwise create a fresh secure zip.
     append_target: Path | None = None
     if existing_archive_path:
-        candidate = _validated_archive_path(existing_archive_path)
+        candidate = _validated_archive_path(current_user, existing_archive_path)
         if candidate.exists():
             append_target = candidate
         else:
@@ -529,6 +569,7 @@ async def upload_files_for_nomad(
                 files=file_data,
                 metadata_files=archive_yaml_files if archive_yaml_files else None,
                 archive_name=archive_name,
+                target_dir=_user_upload_dir(current_user.id),
             )
             logger.info(
                 f"Created temporary zip archive at {zip_path} with {len(file_data)} files + {len(archive_yaml_files)} YAML files, total size: {zip_path.stat().st_size} bytes"
@@ -601,8 +642,12 @@ async def add_metadata_to_archive(
         len(request.ignored_files),
     )
 
+    # Authorization: the referenced experiment must belong to the caller before
+    # materialization or metadata generation happens.
+    _require_owned_experiment(session, current_user, request.experiment_id)
+
     # Validate archive path
-    candidate = _validated_archive_path(archive_path)
+    candidate = _validated_archive_path(current_user, archive_path)
 
     if not candidate.exists():
         logger.error(
@@ -718,7 +763,7 @@ async def preview_metadata_from_archive(
     except Exception as e:
         raise HTTPException(status_code=400, detail="Invalid archive path") from e
 
-    allowed_root = TEMP_UPLOAD_DIR.resolve()
+    allowed_root = _user_upload_dir(current_user.id).resolve()
     if not candidate.is_relative_to(allowed_root):
         raise HTTPException(status_code=403, detail="Archive path is not allowed")
 
@@ -765,7 +810,7 @@ async def discard_uploaded_archive(
     except Exception as e:
         raise HTTPException(status_code=400, detail="Invalid archive path") from e
 
-    allowed_root = TEMP_UPLOAD_DIR.resolve()
+    allowed_root = _user_upload_dir(current_user.id).resolve()
     if not candidate.is_relative_to(allowed_root):
         raise HTTPException(status_code=403, detail="Archive path is not allowed")
 
@@ -837,7 +882,7 @@ async def upload_to_nomad_endpoint(
         except Exception as e:
             raise HTTPException(status_code=400, detail="Invalid archive path") from e
 
-        allowed_root = TEMP_UPLOAD_DIR.resolve()
+        allowed_root = _user_upload_dir(current_user.id).resolve()
         if not candidate.is_relative_to(allowed_root):
             raise HTTPException(status_code=403, detail="Archive path is not allowed")
 
@@ -849,6 +894,10 @@ async def upload_to_nomad_endpoint(
 
     # Resolved inside the try; kept here so the except blocks can stash it.
     zip_path: Path | None = None
+
+    # Authorization: the referenced experiment must belong to the caller before
+    # materialization, metadata generation or any external NOMAD upload happens.
+    _require_owned_experiment(session, current_user, request.experiment_id)
 
     try:
         experiment_snapshot = None
@@ -912,6 +961,7 @@ async def upload_to_nomad_endpoint(
                 files=file_data,
                 metadata_files=archive_yaml_files,
                 archive_name=new_archive_name,
+                target_dir=_user_upload_dir(current_user.id),
             )
             logger.info(f"Created new archive at {zip_path}")
         else:

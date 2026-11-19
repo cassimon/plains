@@ -178,6 +178,7 @@ def create_secure_zip(
     files: list[tuple[str, bytes]],
     metadata_files: list[tuple[str, str]] | None = None,
     archive_name: str | None = None,
+    target_dir: Path | None = None,
 ) -> Path:
     """
     Create a secure zip archive from uploaded files.
@@ -185,22 +186,25 @@ def create_secure_zip(
     Security measures:
     - Files are placed in a flat structure (no path traversal)
     - Filenames are sanitized
-    - Archive is created in a secure temp directory
+    - Archive is created in a secure temp directory (per-user when target_dir is set)
 
     Args:
         files: List of (filename, file_content_bytes) tuples
         metadata_files: Optional list of (filename, yaml_content) for NOMAD metadata
         archive_name: Optional custom archive name (auto-generated if not provided)
+        target_dir: Optional directory to write into (defaults to TEMP_UPLOAD_DIR)
 
     Returns:
         Path to the created zip file
     """
-    ensure_temp_dir()
+    if target_dir is None:
+        target_dir = TEMP_UPLOAD_DIR
+    target_dir.mkdir(parents=True, exist_ok=True)
 
     if not archive_name:
         archive_name = f"upload_{uuid.uuid4().hex[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.zip"
 
-    zip_path = TEMP_UPLOAD_DIR / archive_name
+    zip_path = target_dir / archive_name
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
         # Add data files
@@ -4635,7 +4639,7 @@ def cleanup_stale_archives(max_age_seconds: int | None = None) -> list[Path]:
     if not TEMP_UPLOAD_DIR.exists():
         return deleted
     cutoff = time.time() - max_age
-    for candidate in TEMP_UPLOAD_DIR.glob("*.zip"):
+    for candidate in TEMP_UPLOAD_DIR.rglob("*.zip"):
         try:
             if candidate.is_file() and candidate.stat().st_mtime < cutoff:
                 candidate.unlink()
@@ -4683,7 +4687,7 @@ def cleanup_all_temp_archives() -> int:
         return 0
 
     count = 0
-    for zip_file in TEMP_UPLOAD_DIR.glob("*.zip"):
+    for zip_file in TEMP_UPLOAD_DIR.rglob("*.zip"):
         try:
             zip_file.unlink()
             count += 1

@@ -233,18 +233,35 @@ class TestNomadUploadPersistence:
     """
 
     def test_upload_result_returned_in_response(
-        self, client: TestClient, monkeypatch
+        self, client: TestClient, db: Session, monkeypatch
     ) -> None:
         """The upload endpoint returns success=True and upload_id in the response body."""
         import json as _json
 
+        from app import crud
         from app.api import deps
         from app.api.routes import nomad as nomad_routes
-        from app.models import User
-        from app.services.nomad import TEMP_UPLOAD_DIR
         from app.main import app
+        from app.models import ExperimentCreate, UserCreate
+        from app.services.nomad import TEMP_UPLOAD_DIR
 
         TEMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+        # SECURITY-02A: a persisted experiment owned by the caller is required.
+        owner = crud.get_user_by_email(session=db, email="su@example.com")
+        if not owner:
+            owner = crud.create_user(
+                session=db,
+                user_create=UserCreate(
+                    email="su@example.com", password="seedpassword123", is_superuser=True
+                ),
+            )
+        seeded_exp = crud.create_experiment(
+            session=db,
+            experiment_in=ExperimentCreate(name="Persistence Test"),
+            owner_id=owner.id,
+        )
+
         monkeypatch.setattr(settings, "NOMAD_USE_GLOBAL_AUTH", True)
         monkeypatch.setattr(settings, "NOMAD_USERNAME", "u")
         monkeypatch.setattr(settings, "NOMAD_PASSWORD", "p")
@@ -263,13 +280,11 @@ class TestNomadUploadPersistence:
         )
 
         saved_overrides = dict(app.dependency_overrides)
-        app.dependency_overrides[deps.get_current_user] = lambda: User(
-            email="su@example.com", is_superuser=True, is_active=True
-        )
+        app.dependency_overrides[deps.get_current_user] = lambda: owner
         app.dependency_overrides[deps._require_token] = lambda: "tok"
 
         request_body = {
-            "experiment_id": str(uuid.uuid4()),
+            "experiment_id": str(seeded_exp.id),
             "experiment_name": "Persistence Test",
             "substrates": [],
             "measurement_files": [],
