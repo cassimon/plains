@@ -230,6 +230,31 @@ serialized, or to the AcroForm field-name codec. Every bump must add a correspon
 import migration ladder so older PDFs remain readable (downward compatibility). Never reuse a version
 number for a different shape.
 
+## Frontend UI development conventions
+
+Two UI systems coexist and must both be preserved (see `docs/UI_GUIDELINES.md`):
+
+- **Mantine** (`@mantine/core`, `modals`, `notifications`, `dropzone`) — the scientific GUI
+  (`_gui`: organization, processes, experiments, results, analysis, export, trash).
+- **shadcn/ui + Tailwind** (`src/components/ui/`, `_layout`: auth, `/settings`, `/admin`).
+
+Rules for every UI change:
+
+- Inspect existing components first (`src/components/ui/`, `src/components/Common/`, and the
+  existing pages). Reuse existing components, styles and tokens before creating anything new.
+- Use the established UI library of the area being modified (Mantine in `_gui`, shadcn/Tailwind
+  in `_layout`/auth). Do not mix them within a screen without a concrete reason.
+- Keep the existing visual identity: colors, typography, spacing, radii and the Mantine/shadcn
+  split. Do not introduce new design systems, component libraries, CSS frameworks or new UI
+  dependencies without clear necessity.
+- Reuse shared components (e.g. `components/Common/PageHeader`, `components/Common/DataTable`)
+  instead of duplicating common controls.
+- Theme is driven by `components/theme-provider.tsx` (`vite-ui-theme`, `.dark` class) for the
+  shadcn area; the Mantine color scheme is currently separate (deferred synchronization — see the
+  guide). Do not add another theme library.
+- Preserve visual and functional behavior; verify after any UI change (unit tests, type-check,
+  build) and distinguish source-level from visual verification.
+
 ## React + Vite + Mantine: Strict Mode Pitfalls
 
 React Strict Mode (active in Vite dev) double-invokes effects and renders. Combined with Mantine hooks (`useMergedRef`, etc.), this creates infinite render loops if not handled carefully. Apply these patterns whenever adding new features to the frontend:

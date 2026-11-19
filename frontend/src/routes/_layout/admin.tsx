@@ -7,6 +7,7 @@ import AddUser from "@/components/Admin/AddUser"
 import { columns, type UserTableData } from "@/components/Admin/columns"
 import { nomadUploadColumns } from "@/components/Admin/nomadUploadColumns"
 import { DataTable } from "@/components/Common/DataTable"
+import { PageHeader } from "@/components/Common/PageHeader"
 import PendingUsers from "@/components/Pending/PendingUsers"
 import useAuth from "@/hooks/useAuth"
 
@@ -37,7 +38,7 @@ export const Route = createFileRoute("/_layout/admin")({
   head: () => ({
     meta: [
       {
-        title: "Admin - FastAPI Template",
+        title: "Admin - Plains",
       },
     ],
   }),
@@ -85,25 +86,20 @@ function Admin() {
     <div className="flex flex-col gap-10">
       <div className="flex flex-col gap-6">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Users</h1>
-            <p className="text-muted-foreground">
-              Manage user accounts and permissions
-            </p>
-          </div>
+          <PageHeader
+            title="Users"
+            description="Manage user accounts and permissions"
+          />
           <AddUser />
         </div>
         <UsersTable />
       </div>
 
       <div className="flex flex-col gap-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">NOMAD Uploads</h1>
-          <p className="text-muted-foreground">
-            Central log of every NOMAD upload. Failed uploads keep their file
-            archive (downloadable) for one week.
-          </p>
-        </div>
+        <PageHeader
+          title="NOMAD Uploads"
+          description="Central log of every NOMAD upload. Failed uploads keep their file archive (downloadable) for one week."
+        />
         <NomadUploadLogTable />
       </div>
     </div>
