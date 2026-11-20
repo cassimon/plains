@@ -17,6 +17,7 @@ import { notifications } from "@mantine/notifications"
 import { IconArrowBackUp, IconTrash, IconTrashX } from "@tabler/icons-react"
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
 import type { TrashEntry } from "@/store/backend"
+import { SectionLabel } from "@/components/SectionLabel"
 import { useAppContext } from "../store/AppContext"
 
 const TYPE_LABEL: Record<string, string> = {
@@ -357,9 +358,7 @@ export function TrashPage() {
                 <Fragment key={`section:${section.heading}`}>
                   <Table.Tr>
                     <Table.Td colSpan={4} style={{ paddingTop: 14 }}>
-                      <Text fw={600} size="xs" tt="uppercase" c="dimmed">
-                        {section.heading}
-                      </Text>
+                      <SectionLabel>{section.heading}</SectionLabel>
                     </Table.Td>
                   </Table.Tr>
                   {section.rows.map(renderRow)}

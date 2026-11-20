@@ -18,6 +18,7 @@ import { IconCheck, IconChevronDown, IconChevronUp } from "@tabler/icons-react"
 import * as React from "react"
 import { useMemo, useRef, useState } from "react"
 import { parseQuenchingPairs } from "@/components/QuenchingModal"
+import { SectionLabel } from "@/components/SectionLabel"
 import type {
   CanvasCollectionElement,
   Experiment,
@@ -1330,9 +1331,9 @@ export function ChemicalsTab({
       {/* Bulk-import inventory labels from a previously prepared experiment */}
       {materialItems.length > 0 && importCandidates.length > 0 && (
         <Paper withBorder radius="md" p="sm">
-          <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={8}>
+          <SectionLabel fw={700} mb={8}>
             Import values from
-          </Text>
+          </SectionLabel>
           <Group gap="xs">
             {importCandidates.map((c) => (
               <Button
@@ -1417,9 +1418,9 @@ export function ChemicalsTab({
           <Stack gap="lg">
             {materialItems.length > 0 && (
               <Box>
-                <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">
+                <SectionLabel fw={700} mb="xs">
                   Materials
-                </Text>
+                </SectionLabel>
                 <Stack gap={4}>
                   {queue.map((qi, idx) =>
                     qi.kind === "material" ? (
@@ -1446,9 +1447,9 @@ export function ChemicalsTab({
 
             {solutionItems.length > 0 && (
               <Box>
-                <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">
+                <SectionLabel fw={700} mb="xs">
                   Solutions &amp; recipes
-                </Text>
+                </SectionLabel>
                 <Stack gap={4}>
                   {queue.map((qi, idx) =>
                     qi.kind === "solution" ? (

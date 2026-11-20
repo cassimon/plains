@@ -83,6 +83,10 @@ inconsistencies (theme, toasts), and never migrate one area to the other's libra
   - `DataTable.tsx` — TanStack Table wrapper (pagination) for admin tables.
   - `Footer.tsx`, `Logo.tsx`, `AuthLayout.tsx`, `Appearance.tsx`, `ErrorComponent.tsx`,
     `NotFound.tsx`.
+- `src/components/SectionLabel.tsx` — small uppercase muted section/panel label for the **Mantine
+  scientific area** (`size="xs" c="dimmed" tt="uppercase"`, `fw` defaults to 600, optional
+  `mb`/`mt`). Used across Organization/Processes/Experiments/Results/Trash and the PDF/collection
+  modals.
 - `src/components/Admin/`, `src/components/UserSettings/`, `src/components/Pending/` — area-specific
   components (user management, settings, pending lists).
 - `src/components/Sidebar/` — the shadcn `_layout` sidebar (`AppSidebar`, `Main`, `User`).
@@ -94,6 +98,10 @@ consumers) and that no existing component already covers it.
 
 - **Page header (shadcn area)**: use `PageHeader` with `title` and optional `description`
   (see `routes/_layout/admin.tsx` and `routes/_layout/settings.tsx`).
+- **Section/panel label (scientific area)**: use `SectionLabel` (optional `fw={700}`, `mb`, `mt`)
+  for the uppercase muted headings that introduce a section or panel (see
+  `routes/Experiments.page.tsx`, `routes/Processes.page.tsx`). Do not hand-roll
+  `Text size="xs" c="dimmed" tt="uppercase"` again.
 - **Forms (shadcn area)**: `react-hook-form` + `zod`, `components/ui/form.tsx` (Form/Field),
   `Input`, `Label`, `LoadingButton` for submitting state. See `components/Admin/AddUser.tsx`,
   `components/UserSettings/ChangePassword.tsx`.
@@ -144,6 +152,8 @@ consumers) and that no existing component already covers it.
 
 - Page header: `frontend/src/routes/_layout/admin.tsx`, `frontend/src/routes/_layout/settings.tsx`
   using `frontend/src/components/Common/PageHeader.tsx`.
+- Section label: `frontend/src/routes/Experiments.page.tsx`, `frontend/src/routes/Processes.page.tsx`,
+  `frontend/src/routes/Trash.page.tsx` using `frontend/src/components/SectionLabel.tsx`.
 - Theme provider + toggle: `frontend/src/components/theme-provider.tsx`,
   `frontend/src/components/Common/Appearance.tsx`.
 - Sonner theme wiring: `frontend/src/components/ui/sonner.tsx`.

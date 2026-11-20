@@ -53,6 +53,7 @@ import {
   summariseQuenchingValue,
 } from "@/components/QuenchingModal"
 import type { CollectionConfirmParams } from "@/components/SelectCollectionModal"
+import { SectionLabel } from "@/components/SectionLabel"
 import { autoResolveCollection } from "@/lib/autoResolveCollection"
 import { exportProcessProtocolAsPdf } from "@/lib/processExport"
 import type { StackDivergence } from "@/lib/stackDivergence"
@@ -1206,9 +1207,7 @@ function MaterialParamsPanel({
 
   return (
     <Stack gap="xs">
-      <Text size="xs" fw={700} c="dimmed" tt="uppercase">
-        Material Parameters
-      </Text>
+      <SectionLabel fw={700}>Material Parameters</SectionLabel>
       <Box p="xs" style={boxStyle}>
         <Stack gap="sm">
           {/* Current selection */}
@@ -5899,9 +5898,7 @@ export function ProcessesPage() {
           <>
             {selectedStepParameterSections.deposition.length > 0 && (
               <Stack gap="xs">
-                <Text size="xs" fw={700} c="dimmed" tt="uppercase">
-                  Deposition Parameters
-                </Text>
+                <SectionLabel fw={700}>Deposition Parameters</SectionLabel>
                 <SimpleGrid cols={2} spacing="md" verticalSpacing="sm">
                   {selectedStepParameterSections.deposition.map((key) => {
                     const definition = PROCESS_DETAIL_DEFINITIONS.get(key)
@@ -5961,9 +5958,7 @@ export function ProcessesPage() {
 
             {selectedStepParameterSections.annealing.length > 0 && (
               <Stack gap="xs">
-                <Text size="xs" fw={700} c="dimmed" tt="uppercase">
-                  Annealing Parameters
-                </Text>
+                <SectionLabel fw={700}>Annealing Parameters</SectionLabel>
                 <SimpleGrid cols={2} spacing="md" verticalSpacing="sm">
                   {selectedStepParameterSections.annealing.map((key) => {
                     const definition = PROCESS_DETAIL_DEFINITIONS.get(key)
@@ -6104,16 +6099,13 @@ export function ProcessesPage() {
                   const sections: React.ReactNode[] = []
                   for (const [planeId, { planeName, items }] of groups) {
                     sections.push(
-                      <Text
+                      <SectionLabel
                         key={`plane-header-${planeId}`}
-                        size="xs"
                         fw={700}
-                        c="dimmed"
-                        tt="uppercase"
                         mt="xs"
                       >
                         {planeName}
-                      </Text>,
+                      </SectionLabel>,
                     )
                     sections.push(
                       ...items.map((process) => {
@@ -6212,16 +6204,9 @@ export function ProcessesPage() {
                   }
                   if (orphans.length > 0) {
                     sections.push(
-                      <Text
-                        key="plane-header-orphan"
-                        size="xs"
-                        fw={700}
-                        c="dimmed"
-                        tt="uppercase"
-                        mt="xs"
-                      >
+                      <SectionLabel key="plane-header-orphan" fw={700} mt="xs">
                         Unassigned
-                      </Text>,
+                      </SectionLabel>,
                     )
                     sections.push(
                       ...orphans.map((process) => {

@@ -33,6 +33,7 @@ import {
 } from "@tabler/icons-react"
 import { useMemo, useState } from "react"
 import { useRevealForFlow } from "@/lib/entityReveal"
+import { SectionLabel } from "./SectionLabel"
 import {
   applyEditsToEntities,
   copyExperimentWithNewIds,
@@ -321,9 +322,7 @@ export function PdfDigestView() {
       {/* Multi-doc selection: when several PDFs were dropped, choose between them. */}
       {digests.length > 1 && (
         <Stack gap={4}>
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase">
-            {digests.length} documents to digest
-          </Text>
+          <SectionLabel>{digests.length} documents to digest</SectionLabel>
           <Stack gap={4}>
             {digests.map((doc) => {
               const active = doc.id === activeDoc.id
@@ -430,9 +429,7 @@ export function PdfDigestView() {
 
           {result.edits.length > 0 && (
             <Stack gap={2}>
-              <Text size="xs" fw={600} c="dimmed" tt="uppercase">
-                Changed values ({result.edits.length})
-              </Text>
+              <SectionLabel>Changed values ({result.edits.length})</SectionLabel>
               {result.edits.map((edit) => (
                 <Group key={edit.name} gap={6} wrap="nowrap">
                   <Text size="xs" fw={500} style={{ minWidth: 140 }}>

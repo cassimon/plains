@@ -11,6 +11,7 @@ import {
 import { IconFolderPlus, IconPlus } from "@tabler/icons-react"
 import { useEffect, useState } from "react"
 import useAuth from "../hooks/useAuth"
+import { SectionLabel } from "./SectionLabel"
 import {
   type CanvasCollectionElement,
   type CanvasElement,
@@ -325,9 +326,7 @@ export function SelectCollectionModal({
           {/* Show context: which plane */}
           {(chosenPlane || createNewPlane) && (
             <Box>
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                Plane
-              </Text>
+              <SectionLabel>Plane</SectionLabel>
               <Text size="sm" fw={500}>
                 {createNewPlane
                   ? newPlaneName || "New Plane"

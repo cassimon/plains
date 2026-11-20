@@ -71,6 +71,7 @@ import {
 } from "@/lib/uploadFlow"
 import { useStartOrAddUpload } from "@/lib/useStartOrAddUpload"
 import type { CollectionConfirmParams } from "../components/SelectCollectionModal"
+import { SectionLabel } from "@/components/SectionLabel"
 import {
   type CanvasCollectionElement,
   type Experiment,
@@ -239,9 +240,7 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
   return (
     <Paper withBorder p="sm" radius="md" mb="md">
       <Group justify="space-between" align="center">
-        <Text size="xs" fw={600} c="dimmed" tt="uppercase">
-          Substrate settings
-        </Text>
+        <SectionLabel>Substrate settings</SectionLabel>
         <Button
           size="compact-xs"
           variant="subtle"
@@ -297,9 +296,9 @@ const SubstrateNameGenerator = React.memo(function SubstrateNameGenerator({
 
           <Divider my="sm" />
 
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb="xs">
+          <SectionLabel mb="xs">
             Default Values For Next Added Samples
-          </Text>
+          </SectionLabel>
           <Group gap="sm" align="flex-end" wrap="wrap">
             {process.stages.map((stage, idx) => (
               <Select
@@ -2579,9 +2578,9 @@ function SummaryTab({
 
         <Stack gap="md">
           <Box>
-            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">
+            <SectionLabel fw={700} mb="xs">
               Chemicals
-            </Text>
+            </SectionLabel>
             {materials.length === 0 ? (
               <Text size="sm" c="dimmed">
                 None
@@ -2614,9 +2613,9 @@ function SummaryTab({
           </Box>
 
           <Box>
-            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">
+            <SectionLabel fw={700} mb="xs">
               Solutions
-            </Text>
+            </SectionLabel>
             {solutions.length === 0 ? (
               <Text size="sm" c="dimmed">
                 None
@@ -3367,16 +3366,14 @@ export default function ExperimentsPage() {
             New Experiment
           </Button>
 
-          <Text size="xs" fw={600} c="dimmed" tt="uppercase">
-            Experiments ({experiments.length})
-          </Text>
+          <SectionLabel>Experiments ({experiments.length})</SectionLabel>
 
           <Stack gap="xs">
             {groupedExperiments.map((group) => (
               <React.Fragment key={`process-group-${group.processId}`}>
-                <Text size="xs" fw={700} c="dimmed" tt="uppercase" mt="xs">
+                <SectionLabel fw={700} mt="xs">
                   {group.processName}
-                </Text>
+                </SectionLabel>
                 {group.items.map((exp) => {
                   const isComplete = expAllStepsDoneMap.get(exp.id) ?? false
                   const isSelected = exp.id === selectedExpId
@@ -3550,9 +3547,7 @@ export default function ExperimentsPage() {
                         "light-dark(var(--mantine-color-blue-0), var(--mantine-color-dark-5))",
                     }}
                   >
-                    <Text size="xs" fw={600} c="dimmed" tt="uppercase" mb={4}>
-                      Recipe / Process
-                    </Text>
+                    <SectionLabel mb={4}>Recipe / Process</SectionLabel>
                     <Group gap="xs">
                       <Badge color="blue" variant="filled" size="lg">
                         {selectedProcess.name}
