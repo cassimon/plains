@@ -16,6 +16,7 @@ from app.api.routes import (
     trash,
     users,
     utils,
+    zip_explorer,
 )
 from app.core.config import settings
 
@@ -34,6 +35,7 @@ api_router.include_router(plane_folders.router)
 api_router.include_router(state.router)
 api_router.include_router(trash.router)
 api_router.include_router(nomad.router)
+api_router.include_router(zip_explorer.router)
 
 
 if settings.ENVIRONMENT == "local":
