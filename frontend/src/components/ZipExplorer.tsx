@@ -7,10 +7,12 @@ import {
   Loader,
   Paper,
   ScrollArea,
+  SegmentedControl,
   Select,
   Stack,
   Table,
   Text,
+  TextInput,
 } from "@mantine/core"
 import { notifications } from "@mantine/notifications"
 import { IconAlertTriangle, IconFileZip } from "@tabler/icons-react"
@@ -57,6 +59,8 @@ type ImportResult = {
   warnings: string[]
   imported: number
   result_id: string | null
+  experiment_id: string | null
+  created_experiment: boolean
 }
 
 const TYPE_COLOR: Record<string, string> = {
@@ -92,7 +96,7 @@ function formatMetric(value: number | null): string {
  * "Confirm import" action and is performed server-side.
  */
 export function ZipExplorer() {
-  const { experiments, reloadFromBackend } = useAppContext()
+  const { experiments, reloadFromBackend, setActiveEntity } = useAppContext()
   const navigate = useNavigate()
   const selectedFileRef = useRef<File | null>(null)
   // Re-entry guard: a rapid double-click on Confirm must not fire two imports
@@ -104,6 +108,8 @@ export function ZipExplorer() {
   const [result, setResult] = useState<ZipInspection | null>(null)
 
   const [experimentId, setExperimentId] = useState<string | null>(null)
+  const [importMode, setImportMode] = useState<"new" | "existing">("new")
+  const [newName, setNewName] = useState("")
   const [importPreview, setImportPreview] = useState<ImportResult | null>(null)
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
@@ -159,7 +165,9 @@ export function ZipExplorer() {
 
   async function runImport(dryRun: boolean) {
     const file = selectedFileRef.current
-    if (!file || !experimentId || importingRef.current) return
+    const canSubmit =
+      importMode === "new" ? newName.trim().length > 0 : !!experimentId
+    if (!file || !canSubmit || importingRef.current) return
     importingRef.current = true
     setImporting(true)
     setImportError(null)
@@ -167,7 +175,11 @@ export function ZipExplorer() {
     try {
       const form = new FormData()
       form.append("file", file)
-      form.append("experiment_id", experimentId)
+      if (importMode === "new") {
+        form.append("experiment_name", newName.trim())
+      } else {
+        form.append("experiment_id", experimentId!)
+      }
       form.append("dry_run", dryRun ? "true" : "false")
       const { ok, status, data } = await postZip("import", form)
       if (!ok) {
@@ -191,6 +203,9 @@ export function ZipExplorer() {
         // so it never removes the just-imported result; load() then re-syncs
         // serverIds to include it.
         await reloadFromBackend()
+        if (parsed.experiment_id) {
+          setActiveEntity({ kind: "experiment", id: parsed.experiment_id })
+        }
       }
     } catch (err) {
       setImportError(err instanceof Error ? err.message : String(err))
@@ -293,49 +308,69 @@ export function ZipExplorer() {
           {hasImportable && (
             <Paper withBorder radius="md" p="md">
               <Stack gap="sm">
-                <Text fw={600}>Import into an experiment</Text>
+                <Text fw={600}>Import measurements</Text>
                 <Text size="sm" c="dimmed">
-                  This archive contains a supported JV Summary. Choose an
-                  existing experiment to import the measurements into.
+                  This archive contains a supported JV Summary. Import it into a
+                  new experiment (no process needed) or an existing one.
                 </Text>
 
-                <Select
-                  label="Destination experiment"
-                  placeholder="Select an experiment"
-                  data={experimentOptions}
-                  value={experimentId}
-                  onChange={(v) => setExperimentId(v)}
-                  searchable
-                  clearable={false}
-                  disabled={experimentOptions.length === 0}
+                <SegmentedControl
+                  value={importMode}
+                  onChange={(v) => setImportMode(v as "new" | "existing")}
+                  data={[
+                    { label: "New experiment", value: "new" },
+                    { label: "Existing experiment", value: "existing" },
+                  ]}
+                  fullWidth
                 />
-                {experimentOptions.length === 0 && (
-                  <Stack gap={4}>
-                    <Text size="xs" c="dimmed">
-                      No experiments available yet. Create a process and spawn
-                      an experiment from it, then come back to import.
-                    </Text>
-                    <Button
-                      variant="subtle"
-                      size="compact-sm"
-                      onClick={() => navigate({ to: "/processes" })}
-                    >
-                      Open Processes to create an experiment
-                    </Button>
-                  </Stack>
+
+                {importMode === "new" ? (
+                  <TextInput
+                    label="Experiment name"
+                    placeholder="e.g. Imported 2026-07-15"
+                    value={newName}
+                    onChange={(e) => setNewName(e.currentTarget.value)}
+                  />
+                ) : (
+                  <>
+                    <Select
+                      label="Destination experiment"
+                      placeholder="Select an experiment"
+                      data={experimentOptions}
+                      value={experimentId}
+                      onChange={(v) => setExperimentId(v)}
+                      searchable
+                      clearable={false}
+                      disabled={experimentOptions.length === 0}
+                    />
+                    {experimentOptions.length === 0 && (
+                      <Text size="xs" c="dimmed">
+                        No experiments yet. Switch to "New experiment" to create
+                        one from this import.
+                      </Text>
+                    )}
+                  </>
                 )}
 
                 <Group gap="sm">
                   <Button
                     variant="light"
                     onClick={() => runImport(true)}
-                    disabled={!experimentId || importing}
+                    disabled={
+                      (importMode === "new"
+                        ? !newName.trim()
+                        : !experimentId) || importing
+                    }
                   >
                     Preview import
                   </Button>
                   <Button
                     onClick={() => runImport(false)}
-                    disabled={!experimentId || importing}
+                    disabled={
+                      (importMode === "new"
+                        ? !newName.trim()
+                        : !experimentId) || importing
+                    }
                     loading={importing}
                   >
                     Confirm import

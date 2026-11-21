@@ -102,3 +102,35 @@ class TestZipImport:
             client, normal_user_token_headers, make_zip(), "not-a-uuid"
         )
         assert r.status_code == 400
+
+    def test_import_creates_new_experiment_without_process(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        # Data-first path: no pre-existing experiment/process is required.
+        r = client.post(
+            f"{BASE}/import",
+            files={"file": ("archive.zip", make_zip(), "application/zip")},
+            data={"experiment_name": "Imported data", "dry_run": "false"},
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["created_experiment"] is True
+        assert body["experiment_id"]
+        assert body["imported"] == 2
+
+        # The experiment exists, is owned by the caller, and has no process.
+        g = client.get(
+            f"{EXP_BASE}/{body['experiment_id']}", headers=normal_user_token_headers
+        )
+        assert g.status_code == 200
+        exp = g.json()
+        assert exp["name"] == "Imported data"
+        assert exp["process_id"] is None
+
+        # Imported results are retrievable.
+        res = client.get(
+            f"{RESULTS}/{body['result_id']}", headers=normal_user_token_headers
+        )
+        assert res.status_code == 200
+        assert len(res.json()["measurement_files"]) == 2

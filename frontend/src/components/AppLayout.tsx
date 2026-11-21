@@ -18,6 +18,7 @@ import { modals } from "@mantine/modals"
 import {
   IconChevronDown,
   IconCloudUpload,
+  IconHelp,
   IconLogout,
   IconMoon,
   IconSettings,
@@ -26,7 +27,8 @@ import {
   IconTrash as TrashIcon,
 } from "@tabler/icons-react"
 import { Outlet, useLocation, useNavigate } from "@tanstack/react-router"
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { HelpModal } from "./HelpModal"
 import useAuth from "@/hooks/useAuth"
 import {
   type CanvasCollectionElement,
@@ -51,6 +53,7 @@ const pages = [
 export function AppLayout() {
   const navigate = useNavigate()
   const location = useLocation()
+  const [helpOpen, setHelpOpen] = useState(false)
   const { colorScheme, toggleColorScheme } = useMantineColorScheme()
   const {
     planes,
@@ -424,6 +427,12 @@ export function AppLayout() {
               <Menu.Dropdown>
                 <Menu.Label>{user?.email}</Menu.Label>
                 <Menu.Item
+                  leftSection={<IconHelp size={14} />}
+                  onClick={() => setHelpOpen(true)}
+                >
+                  Help
+                </Menu.Item>
+                <Menu.Item
                   leftSection={<IconSettings size={14} />}
                   onClick={() => navigate({ to: "/settings" })}
                 >
@@ -567,6 +576,8 @@ export function AppLayout() {
       <AppShell.Main>
         <Outlet />
       </AppShell.Main>
+
+      <HelpModal opened={helpOpen} onClose={() => setHelpOpen(false)} />
     </AppShell>
   )
 }

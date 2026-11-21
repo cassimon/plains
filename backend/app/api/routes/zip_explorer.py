@@ -16,8 +16,13 @@ from typing import Any
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.api.deps import CurrentUser, SessionDep
-from app.crud import create_experiment_results
-from app.models import Experiment, ExperimentResultsCreate, MeasurementFileCreate
+from app.crud import create_experiment, create_experiment_results
+from app.models import (
+    Experiment,
+    ExperimentCreate,
+    ExperimentResultsCreate,
+    MeasurementFileCreate,
+)
 from app.services.zip_explorer import (
     InvalidZipError,
     ResourceLimitError,
@@ -66,15 +71,17 @@ async def import_zip_archive(
     session: SessionDep,
     current_user: CurrentUser,
     file: UploadFile = File(...),
-    experiment_id: str = Form(...),
+    experiment_id: str | None = Form(None),
+    experiment_name: str | None = Form(None),
     dry_run: bool = Form(False),
 ) -> dict[str, Any]:
     """Parse supported ZIP measurements and, unless ``dry_run``, persist them.
 
-    The archive is validated server-side (reusing the Explorer's safety checks),
-    parsed, and — when ``dry_run=false`` — written as one new
-    ``ExperimentResults`` under the caller's chosen, owned experiment. Nothing
-    is written on inspection or on ``dry_run``.
+    The destination is either an existing owned experiment (``experiment_id``)
+    or a new, process-less experiment created from ``experiment_name`` (the
+    data-first path: imported measurements do not imply a known fabrication
+    process). The archive is validated server-side (reusing the Explorer's
+    safety checks) and parsed before any persistence.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="A file is required.")
@@ -98,22 +105,40 @@ async def import_zip_archive(
         "warnings": extracted["warnings"],
         "imported": 0,
         "result_id": None,
+        "experiment_id": None,
+        "created_experiment": False,
     }
 
     if not measurements or dry_run:
         return response
 
-    # Resolve and authorize the destination experiment (no IDOR via client ids).
-    try:
-        exp_id = uuid.UUID(experiment_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid experiment id.") from None
-
-    experiment = session.get(Experiment, exp_id)
-    if not experiment:
-        raise HTTPException(status_code=404, detail="Experiment not found")
-    if not current_user.is_superuser and experiment.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not enough permissions")
+    new_name = (experiment_name or "").strip()
+    if new_name:
+        # Data-first import: a new experiment with no linked process. The
+        # measurement is not evidence of a known preparation protocol, so no
+        # fictional process is created.
+        experiment = create_experiment(
+            session=session,
+            experiment_in=ExperimentCreate(name=new_name),
+            owner_id=current_user.id,
+        )
+        exp_id = experiment.id
+        response["created_experiment"] = True
+    else:
+        # Resolve and authorize the existing destination (no IDOR via client ids).
+        if not experiment_id:
+            raise HTTPException(
+                status_code=400, detail="An experiment id or a new experiment name is required."
+            )
+        try:
+            exp_id = uuid.UUID(experiment_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid experiment id.") from None
+        existing = session.get(Experiment, exp_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+        if not current_user.is_superuser and existing.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not enough permissions")
 
     files_in = [
         MeasurementFileCreate(
@@ -141,4 +166,5 @@ async def import_zip_archive(
 
     response["imported"] = len(files_in)
     response["result_id"] = str(result.id)
+    response["experiment_id"] = str(exp_id)
     return response
