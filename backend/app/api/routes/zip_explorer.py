@@ -18,10 +18,13 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from app.api.deps import CurrentUser, SessionDep
 from app.crud import create_experiment, create_experiment_results
 from app.models import (
+    DeviceGroupCreate,
     Experiment,
     ExperimentCreate,
     ExperimentResultsCreate,
     MeasurementFileCreate,
+    Plane,
+    Process,
 )
 from app.services.zip_explorer import (
     InvalidZipError,
@@ -34,6 +37,13 @@ from app.services.zip_import import extract_importable_measurements
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/zip-explorer", tags=["zip-explorer"])
+
+
+def _can_access_plane(plane: Plane, user: Any) -> bool:
+    """True when the user owns the plane, is a superuser, or the plane is shared."""
+    if user.is_superuser or plane.owner_id == user.id:
+        return True
+    return any(share.user_id == user.id for share in plane.shared_with)
 
 
 @router.post("/inspect")
@@ -73,15 +83,18 @@ async def import_zip_archive(
     file: UploadFile = File(...),
     experiment_id: str | None = Form(None),
     experiment_name: str | None = Form(None),
+    plane_id: str | None = Form(None),
+    process_id: str | None = Form(None),
     dry_run: bool = Form(False),
 ) -> dict[str, Any]:
     """Parse supported ZIP measurements and, unless ``dry_run``, persist them.
 
     The destination is either an existing owned experiment (``experiment_id``)
-    or a new, process-less experiment created from ``experiment_name`` (the
-    data-first path: imported measurements do not imply a known fabrication
-    process). The archive is validated server-side (reusing the Explorer's
-    safety checks) and parsed before any persistence.
+    or a new experiment created from ``experiment_name`` (the data-first path: a
+    new experiment may be created without a process; ``plane_id`` and
+    ``process_id`` are optional and only honoured for a *new* experiment, after
+    ownership validation). The archive is validated server-side and parsed
+    before any persistence.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="A file is required.")
@@ -113,13 +126,43 @@ async def import_zip_archive(
         return response
 
     new_name = (experiment_name or "").strip()
+
+    # Optional organization, honoured only for a NEW experiment. Ownership is
+    # checked server-side; these are never applied to an existing experiment.
+    resolved_plane_id: uuid.UUID | None = None
+    resolved_process_id: uuid.UUID | None = None
+    if new_name and plane_id:
+        try:
+            resolved_plane_id = uuid.UUID(plane_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid plane id.") from None
+        plane = session.get(Plane, resolved_plane_id)
+        if not plane:
+            raise HTTPException(status_code=404, detail="Plane not found")
+        if not current_user.is_superuser and not _can_access_plane(plane, current_user):
+            raise HTTPException(status_code=403, detail="Not enough permissions")
+    if new_name and process_id:
+        try:
+            resolved_process_id = uuid.UUID(process_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid process id.") from None
+        proc = session.get(Process, resolved_process_id)
+        if not proc:
+            raise HTTPException(status_code=404, detail="Process not found")
+        if not current_user.is_superuser and proc.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not enough permissions")
+
     if new_name:
-        # Data-first import: a new experiment with no linked process. The
-        # measurement is not evidence of a known preparation protocol, so no
-        # fictional process is created.
+        # Data-first import: a new experiment. A process is linked only when the
+        # user explicitly selected one; otherwise the experiment stays
+        # process-less (no fictional process is created).
         experiment = create_experiment(
             session=session,
-            experiment_in=ExperimentCreate(name=new_name),
+            experiment_in=ExperimentCreate(
+                name=new_name,
+                plane_id=resolved_plane_id,
+                process_id=resolved_process_id,
+            ),
             owner_id=current_user.id,
         )
         exp_id = experiment.id
@@ -157,9 +200,23 @@ async def import_zip_archive(
         for m in measurements
     ]
 
+    # Conservative device grouping: one DeviceGroup per device name. A device
+    # measured forward and reverse yields two MeasurementFiles under the SAME
+    # group (they share device_name), which is the correct native grouping.
+    grouped_names: dict[str, list[str]] = {}
+    for f in files_in:
+        grouped_names.setdefault(f.device_name or f.filename, []).append(f.filename)
+    device_groups = [
+        DeviceGroupCreate(name=name) for name in sorted(grouped_names)
+    ]
+
     result = create_experiment_results(
         session=session,
-        results_in=ExperimentResultsCreate(measurement_files=files_in),
+        results_in=ExperimentResultsCreate(
+            measurement_files=files_in,
+            device_groups=device_groups,
+            plane_id=resolved_plane_id,
+        ),
         owner_id=current_user.id,
         experiment_id=exp_id,
     )

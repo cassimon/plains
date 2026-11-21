@@ -28,8 +28,9 @@ export function HelpModal({
           </Title>
           <List size="sm" withPadding>
             <List.Item>
-              <b>Import data first</b>: go to <b>Import</b>, choose a ZIP archive
-              and confirm. You do not need a process.
+              <b>Import data first</b>: go to <b>Import</b>, choose a ZIP archive,
+              optionally pick a Plane and a Process, and confirm. You do not
+              need a process.
             </List.Item>
             <List.Item>
               <b>Plan first</b>: create a <b>Process</b>, generate an{" "}

@@ -35,11 +35,14 @@ instrument), you can import them directly:
 2. Click **Choose ZIP archive** and pick your `.zip` file.
 3. Plains shows what it recognized and a preview of the files.
 4. Choose **New experiment** (type a name) or **Existing experiment**.
-5. Click **Preview import** to see the values, then **Confirm import**.
-6. Click **Open Results** to see the imported measurements.
+5. Optionally choose a **Plane** and a **Process** to organize the new
+   experiment (you can leave them unassigned).
+6. Click **Preview import** to see the values, then **Confirm import**.
+7. Click **Open Results** to see the imported measurements.
 
 You do **not** need to create a Process first. Imported measurements are saved
-under a new experiment with no fabrication process.
+under a new experiment with no fabrication process unless you choose one.
+Measurements are grouped per device (one group per measurement file).
 
 ## 4. What Organization, Process, Experiment and Results mean
 

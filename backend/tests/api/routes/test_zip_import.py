@@ -10,6 +10,8 @@ from app.core.config import settings
 BASE = f"{settings.API_V1_STR}/zip-explorer"
 RESULTS = f"{settings.API_V1_STR}/results"
 EXP_BASE = f"{settings.API_V1_STR}/experiments"
+PLANES = f"{settings.API_V1_STR}/planes"
+PROCESSES = f"{settings.API_V1_STR}/processes"
 
 SUMMARY = (
     "File\tVoc (V)\tJsc (mA/cm2)\tVMPP (V)\tJMPP (mA/cm2)\tPMPP (mW/cm2)"
@@ -134,3 +136,42 @@ class TestZipImport:
         )
         assert res.status_code == 200
         assert len(res.json()["measurement_files"]) == 2
+
+    def test_import_organizes_new_experiment(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        plane = client.post(
+            f"{PLANES}/", json={"name": "Import plane"}, headers=normal_user_token_headers
+        ).json()
+        proc = client.post(
+            f"{PROCESSES}/", json={"name": "Import process"}, headers=normal_user_token_headers
+        ).json()
+
+        r = client.post(
+            f"{BASE}/import",
+            files={"file": ("archive.zip", make_zip(), "application/zip")},
+            data={
+                "experiment_name": "Organized import",
+                "plane_id": plane["id"],
+                "process_id": proc["id"],
+                "dry_run": "false",
+            },
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["created_experiment"] is True
+
+        # The experiment is linked to the selected plane and process.
+        exp = client.get(
+            f"{EXP_BASE}/{body['experiment_id']}", headers=normal_user_token_headers
+        ).json()
+        assert exp["plane_id"] == plane["id"]
+        assert exp["process_id"] == proc["id"]
+
+        # Measurements are grouped into device groups (one per filename).
+        res = client.get(
+            f"{RESULTS}/{body['result_id']}", headers=normal_user_token_headers
+        ).json()
+        assert len(res["measurement_files"]) == 2
+        assert len(res["device_groups"]) == 2

@@ -96,7 +96,8 @@ function formatMetric(value: number | null): string {
  * "Confirm import" action and is performed server-side.
  */
 export function ZipExplorer() {
-  const { experiments, reloadFromBackend, setActiveEntity } = useAppContext()
+  const { experiments, planes, processes, reloadFromBackend, setActiveEntity } =
+    useAppContext()
   const navigate = useNavigate()
   const selectedFileRef = useRef<File | null>(null)
   // Re-entry guard: a rapid double-click on Confirm must not fire two imports
@@ -110,6 +111,8 @@ export function ZipExplorer() {
   const [experimentId, setExperimentId] = useState<string | null>(null)
   const [importMode, setImportMode] = useState<"new" | "existing">("new")
   const [newName, setNewName] = useState("")
+  const [planeId, setPlaneId] = useState<string | null>(null)
+  const [processId, setProcessId] = useState<string | null>(null)
   const [importPreview, setImportPreview] = useState<ImportResult | null>(null)
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
@@ -177,6 +180,8 @@ export function ZipExplorer() {
       form.append("file", file)
       if (importMode === "new") {
         form.append("experiment_name", newName.trim())
+        if (planeId) form.append("plane_id", planeId)
+        if (processId) form.append("process_id", processId)
       } else {
         form.append("experiment_id", experimentId!)
       }
@@ -325,12 +330,32 @@ export function ZipExplorer() {
                 />
 
                 {importMode === "new" ? (
-                  <TextInput
-                    label="Experiment name"
-                    placeholder="e.g. Imported 2026-07-15"
-                    value={newName}
-                    onChange={(e) => setNewName(e.currentTarget.value)}
-                  />
+                  <>
+                    <TextInput
+                      label="Experiment name"
+                      placeholder="e.g. Imported 2026-07-15"
+                      value={newName}
+                      onChange={(e) => setNewName(e.currentTarget.value)}
+                    />
+                    <Select
+                      label="Plane (optional)"
+                      placeholder="Leave unassigned"
+                      data={planes.map((p) => ({ value: p.id, label: p.name }))}
+                      value={planeId}
+                      onChange={(v) => setPlaneId(v)}
+                      searchable
+                      clearable
+                    />
+                    <Select
+                      label="Process (optional)"
+                      placeholder="No process"
+                      data={processes.map((p) => ({ value: p.id, label: p.name }))}
+                      value={processId}
+                      onChange={(v) => setProcessId(v)}
+                      searchable
+                      clearable
+                    />
+                  </>
                 ) : (
                   <>
                     <Select
