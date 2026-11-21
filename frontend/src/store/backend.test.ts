@@ -114,6 +114,36 @@ describe("HttpBackend persistence", () => {
     expect(trashCalls().length).toBe(1)
   })
 
+  test("a save does not delete a result the client never loaded (ZIP import safety)", async () => {
+    const backend = new HttpBackend("http://test/api/v1")
+    // load() returns an empty snapshot, so serverIds.results is empty. The ZIP
+    // importer then creates a result server-side (R_NEW) that the client's
+    // snapshot never contains.
+    fetchHandler = (call) =>
+      call.url.includes("/state/bulk")
+        ? {
+            ok: true,
+            status: 200,
+            json: { processes: [], experiments: [], results: [], planes: [] },
+          }
+        : { ok: true, status: 200, json: {} }
+
+    await backend.load()
+
+    // Flushing the local snapshot must NOT soft-delete R_NEW: deleteRemoved only
+    // iterates ids captured by load()/save(), so an externally-created result is
+    // left untouched.
+    await backend.save(emptySnapshot())
+
+    const resultTrashCalls = fetchCalls.filter(
+      (c) =>
+        c.method === "POST" &&
+        c.url.includes("/trash/") &&
+        (c.body as { entity_type?: string } | undefined)?.entity_type === "result",
+    )
+    expect(resultTrashCalls.length).toBe(0)
+  })
+
   test("a failed save does not update the server ID bookkeeping", async () => {
     const backend = new HttpBackend("http://test/api/v1")
     fetchHandler = (call) =>
