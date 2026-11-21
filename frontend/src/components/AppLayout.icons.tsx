@@ -2,6 +2,7 @@ import {
   IconBox,
   IconChartBar,
   IconDownload,
+  IconFileImport,
   IconFlask,
   IconNotebook,
   IconPlayerPlay,
@@ -13,6 +14,7 @@ import {
 export const pageIcons = {
   "/materials": IconBox,
   "/solutions": IconFlask,
+  "/import": IconFileImport,
   "/processes": IconStack3,
   "/experiments": IconPlayerPlay,
   "/results": IconDownload,

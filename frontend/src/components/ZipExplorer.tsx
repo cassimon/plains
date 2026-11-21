@@ -310,9 +310,19 @@ export function ZipExplorer() {
                   disabled={experimentOptions.length === 0}
                 />
                 {experimentOptions.length === 0 && (
-                  <Text size="xs" c="dimmed">
-                    No experiments available. Create one first, then import.
-                  </Text>
+                  <Stack gap={4}>
+                    <Text size="xs" c="dimmed">
+                      No experiments available yet. Create a process and spawn
+                      an experiment from it, then come back to import.
+                    </Text>
+                    <Button
+                      variant="subtle"
+                      size="compact-sm"
+                      onClick={() => navigate({ to: "/processes" })}
+                    >
+                      Open Processes to create an experiment
+                    </Button>
+                  </Stack>
                 )}
 
                 <Group gap="sm">
