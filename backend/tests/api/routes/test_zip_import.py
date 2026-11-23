@@ -175,3 +175,35 @@ class TestZipImport:
         ).json()
         assert len(res["measurement_files"]) == 2
         assert len(res["device_groups"]) == 2
+
+    def test_import_places_new_experiment_in_collection(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        plane = client.post(
+            f"{PLANES}/", json={"name": "Canvas plane"}, headers=normal_user_token_headers
+        ).json()
+        col = client.post(
+            f"{PLANES}/{plane['id']}/collections",
+            json={"name": "Imported", "i": 0, "j": 0},
+            headers=normal_user_token_headers,
+        ).json()
+
+        r = client.post(
+            f"{BASE}/import",
+            files={"file": ("archive.zip", make_zip(), "application/zip")},
+            data={
+                "experiment_name": "Canvas import",
+                "collection_id": col["id"],
+                "dry_run": "false",
+            },
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+
+        # The experiment is placed on the collection's plane, in that collection.
+        exp = client.get(
+            f"{EXP_BASE}/{body['experiment_id']}", headers=normal_user_token_headers
+        ).json()
+        assert exp["collection_id"] == col["id"]
+        assert exp["plane_id"] == plane["id"]

@@ -18,6 +18,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from app.api.deps import CurrentUser, SessionDep
 from app.crud import create_experiment, create_experiment_results
 from app.models import (
+    DataCollection,
     DeviceGroupCreate,
     Experiment,
     ExperimentCreate,
@@ -84,6 +85,7 @@ async def import_zip_archive(
     experiment_id: str | None = Form(None),
     experiment_name: str | None = Form(None),
     plane_id: str | None = Form(None),
+    collection_id: str | None = Form(None),
     process_id: str | None = Form(None),
     dry_run: bool = Form(False),
 ) -> dict[str, Any]:
@@ -130,8 +132,25 @@ async def import_zip_archive(
     # Optional organization, honoured only for a NEW experiment. Ownership is
     # checked server-side; these are never applied to an existing experiment.
     resolved_plane_id: uuid.UUID | None = None
+    resolved_collection_id: uuid.UUID | None = None
     resolved_process_id: uuid.UUID | None = None
-    if new_name and plane_id:
+    if new_name and collection_id:
+        # A collection places the experiment on a plane's canvas; its plane
+        # takes precedence over any separate plane_id.
+        try:
+            resolved_collection_id = uuid.UUID(collection_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid collection id.") from None
+        collection = session.get(DataCollection, resolved_collection_id)
+        if not collection:
+            raise HTTPException(status_code=404, detail="Collection not found")
+        plane = session.get(Plane, collection.plane_id)
+        if not plane or (
+            not current_user.is_superuser and not _can_access_plane(plane, current_user)
+        ):
+            raise HTTPException(status_code=403, detail="Not enough permissions")
+        resolved_plane_id = collection.plane_id
+    elif new_name and plane_id:
         try:
             resolved_plane_id = uuid.UUID(plane_id)
         except ValueError:
@@ -161,6 +180,7 @@ async def import_zip_archive(
             experiment_in=ExperimentCreate(
                 name=new_name,
                 plane_id=resolved_plane_id,
+                collection_id=resolved_collection_id,
                 process_id=resolved_process_id,
             ),
             owner_id=current_user.id,
@@ -216,6 +236,7 @@ async def import_zip_archive(
             measurement_files=files_in,
             device_groups=device_groups,
             plane_id=resolved_plane_id,
+            collection_id=resolved_collection_id,
         ),
         owner_id=current_user.id,
         experiment_id=exp_id,

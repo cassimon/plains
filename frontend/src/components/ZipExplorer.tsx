@@ -112,6 +112,7 @@ export function ZipExplorer() {
   const [importMode, setImportMode] = useState<"new" | "existing">("new")
   const [newName, setNewName] = useState("")
   const [planeId, setPlaneId] = useState<string | null>(null)
+  const [collectionId, setCollectionId] = useState<string | null>(null)
   const [processId, setProcessId] = useState<string | null>(null)
   const [importPreview, setImportPreview] = useState<ImportResult | null>(null)
   const [importing, setImporting] = useState(false)
@@ -180,6 +181,7 @@ export function ZipExplorer() {
       form.append("file", file)
       if (importMode === "new") {
         form.append("experiment_name", newName.trim())
+        if (collectionId) form.append("collection_id", collectionId)
         if (planeId) form.append("plane_id", planeId)
         if (processId) form.append("process_id", processId)
       } else {
@@ -224,6 +226,16 @@ export function ZipExplorer() {
     value: e.id,
     label: e.name || e.id,
   }))
+
+  // Collections across planes (for canvas placement); label includes the plane.
+  const collectionOptions = planes.flatMap((plane) =>
+    plane.elements
+      .filter((el) => el.type === "collection")
+      .map((el) => ({
+        value: el.id,
+        label: `${plane.name} / ${el.name}`,
+      })),
+  )
 
   return (
     <Stack gap="md">
@@ -343,6 +355,15 @@ export function ZipExplorer() {
                       data={planes.map((p) => ({ value: p.id, label: p.name }))}
                       value={planeId}
                       onChange={(v) => setPlaneId(v)}
+                      searchable
+                      clearable
+                    />
+                    <Select
+                      label="Collection (optional)"
+                      placeholder="Not placed on a collection"
+                      data={collectionOptions}
+                      value={collectionId}
+                      onChange={(v) => setCollectionId(v)}
                       searchable
                       clearable
                     />
