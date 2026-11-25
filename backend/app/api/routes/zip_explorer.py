@@ -119,20 +119,34 @@ async def import_zip_archive(
     except ResourceLimitError as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from exc
 
-    measurements = extracted["measurements"]
+    inventory = extracted["measurements"]
 
-    # Acquisition-block and summary-coverage selection, enforced server-side.
+    # Validate selection inputs (never silently coerce).
     sel_mode = (selection_mode or "").strip()
+    if sel_mode not in ("", "summary", "all"):
+        raise HTTPException(
+            status_code=400, detail="Unsupported selection_mode."
+        )
     sel_batches: list[str] | None = None
-    if selected_batches:
+    if selected_batches is not None and selected_batches != "":
         try:
             parsed_batches = json.loads(selected_batches)
         except json.JSONDecodeError:
             raise HTTPException(
                 status_code=400, detail="Invalid selected_batches JSON."
             ) from None
-        if isinstance(parsed_batches, list):
-            sel_batches = [str(b) for b in parsed_batches]
+        if not isinstance(parsed_batches, list):
+            raise HTTPException(
+                status_code=400, detail="selected_batches must be a JSON list."
+            )
+        sel_batches = [str(b) for b in parsed_batches]
+        known_batches = {m["batch"] for m in inventory}
+        unknown = [b for b in sel_batches if b not in known_batches]
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown acquisition batch: {unknown[0]}",
+            )
 
     def _selected(m: dict[str, Any]) -> bool:
         if sel_batches is not None and m["batch"] not in sel_batches:
@@ -141,7 +155,23 @@ async def import_zip_archive(
             return False
         return True
 
-    measurements = [m for m in measurements if _selected(m)]
+    response: dict[str, Any] = {
+        "dry_run": dry_run,
+        # Preview returns the FULL inventory; the actual import filters below.
+        "measurements": inventory,
+        "skipped": extracted["skipped"],
+        "warnings": extracted["warnings"],
+        "imported": 0,
+        "result_id": None,
+        "experiment_id": None,
+        "created_experiment": False,
+    }
+
+    if dry_run:
+        return response
+
+    # Server-side enforcement of the selection on the actual import.
+    measurements = [m for m in inventory if _selected(m)]
 
     # Optional user corrections: a JSON object mapping the original file name to
     # a corrected device name. Original filenames are always preserved in
@@ -159,18 +189,7 @@ async def import_zip_archive(
                 if str(v).strip()
             }
 
-    response: dict[str, Any] = {
-        "dry_run": dry_run,
-        "measurements": measurements,
-        "skipped": extracted["skipped"],
-        "warnings": extracted["warnings"],
-        "imported": 0,
-        "result_id": None,
-        "experiment_id": None,
-        "created_experiment": False,
-    }
-
-    if not measurements or dry_run:
+    if not measurements:
         return response
 
     new_name = (experiment_name or "").strip()

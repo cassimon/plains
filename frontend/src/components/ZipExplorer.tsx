@@ -57,6 +57,8 @@ type ImportMeasurement = {
   in_summary: boolean
   cell: string
   pixel: string
+  substrate_group: string
+  date?: string
 }
 
 type ImportResult = {
@@ -137,6 +139,10 @@ export function ZipExplorer() {
   const [substrateAssignments, setSubstrateAssignments] = useState<
     Record<string, string>
   >({})
+  const [expandedDevice, setExpandedDevice] = useState<string | null>(null)
+  const [previewedFingerprint, setPreviewedFingerprint] = useState<string | null>(
+    null,
+  )
   const [importPreview, setImportPreview] = useState<ImportResult | null>(null)
   const [selectionMode, setSelectionMode] = useState<"summary" | "all">("summary")
   const [selectedBatches, setSelectedBatches] = useState<Set<string>>(new Set())
@@ -233,9 +239,7 @@ export function ZipExplorer() {
       if (substrateList.length > 0) {
         form.append("substrate_assignments", JSON.stringify(substrateList))
       }
-      if (selectedBatches.size > 0) {
-        form.append("selected_batches", JSON.stringify([...selectedBatches]))
-      }
+      form.append("selected_batches", JSON.stringify([...selectedBatches]))
       form.append("selection_mode", selectionMode)
       form.append("dry_run", dryRun ? "true" : "false")
       const { ok, status, data } = await postZip("import", form)
@@ -247,6 +251,12 @@ export function ZipExplorer() {
       const parsed = data as ImportResult
       setImportPreview(parsed)
       if (dryRun) {
+        setPreviewedFingerprint(selectionFingerprint)
+        // Initialise the batch selection to every discovered batch (explicit).
+        const allBatches = new Set(
+          parsed.measurements.map((m) => m.batch || "(no batch)"),
+        )
+        setSelectedBatches(allBatches)
         // Initialise editable device names from the parsed measurements, but
         // preserve any manual corrections the user already made.
         setDeviceNames((prev) => {
@@ -254,6 +264,17 @@ export function ZipExplorer() {
           for (const m of parsed.measurements) {
             const key = m.device || m.filename || m.file
             if (!(key in next)) next[key] = key
+          }
+          return next
+        })
+        // Auto-propose substrate assignments from the parsed device identifiers.
+        setSubstrateAssignments((prev) => {
+          const next: Record<string, string> = { ...prev }
+          for (const m of parsed.measurements) {
+            const key = m.device || m.filename || m.file
+            if (importMode === "new" && m.substrate_group && !(key in next)) {
+              next[key] = m.substrate_group
+            }
           }
           return next
         })
@@ -271,7 +292,20 @@ export function ZipExplorer() {
         // reconciliation only touches result ids the client already knows about,
         // so it never removes the just-imported result; load() then re-syncs
         // serverIds to include it.
-        await reloadFromBackend()
+        const snapshot = await reloadFromBackend()
+        if (!snapshot) {
+          // Persistence succeeded on the server, but the client refresh was
+          // aborted (e.g. a pending local save failed). Report accurately so
+          // the user does not re-import the same archive.
+          notifications.show({
+            color: "yellow",
+            title: "Imported, but refresh failed",
+            message:
+              "The measurements were imported, but the app could not refresh. " +
+              "Reopen the app to see them.",
+          })
+          return
+        }
         if (parsed.experiment_id) {
           setActiveEntity({ kind: "experiment", id: parsed.experiment_id })
           // Make the Results page preselect this experiment (it reads
@@ -328,33 +362,56 @@ export function ZipExplorer() {
     }))
   })()
 
-  // Selection: batch (default all selected) + summary coverage.
-  const effectiveBatches = selectedBatches.size > 0
-    ? selectedBatches
-    : new Set(batchSummary.map((b) => b.batch))
+  // Selection: explicit batch list (empty = nothing selected) + summary coverage.
+  const selectionFingerprint = JSON.stringify({
+    mode: selectionMode,
+    batches: [...selectedBatches].sort(),
+    dest: importMode,
+    experimentId,
+    newName,
+    planeId,
+    collectionId,
+    processId,
+  })
 
   const filteredMeasurements = (importPreview?.measurements ?? []).filter(
     (m) =>
-      effectiveBatches.has(m.batch || "(no batch)") &&
+      selectedBatches.has(m.batch || "(no batch)") &&
       (selectionMode === "all" || m.in_summary),
   )
 
-  // Group the SELECTED measurements by device (one row per explicit Device
-  // identifier), with FW and RV scans side by side.
+  // Group the SELECTED measurements by device, then by acquisition (file), so
+  // every repeated acquisition is preserved and reviewable.
   const deviceRows = (() => {
-    const map = new Map<string, ImportMeasurement[]>()
+    const byDevice = new Map<string, Map<string, ImportMeasurement[]>>()
     for (const m of filteredMeasurements) {
-      const key = m.device || m.filename || m.file
-      const list = map.get(key) ?? []
+      const device = m.device || m.filename || m.file
+      const byFile = byDevice.get(device) ?? new Map<string, ImportMeasurement[]>()
+      const list = byFile.get(m.file) ?? []
       list.push(m)
-      map.set(key, list)
+      byFile.set(m.file, list)
+      byDevice.set(device, byFile)
     }
-    return [...map.entries()].map(([device, ms]) => ({
-      device,
-      fw: ms.find((m) => m.direction !== "RV"),
-      rv: ms.find((m) => m.direction === "RV"),
-      acquisitions: ms.length,
-    }))
+    return [...byDevice.entries()].map(([device, byFile]) => {
+      const acquisitions = [...byFile.entries()].map(([file, ms]) => ({
+        file,
+        filename: ms[0].filename,
+        source: ms[0].source,
+        date: ms[0].date,
+        fw: ms.find((m) => m.direction !== "RV"),
+        rv: ms.find((m) => m.direction === "RV"),
+        inSummary: ms.some((m) => m.in_summary),
+      }))
+      return {
+        device,
+        cell: (filteredMeasurements.find((m) => m.device === device)?.cell) ?? "",
+        pixel: (filteredMeasurements.find((m) => m.device === device)?.pixel) ?? "",
+        substrateGroup: (filteredMeasurements.find((m) => m.device === device)?.substrate_group) ?? "",
+        acquisitions,
+        fwCount: acquisitions.filter((a) => a.fw).length,
+        rvCount: acquisitions.filter((a) => a.rv).length,
+      }
+    })
   })()
 
   // Corrected device names that collide (two distinct original files assigned
@@ -369,6 +426,21 @@ export function ZipExplorer() {
     return [...counts.entries()]
       .filter(([, count]) => count > 1)
       .map(([name]) => name)
+  })()
+
+  // Device labels that appear in more than one acquisition batch — these are
+  // NOT merged silently; the user must review them.
+  const crossBatchDevices = (() => {
+    const deviceBatches = new Map<string, Set<string>>()
+    for (const m of filteredMeasurements) {
+      const device = m.device || m.filename || m.file
+      const set = deviceBatches.get(device) ?? new Set<string>()
+      set.add(m.batch || "(no batch)")
+      deviceBatches.set(device, set)
+    }
+    return [...deviceBatches.entries()]
+      .filter(([, batches]) => batches.size > 1)
+      .map(([device]) => device)
   })()
 
   return (
@@ -474,7 +546,7 @@ export function ZipExplorer() {
                         key={b.batch}
                         size="xs"
                         label={`${b.batch} — ${b.total} measurements, ${b.devices} devices`}
-                        checked={effectiveBatches.has(b.batch)}
+                        checked={selectedBatches.has(b.batch)}
                         onChange={(e) =>
                           setSelectedBatches((prev) => {
                             const next = new Set(prev)
@@ -588,6 +660,7 @@ export function ZipExplorer() {
                         ? !newName.trim()
                         : !experimentId) ||
                       !importPreview ||
+                      previewedFingerprint !== selectionFingerprint ||
                       importing
                     }
                     loading={importing}
@@ -676,80 +749,166 @@ export function ZipExplorer() {
                         into a single device group.
                       </Alert>
                     )}
-                    <ScrollArea.Autosize mah={300} type="auto">
-                      <Table striped verticalSpacing={5}>
-                        <Table.Thead>
-                          <Table.Tr>
-                            <Table.Th style={{ minWidth: 220 }}>Device</Table.Th>
-                            <Table.Th style={{ minWidth: 160 }}>
-                              Substrate
-                            </Table.Th>
-                            <Table.Th>FW Voc</Table.Th>
-                            <Table.Th>FW Jsc</Table.Th>
-                            <Table.Th>FW FF</Table.Th>
-                            <Table.Th>FW PCE</Table.Th>
-                            <Table.Th>RV Voc</Table.Th>
-                            <Table.Th>RV Jsc</Table.Th>
-                            <Table.Th>RV FF</Table.Th>
-                            <Table.Th>RV PCE</Table.Th>
-                          </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                          {deviceRows.map((d) => (
-                            <Table.Tr key={d.device}>
-                              <Table.Td>
-                                <TextInput
-                                  size="xs"
-                                  value={deviceNames[d.device] ?? d.device}
-                                  onChange={(e) =>
-                                    setDeviceNames((prev) => ({
-                                      ...prev,
-                                      [d.device]: e.currentTarget.value,
-                                    }))
-                                  }
-                                />
-                              </Table.Td>
-                              <Table.Td>
-                                {importMode === "new" ? (
+                    {crossBatchDevices.length > 0 && (
+                      <Alert
+                        color="orange"
+                        title="Same device label across batches"
+                        icon={<IconAlertTriangle size={16} />}
+                      >
+                        These device labels appear in more than one acquisition
+                        batch: {crossBatchDevices.join(", ")}. They are kept as
+                        separate acquisitions and are not merged automatically.
+                      </Alert>
+                    )}
+                    <ScrollArea.Autosize mah={400} type="auto">
+                      <Stack gap="xs">
+                        {deviceRows.map((d) => {
+                          const isExpanded = expandedDevice === d.device
+                          const rows: Array<{
+                            file: string
+                            filename: string
+                            source: string
+                            date?: string
+                            dir: "FW" | "RV"
+                            m: ImportMeasurement
+                            inSummary: boolean
+                          }> = []
+                          for (const a of d.acquisitions) {
+                            if (a.fw)
+                              rows.push({
+                                file: a.file,
+                                filename: a.filename,
+                                source: a.source,
+                                date: a.date,
+                                dir: "FW",
+                                m: a.fw,
+                                inSummary: a.fw.in_summary,
+                              })
+                            if (a.rv)
+                              rows.push({
+                                file: a.file,
+                                filename: a.filename,
+                                source: a.source,
+                                date: a.date,
+                                dir: "RV",
+                                m: a.rv,
+                                inSummary: a.rv.in_summary,
+                              })
+                          }
+                          return (
+                            <Paper key={d.device} withBorder radius="sm" p="xs">
+                              <Group justify="space-between" wrap="nowrap">
+                                <Group gap="xs" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
+                                  <Button
+                                    size="compact-xs"
+                                    variant="subtle"
+                                    onClick={() =>
+                                      setExpandedDevice(isExpanded ? null : d.device)
+                                    }
+                                  >
+                                    {isExpanded ? "▾" : "▸"}
+                                  </Button>
                                   <TextInput
                                     size="xs"
-                                    placeholder="Unassigned"
-                                    value={substrateAssignments[d.device] ?? ""}
+                                    style={{ width: 180 }}
+                                    value={deviceNames[d.device] ?? d.device}
                                     onChange={(e) =>
-                                      setSubstrateAssignments((prev) => ({
+                                      setDeviceNames((prev) => ({
                                         ...prev,
                                         [d.device]: e.currentTarget.value,
                                       }))
                                     }
                                   />
-                                ) : (
-                                  <Select
-                                    size="xs"
-                                    placeholder="Unassigned"
-                                    data={existingSubstrateOptions}
-                                    value={substrateAssignments[d.device] ?? null}
-                                    onChange={(v) =>
-                                      setSubstrateAssignments((prev) => ({
-                                        ...prev,
-                                        [d.device]: v ?? "",
-                                      }))
-                                    }
-                                    clearable
-                                  />
-                                )}
-                              </Table.Td>
-                              <Table.Td>{formatMetric(d.fw?.voc)}</Table.Td>
-                              <Table.Td>{formatMetric(d.fw?.jsc)}</Table.Td>
-                              <Table.Td>{formatMetric(d.fw?.ff)}</Table.Td>
-                              <Table.Td>{formatMetric(d.fw?.eff)}</Table.Td>
-                              <Table.Td>{formatMetric(d.rv?.voc)}</Table.Td>
-                              <Table.Td>{formatMetric(d.rv?.jsc)}</Table.Td>
-                              <Table.Td>{formatMetric(d.rv?.ff)}</Table.Td>
-                              <Table.Td>{formatMetric(d.rv?.eff)}</Table.Td>
-                            </Table.Tr>
-                          ))}
-                        </Table.Tbody>
-                      </Table>
+                                  <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
+                                    {d.cell}
+                                    {d.pixel ? `-${d.pixel}` : ""}
+                                  </Text>
+                                  {importMode === "new" ? (
+                                    <TextInput
+                                      size="xs"
+                                      style={{ width: 140 }}
+                                      placeholder="Substrate"
+                                      value={substrateAssignments[d.device] ?? ""}
+                                      onChange={(e) =>
+                                        setSubstrateAssignments((prev) => ({
+                                          ...prev,
+                                          [d.device]: e.currentTarget.value,
+                                        }))
+                                      }
+                                    />
+                                  ) : (
+                                    <Select
+                                      size="xs"
+                                      style={{ width: 140 }}
+                                      placeholder="Substrate"
+                                      data={existingSubstrateOptions}
+                                      value={substrateAssignments[d.device] ?? null}
+                                      onChange={(v) =>
+                                        setSubstrateAssignments((prev) => ({
+                                          ...prev,
+                                          [d.device]: v ?? "",
+                                        }))
+                                      }
+                                      clearable
+                                    />
+                                  )}
+                                  <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
+                                    {d.acquisitions.length} acq · {d.fwCount} FW ·{" "}
+                                    {d.rvCount} RV
+                                  </Text>
+                                </Group>
+                              </Group>
+
+                              {isExpanded && (
+                                <Table striped verticalSpacing={4} mt="xs">
+                                  <Table.Thead>
+                                    <Table.Tr>
+                                      <Table.Th>File</Table.Th>
+                                      <Table.Th>Source dir</Table.Th>
+                                      <Table.Th>Date</Table.Th>
+                                      <Table.Th>Dir</Table.Th>
+                                      <Table.Th>Voc</Table.Th>
+                                      <Table.Th>Jsc</Table.Th>
+                                      <Table.Th>FF</Table.Th>
+                                      <Table.Th>PCE</Table.Th>
+                                      <Table.Th>Summary</Table.Th>
+                                    </Table.Tr>
+                                  </Table.Thead>
+                                  <Table.Tbody>
+                                    {rows.map((a) => (
+                                      <Table.Tr key={`${a.file}-${a.dir}`}>
+                                        <Table.Td>
+                                          <Text size="xs" truncate>
+                                            {a.filename}
+                                          </Text>
+                                        </Table.Td>
+                                        <Table.Td>
+                                          <Text size="xs" c="dimmed" truncate>
+                                            {a.source.split("/").slice(0, -1).join("/")}
+                                          </Text>
+                                        </Table.Td>
+                                        <Table.Td>
+                                          <Text size="xs" c="dimmed">
+                                            {a.date ?? "—"}
+                                          </Text>
+                                        </Table.Td>
+                                        <Table.Td>{a.dir}</Table.Td>
+                                        <Table.Td>{formatMetric(a.m.voc)}</Table.Td>
+                                        <Table.Td>{formatMetric(a.m.jsc)}</Table.Td>
+                                        <Table.Td>{formatMetric(a.m.ff)}</Table.Td>
+                                        <Table.Td>{formatMetric(a.m.eff)}</Table.Td>
+                                        <Table.Td>
+                                          {a.inSummary ? "yes" : "no"}
+                                        </Table.Td>
+                                      </Table.Tr>
+                                    ))}
+                                  </Table.Tbody>
+                                </Table>
+                              )}
+                            </Paper>
+                          )
+                        })}
+                      </Stack>
                     </ScrollArea.Autosize>
                   </Stack>
                 )}

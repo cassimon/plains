@@ -312,6 +312,38 @@ class TestZipImport:
         assert r.status_code == 200, r.text
         assert r.json()["imported"] == 2  # batchA FW file has 2 rows
 
+    def test_import_rejects_unknown_batch(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        exp = create_experiment(client, normal_user_token_headers)
+        r = client.post(
+            f"{BASE}/import",
+            files={"file": ("archive.zip", make_zip(), "application/zip")},
+            data={
+                "experiment_id": exp["id"],
+                "selected_batches": json.dumps(["nonexistent"]),
+                "dry_run": "false",
+            },
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 400
+
+    def test_import_rejects_unsupported_selection_mode(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        exp = create_experiment(client, normal_user_token_headers)
+        r = client.post(
+            f"{BASE}/import",
+            files={"file": ("archive.zip", make_zip(), "application/zip")},
+            data={
+                "experiment_id": exp["id"],
+                "selection_mode": "bogus",
+                "dry_run": "false",
+            },
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 400
+
     def test_import_rejects_repeated_import_into_same_experiment(
         self, client: TestClient, normal_user_token_headers: dict[str, str]
     ) -> None:

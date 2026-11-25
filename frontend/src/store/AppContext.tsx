@@ -292,6 +292,8 @@ export type Process = {
   id: string
   name: string
   description?: string
+  /** Plane-only placement (plane without a collection). */
+  planeId?: string | null
   substrateIds: string[] // references to substrate Materials (legacy, kept for backward compat)
   substrateDimensionsById?: Record<string, ProcessSubstrateDimension>
   inlineSubstrates?: ProcessInlineSubstrate[] // substrates defined directly, no entity
@@ -509,6 +511,9 @@ export type Experiment = {
   deviceLayoutImage?: string // base64 encoded image (jpg/png)
   // Link to exactly one Process
   processId: string
+  // Plane-only placement (when the experiment is on a plane but not in a
+  // collection). Collection membership is tracked via collection refs.
+  planeId?: string | null
   // Substrates in the experiment
   substrates: Substrate[]
   // Absolute processing times keyed by process stage id
@@ -835,6 +840,8 @@ export type NomadUploadInfo = {
 export type ExperimentResults = {
   id: string
   experimentId: string
+  /** Plane-only placement (plane without a collection). */
+  planeId?: string | null
   /** All uploaded measurement files */
   files: MeasurementFile[]
   /** File groups by device name */

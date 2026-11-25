@@ -130,6 +130,7 @@ function processFromApi(p: ApiObj): Process {
     id: p.id,
     name: p.name,
     description: p.description ?? "",
+    planeId: p.plane_id ?? null,
     skipChemistry: !!p.skip_chemistry,
     substrateIds: dims.map((d: ApiObj) => d.material_id),
     substrateDimensionsById,
@@ -292,6 +293,7 @@ function experimentFromApi(e: ApiObj): Experiment {
     deviceType: (e.device_type as Experiment["deviceType"]) ?? "film",
     deviceLayoutImage: e.device_layout_image ?? undefined,
     processId: e.process_id ?? "",
+    planeId: e.plane_id ?? null,
     substrates: (e.substrates ?? []).map(substrateFromApi),
     processingTimes: e.processing_times ?? {},
     chemicalsPrep: e.chemicals_prep ?? undefined,
@@ -341,6 +343,7 @@ function resultsFromApi(r: ApiObj): ExperimentResults {
   return {
     id: r.id,
     experimentId: r.experiment_id,
+    planeId: r.plane_id ?? null,
     files,
     deviceGroups: (r.device_groups ?? []).map(
       (g: ApiObj): DeviceGroup => ({
@@ -474,7 +477,7 @@ export function processToApi(p: Process, place: Placement): ApiObj {
     name: p.name || "Untitled Process",
     description: p.description ?? null,
     skip_chemistry: !!p.skipChemistry,
-    plane_id: place.planeByEntity.get(p.id) ?? null,
+    plane_id: place.planeByEntity.get(p.id) ?? p.planeId ?? null,
     collection_id: place.collectionByEntity.get(p.id) ?? null,
   }
 }
@@ -618,7 +621,7 @@ export function experimentToApi(
     id: e.id,
     name: e.name || "Untitled Experiment",
     description: e.description ?? null,
-    plane_id: place.planeByEntity.get(e.id) ?? null,
+    plane_id: place.planeByEntity.get(e.id) ?? e.planeId ?? null,
     collection_id: place.collectionByEntity.get(e.id) ?? null,
     process_id:
       e.processId && knownProcessIds.has(e.processId) ? e.processId : null,
@@ -656,7 +659,7 @@ export function substratesToApi(e: Experiment): ApiObj[] {
 export function resultsToApi(r: ExperimentResults, place: Placement): ApiObj {
   return {
     id: r.id,
-    plane_id: place.planeByEntity.get(r.id) ?? null,
+    plane_id: place.planeByEntity.get(r.id) ?? r.planeId ?? null,
     collection_id: place.collectionByEntity.get(r.id) ?? null,
     grouping_strategy: r.groupingStrategy ?? null,
     matching_strategy: r.matchingStrategy ?? null,

@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test"
 
 import {
   bulkToSnapshot,
+  derivePlacement,
   deviceGroupsToApi,
+  experimentToApi,
   measurementFilesToApi,
 } from "./backendMapping"
-import type { ExperimentResults, MeasurementFile } from "./AppContext"
+import type { Experiment, ExperimentResults, MeasurementFile } from "./AppContext"
 
 function mf(overrides: Partial<MeasurementFile> = {}): MeasurementFile {
   return {
@@ -91,6 +93,56 @@ describe("bulkToSnapshot — DeviceGroup.files reconstruction", () => {
     // Provenance notes survive hydration.
     expect(r.files[0].notes).toContain("(FW)")
     expect(r.files[1].notes).toContain("(RV)")
+  })
+})
+
+describe("experimentToApi — plane-only placement round-trip", () => {
+  test("preserves planeId when there is no collection ref", () => {
+    const exp = {
+      id: "e1",
+      name: "Exp",
+      description: "",
+      date: "",
+      architecture: "n-i-p",
+      substrateMaterial: "",
+      substrateWidth: 0,
+      substrateLength: 0,
+      numSubstrates: 0,
+      devicesPerSubstrate: 0,
+      deviceArea: 0,
+      deviceType: "film",
+      processId: "",
+      planeId: "plane-1",
+      substrates: [],
+      hasResults: false,
+    } as unknown as Experiment
+    const place = derivePlacement([])
+    const api = experimentToApi(exp, place, new Set())
+    expect(api.plane_id).toBe("plane-1")
+    expect(api.collection_id).toBeNull()
+  })
+
+  test("writes null planeId for an unassigned experiment", () => {
+    const exp = {
+      id: "e2",
+      name: "Exp",
+      description: "",
+      date: "",
+      architecture: "n-i-p",
+      substrateMaterial: "",
+      substrateWidth: 0,
+      substrateLength: 0,
+      numSubstrates: 0,
+      devicesPerSubstrate: 0,
+      deviceArea: 0,
+      deviceType: "film",
+      processId: "",
+      planeId: null,
+      substrates: [],
+      hasResults: false,
+    } as unknown as Experiment
+    const api = experimentToApi(exp, derivePlacement([]), new Set())
+    expect(api.plane_id).toBeNull()
   })
 })
 
