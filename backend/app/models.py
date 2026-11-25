@@ -1148,6 +1148,11 @@ class MeasurementFileBase(SQLModel):
     illumination_intensity: float | None = None
     measurement_date: str | None = Field(default=None, max_length=100)
     measurement_user: str | None = Field(default=None, max_length=255)
+    # Persistent, stable group membership. Null = explicitly unassigned. The
+    # group must belong to the same ExperimentResults (validated on save).
+    device_group_id: uuid.UUID | None = Field(
+        default=None, foreign_key="devicegroup.id", ondelete="SET NULL"
+    )
 
 
 class MeasurementFileCreate(ClientIdCreate, MeasurementFileBase):
@@ -1161,6 +1166,9 @@ class MeasurementFile(MeasurementFileBase, table=True):
         foreign_key="experimentresults.id", nullable=False, ondelete="CASCADE"
     )
     results: Optional["ExperimentResults"] = Relationship(
+        back_populates="measurement_files"
+    )
+    device_group: Optional["DeviceGroup"] = Relationship(
         back_populates="measurement_files"
     )
 
@@ -1189,6 +1197,9 @@ class DeviceGroup(DeviceGroupBase, table=True):
     )
     results: Optional["ExperimentResults"] = Relationship(
         back_populates="device_groups"
+    )
+    measurement_files: list["MeasurementFile"] = Relationship(
+        back_populates="device_group"
     )
 
 

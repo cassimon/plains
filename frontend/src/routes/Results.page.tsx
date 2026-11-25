@@ -81,6 +81,7 @@ import {
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
+import { reconcileGroupIds } from "../store/resultLifecycle"
 
 // Reserved assignedSubstrateId values for special file categories
 const IGNORE_SUBSTRATE_ID = "__ignore__"
@@ -4254,6 +4255,7 @@ export function ResultsPage() {
     setResults,
     planes,
     updateElement,
+    setEntityPlaneId,
     removeCollectionRefs,
     pendingCollectionLink,
     setPendingCollectionLink,
@@ -4499,12 +4501,16 @@ export function ResultsPage() {
             ...collection,
             refs: nextRefs,
           })
+          if (nextResultId !== null) {
+            setEntityPlaneId("result", [nextResultId], plane.id)
+          }
         }
       }
     }
   }
 
   const updateResults = (updatedResults: ExperimentResults) => {
+    updatedResults = reconcileGroupIds(updatedResults)
     const hasFiles = updatedResults.files.length > 0
     const hasNomadUpload = !!updatedResults.nomad?.upload_id
     const shouldKeep = hasFiles || hasNomadUpload

@@ -337,11 +337,25 @@ async def import_zip_archive(
                         )
                     substrate_map[device] = sid
 
+    # Conservative device grouping: one DeviceGroup per device name. A device
+    # measured forward and reverse yields two MeasurementFiles under the SAME
+    # group (they share device_name), which is the correct native grouping.
+    #
+    # Group ids are generated up-front so every MeasurementFile references its
+    # DeviceGroup by stable id (persistent membership), never by display name.
+    def _group_key(m: dict) -> str:
+        return device_names_map.get(m["device"], m["device"]) or m["filename"]
+
+    group_id_by_key: dict[str, uuid.UUID] = {
+        key: uuid.uuid4() for key in sorted({_group_key(m) for m in measurements})
+    }
+
     files_in = [
         MeasurementFileCreate(
             filename=m["filename"],
             file_type="JV",
             device_name=device_names_map.get(m["device"], m["device"]),
+            device_group_id=group_id_by_key[_group_key(m)],
             cell=m["cell"],
             pixel_label=m["pixel"],
             voc=m["voc"],
@@ -360,18 +374,13 @@ async def import_zip_archive(
         for m in measurements
     ]
 
-    # Conservative device grouping: one DeviceGroup per device name. A device
-    # measured forward and reverse yields two MeasurementFiles under the SAME
-    # group (they share device_name), which is the correct native grouping.
-    grouped_names: dict[str, list[str]] = {}
-    for f in files_in:
-        grouped_names.setdefault(f.device_name or f.filename, []).append(f.filename)
     device_groups = [
         DeviceGroupCreate(
-            name=name,
-            assigned_substrate_id=substrate_map.get(name),
+            id=group_id_by_key[key],
+            name=key,
+            assigned_substrate_id=substrate_map.get(key),
         )
-        for name in sorted(grouped_names)
+        for key in sorted(group_id_by_key)
     ]
 
     result = create_experiment_results(

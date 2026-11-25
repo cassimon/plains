@@ -182,6 +182,28 @@ class TestZipImport:
         assert len(res["measurement_files"]) == 2
         assert len(res["device_groups"]) == 2
 
+    def test_import_assigns_measurements_to_groups_by_id(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        """Imported MeasurementFiles reference their DeviceGroup by explicit id
+        (persistent membership), not by display name."""
+        r = client.post(
+            f"{BASE}/import",
+            files={"file": ("archive.zip", make_zip(), "application/zip")},
+            data={"experiment_name": "Id import", "dry_run": "false"},
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 200, r.text
+        res = client.get(
+            f"{RESULTS}/{r.json()['result_id']}", headers=normal_user_token_headers
+        ).json()
+
+        group_id_by_name = {g["name"]: g["id"] for g in res["device_groups"]}
+        assert len(group_id_by_name) >= 1
+        for f in res["measurement_files"]:
+            assert f["device_group_id"] is not None
+            assert f["device_group_id"] == group_id_by_name[f["device_name"]]
+
     def test_import_places_new_experiment_in_collection(
         self, client: TestClient, normal_user_token_headers: dict[str, str]
     ) -> None:

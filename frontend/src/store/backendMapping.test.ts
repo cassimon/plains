@@ -36,6 +36,7 @@ describe("bulkToSnapshot — DeviceGroup.files reconstruction", () => {
               filename: "DEVICE-1.txt",
               file_type: "JV",
               device_name: "DEVICE-1",
+              device_group_id: "g1",
               voc: 1.1,
               jsc: 22.5,
               ff: 76.4,
@@ -47,6 +48,7 @@ describe("bulkToSnapshot — DeviceGroup.files reconstruction", () => {
               filename: "DEVICE-1.txt",
               file_type: "JV",
               device_name: "DEVICE-1",
+              device_group_id: "g1",
               voc: 1.08,
               jsc: 21.9,
               ff: 75.0,
@@ -58,6 +60,7 @@ describe("bulkToSnapshot — DeviceGroup.files reconstruction", () => {
               filename: "DEVICE-2.txt",
               file_type: "JV",
               device_name: "DEVICE-2",
+              device_group_id: "g2",
               voc: 1.05,
               jsc: 20.0,
               ff: 74.0,
@@ -93,6 +96,118 @@ describe("bulkToSnapshot — DeviceGroup.files reconstruction", () => {
     // Provenance notes survive hydration.
     expect(r.files[0].notes).toContain("(FW)")
     expect(r.files[1].notes).toContain("(RV)")
+  })
+})
+
+describe("results membership — serialize/reconstruct by stable id", () => {
+  function resultsFixture(): ExperimentResults {
+    return {
+      id: "r1",
+      experimentId: "e1",
+      planeId: null,
+      groupingStrategy: "import",
+      matchingStrategy: "manual",
+      updatedAt: "2026-01-01",
+      files: [
+        mf({ id: "f1", deviceName: "DEV", groupId: "g1" }),
+        mf({ id: "f2", deviceName: "DEV", groupId: "g1" }),
+      ],
+      deviceGroups: [
+        {
+          id: "g1",
+          deviceName: "DEV",
+          files: [],
+          assignedSubstrateId: null,
+        },
+      ],
+    } as unknown as ExperimentResults
+  }
+
+  test("serializes device_group_id and reconstructs membership by id", () => {
+    const r = resultsFixture()
+    const filesApi = measurementFilesToApi(r)
+    const groupsApi = deviceGroupsToApi(r)
+
+    expect(filesApi[0].device_group_id).toBe("g1")
+
+    const snapshot = bulkToSnapshot({
+      results: [
+        {
+          id: r.id,
+          experiment_id: r.experimentId,
+          plane_id: null,
+          grouping_strategy: "import",
+          matching_strategy: "manual",
+          created_at: "2026-01-01",
+          measurement_files: filesApi,
+          device_groups: groupsApi,
+        },
+      ],
+      experiments: [],
+      processes: [],
+      planes: [],
+    })
+
+    const out = snapshot.results[0]
+    expect(out.files.map((f) => f.groupId)).toEqual(["g1", "g1"])
+    expect(out.deviceGroups[0].files.map((f) => f.id)).toEqual(["f1", "f2"])
+  })
+
+  test("group rename does not change the device identifier", () => {
+    const r = resultsFixture()
+    const groupsApi = deviceGroupsToApi(r).map((g) => ({ ...g, name: "Renamed" }))
+    const filesApi = measurementFilesToApi(r)
+
+    const snapshot = bulkToSnapshot({
+      results: [
+        {
+          id: r.id,
+          experiment_id: r.experimentId,
+          plane_id: null,
+          grouping_strategy: "import",
+          matching_strategy: "manual",
+          created_at: "2026-01-01",
+          measurement_files: filesApi,
+          device_groups: groupsApi,
+        },
+      ],
+      experiments: [],
+      processes: [],
+      planes: [],
+    })
+
+    const out = snapshot.results[0]
+    expect(out.deviceGroups[0].deviceName).toBe("Renamed")
+    expect(out.files.every((f) => f.deviceName === "DEV")).toBe(true)
+    expect(out.deviceGroups[0].files.map((f) => f.id)).toEqual(["f1", "f2"])
+  })
+
+  test("unassigned measurement stays unassigned after reload", () => {
+    const r = resultsFixture()
+    const filesApi = measurementFilesToApi(r).map((f) => ({ ...f, device_group_id: null }))
+    const groupsApi = deviceGroupsToApi(r)
+
+    const snapshot = bulkToSnapshot({
+      results: [
+        {
+          id: r.id,
+          experiment_id: r.experimentId,
+          plane_id: null,
+          grouping_strategy: "import",
+          matching_strategy: "manual",
+          created_at: "2026-01-01",
+          measurement_files: filesApi,
+          device_groups: groupsApi,
+        },
+      ],
+      experiments: [],
+      processes: [],
+      planes: [],
+    })
+
+    const out = snapshot.results[0]
+    expect(out.files.map((f) => f.groupId)).toEqual([null, null])
+    expect(out.deviceGroups[0].files).toEqual([])
   })
 })
 

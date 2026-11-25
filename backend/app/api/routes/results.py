@@ -139,6 +139,13 @@ def replace_measurement_files(
 ) -> Any:
     """Replace all measurement files of a result (used by the snapshot sync)."""
     result = _owned_result(session, current_user, id)
+    valid_group_ids = {g.id for g in result.device_groups}
+    for f in body:
+        if f.device_group_id is not None and f.device_group_id not in valid_group_ids:
+            raise HTTPException(
+                status_code=409,
+                detail="Measurement references a device group outside this result",
+            )
     for f in list(result.measurement_files):
         session.delete(f)
     session.flush()
@@ -159,15 +166,34 @@ def replace_device_groups(
     id: uuid.UUID,
     body: list[DeviceGroupCreate],
 ) -> Any:
-    """Replace all device groups of a result (used by the snapshot sync)."""
+    """Replace all device groups of a result (used by the snapshot sync).
+
+    Upserts by id: existing groups are updated in place (preserving the
+    ``MeasurementFile.device_group_id`` references on unchanged groups), new
+    groups are created, and removed groups are deleted (their measurements
+    survive, becoming unassigned via ``ON DELETE SET NULL``).
+    """
     result = _owned_result(session, current_user, id)
+    existing = {g.id: g for g in result.device_groups}
+    incoming_ids = {g.id for g in body}
+
     for g in list(result.device_groups):
-        session.delete(g)
-    session.flush()
-    created = [DeviceGroup(**g.model_dump(), results_id=id) for g in body]
-    for g in created:
-        session.add(g)
+        if g.id not in incoming_ids:
+            session.delete(g)
+
+    upserted: list[DeviceGroup] = []
+    for g in body:
+        if g.id in existing:
+            db_g = existing[g.id]
+            for field, value in g.model_dump().items():
+                setattr(db_g, field, value)
+            upserted.append(db_g)
+        else:
+            db_g = DeviceGroup(**g.model_dump(), results_id=id)
+            session.add(db_g)
+            upserted.append(db_g)
+
     session.commit()
-    for g in created:
+    for g in upserted:
         session.refresh(g)
-    return created
+    return upserted

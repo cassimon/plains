@@ -4289,6 +4289,7 @@ export function ProcessesPage() {
     setProcesses,
     planes,
     updateElement,
+    setEntityPlaneId,
     removeCollectionRefs,
     trashEntity,
     flushSave,
@@ -4401,6 +4402,7 @@ export function ProcessesPage() {
           refs: [...col.refs, { kind: "process" as const, id: proc.id }],
         }
         updateElement(planeId, updated)
+        setEntityPlaneId("process", [proc.id], planeId)
       }
     }
 
@@ -4415,6 +4417,7 @@ export function ProcessesPage() {
     setProcesses,
     planes,
     updateElement,
+    setEntityPlaneId,
     selectProcess,
   ])
 
@@ -4659,6 +4662,7 @@ export function ProcessesPage() {
       ...collection,
       refs: [...collection.refs, { kind: "process" as const, id: newProc.id }],
     })
+    setEntityPlaneId("process", [newProc.id], planeId)
   }
 
   const handleCreateProcess = () => {

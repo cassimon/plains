@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test"
 
-import type { ExperimentResults, MeasurementFile } from "./AppContext"
+import type { DeviceGroup, ExperimentResults, MeasurementFile } from "./AppContext"
 import {
   isImportedResult,
   isPersistableResult,
+  reconcileGroupIds,
   staleResultIdsOf,
 } from "./resultLifecycle"
 
@@ -85,6 +86,36 @@ describe("staleResultIdsOf (transient NOMAD staging cleanup)", () => {
   test("does not flag empty results", () => {
     const empty = result({ id: "empty", files: [] })
     expect(staleResultIdsOf([empty]).has("empty")).toBe(false)
+  })
+})
+
+describe("reconcileGroupIds (persistent group membership)", () => {
+  function group(overrides: Partial<DeviceGroup> = {}): DeviceGroup {
+    return { id: "g1", deviceName: "d", files: [], assignedSubstrateId: null, ...overrides }
+  }
+
+  test("stamps the flat files with their owning group id", () => {
+    const f1 = file({ id: "f1", groupId: null })
+    const f2 = file({ id: "f2", groupId: undefined })
+    const r = result({
+      files: [f1, f2],
+      deviceGroups: [group({ id: "g1", files: [f1] })],
+    })
+    const out = reconcileGroupIds(r)
+    expect(out.files.find((f) => f.id === "f1")?.groupId).toBe("g1")
+    expect(out.files.find((f) => f.id === "f2")?.groupId).toBeNull()
+  })
+
+  test("unassigned measurements stay unassigned (no name fallback)", () => {
+    // A file whose deviceName equals the group's name but is NOT in the group's
+    // files must NOT be assigned by name.
+    const f1 = file({ id: "f1", deviceName: "shared", groupId: undefined })
+    const r = result({
+      files: [f1],
+      deviceGroups: [group({ id: "g1", deviceName: "shared", files: [] })],
+    })
+    const out = reconcileGroupIds(r)
+    expect(out.files[0].groupId).toBeNull()
   })
 })
 

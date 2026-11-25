@@ -204,7 +204,15 @@ def create_experiment_results(
     )
     session.add(db_results)
     session.flush()
+    valid_group_ids = {g.id for g in results_in.device_groups}
     for file_in in results_in.measurement_files:
+        if (
+            file_in.device_group_id is not None
+            and file_in.device_group_id not in valid_group_ids
+        ):
+            raise ValueError(
+                "Measurement references a device group outside this result"
+            )
         file_obj = MeasurementFile.model_validate(
             file_in, update={"results_id": db_results.id}
         )

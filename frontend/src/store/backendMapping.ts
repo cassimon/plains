@@ -328,6 +328,7 @@ function resultsFromApi(r: ApiObj): ExperimentResults {
       fileName: f.filename,
       fileType: f.file_type,
       deviceName: f.device_name ?? "",
+      groupId: f.device_group_id ?? null,
       cell: f.cell ?? "",
       pixel: f.pixel_label ?? "",
       value: f.value ?? undefined,
@@ -349,10 +350,8 @@ function resultsFromApi(r: ApiObj): ExperimentResults {
       (g: ApiObj): DeviceGroup => ({
         id: g.id,
         deviceName: g.name,
-        // Group membership is derived from the established convention
-        // `MeasurementFile.deviceName === DeviceGroup.name` (the same convention
-        // the manual upload flow and the ZIP importer both use to group files).
-        files: files.filter((f) => f.deviceName === g.name),
+        // Membership is persisted by stable DeviceGroup.id.
+        files: files.filter((f) => f.groupId === g.id),
         assignedSubstrateId: g.assigned_substrate_id ?? null,
         suggestedSubstrateId: g.suggested_substrate_id ?? undefined,
         matchScore: g.match_score ?? undefined,
@@ -676,6 +675,7 @@ export function measurementFilesToApi(r: ExperimentResults): ApiObj[] {
     filename: f.fileName || "file",
     file_type: f.fileType || "Unknown",
     device_name: f.deviceName ?? null,
+    device_group_id: f.groupId ?? null,
     cell: f.cell ?? null,
     pixel_label: f.pixel ?? null,
     value: f.value ?? null,

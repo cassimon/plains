@@ -7,6 +7,74 @@ from app.models import User, UserCreate
 engine = create_engine(str(settings.SQLALCHEMY_DATABASE_URI))
 
 
+def backfill_device_group_ids(conn) -> tuple[int, int, int]:
+    """One-time migration: backfill MeasurementFile.device_group_id from the
+    legacy name-based association (``device_name == devicegroup.name``).
+
+    Only a *unique* group within the *same* ExperimentResults is matched;
+    ambiguous (several same-named groups) and unmatched rows are left NULL
+    (explicitly unassigned). Never fabricates an association.
+
+    Returns ``(unambiguous, ambiguous, unmatched)`` counts.
+    """
+    from sqlalchemy import text
+
+    updated = conn.execute(
+        text(
+            """
+            UPDATE measurementfile mf
+            SET device_group_id = (
+                SELECT dg.id FROM devicegroup dg
+                WHERE dg.results_id = mf.results_id
+                  AND dg.name = mf.device_name
+                LIMIT 1
+            )
+            WHERE mf.device_group_id IS NULL
+              AND mf.device_name IS NOT NULL
+              AND (
+                SELECT COUNT(*) FROM devicegroup dg
+                WHERE dg.results_id = mf.results_id
+                  AND dg.name = mf.device_name
+              ) = 1
+            """
+        )
+    ).rowcount
+
+    ambiguous = conn.execute(
+        text(
+            """
+            SELECT COUNT(*) FROM measurementfile mf
+            WHERE mf.device_group_id IS NULL
+              AND mf.device_name IS NOT NULL
+              AND (
+                SELECT COUNT(*) FROM devicegroup dg
+                WHERE dg.results_id = mf.results_id
+                  AND dg.name = mf.device_name
+              ) > 1
+            """
+        )
+    ).scalar_one()
+
+    unmatched = conn.execute(
+        text(
+            """
+            SELECT COUNT(*) FROM measurementfile mf
+            WHERE mf.device_group_id IS NULL
+              AND (
+                mf.device_name IS NULL
+                OR (
+                  SELECT COUNT(*) FROM devicegroup dg
+                  WHERE dg.results_id = mf.results_id
+                    AND dg.name = mf.device_name
+                ) = 0
+              )
+            """
+        )
+    ).scalar_one()
+
+    return int(updated), int(ambiguous), int(unmatched)
+
+
 # make sure all SQLModel models are imported (app.models) before initializing DB
 # otherwise, SQLModel might fail to initialize relationships properly
 # for more details: https://github.com/fastapi/full-stack-fastapi-template/issues/28
@@ -58,6 +126,29 @@ def init_db(session: Session) -> None:
                 "ALTER TABLE trash_entry ADD COLUMN IF NOT EXISTS root_entity_id UUID"
             )
         )
+        # MeasurementFile → DeviceGroup persistent membership (RESULTS-INTEGRITY-01).
+        # Added after create_all shipped, so create_all() never adds it. The
+        # one-time backfill below must NOT run on every startup (it would
+        # silently re-assign measurements the user intentionally unassigned), so
+        # it runs only when the column did not already exist.
+        column_exists = (
+            conn.execute(
+                text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name = 'measurementfile' "
+                    "AND column_name = 'device_group_id'"
+                )
+            ).first()
+            is not None
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS "
+                "device_group_id UUID REFERENCES devicegroup(id) ON DELETE SET NULL"
+            )
+        )
+        if not column_exists:
+            backfill_device_group_ids(conn)
 
     user = session.exec(
         select(User).where(User.email == settings.FIRST_SUPERUSER)

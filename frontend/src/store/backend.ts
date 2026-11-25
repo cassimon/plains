@@ -974,15 +974,17 @@ export class HttpBackend implements BackendAdapter {
       } else {
         continue // orphan result with no experiment — cannot persist
       }
-      await this.request(
-        "PUT",
-        `/results/${r.id}/measurement-files`,
-        M.measurementFilesToApi(r),
-      )
+      // Groups before files: MeasurementFile.device_group_id references
+      // DeviceGroup.id, so groups must exist first.
       await this.request(
         "PUT",
         `/results/${r.id}/device-groups`,
         M.deviceGroupsToApi(r),
+      )
+      await this.request(
+        "PUT",
+        `/results/${r.id}/measurement-files`,
+        M.measurementFilesToApi(r),
       )
     }
 

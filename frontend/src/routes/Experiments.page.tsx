@@ -2680,6 +2680,7 @@ export default function ExperimentsPage() {
     updateLastSelected,
     planes,
     updateElement,
+    setEntityPlaneId,
     removeCollectionRefs,
     trashEntity,
     flushSave,
@@ -2777,6 +2778,7 @@ export default function ExperimentsPage() {
           ...col,
           refs: [...col.refs, { kind: "experiment" as const, id: newExp.id }],
         })
+        setEntityPlaneId("experiment", [newExp.id], planeId)
       }
     }
   }, [
@@ -2785,6 +2787,7 @@ export default function ExperimentsPage() {
     processes,
     setExperiments,
     updateElement,
+    setEntityPlaneId,
     selectExperiment,
   ])
 

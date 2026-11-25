@@ -3604,6 +3604,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     addPlainTextElement,
     updatePlane,
     setActiveCollectionId,
+    setEntityPlaneId,
     planes,
     uploadFlow,
   } = useAppContext()
@@ -3723,6 +3724,15 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
     return minColor
   }
 
+  // Persist the entity planeId for every ref of the supported kinds, so that a
+  // later removal from the collection (plane-only) keeps the correct plane.
+  const applyPlaneToRefs = (refs: CollectionRef[], planeId: string) => {
+    for (const kind of ["experiment", "process", "result"] as const) {
+      const ids = refs.filter((r) => r.kind === kind).map((r) => r.id)
+      if (ids.length > 0) setEntityPlaneId(kind, ids, planeId)
+    }
+  }
+
   const handleDropRefs = useCallback(
     (
       targetCollectionId: string,
@@ -3824,6 +3834,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
             return e
           }),
         })
+        applyPlaneToRefs(newRefs, plane.id)
       } else {
         // MOVE: Check for dependencies first
         const allDependents: DependencyLocation[] = []
@@ -3931,6 +3942,8 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
                 }
               }
 
+              applyPlaneToRefs(moving, plane.id)
+
               updatePlane({
                 ...plane,
                 elements: plane.elements
@@ -3961,6 +3974,8 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
             }
           }
 
+          applyPlaneToRefs(moving, plane.id)
+
           updatePlane({
             ...plane,
             elements: plane.elements
@@ -3990,6 +4005,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
       results,
       setResults,
       planes,
+      setEntityPlaneId,
     ],
   )
 
@@ -4128,6 +4144,7 @@ function PlaneCanvas({ plane }: { plane: Plane }) {
               return e
             })
       updatePlane({ ...plane, elements: [...baseElements, newEl] })
+      applyPlaneToRefs(refsToMove, plane.id)
       setActiveCollectionId(newEl.id)
     }
   }

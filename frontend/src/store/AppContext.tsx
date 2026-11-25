@@ -33,6 +33,7 @@ import {
   isPersistableResult,
   staleResultIdsOf,
 } from "./resultLifecycle"
+import { applyEntityPlaneId, resolveEntityPlaneId } from "./placement"
 
 // Kept in sync with the exported constant in ../lib/uploadFlow. Defined locally
 // so AppContext's dependency on uploadFlow stays type-only (no runtime cycle).
@@ -775,6 +776,8 @@ export type MeasurementFile = {
   fileType: MeasurementType
   /** Device name extracted from filename/content (e.g., "AI44") */
   deviceName: string
+  /** Stable group membership (DeviceGroup.id); null/undefined = unassigned. */
+  groupId?: string | null
   /** Cell identifier if parsed (e.g., "1") */
   cell: string
   /** Pixel identifier if parsed (e.g., "C") */
@@ -1194,6 +1197,12 @@ type AppContextValue = {
   deleteElement: (planeId: string, elementId: string) => void
   /** Remove refs of a given kind/ids from every collection across all planes */
   removeCollectionRefs: (kind: CollectionRef["kind"], ids: string[]) => void
+  /** Set the persisted planeId on the given entities (plane-only placement). */
+  setEntityPlaneId: (
+    kind: CollectionRef["kind"],
+    ids: string[],
+    planeId: string | null,
+  ) => void
   /** Remove srcId and dstId, insert merged collection — all in one atomic update */
   fuseCollections: (
     planeId: string,
@@ -1417,6 +1426,29 @@ export function AppProvider({
   const [processes, setProcesses] = useState<Process[]>([])
   const [results, setResults] = useState<ExperimentResults[]>([])
   const [planes, setPlanes] = useState<Plane[]>(INITIAL_PLANES)
+
+  /**
+   * Update the persisted planeId on entities of a given kind. Placement
+   * mutations call this so that `derivePlacement`'s plane-only fallback
+   * (`entity.planeId`) stays consistent with the collection references:
+   * assigning to a collection sets planeId to that collection's plane, moving
+   * between planes updates it, and unassigning clears it.
+   */
+  const setEntityPlaneId = useCallback(
+    (kind: CollectionRef["kind"], ids: string[], planeId: string | null) => {
+      const idSet = new Set(ids)
+      if (idSet.size === 0) return
+      if (kind === "experiment") {
+        setExperiments((prev) => applyEntityPlaneId(prev, idSet, planeId))
+      } else if (kind === "process") {
+        setProcesses((prev) => applyEntityPlaneId(prev, idSet, planeId))
+      } else if (kind === "result") {
+        setResults((prev) => applyEntityPlaneId(prev, idSet, planeId))
+      }
+    },
+    [],
+  )
+
   const [folders, setFolders] = useState<PlaneFolder[]>([])
   const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([])
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(
@@ -1812,6 +1844,10 @@ export function AppProvider({
   const placeItemsOnPlane = useCallback(
     (planeId: string, refs: CollectionRef[]) => {
       if (refs.length === 0) return
+      for (const kind of ["experiment", "process", "result"] as const) {
+        const ids = refs.filter((r) => r.kind === kind).map((r) => r.id)
+        if (ids.length > 0) setEntityPlaneId(kind, ids, planeId)
+      }
       setPlanes((prev) =>
         prev.map((p) => {
           if (p.id !== planeId) return p
@@ -1836,7 +1872,7 @@ export function AppProvider({
       )
       scheduleSave()
     },
-    [scheduleSave],
+    [scheduleSave, setEntityPlaneId],
   )
 
   /**
@@ -2333,15 +2369,30 @@ export function AppProvider({
     [],
   )
 
-  const deleteElement = useCallback((planeId: string, elementId: string) => {
-    setPlanes((prev) =>
-      prev.map((p) =>
-        p.id === planeId
-          ? { ...p, elements: p.elements.filter((e) => e.id !== elementId) }
-          : p,
-      ),
-    )
-  }, [])
+  const deleteElement = useCallback(
+    (planeId: string, elementId: string) => {
+      // Deleting a collection keeps its entities on the plane (plane-only) by
+      // persisting their planeId; the entities themselves are never deleted.
+      const el = stateRef.current.planes
+        .find((p) => p.id === planeId)
+        ?.elements.find((e) => e.id === elementId)
+      if (el?.type === "collection") {
+        const refs = (el as CanvasCollectionElement).refs
+        for (const kind of ["experiment", "process", "result"] as const) {
+          const ids = refs.filter((r) => r.kind === kind).map((r) => r.id)
+          if (ids.length > 0) setEntityPlaneId(kind, ids, planeId)
+        }
+      }
+      setPlanes((prev) =>
+        prev.map((p) =>
+          p.id === planeId
+            ? { ...p, elements: p.elements.filter((e) => e.id !== elementId) }
+            : p,
+        ),
+      )
+    },
+    [setEntityPlaneId],
+  )
 
   const removeCollectionRefs = useCallback(
     (kind: CollectionRef["kind"], ids: string[]) => {
@@ -2492,6 +2543,12 @@ export function AppProvider({
       sourcePlaneId: string,
       targetPlaneId: string,
     ) => {
+      for (const kind of ["experiment", "process", "result"] as const) {
+        const ids = sourceElement.refs
+          .filter((r) => r.kind === kind)
+          .map((r) => r.id)
+        if (ids.length > 0) setEntityPlaneId(kind, ids, targetPlaneId)
+      }
       setPlanes((prev) =>
         prev.map((p) => {
           if (p.id === sourcePlaneId) {
@@ -2516,7 +2573,7 @@ export function AppProvider({
         }),
       )
     },
-    [],
+    [setEntityPlaneId],
   )
 
   return (
@@ -2547,6 +2604,7 @@ export function AppProvider({
         updateElement,
         deleteElement,
         removeCollectionRefs,
+        setEntityPlaneId,
         fuseCollections,
         copyElementToPlane,
         moveElementToPlane,
@@ -2616,7 +2674,8 @@ export function useAppContextOptional() {
  * collections on that plane are visible (plus un-referenced orphan entities).
  */
 export function useEntityCollection() {
-  const { planes, activePlaneId, activeCollectionId } = useAppContext()
+  const { planes, experiments, processes, results, activePlaneId, activeCollectionId } =
+    useAppContext()
 
   const activePlane = useMemo(
     () => planes.find((p) => p.id === activePlaneId) ?? null,
@@ -2637,6 +2696,15 @@ export function useEntityCollection() {
     }
     return set
   }, [planes])
+
+  /** Map "kind:id" → the planeId persisted on the entity (Plane-only placement). */
+  const planeIdByEntity = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const e of experiments) if (e.planeId) map.set(`experiment:${e.id}`, e.planeId)
+    for (const p of processes) if (p.planeId) map.set(`process:${p.id}`, p.planeId)
+    for (const r of results) if (r.planeId) map.set(`result:${r.id}`, r.planeId)
+    return map
+  }, [experiments, processes, results])
 
   /** Set of entity keys referenced by collections on the active plane */
   const planeReferencedEntities = useMemo(() => {
@@ -2707,6 +2775,7 @@ export function useEntityCollection() {
    */
   const isEntityVisible = useCallback(
     (kind: CollectionRef["kind"], id: string): boolean => {
+      const key = `${kind}:${id}`
       // If a specific collection is selected, filter to its refs
       if (activeCollection) {
         return activeCollection.refs.some((r) => r.kind === kind && r.id === id)
@@ -2715,38 +2784,33 @@ export function useEntityCollection() {
       if (!activePlane) {
         return true
       }
-      // Plane selected, no collection: show items on this plane + orphans
-      if (planeReferencedEntities.has(`${kind}:${id}`)) return true
-      // Orphan: not referenced by any collection on any plane
-      if (!allReferencedEntities.has(`${kind}:${id}`)) return true
-      return false
+      // Plane selected, no collection: items referenced on this plane…
+      if (planeReferencedEntities.has(key)) return true
+      // …or plane-only entities whose planeId matches this plane.
+      const planeId = planeIdByEntity.get(key)
+      if (planeId) return planeId === activePlane.id
+      // True orphan (no ref, no planeId): visible everywhere.
+      return !allReferencedEntities.has(key)
     },
     [
       activeCollection,
       activePlane,
       planeReferencedEntities,
       allReferencedEntities,
+      planeIdByEntity,
     ],
   )
 
   /**
    * Returns the plane that owns an entity (for grouping in General view).
-   * Returns null if the entity is not referenced by any collection.
+   * Uses collection references first, then the persisted planeId (Plane-only).
    */
   const getEntityPlane = useCallback(
     (kind: CollectionRef["kind"], id: string): Plane | null => {
-      for (const plane of planes) {
-        for (const el of plane.elements) {
-          if (el.type !== "collection") continue
-          const col = el as CanvasCollectionElement
-          if (col.refs.some((r) => r.kind === kind && r.id === id)) {
-            return plane
-          }
-        }
-      }
-      return null
+      const planeId = resolveEntityPlaneId(kind, id, planes, planeIdByEntity)
+      return planes.find((p) => p.id === planeId) ?? null
     },
-    [planes],
+    [planes, planeIdByEntity],
   )
 
   /**
@@ -2758,11 +2822,13 @@ export function useEntityCollection() {
   const isEntityOnActivePlane = useCallback(
     (kind: CollectionRef["kind"], id: string): boolean => {
       if (!activePlane) return true
-      if (planeReferencedEntities.has(`${kind}:${id}`)) return true
-      if (!allReferencedEntities.has(`${kind}:${id}`)) return true // orphan
-      return false
+      const key = `${kind}:${id}`
+      if (planeReferencedEntities.has(key)) return true
+      const planeId = planeIdByEntity.get(key)
+      if (planeId) return planeId === activePlane.id
+      return !allReferencedEntities.has(key) // orphan
     },
-    [activePlane, planeReferencedEntities, allReferencedEntities],
+    [activePlane, planeReferencedEntities, allReferencedEntities, planeIdByEntity],
   )
 
   /**

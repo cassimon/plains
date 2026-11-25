@@ -111,6 +111,7 @@ export function UploadFlowTargetPicker({
     updateLastSelected,
     planes,
     updateElement,
+    setEntityPlaneId,
     activePlaneId,
     setActivePlaneId,
     setActiveCollectionId,
@@ -212,6 +213,7 @@ export function UploadFlowTargetPicker({
         ...collection,
         refs: [...collection.refs, { kind, id }],
       })
+      setEntityPlaneId(kind, [id], home.planeId)
     }
     return home
   }
