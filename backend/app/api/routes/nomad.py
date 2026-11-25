@@ -50,6 +50,7 @@ from app.services.nomad import (
     TEMP_UPLOAD_DIR,
     NomadAuthError,
     NomadUploadError,
+    RawFileConflictError,
     add_metadata_to_zip,
     append_files_to_zip,
     cleanup_stale_archives,
@@ -574,6 +575,8 @@ async def upload_files_for_nomad(
             logger.info(
                 f"Created temporary zip archive at {zip_path} with {len(file_data)} files + {len(archive_yaml_files)} YAML files, total size: {zip_path.stat().st_size} bytes"
             )
+    except RawFileConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as e:
         logger.error(f"Failed to create zip archive: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create archive: {e}")

@@ -18,7 +18,6 @@ import { Route as SignupRouteImport } from './routes/signup'
 import { Route as GuiAnalysisRouteImport } from './routes/_gui/analysis'
 import { Route as GuiExperimentsRouteImport } from './routes/_gui/experiments'
 import { Route as GuiExportRouteImport } from './routes/_gui/export'
-import { Route as GuiImportRouteImport } from './routes/_gui/import'
 import { Route as GuiOrganizationRouteImport } from './routes/_gui/organization'
 import { Route as GuiProcessesRouteImport } from './routes/_gui/processes'
 import { Route as GuiResultsRouteImport } from './routes/_gui/results'
@@ -71,11 +70,6 @@ const GuiExportRoute = GuiExportRouteImport.update({
   path: '/export',
   getParentRoute: () => GuiRoute,
 } as any)
-const GuiImportRoute = GuiImportRouteImport.update({
-  id: '/import',
-  path: '/import',
-  getParentRoute: () => GuiRoute,
-} as any)
 const GuiOrganizationRoute = GuiOrganizationRouteImport.update({
   id: '/organization',
   path: '/organization',
@@ -126,7 +120,6 @@ export interface FileRoutesByFullPath {
   '/analysis': typeof GuiAnalysisRoute
   '/experiments': typeof GuiExperimentsRoute
   '/export': typeof GuiExportRoute
-  '/import': typeof GuiImportRoute
   '/organization': typeof GuiOrganizationRoute
   '/processes': typeof GuiProcessesRoute
   '/results': typeof GuiResultsRoute
@@ -144,7 +137,6 @@ export interface FileRoutesByTo {
   '/analysis': typeof GuiAnalysisRoute
   '/experiments': typeof GuiExperimentsRoute
   '/export': typeof GuiExportRoute
-  '/import': typeof GuiImportRoute
   '/organization': typeof GuiOrganizationRoute
   '/processes': typeof GuiProcessesRoute
   '/results': typeof GuiResultsRoute
@@ -164,7 +156,6 @@ export interface FileRoutesById {
   '/_gui/analysis': typeof GuiAnalysisRoute
   '/_gui/experiments': typeof GuiExperimentsRoute
   '/_gui/export': typeof GuiExportRoute
-  '/_gui/import': typeof GuiImportRoute
   '/_gui/organization': typeof GuiOrganizationRoute
   '/_gui/processes': typeof GuiProcessesRoute
   '/_gui/results': typeof GuiResultsRoute
@@ -185,7 +176,6 @@ export interface FileRouteTypes {
     | '/analysis'
     | '/experiments'
     | '/export'
-    | '/import'
     | '/organization'
     | '/processes'
     | '/results'
@@ -203,7 +193,6 @@ export interface FileRouteTypes {
     | '/analysis'
     | '/experiments'
     | '/export'
-    | '/import'
     | '/organization'
     | '/processes'
     | '/results'
@@ -222,7 +211,6 @@ export interface FileRouteTypes {
     | '/_gui/analysis'
     | '/_gui/experiments'
     | '/_gui/export'
-    | '/_gui/import'
     | '/_gui/organization'
     | '/_gui/processes'
     | '/_gui/results'
@@ -308,13 +296,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GuiExportRouteImport
       parentRoute: typeof GuiRoute
     }
-    '/_gui/import': {
-      id: '/_gui/import'
-      path: '/import'
-      fullPath: '/import'
-      preLoaderRoute: typeof GuiImportRouteImport
-      parentRoute: typeof GuiRoute
-    }
     '/_gui/organization': {
       id: '/_gui/organization'
       path: '/organization'
@@ -378,7 +359,6 @@ interface GuiRouteChildren {
   GuiAnalysisRoute: typeof GuiAnalysisRoute
   GuiExperimentsRoute: typeof GuiExperimentsRoute
   GuiExportRoute: typeof GuiExportRoute
-  GuiImportRoute: typeof GuiImportRoute
   GuiOrganizationRoute: typeof GuiOrganizationRoute
   GuiProcessesRoute: typeof GuiProcessesRoute
   GuiResultsRoute: typeof GuiResultsRoute
@@ -389,7 +369,6 @@ const GuiRouteChildren: GuiRouteChildren = {
   GuiAnalysisRoute: GuiAnalysisRoute,
   GuiExperimentsRoute: GuiExperimentsRoute,
   GuiExportRoute: GuiExportRoute,
-  GuiImportRoute: GuiImportRoute,
   GuiOrganizationRoute: GuiOrganizationRoute,
   GuiProcessesRoute: GuiProcessesRoute,
   GuiResultsRoute: GuiResultsRoute,

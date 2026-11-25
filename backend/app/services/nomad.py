@@ -12,6 +12,7 @@ This service provides:
 Uses the nomad_utility_workflows package for NOMAD API interaction.
 """
 
+import hashlib
 import logging
 import math
 import re
@@ -227,6 +228,18 @@ def create_secure_zip(
     return zip_path
 
 
+class RawFileConflictError(ValueError):
+    """Raised when appending raw files whose basenames already exist in the
+    archive with different content. The archive is left unchanged."""
+
+    def __init__(self, conflicts: list[str]) -> None:
+        self.conflicts = conflicts
+        joined = ", ".join(repr(c) for c in conflicts)
+        super().__init__(
+            f"File name conflict: {joined} already exists with different content."
+        )
+
+
 def append_files_to_zip(
     zip_path: Path,
     files: list[tuple[str, bytes]],
@@ -235,36 +248,66 @@ def append_files_to_zip(
 
     Used when the user drops files in several batches: every drop lands in the
     *same* archive instead of replacing it with a fresh one holding only the
-    latest drop (which left the metadata referencing raw files NOMAD could not
-    find). An existing entry with the same (sanitized) name is replaced, so
-    re-dropping a file updates it rather than duplicating the zip entry.
+    latest drop. Semantics per incoming file (by sanitized basename):
+
+    - same basename, identical content → deduplicated (no rewrite);
+    - same basename, different content → :class:`RawFileConflictError`;
+    - new basename → appended.
+
+    Conflicts are detected against the existing archive *before* any write, so
+    a rejected append leaves the archive byte-for-byte unchanged.
 
     Raises:
         FileNotFoundError: If zip_path doesn't exist
+        RawFileConflictError: If an incoming basename collides with different
+            content already in the archive
     """
     if not zip_path.exists():
         raise FileNotFoundError(f"Zip archive not found: {zip_path}")
 
-    # Dedupe within the drop too — flattening subfolders can collide.
+    # Dedupe within the drop first — flattening subfolders can collide.
     new_entries: dict[str, bytes] = {}
     for filename, content in files:
         safe = sanitize_upload_filename(filename)
         if safe:
             new_entries[safe] = content
 
+    # Detect conflicts against the existing archive before touching it.
+    conflicts: list[str] = []
+    to_append: dict[str, bytes] = {}
+    with zipfile.ZipFile(zip_path, "r") as old_zip:
+        existing_hashes = {
+            item: hashlib.sha256(old_zip.read(item)).hexdigest()
+            for item in old_zip.namelist()
+        }
+        for safe, content in new_entries.items():
+            if safe in existing_hashes:
+                if existing_hashes[safe] == hashlib.sha256(content).hexdigest():
+                    continue  # identical — deduplicate
+                conflicts.append(safe)
+            else:
+                to_append[safe] = content
+
+    if conflicts:
+        raise RawFileConflictError(conflicts)
+
+    if not to_append:
+        logger.info(f"No new files to append to archive {zip_path} (all deduplicated)")
+        return zip_path
+
     temp_zip = zip_path.with_suffix(".tmp.zip")
     try:
         with zipfile.ZipFile(zip_path, "r") as old_zip:
             with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED) as new_zip:
                 for item in old_zip.namelist():
-                    if item in new_entries:
+                    if item in to_append:
                         continue
                     new_zip.writestr(item, old_zip.read(item))
-                for safe, content in new_entries.items():
+                for safe, content in to_append.items():
                     new_zip.writestr(safe, content)
         temp_zip.replace(zip_path)
         logger.info(
-            f"Appended {len(new_entries)} files to archive {zip_path} "
+            f"Appended {len(to_append)} files to archive {zip_path} "
             f"({zip_path.stat().st_size} bytes)"
         )
     except Exception:

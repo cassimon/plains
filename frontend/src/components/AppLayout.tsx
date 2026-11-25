@@ -42,7 +42,6 @@ const DEFAULT_ACCENT = "#94a3b8"
 
 const pages = [
   { label: "Organization", value: "/organization" },
-  { label: "Import", value: "/import" },
   { label: "Processes", value: "/processes" },
   { label: "Experiments", value: "/experiments" },
   { label: "Results", value: "/results" },

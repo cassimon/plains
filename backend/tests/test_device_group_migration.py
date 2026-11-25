@@ -1,49 +1,61 @@
 """RESULTS-INTEGRITY-01 — conservative legacy backfill of device_group_id.
 
 Runs the one-time name-based migration against an isolated database and verifies
-the unambiguous / ambiguous / unmatched classification.
+the unambiguous / ambiguous / unmatched classification. Device names are unique
+per run so the assertions are not polluted by other tests sharing the database.
 """
 
 import uuid
 
 import pytest
-from sqlmodel import Session, select
+from sqlalchemy import create_engine as sa_create_engine
+from sqlalchemy import text
+from sqlmodel import SQLModel, Session, create_engine, select
 
-from app.core.db import backfill_device_group_ids, engine
+from app.core.config import settings
+from app.core.db import backfill_device_group_ids, engine, init_db
 from app.models import DeviceGroup, Experiment, ExperimentResults, MeasurementFile, User
+
+
+def _unique(tag: str) -> str:
+    return f"{tag}-{uuid.uuid4().hex[:8]}"
 
 
 @pytest.fixture()
 def legacy_data(db: Session) -> tuple[uuid.UUID, dict[str, uuid.UUID]]:
     """Insert a result with legacy name-based records:
-    - f_unique  → device_name "DEV-A" matching exactly one group
-    - f_ambig   → device_name "DEV-B" matching two same-named groups
-    - f_missing → device_name "DEV-C" matching no group
+    - f_unique  → device_name matching exactly one group
+    - f_ambig   → device_name matching two same-named groups
+    - f_missing → device_name matching no group
     - f_null    → device_name NULL (no legacy association)
     """
     owner = db.exec(select(User)).first()
     assert owner is not None
-    exp = Experiment(name="legacy", owner_id=owner.id)
+    name_unique = _unique("DEV-A")
+    name_ambig = _unique("DEV-B")
+    name_missing = _unique("DEV-C")
+
+    exp = Experiment(name=_unique("legacy"), owner_id=owner.id)
     db.add(exp)
     db.flush()
     result = ExperimentResults(experiment_id=exp.id, owner_id=owner.id)
     db.add(result)
     db.flush()
 
-    g1 = DeviceGroup(name="DEV-A", results_id=result.id)
-    g2 = DeviceGroup(name="DEV-B", results_id=result.id)
-    g3 = DeviceGroup(name="DEV-B", results_id=result.id)
+    g1 = DeviceGroup(name=name_unique, results_id=result.id)
+    g2 = DeviceGroup(name=name_ambig, results_id=result.id)
+    g3 = DeviceGroup(name=name_ambig, results_id=result.id)
     db.add_all([g1, g2, g3])
     db.flush()
 
     f_unique = MeasurementFile(
-        filename="a.txt", file_type="JV", device_name="DEV-A", results_id=result.id
+        filename="a.txt", file_type="JV", device_name=name_unique, results_id=result.id
     )
     f_ambig = MeasurementFile(
-        filename="b.txt", file_type="JV", device_name="DEV-B", results_id=result.id
+        filename="b.txt", file_type="JV", device_name=name_ambig, results_id=result.id
     )
     f_missing = MeasurementFile(
-        filename="c.txt", file_type="JV", device_name="DEV-C", results_id=result.id
+        filename="c.txt", file_type="JV", device_name=name_missing, results_id=result.id
     )
     f_null = MeasurementFile(
         filename="d.txt", file_type="JV", device_name=None, results_id=result.id
@@ -57,8 +69,6 @@ def legacy_data(db: Session) -> tuple[uuid.UUID, dict[str, uuid.UUID]]:
         "missing": f_missing.id,
         "null": f_null.id,
         "g1": g1.id,
-        "g2": g2.id,
-        "g3": g3.id,
     }
 
 
@@ -67,23 +77,108 @@ def test_backfill_classifies_legacy_records(
 ) -> None:
     result_id, ids = legacy_data
     with engine.begin() as conn:
-        unambiguous, ambiguous, unmatched = backfill_device_group_ids(conn)
-
-    # One unambiguous match (DEV-A → g1), one ambiguous (DEV-B → two groups),
-    # two unmatched (DEV-C and the NULL device_name).
-    assert unambiguous == 1
-    assert ambiguous == 1
-    assert unmatched == 2
+        backfill_device_group_ids(conn)
 
     files = db.exec(
         select(MeasurementFile).where(MeasurementFile.results_id == result_id)
     ).all()
     by_id = {f.id: f for f in files}
 
+    # Unique → assigned to the single matching group; ambiguous, missing and
+    # null all remain explicitly unassigned (never fabricated).
     assert by_id[ids["unique"]].device_group_id == ids["g1"]
     assert by_id[ids["ambig"]].device_group_id is None
     assert by_id[ids["missing"]].device_group_id is None
     assert by_id[ids["null"]].device_group_id is None
+
+
+def _isolated_db_url(db_name: str) -> str:
+    return (
+        f"postgresql+psycopg://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"
+        f"@{settings.POSTGRES_SERVER}:{settings.POSTGRES_PORT}/{db_name}"
+    )
+
+
+def test_startup_backfill_runs_once_and_respects_unassign(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Startup-level regression: the conservative backfill runs only the first
+    time the column appears. After an intentional unassign, a second startup
+    must NOT silently re-assign the measurement."""
+    import app.core.db as db_module
+
+    db_name = "app_migration_test"
+    admin_url = _isolated_db_url("postgres")
+    admin = sa_create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f"DROP DATABASE IF EXISTS {db_name}"))
+        conn.execute(text(f"CREATE DATABASE {db_name}"))
+
+    temp_engine = create_engine(_isolated_db_url(db_name))
+    monkeypatch.setattr(db_module, "engine", temp_engine)
+
+    try:
+        # Fresh schema (the model already carries the column).
+        SQLModel.metadata.create_all(temp_engine)
+
+        # Legacy records: one group + one matching measurement, written with the
+        # column still present but NULL (the pre-migration association is
+        # name-based, not id-based).
+        with Session(temp_engine) as session:
+            user = User(email="migration-legacy@example.com")
+            session.add(user)
+            session.flush()
+            exp = Experiment(name="legacy", owner_id=user.id)
+            session.add(exp)
+            session.flush()
+            result = ExperimentResults(experiment_id=exp.id, owner_id=user.id)
+            session.add(result)
+            session.flush()
+            group = DeviceGroup(name="DEV-LEGACY", results_id=result.id)
+            session.add(group)
+            session.flush()
+            mf = MeasurementFile(
+                filename="a.txt",
+                file_type="JV",
+                device_name="DEV-LEGACY",
+                results_id=result.id,
+            )
+            session.add(mf)
+            session.commit()
+            group_id = group.id
+            file_id = mf.id
+
+        # Now drop the column to simulate a legacy database created before
+        # RESULTS-INTEGRITY-01 (the rows survive, the column is gone).
+        with temp_engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE measurementfile DROP COLUMN device_group_id")
+            )
+
+        # First startup: column re-added and the one-time backfill runs.
+        with Session(temp_engine) as session:
+            init_db(session)
+        with Session(temp_engine) as session:
+            assert session.get(MeasurementFile, file_id).device_group_id == group_id
+
+        # Intentionally unassign the measurement.
+        with Session(temp_engine) as session:
+            mf = session.get(MeasurementFile, file_id)
+            mf.device_group_id = None
+            session.add(mf)
+            session.commit()
+
+        # Second startup: the column already exists, so the backfill must NOT
+        # run again and the intentional unassignment survives.
+        with Session(temp_engine) as session:
+            init_db(session)
+        with Session(temp_engine) as session:
+            assert session.get(MeasurementFile, file_id).device_group_id is None
+    finally:
+        temp_engine.dispose()
+        with admin.connect() as conn:
+            conn.execute(text(f"DROP DATABASE IF EXISTS {db_name}"))
+        admin.dispose()
 
 
 def test_backfill_never_crosses_results(
@@ -94,15 +189,19 @@ def test_backfill_never_crosses_results(
     _result_id, ids = legacy_data
     owner = db.exec(select(User)).first()
     assert owner is not None
-    # Create a second result with a group named "DEV-C" — the orphan file
-    # f_missing belongs to the FIRST result and must stay unassigned.
-    exp2 = Experiment(name="other", owner_id=owner.id)
+    # The orphan file f_missing has device_name DEV-C; create a second result
+    # with a group named DEV-C — it must stay unassigned in the first result.
+    f_missing = db.get(MeasurementFile, ids["missing"])
+    assert f_missing is not None
+    name = f_missing.device_name
+
+    exp2 = Experiment(name=_unique("other"), owner_id=owner.id)
     db.add(exp2)
     db.flush()
     result2 = ExperimentResults(experiment_id=exp2.id, owner_id=owner.id)
     db.add(result2)
     db.flush()
-    g_other = DeviceGroup(name="DEV-C", results_id=result2.id)
+    g_other = DeviceGroup(name=name, results_id=result2.id)
     db.add(g_other)
     db.commit()
 
@@ -112,18 +211,3 @@ def test_backfill_never_crosses_results(
     f_missing = db.get(MeasurementFile, ids["missing"])
     assert f_missing is not None
     assert f_missing.device_group_id is None
-
-
-def test_backfill_is_a_one_time_migration(
-    db: Session, legacy_data: tuple[uuid.UUID, dict[str, uuid.UUID]]
-) -> None:
-    """The backfill is a one-time migration, not a permanent fallback. Its
-    second run updates nothing (already-assigned rows are skipped), which is
-    why ``init_db`` only invokes it the first time the column appears."""
-    with engine.begin() as conn:
-        first = backfill_device_group_ids(conn)
-    with engine.begin() as conn:
-        second = backfill_device_group_ids(conn)
-
-    assert first[0] == 1  # unambiguous rows assigned once
-    assert second[0] == 0  # nothing left to assign on a re-run

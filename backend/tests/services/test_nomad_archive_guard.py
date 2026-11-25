@@ -9,7 +9,10 @@ before metadata is added.
 
 import zipfile
 
+import pytest
+
 from app.services.nomad import (
+    RawFileConflictError,
     append_files_to_zip,
     collect_referenced_raw_files,
     create_secure_zip,
@@ -53,17 +56,57 @@ def test_append_files_to_zip_accumulates_drops() -> None:
         zip_path.unlink(missing_ok=True)
 
 
-def test_append_files_to_zip_replaces_same_named_entry() -> None:
+def test_append_files_to_zip_deduplicates_identical_content() -> None:
     zip_path = create_secure_zip(
-        files=[("data.txt", b"old")],
-        archive_name="append_replace_test.zip",
+        files=[("data.txt", b"same")],
+        archive_name="append_dedupe_test.zip",
     )
     try:
-        append_files_to_zip(zip_path, [("data.txt", b"new")])
+        append_files_to_zip(zip_path, [("data.txt", b"same")])
 
         with zipfile.ZipFile(zip_path, "r") as archive:
             assert archive.namelist().count("data.txt") == 1
-            assert archive.read("data.txt") == b"new"
+            assert archive.read("data.txt") == b"same"
+    finally:
+        zip_path.unlink(missing_ok=True)
+
+
+def test_append_files_to_zip_rejects_conflicting_content() -> None:
+    zip_path = create_secure_zip(
+        files=[("data.txt", b"old")],
+        archive_name="append_conflict_test.zip",
+    )
+    try:
+        with pytest.raises(RawFileConflictError) as excinfo:
+            append_files_to_zip(zip_path, [("data.txt", b"new")])
+        assert "data.txt" in str(excinfo.value)
+
+        # The archive is left byte-for-byte unchanged.
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            assert archive.namelist() == ["data.txt"]
+            assert archive.read("data.txt") == b"old"
+    finally:
+        zip_path.unlink(missing_ok=True)
+
+
+def test_append_files_to_zip_preserves_archive_after_rejection() -> None:
+    """A rejected append must not modify the existing archive."""
+    zip_path = create_secure_zip(
+        files=[("keep.txt", b"keep"), ("data.txt", b"old")],
+        archive_name="append_preserve_test.zip",
+    )
+    try:
+        with pytest.raises(RawFileConflictError):
+            append_files_to_zip(
+                zip_path,
+                [("new.txt", b"new"), ("data.txt", b"different")],
+            )
+
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            names = set(archive.namelist())
+            assert names == {"keep.txt", "data.txt"}
+            assert archive.read("data.txt") == b"old"
+            assert "new.txt" not in names
     finally:
         zip_path.unlink(missing_ok=True)
 

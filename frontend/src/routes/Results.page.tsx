@@ -82,6 +82,11 @@ import {
   useEntityCollection,
 } from "../store/AppContext"
 import { reconcileGroupIds } from "../store/resultLifecycle"
+import {
+  isChoseStructured,
+  parseMeasurementFiles,
+  serverMeasurementToFile,
+} from "../lib/parseMeasurements"
 
 // Reserved assignedSubstrateId values for special file categories
 const IGNORE_SUBSTRATE_ID = "__ignore__"
@@ -1716,64 +1721,118 @@ function ResultsDetail({
   const handleDrop = useCallback(
     async (droppedFiles: File[]) => {
       const newFiles: MeasurementFile[] = []
+      const serverParseFiles: File[] = []
+      const rawUploadFiles: File[] = []
 
       for (const file of droppedFiles) {
-        const measurementFile = newMeasurementFile(file.name)
         const category = getFileCategory(file.name)
-
         if (category === null) {
           // Unsupported file type, skip
           continue
         }
 
+        // ZIP archives are expanded and parsed server-side (secure, structured).
+        if (file.name.toLowerCase().endsWith(".zip")) {
+          serverParseFiles.push(file)
+          continue
+        }
+
         if (file.name.toLowerCase().endsWith(".txt")) {
-          // Parse text content
           const content = await file.text()
+          // CHOSE structured JV files (## Header ## / ## Data ## with FW/RV)
+          // go through the single structured parser for correct FW/RV, full
+          // device ids and compound cell/pixel recognition.
+          if (isChoseStructured(content)) {
+            serverParseFiles.push(file)
+            continue
+          }
+          // Every other supported text format keeps the existing scanner.
+          const measurementFile = newMeasurementFile(file.name)
           const parsed = parseTxtContent(content, file.name)
           Object.assign(measurementFile, parsed)
-
-          // Parse device name for cell/pixel
           const { device, cell, pixel } = parseDeviceName(
             measurementFile.deviceName || "",
           )
-          if (device) {
-            measurementFile.deviceName = device
-          }
-          if (cell) {
-            measurementFile.cell = cell
-          }
-          if (pixel) {
-            measurementFile.pixel = pixel
-          }
-        } else {
-          measurementFile.fileType = category
-          measurementFile.deviceName = extractDeviceFromFilename(file.name)
+          if (device) measurementFile.deviceName = device
+          if (cell) measurementFile.cell = cell
+          if (pixel) measurementFile.pixel = pixel
+          newFiles.push(measurementFile)
+          rawUploadFiles.push(file)
+          continue
         }
 
+        const measurementFile = newMeasurementFile(file.name)
+        measurementFile.fileType = category
+        measurementFile.deviceName = extractDeviceFromFilename(file.name)
         newFiles.push(measurementFile)
+        rawUploadFiles.push(file)
+      }
+
+      // Structured parsing (ZIP + CHOSE JV) — single backend parser.
+      if (serverParseFiles.length > 0) {
+        try {
+          // Append to the existing raw archive so successive drops keep every
+          // previously staged file.
+          const parsed = await parseMeasurementFiles(
+            serverParseFiles,
+            lastArchivePathRef.current,
+          )
+          for (const m of parsed.measurements) {
+            newFiles.push(serverMeasurementToFile(m))
+          }
+          // Non-CHOSE text entries extracted from a ZIP keep the native scanner
+          // (Dark JV, IPCE, Stability Parameters/Tracking, UV-Vis).
+          for (const other of parsed.other_files ?? []) {
+            const measurementFile = newMeasurementFile(other.filename)
+            const parsedNative = parseTxtContent(other.content, other.filename)
+            Object.assign(measurementFile, parsedNative)
+            const { device, cell, pixel } = parseDeviceName(
+              measurementFile.deviceName || "",
+            )
+            if (device) measurementFile.deviceName = device
+            if (cell) measurementFile.cell = cell
+            if (pixel) measurementFile.pixel = pixel
+            newFiles.push(measurementFile)
+          }
+          if (parsed.archive_path) {
+            // Raw files were staged (appended) by the parser; adopt that archive
+            // so NOMAD preparation keeps the original files available.
+            applyArchivePath(parsed.archive_path)
+          }
+          if (parsed.skipped.length > 0) {
+            notifications.show({
+              title: `${parsed.skipped.length} file${
+                parsed.skipped.length === 1 ? "" : "s"
+              } skipped`,
+              message: parsed.skipped
+                .slice(0, 3)
+                .map((s) => `${s.file}: ${s.reason}`)
+                .join("; "),
+              color: "yellow",
+            })
+          }
+        } catch (err) {
+          notifications.show({
+            title: "Could not parse archive",
+            message: err instanceof Error ? err.message : String(err),
+            color: "red",
+          })
+        }
       }
 
       if (newFiles.length === 0) {
         return
       }
 
-      // Store the actual File objects for NOMAD upload
-      setUploadedFiles((prev) => [
-        ...prev,
-        ...droppedFiles.filter((f) => {
-          const category = getFileCategory(f.name)
-          return category !== null
-        }),
-      ])
+      // Store the actual File objects for NOMAD upload (non-server-parsed only).
+      setUploadedFiles((prev) => [...prev, ...rawUploadFiles])
 
-      // Upload dropped files to the temporary archive on the server. Queued so
-      // concurrent drops run one after another, each appending to the SAME
+      // Upload dropped raw files to the temporary archive on the server. Queued
+      // so concurrent drops run one after another, each appending to the SAME
       // archive — a parallel second drop used to replace the archive with one
       // holding only its own files, so the metadata later referenced raw files
       // NOMAD could not find.
-      const filesToSend = droppedFiles.filter(
-        (f) => getFileCategory(f.name) !== null,
-      )
+      const filesToSend = rawUploadFiles
       if (filesToSend.length > 0) {
         uploadQueueRef.current = uploadQueueRef.current.then(async () => {
           try {
@@ -1894,6 +1953,10 @@ function ResultsDetail({
         ...results,
         files: allFiles,
         deviceGroups: matchedGroups,
+        // Structured (CHOSE/ZIP) measurements persist for local analysis even
+        // before a NOMAD upload, matching the removed import workflow.
+        groupingStrategy:
+          serverParseFiles.length > 0 ? "import" : results.groupingStrategy,
         updatedAt: new Date().toISOString(),
       })
       setIsResultsCardOpen(true)

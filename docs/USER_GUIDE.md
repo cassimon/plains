@@ -11,7 +11,7 @@ This guide is for people who use the app, not for developers.
 
 - **Organize** your work into planes and collections.
 - **Plan** fabrication steps as Processes and generate Experiments from them.
-- **Import** existing measurement files (JV Summary) into experiments.
+- **Ingest** measurement files (individual files, folders or ZIP archives) into experiments.
 - **Review** results (JV metrics) and prepare them for NOMAD.
 
 ## 2. Starting from scratch
@@ -19,7 +19,6 @@ This guide is for people who use the app, not for developers.
 The app has a vertical icon bar on the left. The main sections are:
 
 - **Organization** — your canvas of planes and collections.
-- **Import** — bring measurement files into Plains.
 - **Processes** — define fabrication steps.
 - **Experiments** — experiments generated from processes (or imported).
 - **Results** — measurement files and their values.
@@ -28,26 +27,20 @@ The app has a vertical icon bar on the left. The main sections are:
 
 ## 3. Importing existing experimental data
 
-If you already have measurement files (for example a JV Summary export from an
-instrument), you can import them directly:
+If you already have measurement files (individual files, an extracted directory,
+or a ZIP archive from the instrument), bring them into the native Results
+workflow:
 
-1. Click **Import** in the left bar.
-2. Click **Choose ZIP archive** and pick your `.zip` file.
-3. Plains shows what it recognized and a preview of the files.
-4. Choose **New experiment** (type a name) or **Existing experiment**.
-5. Optionally choose a **Plane**, a **Collection** and a **Process** to organize
-   the new experiment (you can leave them unassigned). Choosing a **Collection**
-   places the experiment on the Organization canvas.
-6. In the preview you can **correct the device name** and **assign a substrate**
-   (type a name for a new experiment, or pick an existing substrate) of each
-   measurement before importing. The original filename is always kept; unassigned
-   devices stay unassigned.
-7. Click **Confirm import**; then use **Open Results** (or **Open in Organization**
-   if you chose a Collection) to jump straight to the imported data.
+1. Open **Results** and select (or create) the experiment.
+2. Drop the files, folder or `.zip` archive onto the Results drop zone.
+3. Plains parses the measurements (including forward/reverse JV scans), groups
+   them by device and shows them for review.
+4. Assign device groups to substrates, move measurements between groups, and
+   exclude any files you don't want.
+5. Confirm the review; the measurements are saved and can be prepared for NOMAD.
 
-You do **not** need to create a Process first. Imported measurements are saved
-under a new experiment with no fabrication process unless you choose one.
-Measurements are grouped per device (one group per measurement file).
+ZIP archives are expanded automatically; their original files are kept available
+for NOMAD preparation. You do **not** need to create a Process first.
 
 ## 4. What Organization, Process, Experiment and Results mean
 
@@ -69,25 +62,14 @@ Plains saves your work automatically (with a short delay). If a save fails, the
 app keeps your changes and retries — do not close the tab until the work is saved.
 Watch for red error messages at the top or next to the fields.
 
-## 7. Current ZIP format limitations
+## 7. Supported measurement formats
 
-The first importer supports **JV Summary** files:
+CHOSE ``Stability (JV)`` files (structured header + FW/RV data) and directional
+``JV Summary_Parameters FW/RV.txt`` files are parsed with full device, cell and
+pixel identifiers. Other formats (Dark JV, IPCE, Stability Parameters/Tracking,
+UV-Vis) are also recognized.
 
-- `JV Summary_Parameters FW.txt`
-- `JV Summary_Parameters RV.txt`
-
-These are tab-delimited files with columns for `File`, `Voc`, `Jsc`, `FF` and
-`Eff`. Other formats (Stability JV/Parameters/Tracking, UV-Vis) are currently
-recognized but **not** imported.
-
-## 8. Trying the example
-
-There is a small synthetic example archive (fictional data) available inside the
-app on the Import page: click **Download example ZIP**, then follow the import
-steps above. It contains two fake devices (`SAMPLE-DEVICE-01` and
-`SAMPLE-DEVICE-02`) with FW and RV scans.
-
-## 9. Where to find further help
+## 8. Where to find further help
 
 - In-app: the **Help** entry in the user menu (top-right).
 - For data mapping and limits, see the technical docs in the repository

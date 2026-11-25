@@ -28,9 +28,8 @@ export function HelpModal({
           </Title>
           <List size="sm" withPadding>
             <List.Item>
-              <b>Import data first</b>: go to <b>Import</b>, choose a ZIP archive,
-              review and correct device names and substrate assignments,
-              optionally pick a Plane, a Collection and a Process, then confirm.
+              <b>Data first</b>: open <b>Results</b>, drop your files, folder or
+              ZIP archive, review the parsed measurements and assign substrates.
               You do not need a process.
             </List.Item>
             <List.Item>
@@ -59,12 +58,13 @@ export function HelpModal({
 
         <div>
           <Title order={5} mb={4}>
-            Import limitations
+            Supported measurements
           </Title>
           <Text size="sm">
-            The first importer supports <b>JV Summary</b> files (
-            <code>JV Summary_Parameters FW/RV.txt</code>). Other formats are
-            recognized but not imported yet.
+            CHOSE <code>Stability (JV)</code> files (forward/reverse) and
+            <code>JV Summary_Parameters FW/RV.txt</code> are parsed with device,
+            cell and pixel identifiers. Other formats (Dark JV, IPCE, Stability,
+            UV-Vis) are also recognized.
           </Text>
         </div>
 

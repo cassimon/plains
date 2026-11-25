@@ -35,7 +35,6 @@ import {
   IconCloudUpload,
   IconCopy,
   IconDownload,
-  IconFileImport,
   IconFolder,
   IconFolderPlus,
   IconItalic,
@@ -6040,7 +6039,6 @@ export function OrganizationPage() {
     moveElementToPlane,
   } = useAppContext()
   const { user } = useAuth()
-  const navigate = useNavigate()
 
   const topLevel = useMemo(
     () => buildTopLevel(planes, folders),
@@ -6556,17 +6554,6 @@ export function OrganizationPage() {
               onClick={handleAddFolder}
             >
               <IconFolderPlus size={14} />
-            </ActionIcon>
-          </Tooltip>
-          <Tooltip label="Import data">
-            <ActionIcon
-              variant="subtle"
-              size="sm"
-              mb={4}
-              ml={2}
-              onClick={() => navigate({ to: "/import" })}
-            >
-              <IconFileImport size={14} />
             </ActionIcon>
           </Tooltip>
         </Group>

@@ -202,6 +202,47 @@ def _batch_for_path(path: str, batches: list[str]) -> str:
     return best
 
 
+def measurements_from_jv_file(content: bytes, filename: str) -> list[dict[str, Any]]:
+    """Parse a single original CHOSE ``Stability (JV)`` file into FW/RV rows.
+
+    Shared by the native upload flow (individual files and extracted ZIP entries)
+    so the structured parser is the single implementation for CHOSE JV files.
+    """
+    text = content.decode("utf-8", errors="replace")
+    parsed = parse_jv_file(text)
+    if not parsed:
+        return []
+    device = parsed["device"] or _basename(filename)
+    ident = parse_device_identifier(device)
+    rows: list[dict[str, Any]] = []
+    for direction, row in (("FW", parsed["fw"]), ("RV", parsed["rv"])):
+        if row is None:
+            continue
+        rows.append(
+            {
+                "file": filename,
+                "filename": _basename(filename),
+                "device": device,
+                "substrate_group": ident["substrate"],
+                "cell": ident["cell"],
+                "pixel": ident["pixel"],
+                "direction": direction,
+                "voc": row["voc"],
+                "jsc": row["jsc"],
+                "ff": row["ff"],
+                "eff": row["eff"],
+                "source": filename,
+                "batch": "",
+                "user": parsed["user"],
+                "date": parsed["date"],
+                # Individual files have no summary context — unknown, never a
+                # confirmed exclusion.
+                "in_summary": None,
+            }
+        )
+    return rows
+
+
 def _summary_references(
     data: bytes, info: dict[str, Any], limits: ZipExploreLimits
 ) -> set[tuple[str, str, str]]:
