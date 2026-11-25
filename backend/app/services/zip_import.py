@@ -7,6 +7,7 @@ supported for import (the simplest format with a verifiable mapping into
 """
 
 import io
+import math
 import zipfile
 from typing import Any
 
@@ -55,7 +56,7 @@ def _number(value: str) -> float | None:
         n = float(s)
     except ValueError:
         return None
-    return n if n == n else None  # reject NaN
+    return n if math.isfinite(n) else None  # reject NaN and ±inf
 
 
 def parse_jv_summary(text: str) -> list[dict[str, Any]]:

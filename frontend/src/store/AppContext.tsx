@@ -29,6 +29,10 @@ import {
   type TrashedRef,
   unloadBackupKey,
 } from "./backend"
+import {
+  isPersistableResult,
+  staleResultIdsOf,
+} from "./resultLifecycle"
 
 // Kept in sync with the exported constant in ../lib/uploadFlow. Defined locally
 // so AppContext's dependency on uploadFlow stays type-only (no runtime cycle).
@@ -789,6 +793,8 @@ export type MeasurementFile = {
   measurementDate?: string
   /** User from measurement file */
   user?: string
+  /** Provenance note (e.g. "Imported from ZIP: <source> (<FW|RV>)") */
+  notes?: string
 }
 
 /** 1 sun, AM 1.5G — the standard measurement condition. */
@@ -834,7 +840,7 @@ export type ExperimentResults = {
   /** File groups by device name */
   deviceGroups: DeviceGroup[]
   /** Grouping strategy used */
-  groupingStrategy: "exact" | "search" | "fuzzy"
+  groupingStrategy: "exact" | "search" | "fuzzy" | "import"
   /** Matching strategy used */
   matchingStrategy: "fuzzy" | "sequential" | "manual"
   /** Last updated timestamp */
@@ -1342,20 +1348,11 @@ type AppContextValue = {
   discardUploadFlow: () => Promise<void>
 }
 
-/**
- * Ids of results whose upload staging never finished: files are present but
- * the result was never handed over to NOMAD (no upload_id). The single
- * predicate behind the save filter, the load-time purge and the upload-flow
- * discard — a result WITH an upload_id is complete by definition (waiting for
- * NOMAD processing is not part of the staging) and is never swept.
- */
-function staleResultIdsOf(results: ExperimentResults[]): Set<string> {
-  return new Set(
-    results
-      .filter((r) => r.files.length > 0 && !r.nomad?.upload_id)
-      .map((r) => r.id),
-  )
-}
+export {
+  isImportedResult,
+  isPersistableResult,
+  staleResultIdsOf,
+} from "./resultLifecycle"
 
 const AppContext = createContext<AppContextValue | null>(null)
 
@@ -1540,9 +1537,7 @@ export function AppProvider({
   // persisted — they represent an in-progress workflow that should not survive
   // a page refresh/crash/tab-close. Filter them out of every save snapshot so
   // this invariant holds regardless of how navigation or unmounting occurs.
-  const persistableResults = results.filter(
-    (r) => r.files.length === 0 || !!r.nomad?.upload_id,
-  )
+  const persistableResults = results.filter(isPersistableResult)
   stateRef.current = {
     experiments,
     processes,

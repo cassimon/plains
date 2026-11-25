@@ -86,7 +86,7 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function formatMetric(value: number | null): string {
+function formatMetric(value: number | null | undefined): string {
   return value == null ? "—" : String(value)
 }
 
@@ -96,8 +96,16 @@ function formatMetric(value: number | null): string {
  * "Confirm import" action and is performed server-side.
  */
 export function ZipExplorer() {
-  const { experiments, planes, processes, reloadFromBackend, setActiveEntity } =
-    useAppContext()
+  const {
+    experiments,
+    planes,
+    processes,
+    reloadFromBackend,
+    setActiveEntity,
+    setActivePlaneId,
+    setActiveCollectionId,
+    updateLastSelected,
+  } = useAppContext()
   const navigate = useNavigate()
   const selectedFileRef = useRef<File | null>(null)
   // Re-entry guard: a rapid double-click on Confirm must not fire two imports
@@ -114,6 +122,13 @@ export function ZipExplorer() {
   const [planeId, setPlaneId] = useState<string | null>(null)
   const [collectionId, setCollectionId] = useState<string | null>(null)
   const [processId, setProcessId] = useState<string | null>(null)
+  // Original file → corrected device name (editable in the preview).
+  const [deviceNames, setDeviceNames] = useState<Record<string, string>>({})
+  // Device name → substrate assignment (substrate name for a new experiment,
+  // substrate id for an existing experiment).
+  const [substrateAssignments, setSubstrateAssignments] = useState<
+    Record<string, string>
+  >({})
   const [importPreview, setImportPreview] = useState<ImportResult | null>(null)
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
@@ -147,6 +162,13 @@ export function ZipExplorer() {
     setImportPreview(null)
     setImportedResultId(null)
     setExperimentId(null)
+    // A new archive must not reuse state from the previous one.
+    setNewName("")
+    setPlaneId(null)
+    setCollectionId(null)
+    setProcessId(null)
+    setDeviceNames({})
+    setSubstrateAssignments({})
     try {
       const form = new FormData()
       form.append("file", file)
@@ -187,6 +209,20 @@ export function ZipExplorer() {
       } else {
         form.append("experiment_id", experimentId!)
       }
+      if (Object.keys(deviceNames).length > 0) {
+        form.append("device_names", JSON.stringify(deviceNames))
+      }
+      const substrateList = Object.entries(substrateAssignments)
+        .filter(([, substrate]) => substrate.trim().length > 0)
+        .map(([file, substrate]) => {
+          const device = deviceNames[file] ?? file
+          return importMode === "new"
+            ? { device, substrate_name: substrate.trim() }
+            : { device, substrate_id: substrate.trim() }
+        })
+      if (substrateList.length > 0) {
+        form.append("substrate_assignments", JSON.stringify(substrateList))
+      }
       form.append("dry_run", dryRun ? "true" : "false")
       const { ok, status, data } = await postZip("import", form)
       if (!ok) {
@@ -196,6 +232,17 @@ export function ZipExplorer() {
       }
       const parsed = data as ImportResult
       setImportPreview(parsed)
+      if (dryRun) {
+        // Initialise editable device names from the parsed measurements, but
+        // preserve any manual corrections the user already made.
+        setDeviceNames((prev) => {
+          const next: Record<string, string> = { ...prev }
+          for (const m of parsed.measurements) {
+            if (!(m.file in next)) next[m.file] = m.file
+          }
+          return next
+        })
+      }
       if (!dryRun) {
         setImportedResultId(parsed.result_id)
         notifications.show({
@@ -212,6 +259,9 @@ export function ZipExplorer() {
         await reloadFromBackend()
         if (parsed.experiment_id) {
           setActiveEntity({ kind: "experiment", id: parsed.experiment_id })
+          // Make the Results page preselect this experiment (it reads
+          // `lastSelectedByKind.experiment` on mount).
+          updateLastSelected("experiment", parsed.experiment_id)
         }
       }
     } catch (err) {
@@ -227,6 +277,11 @@ export function ZipExplorer() {
     label: e.name || e.id,
   }))
 
+  // Substrates of the selected existing experiment (for assignment).
+  const existingSubstrateOptions = (
+    experiments.find((e) => e.id === experimentId)?.substrates ?? []
+  ).map((s) => ({ value: s.id, label: s.name || s.id }))
+
   // Collections across planes (for canvas placement); label includes the plane.
   const collectionOptions = planes.flatMap((plane) =>
     plane.elements
@@ -236,6 +291,36 @@ export function ZipExplorer() {
         label: `${plane.name} / ${el.name}`,
       })),
   )
+
+  // Group the parsed measurements by device (one row per original file), with
+  // FW and RV scans side by side.
+  const deviceRows = (() => {
+    const map = new Map<string, ImportMeasurement[]>()
+    for (const m of importPreview?.measurements ?? []) {
+      const list = map.get(m.file) ?? []
+      list.push(m)
+      map.set(m.file, list)
+    }
+    return [...map.entries()].map(([file, ms]) => ({
+      file,
+      fw: ms.find((m) => m.direction !== "RV"),
+      rv: ms.find((m) => m.direction === "RV"),
+    }))
+  })()
+
+  // Corrected device names that collide (two distinct original files assigned
+  // the same name) — they will be grouped into one device group.
+  const duplicateDeviceNames = (() => {
+    const counts = new Map<string, number>()
+    for (const d of deviceRows) {
+      const name = (deviceNames[d.file] ?? d.file).trim()
+      if (!name) continue
+      counts.set(name, (counts.get(name) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([name]) => name)
+  })()
 
   return (
     <Stack gap="md">
@@ -415,7 +500,9 @@ export function ZipExplorer() {
                     disabled={
                       (importMode === "new"
                         ? !newName.trim()
-                        : !experimentId) || importing
+                        : !experimentId) ||
+                      !importPreview ||
+                      importing
                     }
                     loading={importing}
                   >
@@ -435,15 +522,47 @@ export function ZipExplorer() {
 
                 {importedResultId && (
                   <Alert color="green" title="Import complete">
-                    Imported {importPreview?.imported ?? 0} measurement
-                    {importPreview?.imported === 1 ? "" : "s"}.{" "}
-                    <Button
-                      variant="subtle"
-                      size="compact-sm"
-                      onClick={() => navigate({ to: "/results" })}
-                    >
-                      Open Results
-                    </Button>
+                    <Stack gap={4}>
+                      <Text size="sm">
+                        Imported {importPreview?.imported ?? 0} measurement
+                        {importPreview?.imported === 1 ? "" : "s"} across{" "}
+                        {deviceRows.length} device
+                        {deviceRows.length === 1 ? "" : "s"}
+                        {importPreview && importPreview.skipped.length > 0
+                          ? `, ${importPreview.skipped.length} skipped`
+                          : ""}
+                        .
+                      </Text>
+                      <Group gap="xs">
+                        <Button
+                          size="compact-sm"
+                          onClick={() => navigate({ to: "/results" })}
+                        >
+                          Open Results
+                        </Button>
+                        {(collectionId || planeId) && (
+                          <Button
+                            variant="light"
+                            size="compact-sm"
+                            onClick={() => {
+                              if (collectionId) {
+                                const plane = planes.find((p) =>
+                                  p.elements.some((el) => el.id === collectionId),
+                                )
+                                if (plane) setActivePlaneId(plane.id)
+                                setActiveCollectionId(collectionId)
+                              } else if (planeId) {
+                                setActivePlaneId(planeId)
+                                setActiveCollectionId(null)
+                              }
+                              navigate({ to: "/organization" })
+                            }}
+                          >
+                            Open in Organization
+                          </Button>
+                        )}
+                      </Group>
+                    </Stack>
                   </Alert>
                 )}
 
@@ -451,30 +570,96 @@ export function ZipExplorer() {
                   <Stack gap="xs">
                     <Text size="sm" fw={600}>
                       {importPreview.dry_run ? "Preview" : "Imported"} —{" "}
+                      {deviceRows.length} device
+                      {deviceRows.length === 1 ? "" : "s"} (
                       {importPreview.measurements.length} measurement
-                      {importPreview.measurements.length === 1 ? "" : "s"}
+                      {importPreview.measurements.length === 1 ? "" : "s"})
                     </Text>
-                    <ScrollArea.Autosize mah={240} type="auto">
+                    <Text size="xs" c="dimmed">
+                      The device name can be corrected before import. Original
+                      filenames are always preserved as provenance.
+                    </Text>
+                    {duplicateDeviceNames.length > 0 && (
+                      <Alert
+                        color="yellow"
+                        title="Duplicate device names"
+                        icon={<IconAlertTriangle size={16} />}
+                      >
+                        Multiple devices share the same corrected name ({" "}
+                        {duplicateDeviceNames.join(", ")} ). They will be grouped
+                        into a single device group.
+                      </Alert>
+                    )}
+                    <ScrollArea.Autosize mah={300} type="auto">
                       <Table striped verticalSpacing={5}>
                         <Table.Thead>
                           <Table.Tr>
-                            <Table.Th>File</Table.Th>
-                            <Table.Th>Dir</Table.Th>
-                            <Table.Th>Voc (V)</Table.Th>
-                            <Table.Th>Jsc (mA/cm²)</Table.Th>
-                            <Table.Th>FF (%)</Table.Th>
-                            <Table.Th>PCE (%)</Table.Th>
+                            <Table.Th style={{ minWidth: 220 }}>Device</Table.Th>
+                            <Table.Th style={{ minWidth: 160 }}>
+                              Substrate
+                            </Table.Th>
+                            <Table.Th>FW Voc</Table.Th>
+                            <Table.Th>FW Jsc</Table.Th>
+                            <Table.Th>FW FF</Table.Th>
+                            <Table.Th>FW PCE</Table.Th>
+                            <Table.Th>RV Voc</Table.Th>
+                            <Table.Th>RV Jsc</Table.Th>
+                            <Table.Th>RV FF</Table.Th>
+                            <Table.Th>RV PCE</Table.Th>
                           </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
-                          {importPreview.measurements.map((m) => (
-                            <Table.Tr key={`${m.file}-${m.direction ?? ""}`}>
-                              <Table.Td>{m.file}</Table.Td>
-                              <Table.Td>{m.direction ?? "—"}</Table.Td>
-                              <Table.Td>{formatMetric(m.voc)}</Table.Td>
-                              <Table.Td>{formatMetric(m.jsc)}</Table.Td>
-                              <Table.Td>{formatMetric(m.ff)}</Table.Td>
-                              <Table.Td>{formatMetric(m.eff)}</Table.Td>
+                          {deviceRows.map((d) => (
+                            <Table.Tr key={d.file}>
+                              <Table.Td>
+                                <TextInput
+                                  size="xs"
+                                  value={deviceNames[d.file] ?? d.file}
+                                  onChange={(e) =>
+                                    setDeviceNames((prev) => ({
+                                      ...prev,
+                                      [d.file]: e.currentTarget.value,
+                                    }))
+                                  }
+                                />
+                              </Table.Td>
+                              <Table.Td>
+                                {importMode === "new" ? (
+                                  <TextInput
+                                    size="xs"
+                                    placeholder="Unassigned"
+                                    value={substrateAssignments[d.file] ?? ""}
+                                    onChange={(e) =>
+                                      setSubstrateAssignments((prev) => ({
+                                        ...prev,
+                                        [d.file]: e.currentTarget.value,
+                                      }))
+                                    }
+                                  />
+                                ) : (
+                                  <Select
+                                    size="xs"
+                                    placeholder="Unassigned"
+                                    data={existingSubstrateOptions}
+                                    value={substrateAssignments[d.file] ?? null}
+                                    onChange={(v) =>
+                                      setSubstrateAssignments((prev) => ({
+                                        ...prev,
+                                        [d.file]: v ?? "",
+                                      }))
+                                    }
+                                    clearable
+                                  />
+                                )}
+                              </Table.Td>
+                              <Table.Td>{formatMetric(d.fw?.voc)}</Table.Td>
+                              <Table.Td>{formatMetric(d.fw?.jsc)}</Table.Td>
+                              <Table.Td>{formatMetric(d.fw?.ff)}</Table.Td>
+                              <Table.Td>{formatMetric(d.fw?.eff)}</Table.Td>
+                              <Table.Td>{formatMetric(d.rv?.voc)}</Table.Td>
+                              <Table.Td>{formatMetric(d.rv?.jsc)}</Table.Td>
+                              <Table.Td>{formatMetric(d.rv?.ff)}</Table.Td>
+                              <Table.Td>{formatMetric(d.rv?.eff)}</Table.Td>
                             </Table.Tr>
                           ))}
                         </Table.Tbody>

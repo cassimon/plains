@@ -320,31 +320,36 @@ function substrateFromApi(s: ApiObj): Substrate {
 // ── Results ──────────────────────────────────────────────────────────────────
 
 function resultsFromApi(r: ApiObj): ExperimentResults {
+  const files: MeasurementFile[] = (r.measurement_files ?? []).map(
+    (f: ApiObj): MeasurementFile => ({
+      id: f.id,
+      fileName: f.filename,
+      fileType: f.file_type,
+      deviceName: f.device_name ?? "",
+      cell: f.cell ?? "",
+      pixel: f.pixel_label ?? "",
+      value: f.value ?? undefined,
+      voc: f.voc ?? undefined,
+      jsc: f.jsc ?? undefined,
+      ff: f.ff ?? undefined,
+      illuminationIntensity: f.illumination_intensity ?? undefined,
+      measurementDate: f.measurement_date ?? undefined,
+      user: f.measurement_user ?? undefined,
+      notes: f.notes ?? undefined,
+    }),
+  )
   return {
     id: r.id,
     experimentId: r.experiment_id,
-    files: (r.measurement_files ?? []).map(
-      (f: ApiObj): MeasurementFile => ({
-        id: f.id,
-        fileName: f.filename,
-        fileType: f.file_type,
-        deviceName: f.device_name ?? "",
-        cell: f.cell ?? "",
-        pixel: f.pixel_label ?? "",
-        value: f.value ?? undefined,
-        voc: f.voc ?? undefined,
-        jsc: f.jsc ?? undefined,
-        ff: f.ff ?? undefined,
-        illuminationIntensity: f.illumination_intensity ?? undefined,
-        measurementDate: f.measurement_date ?? undefined,
-        user: f.measurement_user ?? undefined,
-      }),
-    ),
+    files,
     deviceGroups: (r.device_groups ?? []).map(
       (g: ApiObj): DeviceGroup => ({
         id: g.id,
         deviceName: g.name,
-        files: [],
+        // Group membership is derived from the established convention
+        // `MeasurementFile.deviceName === DeviceGroup.name` (the same convention
+        // the manual upload flow and the ZIP importer both use to group files).
+        files: files.filter((f) => f.deviceName === g.name),
         assignedSubstrateId: g.assigned_substrate_id ?? null,
         suggestedSubstrateId: g.suggested_substrate_id ?? undefined,
         matchScore: g.match_score ?? undefined,
@@ -677,6 +682,7 @@ export function measurementFilesToApi(r: ExperimentResults): ApiObj[] {
     illumination_intensity: f.illuminationIntensity ?? null,
     measurement_date: f.measurementDate ?? null,
     measurement_user: f.user ?? null,
+    notes: f.notes ?? null,
   }))
 }
 

@@ -1,6 +1,7 @@
 """Integration tests for the ZIP import endpoint (requires DB fixtures)."""
 
 import io
+import json
 import zipfile
 
 from fastapi.testclient import TestClient
@@ -64,7 +65,10 @@ class TestZipImport:
         # Imported result is retrievable after "reload".
         g = client.get(f"{RESULTS}/{body['result_id']}", headers=normal_user_token_headers)
         assert g.status_code == 200
-        files = g.json()["measurement_files"]
+        payload = g.json()
+        # The lifecycle marker survives the round-trip.
+        assert payload["grouping_strategy"] == "import"
+        files = payload["measurement_files"]
         assert len(files) == 2
         first = files[0]
         assert first["filename"] == "sample_A_01"
@@ -73,6 +77,8 @@ class TestZipImport:
         assert first["jsc"] == 22.5
         assert first["ff"] == 76.4
         assert first["value"] == 18.9
+        # Provenance note survives the round-trip.
+        assert (first["notes"] or "").startswith("Imported from ZIP:")
 
     def test_dry_run_does_not_persist(
         self, client: TestClient, normal_user_token_headers: dict[str, str]
@@ -207,3 +213,84 @@ class TestZipImport:
         ).json()
         assert exp["collection_id"] == col["id"]
         assert exp["plane_id"] == plane["id"]
+
+    def test_import_applies_device_name_corrections(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        r = client.post(
+            f"{BASE}/import",
+            files={"file": ("archive.zip", make_zip(), "application/zip")},
+            data={
+                "experiment_name": "Corrected import",
+                "device_names": json.dumps(
+                    {"sample_A_01": "DEVICE-ALPHA", "sample_A_02": "DEVICE-BETA"}
+                ),
+                "dry_run": "false",
+            },
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+
+        res = client.get(
+            f"{RESULTS}/{body['result_id']}", headers=normal_user_token_headers
+        ).json()
+        files = res["measurement_files"]
+        device_by_filename = {f["filename"]: f["device_name"] for f in files}
+        assert device_by_filename["sample_A_01"] == "DEVICE-ALPHA"
+        assert device_by_filename["sample_A_02"] == "DEVICE-BETA"
+        # Original filenames are preserved (provenance).
+        assert "sample_A_01" in device_by_filename
+
+        # Device groups reflect the corrected names.
+        group_names = sorted(g["name"] for g in res["device_groups"])
+        assert group_names == ["DEVICE-ALPHA", "DEVICE-BETA"]
+
+    def test_import_creates_substrates_and_assigns_device_groups(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        r = client.post(
+            f"{BASE}/import",
+            files={"file": ("archive.zip", make_zip(), "application/zip")},
+            data={
+                "experiment_name": "With substrates",
+                "substrate_assignments": json.dumps(
+                    [
+                        {"device": "sample_A_01", "substrate_name": "Substrate A"},
+                        {"device": "sample_A_02", "substrate_name": "Substrate B"},
+                    ]
+                ),
+                "dry_run": "false",
+            },
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+
+        # Two named substrates were created on the experiment.
+        exp = client.get(
+            f"{EXP_BASE}/{body['experiment_id']}", headers=normal_user_token_headers
+        ).json()
+        substrates = exp["substrates"]
+        assert {s["name"] for s in substrates} == {"Substrate A", "Substrate B"}
+        sub_id = {s["name"]: s["id"] for s in substrates}
+
+        # Device groups are assigned to the right substrate.
+        res = client.get(
+            f"{RESULTS}/{body['result_id']}", headers=normal_user_token_headers
+        ).json()
+        by_device = {g["name"]: g["assigned_substrate_id"] for g in res["device_groups"]}
+        assert by_device["sample_A_01"] == sub_id["Substrate A"]
+        assert by_device["sample_A_02"] == sub_id["Substrate B"]
+
+    def test_import_rejects_repeated_import_into_same_experiment(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        exp = create_experiment(client, normal_user_token_headers)
+        first = _post_import(client, normal_user_token_headers, make_zip(), exp["id"])
+        assert first.status_code == 200, first.text
+
+        # A second import into the same experiment must be rejected, not silently
+        # create a second result set the Results UI cannot display.
+        second = _post_import(client, normal_user_token_headers, make_zip(), exp["id"])
+        assert second.status_code == 409

@@ -62,6 +62,20 @@ def test_parse_jv_summary_accepts_decimal_comma() -> None:
     assert rows[0]["eff"] == 18.9
 
 
+def test_parse_jv_summary_rejects_non_finite_numbers() -> None:
+    # nan / inf / -inf must be rejected (become None, and the row is dropped
+    # only if every metric is None).
+    text = (
+        SUMMARY_HEADER
+        + "s_nan\tnan\t22.5\t0.9\t21.0\t18.9\t1.2\t3000\t76.4\t18.9\n"
+        + "s_inf\tinf\t22.5\t0.9\t21.0\t18.9\t1.2\t3000\t76.4\t18.9\n"
+    )
+    rows = parse_jv_summary(text)
+    # voc is None for both, but jsc/ff/eff are finite → rows still parsed.
+    assert all(r["voc"] is None for r in rows)
+    assert rows[0]["jsc"] == 22.5
+
+
 def test_extract_preserves_fw_and_rv_directions() -> None:
     data = make_zip(
         {

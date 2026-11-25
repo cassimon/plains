@@ -38,8 +38,12 @@ instrument), you can import them directly:
 5. Optionally choose a **Plane**, a **Collection** and a **Process** to organize
    the new experiment (you can leave them unassigned). Choosing a **Collection**
    places the experiment on the Organization canvas.
-6. Click **Preview import** to see the values, then **Confirm import**.
-7. Click **Open Results** to see the imported measurements.
+6. In the preview you can **correct the device name** and **assign a substrate**
+   (type a name for a new experiment, or pick an existing substrate) of each
+   measurement before importing. The original filename is always kept; unassigned
+   devices stay unassigned.
+7. Click **Confirm import**; then use **Open Results** (or **Open in Organization**
+   if you chose a Collection) to jump straight to the imported data.
 
 You do **not** need to create a Process first. Imported measurements are saved
 under a new experiment with no fabrication process unless you choose one.

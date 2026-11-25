@@ -73,6 +73,7 @@ import {
   type Experiment,
   type ExperimentResults,
   getExperimentStatus,
+  isImportedResult,
   type MeasurementFile,
   type MeasurementType,
   newExperimentResults,
@@ -4570,9 +4571,14 @@ export function ResultsPage() {
           return false
         }
         if (getExperimentStatus(e) === "complete") return true
-        return e.substrates.length > 0
+        if (e.substrates.length > 0) return true
+        // Data-first imported experiments (no date/substrates) stay selectable
+        // when they hold persistent imported results.
+        return results.some(
+          (r) => r.experimentId === e.id && isImportedResult(r),
+        )
       }),
-    [experiments],
+    [experiments, results],
   )
 
   useEffect(() => {

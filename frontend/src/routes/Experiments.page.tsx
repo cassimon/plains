@@ -84,6 +84,7 @@ import {
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
+import { isImportedResult } from "../store/resultLifecycle"
 import {
   buildChemicalsExport,
   ChemicalsTab,
@@ -2670,6 +2671,7 @@ export default function ExperimentsPage() {
   const {
     experiments,
     setExperiments,
+    results,
     processes,
     setProcesses,
     activeEntity,
@@ -2811,6 +2813,10 @@ export default function ExperimentsPage() {
   const selectedProcess =
     selectedExperiment &&
     processes.find((p) => p.id === selectedExperiment.processId)
+  const hasImportedResults = !!selectedExperiment &&
+    results.some(
+      (r) => r.experimentId === selectedExperiment.id && isImportedResult(r),
+    )
   const substrateMaterialOptions = React.useMemo(() => {
     if (!selectedProcess) {
       return []
@@ -3499,6 +3505,28 @@ export default function ExperimentsPage() {
             <Text size="lg" fw={500} c="dimmed">
               Select or create an experiment to get started
             </Text>
+          </Stack>
+        ) : !selectedProcess && hasImportedResults ? (
+          <Stack
+            gap="md"
+            align="center"
+            justify="center"
+            style={{ height: "100%" }}
+          >
+            <Alert
+              icon={<IconInfoCircle size={16} />}
+              title="Imported data"
+              color="blue"
+            >
+              This experiment was created from imported measurements and has no
+              fabrication recipe. Open Results to view the imported measurements.
+            </Alert>
+            <Button
+              variant="light"
+              onClick={() => void navigate({ to: "/results" })}
+            >
+              Open Results
+            </Button>
           </Stack>
         ) : !selectedProcess ? (
           <Stack

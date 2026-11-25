@@ -9,20 +9,23 @@ experiment, creates a single native ``ExperimentResults`` with the parsed
 ``MeasurementFile`` rows.
 """
 
+import json
 import logging
 import uuid
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from sqlmodel import select
 
 from app.api.deps import CurrentUser, SessionDep
-from app.crud import create_experiment, create_experiment_results
+from app.crud import create_experiment_results
 from app.models import (
     DataCollection,
     DeviceGroupCreate,
     Experiment,
-    ExperimentCreate,
+    ExperimentResults,
     ExperimentResultsCreate,
+    LabSubstrate,
     MeasurementFileCreate,
     Plane,
     Process,
@@ -87,6 +90,8 @@ async def import_zip_archive(
     plane_id: str | None = Form(None),
     collection_id: str | None = Form(None),
     process_id: str | None = Form(None),
+    device_names: str | None = Form(None),
+    substrate_assignments: str | None = Form(None),
     dry_run: bool = Form(False),
 ) -> dict[str, Any]:
     """Parse supported ZIP measurements and, unless ``dry_run``, persist them.
@@ -113,6 +118,23 @@ async def import_zip_archive(
         raise HTTPException(status_code=413, detail=str(exc)) from exc
 
     measurements = extracted["measurements"]
+
+    # Optional user corrections: a JSON object mapping the original file name to
+    # a corrected device name. Original filenames are always preserved in
+    # `filename`; only `device_name` (and thus the device grouping) changes.
+    device_names_map: dict[str, str] = {}
+    if device_names:
+        try:
+            parsed_names = json.loads(device_names)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid device_names JSON.") from None
+        if isinstance(parsed_names, dict):
+            device_names_map = {
+                str(k): str(v).strip()
+                for k, v in parsed_names.items()
+                if str(v).strip()
+            }
+
     response: dict[str, Any] = {
         "dry_run": dry_run,
         "measurements": measurements,
@@ -174,17 +196,18 @@ async def import_zip_archive(
     if new_name:
         # Data-first import: a new experiment. A process is linked only when the
         # user explicitly selected one; otherwise the experiment stays
-        # process-less (no fictional process is created).
-        experiment = create_experiment(
-            session=session,
-            experiment_in=ExperimentCreate(
-                name=new_name,
-                plane_id=resolved_plane_id,
-                collection_id=resolved_collection_id,
-                process_id=resolved_process_id,
-            ),
+        # process-less (no fictional process is created). The experiment is only
+        # flushed here (not committed) so that the results commit below persists
+        # experiment + results atomically.
+        experiment = Experiment(
+            name=new_name,
+            plane_id=resolved_plane_id,
+            collection_id=resolved_collection_id,
+            process_id=resolved_process_id,
             owner_id=current_user.id,
         )
+        session.add(experiment)
+        session.flush()
         exp_id = experiment.id
         response["created_experiment"] = True
     else:
@@ -202,12 +225,69 @@ async def import_zip_archive(
             raise HTTPException(status_code=404, detail="Experiment not found")
         if not current_user.is_superuser and existing.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail="Not enough permissions")
+        # The Results UI assumes a single result set per experiment, so a second
+        # import would create a result that cannot be displayed. Reject it rather
+        # than silently hide measurements.
+        existing_results = session.exec(
+            select(ExperimentResults).where(ExperimentResults.experiment_id == exp_id)
+        ).all()
+        if existing_results:
+            raise HTTPException(
+                status_code=409,
+                detail="This experiment already has results. Import into a new experiment instead.",
+            )
+
+    # User-reviewed substrate assignments: a JSON list of
+    # {"device": <device_name>, "substrate_name": <name|null>,
+    #  "substrate_id": <uuid|null>}. For a new experiment, named substrates are
+    # created (deduplicated by name); for an existing experiment, substrate_id
+    # must reference a substrate of that experiment.
+    substrate_map: dict[str, uuid.UUID] = {}
+    if substrate_assignments:
+        try:
+            assignments = json.loads(substrate_assignments)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=400, detail="Invalid substrate_assignments JSON."
+            ) from None
+        if isinstance(assignments, list):
+            created_by_name: dict[str, uuid.UUID] = {}
+            for a in assignments:
+                if not isinstance(a, dict):
+                    continue
+                device = str(a.get("device") or "").strip()
+                sub_name = str(a.get("substrate_name") or "").strip()
+                sub_id_raw = a.get("substrate_id")
+                if not device:
+                    continue
+                if new_name:
+                    if sub_name and device not in substrate_map:
+                        sid = created_by_name.get(sub_name)
+                        if sid is None:
+                            substrate = LabSubstrate(name=sub_name, experiment_id=exp_id)
+                            session.add(substrate)
+                            session.flush()
+                            sid = substrate.id
+                            created_by_name[sub_name] = sid
+                        substrate_map[device] = sid
+                elif sub_id_raw:
+                    try:
+                        sid = uuid.UUID(str(sub_id_raw))
+                    except ValueError:
+                        raise HTTPException(status_code=400, detail="Invalid substrate id.") from None
+                    existing_substrate = session.get(LabSubstrate, sid)
+                    if not existing_substrate or existing_substrate.experiment_id != exp_id:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Substrate not found in this experiment.",
+                        )
+                    substrate_map[device] = sid
 
     files_in = [
         MeasurementFileCreate(
             filename=m["file"],
             file_type="JV",
-            device_name=m["file"],
+            device_name=device_names_map.get(m["file"], m["file"]),
             voc=m["voc"],
             jsc=m["jsc"],
             ff=m["ff"],
@@ -227,7 +307,11 @@ async def import_zip_archive(
     for f in files_in:
         grouped_names.setdefault(f.device_name or f.filename, []).append(f.filename)
     device_groups = [
-        DeviceGroupCreate(name=name) for name in sorted(grouped_names)
+        DeviceGroupCreate(
+            name=name,
+            assigned_substrate_id=substrate_map.get(name),
+        )
+        for name in sorted(grouped_names)
     ]
 
     result = create_experiment_results(
@@ -237,6 +321,7 @@ async def import_zip_archive(
             device_groups=device_groups,
             plane_id=resolved_plane_id,
             collection_id=resolved_collection_id,
+            grouping_strategy="import",
         ),
         owner_id=current_user.id,
         experiment_id=exp_id,
