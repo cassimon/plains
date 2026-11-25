@@ -283,6 +283,35 @@ class TestZipImport:
         assert by_device["sample_A_01"] == sub_id["Substrate A"]
         assert by_device["sample_A_02"] == sub_id["Substrate B"]
 
+    def test_import_enforces_batch_and_summary_selection(
+        self, client: TestClient, normal_user_token_headers: dict[str, str]
+    ) -> None:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                "batchA/JV Summary_Parameters FW.txt",
+                SUMMARY,
+            )
+            zf.writestr(
+                "batchB/JV Summary_Parameters FW.txt",
+                SUMMARY,
+            )
+        zip_bytes = buf.getvalue()
+
+        # Select only batchA → one measurement imported.
+        r = client.post(
+            f"{BASE}/import",
+            files={"file": ("archive.zip", zip_bytes, "application/zip")},
+            data={
+                "experiment_name": "Batch selection",
+                "selected_batches": json.dumps(["batchA"]),
+                "dry_run": "false",
+            },
+            headers=normal_user_token_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["imported"] == 2  # batchA FW file has 2 rows
+
     def test_import_rejects_repeated_import_into_same_experiment(
         self, client: TestClient, normal_user_token_headers: dict[str, str]
     ) -> None:

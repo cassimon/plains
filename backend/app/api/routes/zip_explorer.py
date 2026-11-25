@@ -92,6 +92,8 @@ async def import_zip_archive(
     process_id: str | None = Form(None),
     device_names: str | None = Form(None),
     substrate_assignments: str | None = Form(None),
+    selected_batches: str | None = Form(None),
+    selection_mode: str | None = Form(None),
     dry_run: bool = Form(False),
 ) -> dict[str, Any]:
     """Parse supported ZIP measurements and, unless ``dry_run``, persist them.
@@ -118,6 +120,28 @@ async def import_zip_archive(
         raise HTTPException(status_code=413, detail=str(exc)) from exc
 
     measurements = extracted["measurements"]
+
+    # Acquisition-block and summary-coverage selection, enforced server-side.
+    sel_mode = (selection_mode or "").strip()
+    sel_batches: list[str] | None = None
+    if selected_batches:
+        try:
+            parsed_batches = json.loads(selected_batches)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=400, detail="Invalid selected_batches JSON."
+            ) from None
+        if isinstance(parsed_batches, list):
+            sel_batches = [str(b) for b in parsed_batches]
+
+    def _selected(m: dict[str, Any]) -> bool:
+        if sel_batches is not None and m["batch"] not in sel_batches:
+            return False
+        if sel_mode == "summary" and not m["in_summary"]:
+            return False
+        return True
+
+    measurements = [m for m in measurements if _selected(m)]
 
     # Optional user corrections: a JSON object mapping the original file name to
     # a corrected device name. Original filenames are always preserved in
@@ -157,8 +181,9 @@ async def import_zip_archive(
     resolved_collection_id: uuid.UUID | None = None
     resolved_process_id: uuid.UUID | None = None
     if new_name and collection_id:
-        # A collection places the experiment on a plane's canvas; its plane
-        # takes precedence over any separate plane_id.
+        # A collection places the experiment on a plane's canvas. If a plane_id
+        # is also provided it must match the collection's plane — otherwise the
+        # combination is inconsistent and rejected (no silent substitution).
         try:
             resolved_collection_id = uuid.UUID(collection_id)
         except ValueError:
@@ -171,6 +196,16 @@ async def import_zip_archive(
             not current_user.is_superuser and not _can_access_plane(plane, current_user)
         ):
             raise HTTPException(status_code=403, detail="Not enough permissions")
+        if plane_id:
+            try:
+                provided_plane_id = uuid.UUID(plane_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid plane id.") from None
+            if provided_plane_id != collection.plane_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="The selected plane does not match the selected collection's plane.",
+                )
         resolved_plane_id = collection.plane_id
     elif new_name and plane_id:
         try:
@@ -285,13 +320,19 @@ async def import_zip_archive(
 
     files_in = [
         MeasurementFileCreate(
-            filename=m["file"],
+            filename=m["filename"],
             file_type="JV",
-            device_name=device_names_map.get(m["file"], m["file"]),
+            device_name=device_names_map.get(m["device"], m["device"]),
+            cell=m["cell"],
+            pixel_label=m["pixel"],
             voc=m["voc"],
             jsc=m["jsc"],
             ff=m["ff"],
             value=m["eff"],
+            measurement_date=m["date"],
+            measurement_user=m["user"],
+            # The original ZIP file is NOT stored; provenance is kept in notes,
+            # never as a fake stored file_path.
             notes=(
                 f"Imported from ZIP: {m['source']}"
                 + (f" ({m['direction']})" if m.get("direction") else "")

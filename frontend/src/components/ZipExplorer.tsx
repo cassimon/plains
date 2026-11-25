@@ -2,6 +2,7 @@ import {
   Alert,
   Badge,
   Button,
+  Checkbox,
   FileButton,
   Group,
   Loader,
@@ -44,12 +45,18 @@ type ZipInspection = {
 
 type ImportMeasurement = {
   file: string
+  filename: string
+  device: string
   direction: string | null
   voc: number | null
   jsc: number | null
   ff: number | null
   eff: number | null
   source: string
+  batch: string
+  in_summary: boolean
+  cell: string
+  pixel: string
 }
 
 type ImportResult = {
@@ -78,7 +85,8 @@ const TYPE_COLOR: Record<string, string> = {
 
 // Filename types the backend can import (per-direction JV parameter summaries).
 // The combined `summary` file uses a different 6-column layout and stays preview-only.
-const IMPORTABLE_TYPES = new Set(["summary-fw", "summary-rv"])
+// Original JV files (stability-jv) and directional summaries are importable.
+const IMPORTABLE_TYPES = new Set(["stability-jv", "summary-fw", "summary-rv"])
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -130,6 +138,8 @@ export function ZipExplorer() {
     Record<string, string>
   >({})
   const [importPreview, setImportPreview] = useState<ImportResult | null>(null)
+  const [selectionMode, setSelectionMode] = useState<"summary" | "all">("summary")
+  const [selectedBatches, setSelectedBatches] = useState<Set<string>>(new Set())
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [importedResultId, setImportedResultId] = useState<string | null>(null)
@@ -214,8 +224,8 @@ export function ZipExplorer() {
       }
       const substrateList = Object.entries(substrateAssignments)
         .filter(([, substrate]) => substrate.trim().length > 0)
-        .map(([file, substrate]) => {
-          const device = deviceNames[file] ?? file
+        .map(([deviceKey, substrate]) => {
+          const device = deviceNames[deviceKey] ?? deviceKey
           return importMode === "new"
             ? { device, substrate_name: substrate.trim() }
             : { device, substrate_id: substrate.trim() }
@@ -223,6 +233,10 @@ export function ZipExplorer() {
       if (substrateList.length > 0) {
         form.append("substrate_assignments", JSON.stringify(substrateList))
       }
+      if (selectedBatches.size > 0) {
+        form.append("selected_batches", JSON.stringify([...selectedBatches]))
+      }
+      form.append("selection_mode", selectionMode)
       form.append("dry_run", dryRun ? "true" : "false")
       const { ok, status, data } = await postZip("import", form)
       if (!ok) {
@@ -238,7 +252,8 @@ export function ZipExplorer() {
         setDeviceNames((prev) => {
           const next: Record<string, string> = { ...prev }
           for (const m of parsed.measurements) {
-            if (!(m.file in next)) next[m.file] = m.file
+            const key = m.device || m.filename || m.file
+            if (!(key in next)) next[key] = key
           }
           return next
         })
@@ -282,29 +297,63 @@ export function ZipExplorer() {
     experiments.find((e) => e.id === experimentId)?.substrates ?? []
   ).map((s) => ({ value: s.id, label: s.name || s.id }))
 
-  // Collections across planes (for canvas placement); label includes the plane.
-  const collectionOptions = planes.flatMap((plane) =>
-    plane.elements
-      .filter((el) => el.type === "collection")
-      .map((el) => ({
-        value: el.id,
-        label: `${plane.name} / ${el.name}`,
-      })),
+  // Collections scoped to the selected plane (no cross-plane collections).
+  const collectionOptions = planes
+    .filter((plane) => !planeId || plane.id === planeId)
+    .flatMap((plane) =>
+      plane.elements
+        .filter((el) => el.type === "collection")
+        .map((el) => ({
+          value: el.id,
+          label: el.name || "Collection",
+        })),
+    )
+
+  // Acquisition blocks discovered by the backend, with counts.
+  const batchSummary = (() => {
+    const map = new Map<string, { total: number; inSummary: number; devices: Set<string> }>()
+    for (const m of importPreview?.measurements ?? []) {
+      const b = m.batch || "(no batch)"
+      const e = map.get(b) ?? { total: 0, inSummary: 0, devices: new Set<string>() }
+      e.total += 1
+      if (m.in_summary) e.inSummary += 1
+      e.devices.add(m.device || m.filename || m.file)
+      map.set(b, e)
+    }
+    return [...map.entries()].map(([batch, e]) => ({
+      batch,
+      total: e.total,
+      inSummary: e.inSummary,
+      devices: e.devices.size,
+    }))
+  })()
+
+  // Selection: batch (default all selected) + summary coverage.
+  const effectiveBatches = selectedBatches.size > 0
+    ? selectedBatches
+    : new Set(batchSummary.map((b) => b.batch))
+
+  const filteredMeasurements = (importPreview?.measurements ?? []).filter(
+    (m) =>
+      effectiveBatches.has(m.batch || "(no batch)") &&
+      (selectionMode === "all" || m.in_summary),
   )
 
-  // Group the parsed measurements by device (one row per original file), with
-  // FW and RV scans side by side.
+  // Group the SELECTED measurements by device (one row per explicit Device
+  // identifier), with FW and RV scans side by side.
   const deviceRows = (() => {
     const map = new Map<string, ImportMeasurement[]>()
-    for (const m of importPreview?.measurements ?? []) {
-      const list = map.get(m.file) ?? []
+    for (const m of filteredMeasurements) {
+      const key = m.device || m.filename || m.file
+      const list = map.get(key) ?? []
       list.push(m)
-      map.set(m.file, list)
+      map.set(key, list)
     }
-    return [...map.entries()].map(([file, ms]) => ({
-      file,
+    return [...map.entries()].map(([device, ms]) => ({
+      device,
       fw: ms.find((m) => m.direction !== "RV"),
       rv: ms.find((m) => m.direction === "RV"),
+      acquisitions: ms.length,
     }))
   })()
 
@@ -313,7 +362,7 @@ export function ZipExplorer() {
   const duplicateDeviceNames = (() => {
     const counts = new Map<string, number>()
     for (const d of deviceRows) {
-      const name = (deviceNames[d.file] ?? d.file).trim()
+      const name = (deviceNames[d.device] ?? d.device).trim()
       if (!name) continue
       counts.set(name, (counts.get(name) ?? 0) + 1)
     }
@@ -412,9 +461,42 @@ export function ZipExplorer() {
               <Stack gap="sm">
                 <Text fw={600}>Import measurements</Text>
                 <Text size="sm" c="dimmed">
-                  This archive contains a supported JV Summary. Import it into a
-                  new experiment (no process needed) or an existing one.
+                  Select acquisition batches and which measurements to import.
                 </Text>
+
+                {batchSummary.length > 0 && (
+                  <Stack gap={4}>
+                    <Text size="xs" fw={600} c="dimmed">
+                      Acquisition batches
+                    </Text>
+                    {batchSummary.map((b) => (
+                      <Checkbox
+                        key={b.batch}
+                        size="xs"
+                        label={`${b.batch} — ${b.total} measurements, ${b.devices} devices`}
+                        checked={effectiveBatches.has(b.batch)}
+                        onChange={(e) =>
+                          setSelectedBatches((prev) => {
+                            const next = new Set(prev)
+                            if (e.currentTarget.checked) next.add(b.batch)
+                            else next.delete(b.batch)
+                            return next
+                          })
+                        }
+                      />
+                    ))}
+                  </Stack>
+                )}
+
+                <SegmentedControl
+                  value={selectionMode}
+                  onChange={(v) => setSelectionMode(v as "summary" | "all")}
+                  data={[
+                    { label: "Summary only", value: "summary" },
+                    { label: "All measurements", value: "all" },
+                  ]}
+                  fullWidth
+                />
 
                 <SegmentedControl
                   value={importMode}
@@ -439,7 +521,11 @@ export function ZipExplorer() {
                       placeholder="Leave unassigned"
                       data={planes.map((p) => ({ value: p.id, label: p.name }))}
                       value={planeId}
-                      onChange={(v) => setPlaneId(v)}
+                      onChange={(v) => {
+                        setPlaneId(v)
+                        // A plane change invalidates an incompatible collection.
+                        setCollectionId(null)
+                      }}
                       searchable
                       clearable
                     />
@@ -610,15 +696,15 @@ export function ZipExplorer() {
                         </Table.Thead>
                         <Table.Tbody>
                           {deviceRows.map((d) => (
-                            <Table.Tr key={d.file}>
+                            <Table.Tr key={d.device}>
                               <Table.Td>
                                 <TextInput
                                   size="xs"
-                                  value={deviceNames[d.file] ?? d.file}
+                                  value={deviceNames[d.device] ?? d.device}
                                   onChange={(e) =>
                                     setDeviceNames((prev) => ({
                                       ...prev,
-                                      [d.file]: e.currentTarget.value,
+                                      [d.device]: e.currentTarget.value,
                                     }))
                                   }
                                 />
@@ -628,11 +714,11 @@ export function ZipExplorer() {
                                   <TextInput
                                     size="xs"
                                     placeholder="Unassigned"
-                                    value={substrateAssignments[d.file] ?? ""}
+                                    value={substrateAssignments[d.device] ?? ""}
                                     onChange={(e) =>
                                       setSubstrateAssignments((prev) => ({
                                         ...prev,
-                                        [d.file]: e.currentTarget.value,
+                                        [d.device]: e.currentTarget.value,
                                       }))
                                     }
                                   />
@@ -641,11 +727,11 @@ export function ZipExplorer() {
                                     size="xs"
                                     placeholder="Unassigned"
                                     data={existingSubstrateOptions}
-                                    value={substrateAssignments[d.file] ?? null}
+                                    value={substrateAssignments[d.device] ?? null}
                                     onChange={(v) =>
                                       setSubstrateAssignments((prev) => ({
                                         ...prev,
-                                        [d.file]: v ?? "",
+                                        [d.device]: v ?? "",
                                       }))
                                     }
                                     clearable

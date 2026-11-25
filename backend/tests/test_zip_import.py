@@ -8,6 +8,7 @@ import pytest
 from app.services.zip_explorer import UnsafeZipError
 from app.services.zip_import import (
     extract_importable_measurements,
+    parse_jv_file,
     parse_jv_summary,
 )
 
@@ -74,6 +75,86 @@ def test_parse_jv_summary_rejects_non_finite_numbers() -> None:
     # voc is None for both, but jsc/ff/eff are finite → rows still parsed.
     assert all(r["voc"] is None for r in rows)
     assert rows[0]["jsc"] == 22.5
+
+
+JV_FILE = (
+    "## Header ##\n"
+    "[General info]\n"
+    "User\tRESEARCHER\n"
+    "Device\tPVK1-BSAM-C60-28-1A\n"
+    "Cell area (cm2)\t0.086\n"
+    "Test\tStability (JV)\n"
+    "Date\t2026-08-27\n"
+    "Time\t16:14:20\n"
+    "Note\tSMU 1A\n"
+    "\n"
+    "[JV Settings]\n"
+    "Vmin (V)\t-0.100\n"
+    "\n"
+    "## Data ##\n"
+    "Scan\tVoc\tJsc\tV_MPP\tJ_MPP\tP_MPP\tRs\tR//\tFF\tEff\n"
+    "\tV\tmA/cm²\tV\tmA/cm²\tmW/cm²\tOhm\tOhm\t%\t%\n"
+    "FW\t0.929921\t12.750992\t0.616521\t7.294367\t4.497130\t3.10E+2\t1.98E+3\t37.93\t4.50\n"
+    "RV\t0.927747\t12.135900\t0.589129\t7.818476\t4.606093\t4.11E+2\t6.84E+4\t40.91\t4.61\n"
+)
+
+
+def test_parse_jv_file_extracts_device_and_directions() -> None:
+    parsed = parse_jv_file(JV_FILE)
+    assert parsed is not None
+    assert parsed["device"] == "PVK1-BSAM-C60-28-1A"
+    assert parsed["user"] == "RESEARCHER"
+    assert parsed["date"] == "2026-08-27"
+    assert parsed["fw"]["voc"] == 0.929921
+    assert parsed["rv"]["voc"] == 0.927747
+    assert parsed["fw"]["eff"] == 4.50
+
+
+def test_extract_uses_original_jv_device_identity() -> None:
+    data = make_zip(
+        {
+            "2026-08-27/DEVICE-1/0001_Stability (JV)_DEVICE-1.txt": JV_FILE.encode(),
+        }
+    )
+    result = extract_importable_measurements(data)
+    assert len(result["measurements"]) == 2  # FW + RV
+    m = result["measurements"][0]
+    # The explicit Device field is the identity, not the filename.
+    assert m["device"] == "PVK1-BSAM-C60-28-1A"
+    assert m["file"].startswith("2026-08-27/DEVICE-1/")
+    assert m["direction"] == "FW"
+    assert result["measurements"][1]["direction"] == "RV"
+
+
+def test_identical_summary_filenames_in_different_directories() -> None:
+    data = make_zip(
+        {
+            "batchA/JV Summary_Parameters FW.txt": (
+                SUMMARY_HEADER + "same.txt\t1.0\t20\t0.8\t19\t15\t1\t2000\t75\t15\n"
+            ).encode(),
+            "batchB/JV Summary_Parameters FW.txt": (
+                SUMMARY_HEADER + "same.txt\t1.1\t21\t0.81\t19.5\t15.5\t1.1\t2100\t76\t15.5\n"
+            ).encode(),
+        }
+    )
+    result = extract_importable_measurements(data)
+    # Two distinct measurements from different directories, not one.
+    assert len(result["measurements"]) == 2
+    assert {m["batch"] for m in result["measurements"]} == {"batchA", "batchB"}
+
+
+def test_mixed_original_and_summary_only_archives() -> None:
+    data = make_zip(
+        {
+            "batchA/DEV/0001_Stability (JV)_DEV.txt": JV_FILE.encode(),
+            "batchB/JV Summary_Parameters FW.txt": (
+                SUMMARY_HEADER + "only.txt\t1.0\t20\t0.8\t19\t15\t1\t2000\t75\t15\n"
+            ).encode(),
+        }
+    )
+    result = extract_importable_measurements(data)
+    # 2 (JV FW+RV) + 1 (summary FW) = 3 measurements.
+    assert len(result["measurements"]) == 3
 
 
 def test_extract_preserves_fw_and_rv_directions() -> None:
