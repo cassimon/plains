@@ -16,14 +16,18 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
+from sqlmodel import select
 
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, SessionDep
+from app.models import Experiment, ImportedSourceFile
 from app.services.nomad import (
     TEMP_UPLOAD_DIR,
     RawFileConflictError,
     append_files_to_zip,
     create_secure_zip,
 )
+from app.services import source_store
 from app.services.zip_explorer import (
     DEFAULT_LIMITS,
     InvalidZipError,
@@ -83,17 +87,24 @@ async def parse_measurement_files(
     current_user: CurrentUser,
     files: list[UploadFile] = File(default=[]),
     archive_path: str | None = Form(None),
+    stage: bool = Form(True),
+    paths: list[str] = Form(default=[]),
 ) -> dict[str, Any]:
     """Parse uploaded files (ZIP archives and/or individual CHOSE text files)
     into structured measurements. Read-only — never persists Results.
 
-    ZIP archives are expanded in memory (secure limits apply). Original raw
-    files (CHOSE JV plus other recognised text entries) are staged into the
-    caller's temporary NOMAD upload archive, *appending* to ``archive_path``
-    when one is given so successive drops preserve every file.
+    ZIP archives are expanded in memory (secure limits apply). When ``stage`` is
+    true (the default), original raw files (CHOSE JV plus other recognised text
+    entries) are staged into the caller's temporary NOMAD upload archive,
+    *appending* to ``archive_path`` when one is given so successive drops
+    preserve every file. When ``stage`` is false this is a pure exploratory
+    parse: no NOMAD archive is created or modified, and basename collisions are
+    returned as warnings instead of a hard error.
 
-    Distinct files that flatten to the same basename are rejected rather than
-    silently overwritten.
+    ``paths`` optionally carries the client-side relative path for each entry in
+    ``files`` (e.g. files selected from a directory), preserving the original
+    relative location for provenance. It is ignored for ZIP archives, whose
+    entries already carry their own paths.
     """
     if not files:
         raise HTTPException(status_code=400, detail="No files provided.")
@@ -103,11 +114,17 @@ async def parse_measurement_files(
     skipped: list[dict[str, Any]] = []
     warnings: list[str] = []
     raw_files: list[tuple[str, bytes]] = []
+    inventory: list[dict[str, Any]] = []
 
-    for f in files:
+    for idx, f in enumerate(files):
         if not f.filename:
             continue
         content = await f.read()
+        # Client-provided relative path (directory imports) wins for provenance;
+        # the upload filename is otherwise just the basename.
+        source_name = (
+            paths[idx] if idx < len(paths) and paths[idx].strip() else f.filename
+        )
         is_zip = f.filename.lower().endswith(".zip") or content[:4] == b"PK\x03\x04"
         try:
             if is_zip:
@@ -118,42 +135,72 @@ async def parse_measurement_files(
                 raw, native = _expand_zip(content)
                 raw_files.extend(raw)
                 other_files.extend(native)
+                # Full inventory (directories + all files, recognised or not).
+                info = inspect_zip(content)
+                inventory.extend(
+                    {
+                        "name": e["name"],
+                        "directory": e["directory"],
+                        "size": e["size"],
+                        "type": e["type"],
+                        "recognized": e["recognized"],
+                    }
+                    for e in info["entries"]
+                )
             else:
-                rows = measurements_from_jv_file(content, f.filename)
+                rows = measurements_from_jv_file(content, source_name)
                 if rows:
                     measurements.extend(rows)
-                    raw_files.append((_basename(f.filename), content))
+                    raw_files.append((_basename(source_name), content))
                 else:
                     skipped.append(
                         {
-                            "file": f.filename,
+                            "file": source_name,
                             "reason": "Not a supported CHOSE JV file.",
                         }
                     )
+                inventory.append(
+                    {
+                        "name": source_name,
+                        "directory": False,
+                        "size": len(content),
+                        "type": "stability-jv" if rows else "unknown",
+                        "recognized": bool(rows),
+                    }
+                )
         except (InvalidZipError, UnsafeZipError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except ResourceLimitError as exc:
             raise HTTPException(status_code=413, detail=str(exc)) from exc
 
-    # Reject basename collisions with distinct content (never silently discard
-    # or overwrite a scientific file).
+    # Basename collisions with distinct content. When staging into the flat
+    # NOMAD archive they are a hard error (the archive cannot represent them);
+    # in exploratory mode (stage=False) they are surfaced as warnings so the
+    # researcher can still inspect the dataset before deciding.
     by_basename: dict[str, str] = {}
     for name, data in raw_files:
         base = _basename(name)
         digest = hashlib.sha256(data).hexdigest()
-        if base in by_basename and by_basename[base] != digest:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"Collision: two distinct files share the basename "
-                    f"{base!r} and cannot be represented safely in the flat "
-                    f"NOMAD archive. Rename one of them or import them separately."
-                ),
+        existing = by_basename.get(base)
+        if existing is not None and existing != digest:
+            if stage:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Collision: two distinct files share the basename "
+                        f"{base!r} and cannot be represented safely in the flat "
+                        f"NOMAD archive. Rename one of them or import them separately."
+                    ),
+                )
+            warnings.append(
+                f"Distinct files share the basename {base!r}; kept separate "
+                f"during preview but they cannot be staged into a single NOMAD archive."
             )
+            continue
         by_basename.setdefault(base, digest)
 
     archive_result: str | None = None
-    if raw_files:
+    if stage and raw_files:
         # Deduplicate identical basenames (same bytes) before staging.
         seen: set[str] = set()
         deduped: list[tuple[str, bytes]] = []
@@ -200,11 +247,288 @@ async def parse_measurement_files(
         "warnings": warnings,
         "archive_path": archive_result,
         "raw_file_count": len(by_basename),
+        "original_file_count": len(
+            [e for e in inventory if not e["directory"]]
+        ),
+        "recognized_file_count": len(
+            [e for e in inventory if e["recognized"]]
+        ),
+        "inventory": inventory,
     }
 
 
 def _basename(name: str) -> str:
     return name.replace("\\", "/").rstrip("/").split("/")[-1]
+
+
+def _zip_source_files(data: bytes) -> list[tuple[str, str, bytes]]:
+    """Return ``(relative_path, basename, bytes)`` for every non-directory
+    entry of a validated ZIP archive (safe read, no extraction to disk)."""
+    info = inspect_zip(data)  # raises on unsafe/invalid/over-limit input
+    out: list[tuple[str, str, bytes]] = []
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        for entry in info["entries"]:
+            if entry["directory"]:
+                continue
+            name = entry["name"]
+            out.append((name, _basename(name), zf.read(name)))
+    return out
+
+
+@router.post("/import")
+async def import_measurement_sources(
+    session: SessionDep,
+    current_user: CurrentUser,
+    experiment_id: uuid.UUID = Form(...),
+    import_id: uuid.UUID = Form(...),
+    files: list[UploadFile] = File(default=[]),
+    paths: list[str] = Form(default=[]),
+) -> dict[str, Any]:
+    """Confirm an import: persist original source files and return structured
+    measurements linked to their source evidence.
+
+    The operation is bound to ``(import_id, experiment_id)`` and the
+    authorized owner. Retrying the same operation reuses the already-stored
+    sources after verifying the incoming dataset is equivalent (same relative
+    paths, sizes and SHA-256); a conflicting or cross-experiment reuse is
+    rejected.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided.")
+
+    experiment = session.get(Experiment, experiment_id)
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if not current_user.is_superuser and experiment.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+
+    limits = DEFAULT_LIMITS
+    sources: list[tuple[str, str, bytes]] = []
+    measurements: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    cumulative_bytes = 0
+    seen_relative_paths: set[str] = set()
+
+    for idx, f in enumerate(files):
+        if not f.filename:
+            continue
+        content = await f.read()
+        source_name = (
+            paths[idx] if idx < len(paths) and paths[idx].strip() else f.filename
+        )
+        is_zip = f.filename.lower().endswith(".zip") or content[:4] == b"PK\x03\x04"
+        try:
+            if is_zip:
+                extracted_sources = _zip_source_files(content)
+                sources.extend(extracted_sources)
+                extracted = extract_importable_measurements(content)
+                measurements.extend(extracted["measurements"])
+                skipped.extend(extracted["skipped"])
+                warnings.extend(extracted["warnings"])
+            else:
+                sources.append((source_name, _basename(source_name), content))
+                rows = measurements_from_jv_file(content, source_name)
+                if rows:
+                    measurements.extend(rows)
+                else:
+                    skipped.append(
+                        {"file": source_name, "reason": "Not a supported CHOSE JV file."}
+                    )
+        except (InvalidZipError, UnsafeZipError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ResourceLimitError as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
+
+    # Cumulative limits + cross-archive duplicate exact-path rejection.
+    for rel, _name, data in sources:
+        cumulative_bytes += len(data)
+        if rel in seen_relative_paths:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Duplicate source path {rel!r} across the selected files; "
+                    f"import each dataset separately to keep sources distinct."
+                ),
+            )
+        seen_relative_paths.add(rel)
+    if len(sources) > limits.max_files:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Import contains too many files ({len(sources)} > {limits.max_files}).",
+        )
+    if cumulative_bytes > limits.max_total_uncompressed:
+        raise HTTPException(
+            status_code=413,
+            detail="Import expands beyond the safe total size.",
+        )
+
+    incoming = {
+        rel: (name, len(data), source_store.sha256_hex(data))
+        for rel, name, data in sources
+    }
+
+    # Idempotent, ownership-bound reuse.
+    existing = session.exec(
+        select(ImportedSourceFile).where(
+            ImportedSourceFile.import_id == import_id
+        )
+    ).all()
+
+    stored: list[ImportedSourceFile]
+    if existing:
+        # The operation must belong to this experiment (and its owner).
+        if any(s.experiment_id != experiment_id for s in existing):
+            raise HTTPException(
+                status_code=409,
+                detail="Import operation belongs to a different experiment.",
+            )
+        # The incoming dataset must be equivalent to what was stored.
+        existing_map = {
+            (s.relative_path or s.original_filename): s for s in existing
+        }
+        if set(existing_map) != set(incoming):
+            raise HTTPException(
+                status_code=409,
+                detail="Import operation reused with a different dataset.",
+            )
+        for rel, s in existing_map.items():
+            name, size, digest = incoming[rel]
+            if s.size != size or s.sha256 != digest:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Import operation reused with different bytes for {rel!r}.",
+                )
+            if not source_store.source_exists(str(s.id)):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Stored source bytes are missing for {rel!r}.",
+                )
+        stored = list(existing)
+    else:
+        stored = []
+        for rel, (name, size, digest) in incoming.items():
+            data = next(d for r, _n, d in sources if r == rel)
+            sid = uuid.uuid4()
+            source_store.write_source(str(sid), data)
+            row = ImportedSourceFile(
+                id=sid,
+                experiment_id=experiment_id,
+                import_id=import_id,
+                original_filename=name,
+                relative_path=rel,
+                size=size,
+                sha256=digest,
+                file_type=classify_entry(rel),
+            )
+            session.add(row)
+            stored.append(row)
+        session.commit()
+        for row in stored:
+            session.refresh(row)
+
+    source_map = {
+        (s.relative_path or s.original_filename): s.id for s in stored
+    }
+
+    # Durable provenance: deterministic record-level locator that distinguishes
+    # multiple observations from the same source (direction + summary row).
+    for m in measurements:
+        m["source_file_id"] = (
+            str(source_map[m["source"]]) if m["source"] in source_map else None
+        )
+        loc = m["direction"] or "?"
+        if m["file"] != m["source"]:
+            loc = f"{loc}:{m['filename']}"
+        m["source_record_locator"] = loc
+        m["source_path"] = m["source"]
+
+    return {
+        "import_id": str(import_id),
+        "experiment_id": str(experiment_id),
+        "measurements": measurements,
+        "skipped": skipped,
+        "warnings": warnings,
+        "source_files": [
+            {
+                "id": str(s.id),
+                "relative_path": s.relative_path,
+                "original_filename": s.original_filename,
+                "size": s.size,
+                "sha256": s.sha256,
+                "file_type": s.file_type,
+            }
+            for s in stored
+        ],
+    }
+
+
+@router.get("/experiments/{experiment_id}/sources")
+async def list_experiment_sources(
+    session: SessionDep,
+    current_user: CurrentUser,
+    experiment_id: uuid.UUID,
+) -> dict[str, Any]:
+    """List original source files stored for an experiment (owner/superuser)."""
+    experiment = session.get(Experiment, experiment_id)
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if not current_user.is_superuser and experiment.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+    sources = session.exec(
+        select(ImportedSourceFile)
+        .where(ImportedSourceFile.experiment_id == experiment_id)
+        .order_by(ImportedSourceFile.created_at)
+    ).all()
+    return {
+        "sources": [
+            {
+                "id": str(s.id),
+                "original_filename": s.original_filename,
+                "relative_path": s.relative_path,
+                "file_type": s.file_type,
+                "size": s.size,
+                "sha256": s.sha256,
+                "import_id": str(s.import_id),
+                "available": source_store.source_exists(str(s.id)),
+            }
+            for s in sources
+        ]
+    }
+
+
+@router.get("/sources/{source_id}/download")
+async def download_source_file(
+    session: SessionDep,
+    current_user: CurrentUser,
+    source_id: uuid.UUID,
+) -> Response:
+    """Authenticated retrieval of an original source file (owner/superuser)."""
+    source = session.get(ImportedSourceFile, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source file not found")
+    experiment = session.get(Experiment, source.experiment_id)
+    if not experiment:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if not current_user.is_superuser and experiment.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+    if not source_store.source_exists(str(source_id)):
+        raise HTTPException(status_code=404, detail="Source bytes are missing")
+    data = source_store.read_source(str(source_id))
+    safe_name = source.original_filename.replace('"', "").replace("\\", "_").strip()
+    if not safe_name:
+        safe_name = str(source_id)
+    # Remove control chars (CR/LF) that could break the header.
+    safe_name = "".join(c for c in safe_name if ord(c) >= 32)
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{safe_name}"'
+            )
+        },
+    )
 
 
 def _expand_zip(

@@ -31,12 +31,26 @@ export type ServerMeasurement = {
   substrate_group: string
   date?: string
   user?: string
+  /** Durable provenance (WO-04): id of the stored original source file. */
+  source_file_id?: string | null
+  /** Record-level locator within the source file. */
+  source_record_locator?: string | null
+  /** Relative path of the source file (same as `source`). */
+  source_path?: string | null
 }
 
 /** Non-CHOSE text entries extracted from a ZIP, for native client parsing. */
 export type OtherFile = {
   filename: string
   content: string
+}
+
+export type InventoryEntry = {
+  name: string
+  directory: boolean
+  size: number
+  type: string
+  recognized: boolean
 }
 
 export type ParseResult = {
@@ -46,6 +60,9 @@ export type ParseResult = {
   warnings: string[]
   archive_path: string | null
   raw_file_count: number
+  original_file_count: number
+  recognized_file_count: number
+  inventory: InventoryEntry[]
 }
 
 /**
@@ -85,16 +102,35 @@ export function serverMeasurementToFile(m: ServerMeasurement): MeasurementFile {
     inSummary: m.in_summary,
     batch: m.batch || undefined,
     substrateGroup: m.substrate_group || undefined,
+    sourcePath: m.source_path ?? (m.source || undefined),
+    sourceFileId: m.source_file_id ?? undefined,
+    sourceRecordLocator: m.source_record_locator ?? undefined,
     notes: `Parsed from ${m.source}${m.direction ? ` (${m.direction})` : ""}${coverage}`,
   }
 }
 
+export type ParseOptions = {
+  /**
+   * When false the backend performs a pure exploratory parse and does NOT stage
+   * a temporary NOMAD archive (no persistent side effects). Default true.
+   */
+  stage?: boolean
+  /**
+   * Optional client-side relative path for each file, aligned with the `files`
+   * array (e.g. files selected from a directory). Preserves the original
+   * relative location for provenance.
+   */
+  paths?: string[]
+}
+
 /** POST files to the backend structured parser. ZIPs and individual CHOSE JV
  *  text files are both accepted. Returns structured measurements plus the
- *  staged temporary raw-file archive (for NOMAD preparation). */
+ *  staged temporary raw-file archive (for NOMAD preparation) unless
+ *  `options.stage` is false. */
 export async function parseMeasurementFiles(
   files: File[],
   archivePath?: string | null,
+  options?: ParseOptions,
 ): Promise<ParseResult> {
   const token = await getTokenAsync()
   const form = new FormData()
@@ -102,8 +138,14 @@ export async function parseMeasurementFiles(
   if (archivePath) {
     form.append("archive_path", archivePath)
   }
+  form.append("stage", options?.stage === false ? "false" : "true")
   for (const f of files) {
     form.append("files", f)
+  }
+  if (options?.paths) {
+    for (const p of options.paths) {
+      form.append("paths", p)
+    }
   }
   const res = await fetch(`${OpenAPI.BASE}/api/v1/zip-explorer/parse`, {
     method: "POST",
@@ -121,4 +163,71 @@ export async function parseMeasurementFiles(
     throw new Error(detail ?? `Request failed (${res.status})`)
   }
   return (await res.json()) as ParseResult
+}
+
+/** Pure exploratory parse used by the import preview: returns structured
+ *  measurements, skipped files and warnings without touching the NOMAD staging
+ *  archive. */
+export function parseMeasurementFilesPreview(
+  files: File[],
+  paths?: string[],
+): Promise<ParseResult> {
+  return parseMeasurementFiles(files, null, { stage: false, paths })
+}
+
+export type SourceFileInfo = {
+  id: string
+  relative_path: string | null
+  original_filename: string
+  size: number
+  sha256: string
+  file_type: string | null
+}
+
+export type ImportResult = {
+  import_id: string
+  experiment_id: string
+  measurements: ServerMeasurement[]
+  skipped: { file: string; reason: string }[]
+  warnings: string[]
+  source_files: SourceFileInfo[]
+}
+
+/** Confirm an import: persist original source files server-side and return the
+ *  structured measurements linked to their stored source evidence. Idempotent
+ *  per `importId` (retries reuse stored sources). */
+export async function importMeasurementSources(
+  experimentId: string,
+  importId: string,
+  files: File[],
+  paths?: string[],
+): Promise<ImportResult> {
+  const token = await getTokenAsync()
+  const form = new FormData()
+  form.append("experiment_id", experimentId)
+  form.append("import_id", importId)
+  for (const f of files) {
+    form.append("files", f)
+  }
+  if (paths) {
+    for (const p of paths) {
+      form.append("paths", p)
+    }
+  }
+  const res = await fetch(`${OpenAPI.BASE}/api/v1/zip-explorer/import`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: form,
+  })
+  if (!res.ok) {
+    let detail: string | undefined
+    try {
+      const data = await res.json()
+      detail = (data as { detail?: string })?.detail
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(detail ?? `Import request failed (${res.status})`)
+  }
+  return (await res.json()) as ImportResult
 }

@@ -501,14 +501,14 @@ export type Experiment = {
   date: string
   endDate?: string
   // Device configuration
-  architecture: DeviceArchitecture
+  architecture: DeviceArchitecture | ""
   substrateMaterial: string
   substrateWidth: number // cm
   substrateLength: number // cm
   numSubstrates: number
   devicesPerSubstrate: number
   deviceArea: number // cm²
-  deviceType: "film" | "half" | "full" // test film, half device, or full device
+  deviceType: "film" | "half" | "full" | "" // "" = unknown (imported data)
   deviceLayoutImage?: string // base64 encoded image (jpg/png)
   // Link to exactly one Process
   processId: string
@@ -712,6 +712,33 @@ export function newExperiment(processId: string): Experiment {
   }
 }
 
+/** Data-first experiment created from imported measurements. There is no
+ *  fabrication process (``processId`` is the empty string, the same convention
+ *  ``experimentFromApi``/``experimentToApi`` already round-trip) and no
+ *  substrates, chemicals or fabrication defaults. Architecture/dimensions stay
+ *  at the type's neutral defaults and are never presented as observed data for
+ *  a process-free experiment (the process-free view shows "no recipe"). */
+export function newImportedExperiment(name: string): Experiment {
+  return {
+    id: crypto.randomUUID(),
+    name,
+    description: "",
+    date: "",
+    processId: "",
+    architecture: "",
+    substrateMaterial: "",
+    substrateWidth: 0,
+    substrateLength: 0,
+    numSubstrates: 0,
+    devicesPerSubstrate: 0,
+    deviceArea: 0,
+    deviceType: "",
+    substrates: [],
+    processingTimes: {},
+    hasResults: false,
+  }
+}
+
 // ── Solution ─────────────────────────────────────────────────────────────────
 
 export type SolutionComponent = {
@@ -809,6 +836,14 @@ export type MeasurementFile = {
   batch?: string
   /** Structured substrate-group identifier parsed from the device label. */
   substrateGroup?: string
+  /** Original source-relative path (where available) for provenance. */
+  sourcePath?: string
+  /** Durable source-file id (links to the stored original bytes). */
+  sourceFileId?: string
+  /** Record-level locator within the source (e.g. FW/RV row or summary row). */
+  sourceRecordLocator?: string
+  /** True = local-only imported measurement (not part of a remote upload). */
+  localOnly?: boolean
   /** Provenance note (e.g. "Imported from ZIP: <source> (<FW|RV>)") */
   notes?: string
 }
@@ -1304,7 +1339,7 @@ type AppContextValue = {
   updateLastSelected: (kind: "experiment" | "process", id: string) => void
 
   /** Immediately persist the current state (call before logout). */
-  flushSave: () => Promise<void>
+  flushSave: () => Promise<boolean>
 
   // ── Trash (soft-delete) ────────────────────────────────────────────────────
   /** Live list of the current user's trashed items (one row per deletion root).
@@ -2629,8 +2664,9 @@ export function AppProvider({
         flushSave: async () => {
           console.log("[AppContext] flushSave called (e.g. before logout)")
           dirtyRef.current = true
-          await persistDirtyState()
-          console.log("[AppContext] flushSave complete")
+          const ok = await persistDirtyState()
+          console.log("[AppContext] flushSave complete:", ok)
+          return ok
         },
         trashEntries,
         trashCount,

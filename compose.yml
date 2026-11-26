@@ -111,6 +111,8 @@ services:
       # Durable stash for failed / not-yet-succeeded NOMAD upload archives.
       # Survives container recreation so the one-week retention actually holds.
       - nomad-stash:/var/lib/plains/nomad_stash
+      # Durable original source files for confirmed imports (WO-04).
+      - source-files:/var/lib/plains/source_files
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/utils/health-check/"]
@@ -159,6 +161,7 @@ services:
 volumes:
   app-db-data:
   nomad-stash:
+  source-files:
 
 networks:
   traefik-public:

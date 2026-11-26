@@ -4,6 +4,7 @@ import {
   Avatar,
   Badge,
   ColorSwatch,
+  Divider,
   Group,
   Indicator,
   Menu,
@@ -27,27 +28,45 @@ import {
   IconTrash as TrashIcon,
 } from "@tabler/icons-react"
 import { Outlet, useLocation, useNavigate } from "@tanstack/react-router"
-import { useEffect, useMemo, useState } from "react"
-import { HelpModal } from "./HelpModal"
+import { Fragment, useEffect, useMemo, useState } from "react"
 import useAuth from "@/hooks/useAuth"
 import {
   type CanvasCollectionElement,
   useAppContext,
 } from "../store/AppContext"
 import { pageIcons } from "./AppLayout.icons"
+import { HelpModal } from "./HelpModal"
 import { UploadFlowStatus } from "./UploadFlowStatus"
 
 // Neutral grayish-blue for default selections
 const DEFAULT_ACCENT = "#94a3b8"
 
-const pages = [
-  { label: "Organization", value: "/organization" },
-  { label: "Processes", value: "/processes" },
+// Sidebar groups are presentation-only: they re-order and label the existing
+// pages without introducing new routes, entities or routing hierarchies.
+const researchPages = [
   { label: "Experiments", value: "/experiments" },
+  { label: "Processes", value: "/processes" },
+  { label: "Organization", value: "/organization" },
+] as const
+
+const dataAnalysisPages = [
   { label: "Results", value: "/results" },
   { label: "Analysis", value: "/analysis" },
   { label: "Export", value: "/export" },
 ] as const
+
+const pageGroups = [
+  { label: "Research", pages: researchPages },
+  { label: "Data & Analysis", pages: dataAnalysisPages },
+] as const
+
+// Flat, ordered list used only for the active-page indicator.
+const pages = [...researchPages, ...dataAnalysisPages] as const
+
+// Default landing page. Kept as an explicit constant (rather than `pages[0]`)
+// so re-ordering the sidebar can never silently change the active-indicator
+// fallback for paths that match no nav entry (e.g. /trash).
+const DEFAULT_PAGE = "/organization"
 
 export function AppLayout() {
   const navigate = useNavigate()
@@ -72,7 +91,7 @@ export function AppLayout() {
 
   const currentPage =
     pages.find((p) => location.pathname.startsWith(p.value))?.value ??
-    pages[0].value
+    DEFAULT_PAGE
   const { user, logout } = useAuth()
   const initials = user?.full_name
     ? user.full_name
@@ -184,7 +203,7 @@ export function AppLayout() {
   return (
     <AppShell
       header={{ height: 60 }}
-      navbar={{ width: 64, breakpoint: "sm" }}
+      navbar={{ width: rem(112), breakpoint: "sm" }}
       padding="md"
     >
       <AppShell.Header>
@@ -486,39 +505,56 @@ export function AppLayout() {
 
       <AppShell.Navbar>
         <Stack align="center" justify="top" h="100%" py="md" gap="xs">
-          {pages.map((page) => {
-            const Icon = pageIcons[page.value as keyof typeof pageIcons]
-            const active = currentPage === page.value
-            const dimmed = litPaths !== null && !litPaths.has(page.value)
-            // "hasContent" = collection has at least one ref of this type
-            const hasContent =
-              litPaths?.has(page.value) && page.value !== "/organization"
-            return (
-              <Tooltip label={page.label} position="right" key={page.value}>
-                <ActionIcon
-                  variant={active ? "filled" : "subtle"}
-                  size="lg"
-                  radius="md"
-                  onClick={() => navigate({ to: page.value })}
-                  aria-label={page.label}
-                  style={{
-                    width: rem(48),
-                    height: rem(48),
-                    opacity: dimmed ? 0.25 : 1,
-                    transition: "opacity 150ms ease, background 150ms ease",
-                    background: active ? accentColor : undefined,
-                    color: active
-                      ? "white"
-                      : hasContent
-                        ? "var(--mantine-color-gray-7)"
-                        : "var(--mantine-color-gray-6)",
-                  }}
-                >
-                  {Icon ? <Icon size={28} /> : null}
-                </ActionIcon>
-              </Tooltip>
-            )
-          })}
+          {pageGroups.map((group, groupIndex) => (
+            <Fragment key={group.label}>
+              {groupIndex > 0 && <Divider my="sm" w="70%" size="sm" />}
+              <Text
+                size="xs"
+                fw={600}
+                c="dimmed"
+                tt="uppercase"
+                ta="center"
+                lh={1.2}
+                px="xs"
+                style={{ letterSpacing: 0.4, width: "100%" }}
+              >
+                {group.label}
+              </Text>
+              {group.pages.map((page) => {
+                const Icon = pageIcons[page.value as keyof typeof pageIcons]
+                const active = currentPage === page.value
+                const dimmed = litPaths !== null && !litPaths.has(page.value)
+                // "hasContent" = collection has at least one ref of this type
+                const hasContent =
+                  litPaths?.has(page.value) && page.value !== "/organization"
+                return (
+                  <Tooltip label={page.label} position="right" key={page.value}>
+                    <ActionIcon
+                      variant={active ? "filled" : "subtle"}
+                      size="lg"
+                      radius="md"
+                      onClick={() => navigate({ to: page.value })}
+                      aria-label={page.label}
+                      style={{
+                        width: rem(48),
+                        height: rem(48),
+                        opacity: dimmed ? 0.25 : 1,
+                        transition: "opacity 150ms ease, background 150ms ease",
+                        background: active ? accentColor : undefined,
+                        color: active
+                          ? "white"
+                          : hasContent
+                            ? "var(--mantine-color-gray-7)"
+                            : "var(--mantine-color-gray-6)",
+                      }}
+                    >
+                      {Icon ? <Icon size={28} /> : null}
+                    </ActionIcon>
+                  </Tooltip>
+                )
+              })}
+            </Fragment>
+          ))}
 
           {/* Trash — pinned to the bottom, always visible. Not part of `pages`
               so it is excluded from the collection-dimming logic above. When it

@@ -296,3 +296,57 @@ describe("deviceGroupsToApi — substrate assignment round-trip", () => {
     expect(api[0].assigned_substrate_id).toBe("sub-1")
   })
 })
+
+describe("measurementFilesToApi / bulkToSnapshot — structured metadata round-trip", () => {
+  test("preserves direction, inSummary, batch, substrateGroup and sourcePath", () => {
+    const files = [
+      mf({
+        id: "f1",
+        direction: "FW",
+        inSummary: true,
+        batch: "2026_01_22",
+        substrateGroup: "PVK1-BSAM-C60-28",
+        sourcePath: "2026_01_22/sample_A Stability (JV).txt",
+      }),
+      mf({
+        id: "f2",
+        direction: "RV",
+        inSummary: false,
+        substrateGroup: "PVK1-BSAM-C60-28",
+        sourcePath: "2026_01_22/sample_A Stability (JV).txt",
+      }),
+    ]
+    const api = measurementFilesToApi({ files } as unknown as ExperimentResults)
+    expect(api[0].direction).toBe("FW")
+    expect(api[0].in_summary).toBe(true)
+    expect(api[0].batch).toBe("2026_01_22")
+    expect(api[0].substrate_group).toBe("PVK1-BSAM-C60-28")
+    expect(api[0].file_path).toBe("2026_01_22/sample_A Stability (JV).txt")
+
+    // Hydration direction: the same fields come back (and false stays distinct
+    // from null/unknown).
+    const bulk = {
+      results: [
+        {
+          id: "r1",
+          experiment_id: "e1",
+          measurement_files: api,
+          device_groups: [],
+        },
+      ],
+      experiments: [],
+      processes: [],
+      planes: [],
+    }
+    const snapshot = bulkToSnapshot(bulk)
+    const hydrated = snapshot.results[0].files
+    expect(hydrated[0].direction).toBe("FW")
+    expect(hydrated[0].inSummary).toBe(true)
+    expect(hydrated[0].batch).toBe("2026_01_22")
+    expect(hydrated[0].substrateGroup).toBe("PVK1-BSAM-C60-28")
+    expect(hydrated[0].sourcePath).toBe(
+      "2026_01_22/sample_A Stability (JV).txt",
+    )
+    expect(hydrated[1].inSummary).toBe(false) // additional ≠ null/unknown
+  })
+})

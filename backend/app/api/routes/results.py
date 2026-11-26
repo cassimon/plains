@@ -17,6 +17,7 @@ from app.models import (
     ExperimentResultsListPublic,
     ExperimentResultsPublic,
     ExperimentResultsUpdate,
+    ImportedSourceFile,
     MeasurementFile,
     MeasurementFileCreate,
     MeasurementFilePublic,
@@ -140,6 +141,35 @@ def replace_measurement_files(
     """Replace all measurement files of a result (used by the snapshot sync)."""
     result = _owned_result(session, current_user, id)
     valid_group_ids = {g.id for g in result.device_groups}
+
+    # Provenance validation: a non-null source_file_id must reference a stored
+    # source belonging to the SAME experiment (never another user's/experiment's
+    # evidence). Historical records with null provenance remain valid.
+    referenced_source_ids = {
+        f.source_file_id for f in body if f.source_file_id is not None
+    }
+    if referenced_source_ids:
+        sources = session.exec(
+            select(ImportedSourceFile).where(
+                ImportedSourceFile.id.in_(referenced_source_ids)
+            )
+        ).all()
+        found_ids = {s.id for s in sources}
+        missing = referenced_source_ids - found_ids
+        if missing:
+            raise HTTPException(
+                status_code=409,
+                detail="Measurement references a source file that does not exist",
+            )
+        wrong_experiment = [
+            s.id for s in sources if s.experiment_id != result.experiment_id
+        ]
+        if wrong_experiment:
+            raise HTTPException(
+                status_code=409,
+                detail="Measurement references a source file from another experiment",
+            )
+
     for f in body:
         if f.device_group_id is not None and f.device_group_id not in valid_group_ids:
             raise HTTPException(

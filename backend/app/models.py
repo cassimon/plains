@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from pydantic import ConfigDict, EmailStr
-from sqlalchemy import Column, DateTime, Index, UniqueConstraint, text
+from sqlalchemy import Column, DateTime, Index, UniqueConstraint, event, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -1153,6 +1153,25 @@ class MeasurementFileBase(SQLModel):
     device_group_id: uuid.UUID | None = Field(
         default=None, foreign_key="devicegroup.id", ondelete="SET NULL"
     )
+    # Structured import metadata (exploratory import of CHOSE JV / summary
+    # datasets). Null/unknown is the default for pre-existing rows and for
+    # measurements parsed by the native scanner, which does not set these.
+    direction: str | None = Field(default=None, max_length=8)
+    in_summary: bool | None = None  # None = unknown, True = in summary, False = additional
+    batch: str | None = Field(default=None, max_length=255)
+    substrate_group: str | None = Field(default=None, max_length=255)
+    # Durable provenance (WO-04). ``source_file_id`` links a measurement to its
+    # stored original source file; ``source_record_locator`` distinguishes
+    # multiple measurements extracted from the same source (e.g. FW/RV rows or
+    # summary rows). Null = no durable provenance (historical records).
+    source_file_id: uuid.UUID | None = Field(
+        default=None, foreign_key="imported_source_file.id", ondelete="SET NULL"
+    )
+    source_record_locator: str | None = Field(default=None, max_length=512)
+    # True = a local-only imported measurement that is NOT part of a remote
+    # NOMAD upload. Null/false = normal (historically uploaded when the parent
+    # result carries an upload id).
+    local_only: bool | None = None
 
 
 class MeasurementFileCreate(ClientIdCreate, MeasurementFileBase):
@@ -1269,6 +1288,54 @@ class ExperimentResultsPublic(ExperimentResultsBase):
 class ExperimentResultsListPublic(SQLModel):
     data: list[ExperimentResultsPublic]
     count: int
+
+
+# ============================================================================
+# Durable imported source files (WO-04)
+# ============================================================================
+# Original bytes of files included in a confirmed import, stored on disk under
+# an internal id and described here. ``experiment_id`` ties each source to its
+# destination experiment (authorization + provenance); ``import_id`` groups one
+# confirmation operation. Rows are immutable; they are removed only when the
+# owning experiment is hard-deleted.
+class ImportedSourceFileBase(SQLModel):
+    experiment_id: uuid.UUID = Field(
+        foreign_key="experiment.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    import_id: uuid.UUID = Field(nullable=False, index=True)
+    original_filename: str = Field(max_length=255)
+    relative_path: str | None = Field(default=None, max_length=512)
+    size: int = 0
+    sha256: str = Field(max_length=64)
+    file_type: str | None = Field(default=None, max_length=50)
+
+
+class ImportedSourceFile(ImportedSourceFileBase, table=True):
+    __tablename__ = "imported_source_file"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),
+    )
+
+
+class ImportedSourceFilePublic(ImportedSourceFileBase):
+    id: uuid.UUID
+    created_at: datetime | None = None
+
+
+def _remove_imported_source_bytes(mapper, connection, target) -> None:
+    """Best-effort cleanup of stored bytes when a source row is deleted
+    (permanent experiment/trash deletion cascades here). Never raises."""
+    try:
+        from app.services import source_store
+
+        source_store.remove_source(str(target.id))
+    except Exception:  # pragma: no cover - cleanup must never break a delete
+        pass
+
+
+event.listens_for(ImportedSourceFile, "after_delete")(_remove_imported_source_bytes)
 
 
 # ============================================================================

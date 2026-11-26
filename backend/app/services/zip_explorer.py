@@ -133,12 +133,23 @@ def _validate_entries(
         )
 
     total = 0
+    seen_paths: set[str] = set()
     for info in file_infos:
         name = info.filename
 
         # Path traversal / absolute paths.
         if _ABSOLUTE_PATH.match(name) or ".." in name.replace("\\", "/").split("/"):
             raise UnsafeZipError(f"Unsafe archive path: {name!r}")
+
+        # Duplicate exact internal paths: ``zf.read(name)`` resolves the LAST
+        # entry with that name, so two distinct files sharing the exact path
+        # would silently collapse. Reject them outright (distinct directories
+        # sharing a basename are fine).
+        if name in seen_paths:
+            raise UnsafeZipError(
+                f"Duplicate archive path: {name!r} appears more than once."
+            )
+        seen_paths.add(name)
 
         # Symlinks (never follow them).
         mode = (info.external_attr >> 16) & _S_IFMT

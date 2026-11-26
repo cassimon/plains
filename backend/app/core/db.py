@@ -149,6 +149,52 @@ def init_db(session: Session) -> None:
         )
         if not column_exists:
             backfill_device_group_ids(conn)
+        # Structured import metadata (exploratory import, WO-03). Additive only;
+        # existing rows keep NULL/unknown values. `file_path` carries the
+        # original source-relative path where available.
+        conn.execute(
+            text(
+                "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS direction VARCHAR(8)"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS in_summary BOOLEAN"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS batch VARCHAR(255)"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS substrate_group VARCHAR(255)"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS file_path VARCHAR(512)"
+            )
+        )
+        # Durable provenance (WO-04).
+        conn.execute(
+            text(
+                "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS "
+                "source_file_id UUID REFERENCES imported_source_file(id) ON DELETE SET NULL"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS "
+                "source_record_locator VARCHAR(512)"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS local_only BOOLEAN"
+            )
+        )
 
     user = session.exec(
         select(User).where(User.email == settings.FIRST_SUPERUSER)

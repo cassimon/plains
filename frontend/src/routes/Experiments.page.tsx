@@ -72,6 +72,7 @@ import {
 import { useStartOrAddUpload } from "@/lib/useStartOrAddUpload"
 import type { CollectionConfirmParams } from "../components/SelectCollectionModal"
 import { SectionLabel } from "@/components/SectionLabel"
+import { ImportDataModal } from "../components/ImportDataModal"
 import {
   type CanvasCollectionElement,
   type Experiment,
@@ -2702,6 +2703,8 @@ export default function ExperimentsPage() {
   )
   const [activeExpTab, setActiveExpTab] = useState<ExpTab>("chemicals")
   const [recipeModalOpen, setRecipeModalOpen] = useState(false)
+  const [createRecipeModalOpen, setCreateRecipeModalOpen] = useState(false)
+  const [importModalOpen, setImportModalOpen] = useState(false)
   const [newExperimentProcessId, setNewExperimentProcessId] = useState<
     string | null
   >(null)
@@ -2877,13 +2880,16 @@ export default function ExperimentsPage() {
     setSelectedExpId(activeEntity.id)
   }, [activeEntity])
 
-  // Create new experiment
+  // Create new experiment. `processId` is the recipe to build it from; when
+  // omitted it falls back to the recipe selected in the sidebar dropdown, so
+  // the existing quick-create path keeps working unchanged.
   const doAddExperiment = ({
     planeId,
     collection,
-  }: CollectionConfirmParams) => {
-    if (!newExperimentProcessId) return
-    const newExp = newExperiment(newExperimentProcessId)
+    processId,
+  }: CollectionConfirmParams & { processId: string }) => {
+    if (!processId) return
+    const newExp = newExperiment(processId)
     setExperiments((prev) => [...prev, newExp])
     selectExperiment(newExp.id)
     setPendingSelectExperimentNameId(newExp.id)
@@ -2896,8 +2902,9 @@ export default function ExperimentsPage() {
     })
   }
 
-  const handleNewExperiment = () => {
-    if (!newExperimentProcessId) return
+  const handleNewExperiment = (processId?: string) => {
+    const pid = processId ?? newExperimentProcessId
+    if (!pid) return
     if (activeCollectionId && activePlaneId) {
       const plane = planes.find((p) => p.id === activePlaneId)
       const col = plane?.elements.find((e) => e.id === activeCollectionId)
@@ -2906,6 +2913,7 @@ export default function ExperimentsPage() {
           planeId: activePlaneId,
           collectionId: activeCollectionId,
           collection: col as CanvasCollectionElement,
+          processId: pid,
         })
         return
       }
@@ -2918,7 +2926,11 @@ export default function ExperimentsPage() {
       setActiveCollectionId,
     )
     if (resolved)
-      doAddExperiment({ ...resolved, collectionId: resolved.collection.id })
+      doAddExperiment({
+        ...resolved,
+        collectionId: resolved.collection.id,
+        processId: pid,
+      })
   }
 
   // Select recipe after creation
@@ -3352,8 +3364,8 @@ export default function ExperimentsPage() {
       >
         <Stack gap="sm" p="md" style={{ flex: 1, overflowY: "auto" }}>
           <Select
-            label="Process"
-            placeholder="Select process..."
+            label="Recipe for new experiment"
+            placeholder="Choose a process…"
             size="xs"
             searchable
             data={processes
@@ -3369,10 +3381,19 @@ export default function ExperimentsPage() {
           <Button
             fullWidth
             leftSection={<IconPlus size={16} />}
-            onClick={handleNewExperiment}
+            onClick={() => handleNewExperiment()}
             disabled={!newExperimentProcessId || processes.length === 0}
           >
             New Experiment
+          </Button>
+
+          <Button
+            fullWidth
+            variant="light"
+            leftSection={<IconFileImport size={16} />}
+            onClick={() => setImportModalOpen(true)}
+          >
+            Import Data
           </Button>
 
           <SectionLabel>Experiments ({experiments.length})</SectionLabel>
@@ -3505,9 +3526,35 @@ export default function ExperimentsPage() {
             style={{ height: "100%" }}
           >
             <IconPlus size={48} color="var(--mantine-color-gray-4)" />
-            <Text size="lg" fw={500} c="dimmed">
-              Select or create an experiment to get started
-            </Text>
+            {processes.length === 0 ? (
+              <>
+                <Text size="lg" fw={500} c="dimmed">
+                  No processes yet
+                </Text>
+                <Text size="sm" c="dimmed" maw={420} ta="center">
+                  Experiments follow a recipe (process). Create a process first,
+                  then start an experiment from it.
+                </Text>
+                <Button
+                  leftSection={<IconPlus size={16} />}
+                  onClick={() => void navigate({ to: "/processes" })}
+                >
+                  Create Process
+                </Button>
+              </>
+            ) : (
+              <>
+                <Text size="lg" fw={500} c="dimmed">
+                  Select or create an experiment to get started
+                </Text>
+                <Button
+                  leftSection={<IconPlus size={16} />}
+                  onClick={() => setCreateRecipeModalOpen(true)}
+                >
+                  New Experiment
+                </Button>
+              </>
+            )}
           </Stack>
         ) : !selectedProcess && hasImportedResults ? (
           <Stack
@@ -3793,6 +3840,22 @@ export default function ExperimentsPage() {
         processes={processes}
         onSelect={handleRecipeSelect}
         onClose={() => setRecipeModalOpen(false)}
+      />
+
+      {/* Create-mode instance of the same modal: shown from the empty state to
+          pick a recipe and create the experiment immediately. */}
+      <RecipeSelectionModal
+        isOpen={createRecipeModalOpen}
+        processes={processes}
+        onSelect={(processId) => handleNewExperiment(processId)}
+        onClose={() => setCreateRecipeModalOpen(false)}
+      />
+
+      {/* Exploratory import: preview a dataset, then add its measurements to an
+          existing experiment. */}
+      <ImportDataModal
+        opened={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
       />
     </Group>
   )

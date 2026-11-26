@@ -55,6 +55,7 @@ import type {
   NomadUploadResponse,
 } from "../client/types.gen"
 import { openDiscardUploadFlowConfirm } from "../components/UploadFlowStatus"
+import { OriginalFilesSection } from "../components/OriginalFilesSection"
 import { homeCollectionForEntity, useRevealForFlow } from "../lib/entityReveal"
 import {
   discardArchive,
@@ -67,7 +68,6 @@ import {
   resolveUploadDropAction,
 } from "../lib/uploadFlow"
 import {
-  type CanvasCollectionElement,
   DEFAULT_ILLUMINATION_INTENSITY,
   type DeviceGroup,
   type Experiment,
@@ -82,6 +82,7 @@ import {
   useEntityCollection,
 } from "../store/AppContext"
 import { reconcileGroupIds } from "../store/resultLifecycle"
+import { syncResultRefsForExperiment as syncResultRefs } from "../store/resultRefs"
 import {
   isChoseStructured,
   parseMeasurementFiles,
@@ -1540,6 +1541,26 @@ function ResultsDetail({
   )
   const results = experimentResults ?? fallbackResults
   resultsRef.current = results
+
+  // Persistent imported measurements (process-free experiments) are reviewable
+  // locally even without a completed fabrication workflow; NOMAD upload still
+  // requires ``experimentFullySpecified`` (kept as a separate gate).
+  const reviewAllowed = useMemo(
+    () =>
+      results.files.length > 0 &&
+      (experimentFullySpecified || isImportedResult(results)),
+    [results, experimentFullySpecified],
+  )
+
+  // Auto-open the review step for persistent imported results on arrival or
+  // reload (one-shot per experiment).
+  const autoOpenedReviewRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!isImportedResult(results) || results.files.length === 0) return
+    if (autoOpenedReviewRef.current === experiment.id) return
+    autoOpenedReviewRef.current = experiment.id
+    setWorkflowStep(2)
+  }, [results, experiment.id])
 
   // One illumination for the whole set of measurements: a lab sets its solar
   // simulator once. Stored per file so it round-trips and could later differ.
@@ -3017,6 +3038,16 @@ function ResultsDetail({
     [results.deviceGroups],
   )
 
+  // Files not present in ANY device group (defensive: must never silently
+  // count as assigned). Imported measurements normally always land in a
+  // candidate group, but any group-less file is still unassigned/unresolved.
+  const ungroupedFiles = useMemo(() => {
+    const grouped = new Set(
+      results.deviceGroups.flatMap((g) => g.files.map((f) => f.id)),
+    )
+    return results.files.filter((f) => !grouped.has(f.id))
+  }, [results.deviceGroups, results.files])
+
   useEffect(() => {
     const currentUnmatchedIds = new Set(unmatchedGroups.map((g) => g.id))
 
@@ -3079,10 +3110,9 @@ function ResultsDetail({
     return groups.flatMap((g) => g.files)
   }
 
-  const totalUnmatchedFiles = unmatchedGroups.reduce(
-    (sum, g) => sum + g.files.length,
-    0,
-  )
+  const totalUnmatchedFiles =
+    unmatchedGroups.reduce((sum, g) => sum + g.files.length, 0) +
+    ungroupedFiles.length
 
   // Compact overview of the loaded data (distinguishes original files from
   // directional measurement records and surfaces structured metadata counts).
@@ -3094,6 +3124,7 @@ function ResultsDetail({
     const directionalRecords = files.filter((f) => f.direction).length
     const inSummary = files.filter((f) => f.inSummary === true).length
     const additional = files.filter((f) => f.inSummary === false).length
+    const localOnly = files.filter((f) => f.localOnly === true).length
     return {
       uniqueFileNames,
       types,
@@ -3101,11 +3132,14 @@ function ResultsDetail({
       directionalRecords,
       inSummary,
       additional,
+      localOnly,
     }
   }, [results.files])
 
   const allFilesMatched =
-    results.files.length > 0 && unmatchedGroups.length === 0
+    results.files.length > 0 &&
+    unmatchedGroups.length === 0 &&
+    ungroupedFiles.length === 0
   const canOpenUpload =
     allFilesMatched && reviewConfirmed && experimentFullySpecified
 
@@ -3137,9 +3171,10 @@ function ResultsDetail({
       return
     }
     if (step === 2) {
-      // Blocked until the experiment is completely specified (Req: stop at the
-      // first step and finish the experiment before reviewing/uploading).
-      if (results.files.length > 0 && experimentFullySpecified) {
+      // Review is available once files exist and either the experiment is
+      // fully specified (native upload) or the result is a persistent import
+      // (process-free). NOMAD upload (step 3) keeps its own stricter gate.
+      if (reviewAllowed) {
         setWorkflowStep(2)
       }
       return
@@ -3323,9 +3358,7 @@ function ResultsDetail({
                           label: "Step 2",
                           sublabel: "Review",
                           done: canOpenUpload,
-                          disabled:
-                            results.files.length === 0 ||
-                            !experimentFullySpecified,
+                          disabled: !reviewAllowed,
                         },
                         {
                           step: 3 as const,
@@ -3672,6 +3705,12 @@ function ResultsDetail({
                               {reviewOverview.additional} additional
                             </Badge>
                           )}
+                          {reviewOverview.localOnly > 0 && (
+                            <Badge size="xs" variant="light" color="yellow">
+                              {reviewOverview.localOnly} local-only (not
+                              uploaded)
+                            </Badge>
+                          )}
                           <Badge
                             size="xs"
                             variant="light"
@@ -3682,6 +3721,7 @@ function ResultsDetail({
                         </Group>
                       </Paper>
                     )}
+                    <OriginalFilesSection experimentId={experiment.id} />
                     <Group
                       align="flex-start"
                       wrap="nowrap"
@@ -4075,6 +4115,52 @@ function ResultsDetail({
                                           </Fragment>
                                         )
                                       })}
+                                    </Table.Tbody>
+                                  </Table>
+                                </Paper>
+                              )}
+
+                              {/* Ungrouped files (defensive: files without a
+                                  device group must stay visible/inspectable). */}
+                              {ungroupedFiles.length > 0 && (
+                                <Paper withBorder p="sm" radius="md">
+                                  <Text size="xs" fw={600} mb="xs" c="dimmed">
+                                    Ungrouped Files ({ungroupedFiles.length})
+                                  </Text>
+                                  <Table striped>
+                                    <Table.Thead>
+                                      <Table.Tr>
+                                        <Table.Th>File</Table.Th>
+                                        <Table.Th>Device</Table.Th>
+                                        <Table.Th>Scan</Table.Th>
+                                        <Table.Th>Value</Table.Th>
+                                      </Table.Tr>
+                                    </Table.Thead>
+                                    <Table.Tbody>
+                                      {ungroupedFiles.map((f) => (
+                                        <Table.Tr key={f.id}>
+                                          <Table.Td>
+                                            <Text size="xs">{f.fileName}</Text>
+                                          </Table.Td>
+                                          <Table.Td>
+                                            <Text size="xs">
+                                              {f.deviceName || "—"}
+                                            </Text>
+                                          </Table.Td>
+                                          <Table.Td>
+                                            <Text size="xs">
+                                              {f.direction ?? "—"}
+                                            </Text>
+                                          </Table.Td>
+                                          <Table.Td>
+                                            <Text size="xs">
+                                              {f.value != null
+                                                ? `${f.value}%`
+                                                : "—"}
+                                            </Text>
+                                          </Table.Td>
+                                        </Table.Tr>
+                                      ))}
                                     </Table.Tbody>
                                   </Table>
                                 </Paper>
@@ -4667,50 +4753,14 @@ export function ResultsPage() {
     resultIdsForExperiment: string[],
     nextResultId: string | null,
   ) => {
-    const resultIdSet = new Set(resultIdsForExperiment)
-
-    for (const plane of planes) {
-      for (const element of plane.elements) {
-        if (element.type !== "collection") {
-          continue
-        }
-        const collection = element as CanvasCollectionElement
-        const hasExperimentRef = collection.refs.some(
-          (ref) => ref.kind === "experiment" && ref.id === experimentId,
-        )
-        if (!hasExperimentRef) {
-          continue
-        }
-
-        const withoutOldResultRefs = collection.refs.filter(
-          (ref) => !(ref.kind === "result" && resultIdSet.has(ref.id)),
-        )
-        const nextRefs =
-          nextResultId === null
-            ? withoutOldResultRefs
-            : [
-                ...withoutOldResultRefs,
-                { kind: "result" as const, id: nextResultId },
-              ]
-
-        const refsChanged =
-          nextRefs.length !== collection.refs.length ||
-          nextRefs.some((ref, idx) => {
-            const prev = collection.refs[idx]
-            return !prev || prev.kind !== ref.kind || prev.id !== ref.id
-          })
-
-        if (refsChanged) {
-          updateElement(plane.id, {
-            ...collection,
-            refs: nextRefs,
-          })
-          if (nextResultId !== null) {
-            setEntityPlaneId("result", [nextResultId], plane.id)
-          }
-        }
-      }
-    }
+    syncResultRefs(
+      experimentId,
+      resultIdsForExperiment,
+      nextResultId,
+      planes,
+      updateElement,
+      setEntityPlaneId,
+    )
   }
 
   const updateResults = (updatedResults: ExperimentResults) => {
@@ -4839,6 +4889,7 @@ export function ResultsPage() {
             <ActionIcon
               variant="subtle"
               color="gray"
+              aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
               onClick={() => setSidebarOpen((o) => !o)}
             >
               {sidebarOpen ? (
