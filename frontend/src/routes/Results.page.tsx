@@ -56,6 +56,7 @@ import type {
 } from "../client/types.gen"
 import { openDiscardUploadFlowConfirm } from "../components/UploadFlowStatus"
 import { OriginalFilesSection } from "../components/OriginalFilesSection"
+import { ScientificReviewPanel } from "../components/ScientificReviewPanel"
 import { homeCollectionForEntity, useRevealForFlow } from "../lib/entityReveal"
 import {
   discardArchive,
@@ -3722,6 +3723,9 @@ function ResultsDetail({
                       </Paper>
                     )}
                     <OriginalFilesSection experimentId={experiment.id} />
+                    {results.files.length > 0 && (
+                      <ScientificReviewPanel result={results} />
+                    )}
                     <Group
                       align="flex-start"
                       wrap="nowrap"

@@ -1,3 +1,4 @@
+import math
 import uuid
 from typing import Any
 
@@ -18,10 +19,13 @@ from app.models import (
     ExperimentResultsPublic,
     ExperimentResultsUpdate,
     ImportedSourceFile,
+    MeasurementCorrection,
+    MeasurementCorrectionPublic,
     MeasurementFile,
     MeasurementFileCreate,
     MeasurementFilePublic,
 )
+from pydantic import BaseModel, Field as PydanticField
 
 router = APIRouter(prefix="/results", tags=["results"])
 
@@ -176,16 +180,29 @@ def replace_measurement_files(
                 status_code=409,
                 detail="Measurement references a device group outside this result",
             )
+    existing_by_id = {f.id: f for f in result.measurement_files}
+    incoming_ids = {f.id for f in body}
+    # Delete removed files (their correction history cascades).
     for f in list(result.measurement_files):
-        session.delete(f)
-    session.flush()
-    created = [MeasurementFile(**f.model_dump(), results_id=id) for f in body]
-    for f in created:
-        session.add(f)
+        if f.id not in incoming_ids:
+            session.delete(f)
+    # Upsert by stable id so correction history, exclusions and provenance
+    # survive ordinary snapshot saves (never delete-and-recreate).
+    upserted: list[MeasurementFile] = []
+    for f_in in body:
+        if f_in.id in existing_by_id:
+            db_f = existing_by_id[f_in.id]
+            for field, value in f_in.model_dump().items():
+                setattr(db_f, field, value)
+            upserted.append(db_f)
+        else:
+            db_f = MeasurementFile(**f_in.model_dump(), results_id=id)
+            session.add(db_f)
+            upserted.append(db_f)
     session.commit()
-    for f in created:
+    for f in upserted:
         session.refresh(f)
-    return created
+    return upserted
 
 
 @router.put("/{id}/device-groups", response_model=list[DeviceGroupPublic])
@@ -227,3 +244,116 @@ def replace_device_groups(
     for g in upserted:
         session.refresh(g)
     return upserted
+
+
+class CorrectionIn(BaseModel):
+    measurement_id: uuid.UUID
+    # "scale" | "exclude" | "restore" | "edit"
+    operation: str
+    # For "scale": metric to scale (value/voc/jsc/ff). For "edit": field name.
+    field: str | None = None
+    # For "scale": finite, non-zero factor. For "edit": new string value.
+    factor: float | None = None
+    value: str | None = None
+    reason: str = PydanticField(min_length=1, max_length=500)
+
+
+_SCALEABLE = ("value", "voc", "jsc", "ff")
+_EDITABLE = ("device_name", "cell", "pixel", "measurement_date", "measurement_user")
+
+
+@router.post("/{id}/corrections", response_model=MeasurementCorrectionPublic)
+def apply_measurement_correction(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    body: CorrectionIn,
+) -> Any:
+    """Apply one correction to a measurement and record its traceable history.
+
+    Atomic: the effective value/exclusion changes in the same transaction as the
+    history row. Original source bytes and hashes are never modified.
+    """
+    result = _owned_result(session, current_user, id)
+    measurement = session.get(MeasurementFile, body.measurement_id)
+    if not measurement or measurement.results_id != result.id:
+        raise HTTPException(status_code=404, detail="Measurement not found")
+
+    previous: str | None = None
+    new: str | None = None
+    op = body.operation
+
+    if op == "scale":
+        if body.field not in _SCALEABLE:
+            raise HTTPException(status_code=400, detail="Field is not scaleable")
+        if body.factor is None or not math.isfinite(body.factor) or body.factor == 0:
+            raise HTTPException(status_code=400, detail="Factor must be finite and non-zero")
+        old = getattr(measurement, body.field)
+        if old is None:
+            raise HTTPException(status_code=400, detail="Nothing to scale: value is missing")
+        new_val = old * body.factor
+        previous = str(old)
+        new = str(new_val)
+        setattr(measurement, body.field, new_val)
+
+    elif op == "edit":
+        if body.field not in _EDITABLE:
+            raise HTTPException(status_code=400, detail="Field is not editable")
+        if body.value is None:
+            raise HTTPException(status_code=400, detail="New value is required")
+        previous = str(getattr(measurement, body.field))
+        new = body.value
+        setattr(measurement, body.field, body.value)
+
+    elif op == "exclude":
+        if measurement.excluded:
+            raise HTTPException(status_code=409, detail="Already excluded")
+        previous = "false"
+        new = "true"
+        measurement.excluded = True
+
+    elif op == "restore":
+        if not measurement.excluded:
+            raise HTTPException(status_code=409, detail="Already included")
+        previous = "true"
+        new = "false"
+        measurement.excluded = False
+
+    else:
+        raise HTTPException(status_code=400, detail="Unknown operation")
+
+    correction = MeasurementCorrection(
+        measurement_id=measurement.id,
+        field=body.field or "",
+        operation=op,
+        previous_value=previous,
+        new_value=new,
+        reason=body.reason,
+        actor_email=current_user.email,
+    )
+    session.add(correction)
+    session.add(measurement)
+    session.commit()
+    session.refresh(correction)
+    return correction
+
+
+@router.get("/{id}/corrections", response_model=list[MeasurementCorrectionPublic])
+def list_measurement_corrections(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+) -> Any:
+    """List the correction history for a result's measurements (newest first)."""
+    result = _owned_result(session, current_user, id)
+    ids = [m.id for m in result.measurement_files]
+    if not ids:
+        return []
+    corrections = session.exec(
+        select(MeasurementCorrection)
+        .where(MeasurementCorrection.measurement_id.in_(ids))
+        .order_by(MeasurementCorrection.created_at.desc())
+    ).all()
+    return corrections

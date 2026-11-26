@@ -195,6 +195,12 @@ def init_db(session: Session) -> None:
                 "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS local_only BOOLEAN"
             )
         )
+        conn.execute(
+            text(
+                "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS "
+                "excluded BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+        )
 
     user = session.exec(
         select(User).where(User.email == settings.FIRST_SUPERUSER)

@@ -346,6 +346,7 @@ function resultsFromApi(r: ApiObj): ExperimentResults {
       sourceFileId: f.source_file_id ?? undefined,
       sourceRecordLocator: f.source_record_locator ?? undefined,
       localOnly: f.local_only ?? undefined,
+      excluded: f.excluded ?? false,
       notes: f.notes ?? undefined,
     }),
   )
@@ -701,6 +702,7 @@ export function measurementFilesToApi(r: ExperimentResults): ApiObj[] {
     source_file_id: f.sourceFileId ?? null,
     source_record_locator: f.sourceRecordLocator ?? null,
     local_only: f.localOnly ?? null,
+    excluded: f.excluded ?? false,
     notes: f.notes ?? null,
   }))
 }

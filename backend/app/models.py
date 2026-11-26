@@ -1172,6 +1172,10 @@ class MeasurementFileBase(SQLModel):
     # NOMAD upload. Null/false = normal (historically uploaded when the parent
     # result carries an upload id).
     local_only: bool | None = None
+    # True = excluded from future scientific analyses/rankings. The observation
+    # remains visible, retrievable and restorable; the original evidence is never
+    # deleted.
+    excluded: bool = False
 
 
 class MeasurementFileCreate(ClientIdCreate, MeasurementFileBase):
@@ -1336,6 +1340,40 @@ def _remove_imported_source_bytes(mapper, connection, target) -> None:
 
 
 event.listens_for(ImportedSourceFile, "after_delete")(_remove_imported_source_bytes)
+
+
+# ============================================================================
+# Measurement correction history (WO-05)
+# ============================================================================
+# Append-only, traceable record of every researcher-applied correction: the
+# measurement, the affected field/operation, the previous and resulting value,
+# the scientific reason, the authenticated actor and the timestamp. Original
+# source bytes and hashes never change; the authoritative effective value stays
+# on the measurement row itself.
+class MeasurementCorrectionBase(SQLModel):
+    measurement_id: uuid.UUID = Field(
+        foreign_key="measurementfile.id", nullable=False, ondelete="CASCADE", index=True
+    )
+    field: str = Field(max_length=50)
+    operation: str = Field(max_length=50)
+    previous_value: str | None = None
+    new_value: str | None = None
+    reason: str = Field(max_length=500)
+    actor_email: str = Field(max_length=255)
+
+
+class MeasurementCorrection(MeasurementCorrectionBase, table=True):
+    __tablename__ = "measurement_correction"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),
+    )
+
+
+class MeasurementCorrectionPublic(MeasurementCorrectionBase):
+    id: uuid.UUID
+    created_at: datetime | None = None
 
 
 # ============================================================================

@@ -844,6 +844,8 @@ export type MeasurementFile = {
   sourceRecordLocator?: string
   /** True = local-only imported measurement (not part of a remote upload). */
   localOnly?: boolean
+  /** True = excluded from future analyses/rankings (visible, restorable). */
+  excluded?: boolean
   /** Provenance note (e.g. "Imported from ZIP: <source> (<FW|RV>)") */
   notes?: string
 }
