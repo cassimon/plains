@@ -36,9 +36,13 @@ describe("qualityFindings (deterministic JV checks)", () => {
     expect(voc.some((f) => f.severity === "invalid")).toBe(false)
   })
 
-  test("physically impossible values are invalid", () => {
+  test("physically impossible values are invalid (sign-independent)", () => {
     const findings = qualityFindings(jv({ voc: -0.1, ff: 101, value: -1 }))
-    expect(findings.filter((f) => f.severity === "invalid").length).toBe(3)
+    expect(findings.filter((f) => f.severity === "invalid").length).toBe(2) // FF, PCE
+    // Negative Voc is a sign-convention warning, not "impossible".
+    expect(
+      findings.some((f) => f.metric === "Voc" && f.severity === "warning"),
+    ).toBe(true)
   })
 
   test("zero values are legitimate (no findings)", () => {

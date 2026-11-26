@@ -819,6 +819,18 @@ export type MeasurementFile = {
   jsc?: number
   /** Fill factor in % (from JV file) */
   ff?: number
+  /** Maximum-power-point voltage in V (instrument-reported). */
+  vmpp?: number
+  /** Maximum-power-point current density in mA/cm² (instrument-reported). */
+  jmpp?: number
+  /** Maximum power in mW/cm² (instrument-reported). */
+  pmpp?: number
+  /** Series resistance in Ω (instrument-reported). */
+  rs?: number
+  /** Shunt resistance in Ω (instrument-reported). */
+  rsh?: number
+  /** Raw FW/RV sweep points for this record's direction. Never synthesized. */
+  curve?: { v: number; j: number }[]
   /**
    * Illumination intensity in mW/cm² (1 sun = 100). The instrument files do not
    * record it, but NOMAD needs it — efficiency is measured against it.

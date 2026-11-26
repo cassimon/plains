@@ -56,15 +56,16 @@ def quality_findings(m: dict) -> list[dict]:
         if value is not None and not math.isfinite(value):
             add("invalid", metric, f"{metric} is non-finite", value)
 
-    # Physically impossible values.
-    if _finite(voc) and voc < 0:
-        add("invalid", "Voc", "Negative open-circuit voltage", voc)
+    # Physically impossible values (sign-independent ratios/percentages).
     if _finite(ff) and (ff < 0 or ff > 100):
         add("invalid", "FF", "Fill factor outside 0–100%", ff)
     if _finite(pce) and pce < 0:
         add("invalid", "PCE", "Negative efficiency", pce)
 
-    # Contextual warnings (typical perovskite range) — advisory only.
+    # Contextual warnings (typical perovskite range or sign convention) —
+    # advisory only, never auto-exclude.
+    if _finite(voc) and voc < 0:
+        add("warning", "Voc", "Negative Voc — check sign convention", voc)
     if _finite(voc) and voc > _VOC_MAX_TYPICAL:
         add("warning", "Voc", f"Voc above typical range (> {_VOC_MAX_TYPICAL} V)", voc)
     if _finite(jsc) and jsc < 0:

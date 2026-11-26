@@ -1143,6 +1143,15 @@ class MeasurementFileBase(SQLModel):
     voc: float | None = None
     jsc: float | None = None
     ff: float | None = None
+    # Additional instrument-reported JV metrics (never recalculated).
+    vmpp: float | None = None
+    jmpp: float | None = None
+    pmpp: float | None = None
+    rs: float | None = None
+    rsh: float | None = None
+    # Raw FW/RV voltage/current-density sweep points for this record's direction
+    # (``[{"v": ..., "j": ...}, ...]``). Empty/absent when no curve was captured.
+    curve: list[dict[str, Any]] | None = _jsonb_field()
     # mW/cm². The instrument files do not record the illumination, but NOMAD needs
     # it (it is what efficiency is measured against). Defaults to 1 sun, AM 1.5G.
     illumination_intensity: float | None = None

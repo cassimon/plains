@@ -83,7 +83,13 @@ def parse_device_identifier(device: str) -> dict[str, str]:
 
 
 def parse_jv_file(text: str) -> dict[str, Any] | None:
-    """Parse an original JV instrument file (``## Header ##`` / ``## Data ##``)."""
+    """Parse an original JV instrument file (``## Header ##`` / ``## Data ##``).
+
+    Extracts the FW/RV summary metrics (Voc, Jsc, Vmpp, Jmpp, Pmpp, Rs, Rsh, FF,
+    Efficiency) and, when present, the raw FW/RV voltage/current-density sweep
+    points (``curve_fw``/``curve_rv``). Curve points are never synthesized from
+    summary metrics.
+    """
     lines = text.splitlines()
 
     general: dict[str, str] = {}
@@ -110,8 +116,28 @@ def parse_jv_file(text: str) -> dict[str, Any] | None:
 
     fw: dict[str, float | None] | None = None
     rv: dict[str, float | None] | None = None
+    curve_fw: list[dict[str, float]] = []
+    curve_rv: list[dict[str, float]] = []
+    in_curve = False
     for line in lines[data_start:]:
         parts = line.split("\t")
+        if not parts or not parts[0].strip():
+            continue
+        # Curve section header ("V_FW (V)\tJ_FW (mA/cm2)\tV_RV (V)\tJ_RV (mA/cm2)").
+        if parts[0].strip().upper().startswith("V_FW"):
+            in_curve = True
+            continue
+        if in_curve:
+            if len(parts) >= 4:
+                vfw = _number(parts[0])
+                jfw = _number(parts[1])
+                vrv = _number(parts[2])
+                jrv = _number(parts[3])
+                if vfw is not None and jfw is not None:
+                    curve_fw.append({"v": vfw, "j": jfw})
+                if vrv is not None and jrv is not None:
+                    curve_rv.append({"v": vrv, "j": jrv})
+            continue
         if len(parts) < _SUMMARY_MIN_COLUMNS:
             continue
         scan = parts[0].strip().upper()
@@ -120,6 +146,11 @@ def parse_jv_file(text: str) -> dict[str, Any] | None:
         row = {
             "voc": _number(parts[1]),
             "jsc": _number(parts[2]),
+            "vmpp": _number(parts[3]),
+            "jmpp": _number(parts[4]),
+            "pmpp": _number(parts[5]),
+            "rs": _number(parts[6]),
+            "rsh": _number(parts[7]),
             "ff": _number(parts[8]),
             "eff": _number(parts[9]),
         }
@@ -140,6 +171,8 @@ def parse_jv_file(text: str) -> dict[str, Any] | None:
         "cell_area": general.get("Cell area (cm2)") or general.get("Cell Area (cm2)"),
         "fw": fw,
         "rv": rv,
+        "curve_fw": curve_fw,
+        "curve_rv": curve_rv,
     }
 
 
@@ -168,9 +201,27 @@ def parse_jv_summary(text: str) -> list[dict[str, Any]]:
         jsc = _number(parts[_JSC])
         ff = _number(parts[_FF])
         eff = _number(parts[_EFF])
+        vmpp = _number(parts[3]) if len(parts) > 3 else None
+        jmpp = _number(parts[4]) if len(parts) > 4 else None
+        pmpp = _number(parts[5]) if len(parts) > 5 else None
+        rs = _number(parts[6]) if len(parts) > 6 else None
+        rsh = _number(parts[7]) if len(parts) > 7 else None
         if voc is None and jsc is None and ff is None and eff is None:
             continue
-        rows.append({"file": name, "voc": voc, "jsc": jsc, "ff": ff, "eff": eff})
+        rows.append(
+            {
+                "file": name,
+                "voc": voc,
+                "jsc": jsc,
+                "vmpp": vmpp,
+                "jmpp": jmpp,
+                "pmpp": pmpp,
+                "rs": rs,
+                "rsh": rsh,
+                "ff": ff,
+                "eff": eff,
+            }
+        )
     return rows
 
 
@@ -229,8 +280,14 @@ def measurements_from_jv_file(content: bytes, filename: str) -> list[dict[str, A
                 "direction": direction,
                 "voc": row["voc"],
                 "jsc": row["jsc"],
+                "vmpp": row["vmpp"],
+                "jmpp": row["jmpp"],
+                "pmpp": row["pmpp"],
+                "rs": row["rs"],
+                "rsh": row["rsh"],
                 "ff": row["ff"],
                 "eff": row["eff"],
+                "curve": parsed["curve_fw"] if direction == "FW" else parsed["curve_rv"],
                 "source": filename,
                 "batch": "",
                 "user": parsed["user"],
@@ -312,8 +369,14 @@ def extract_importable_measurements(
                     "direction": direction,
                     "voc": row["voc"],
                     "jsc": row["jsc"],
+                    "vmpp": row["vmpp"],
+                    "jmpp": row["jmpp"],
+                    "pmpp": row["pmpp"],
+                    "rs": row["rs"],
+                    "rsh": row["rsh"],
                     "ff": row["ff"],
                     "eff": row["eff"],
+                    "curve": parsed["curve_fw"] if direction == "FW" else parsed["curve_rv"],
                     "source": entry["name"],
                     "batch": batch,
                     "user": parsed["user"],
@@ -359,8 +422,14 @@ def extract_importable_measurements(
                     "direction": direction,
                     "voc": row["voc"],
                     "jsc": row["jsc"],
+                    "vmpp": row["vmpp"],
+                    "jmpp": row["jmpp"],
+                    "pmpp": row["pmpp"],
+                    "rs": row["rs"],
+                    "rsh": row["rsh"],
                     "ff": row["ff"],
                     "eff": row["eff"],
+                    "curve": [],
                     "source": entry["name"],
                     "batch": batch,
                     "user": None,

@@ -58,6 +58,10 @@ export function ScientificReviewPanel({
     useState<(typeof SCALEABLE)[number]>("value")
   const [scaleFactor, setScaleFactor] = useState<number | string>(1)
   const [scaleReason, setScaleReason] = useState("")
+  const [editTarget, setEditTarget] = useState<MeasurementFile | null>(null)
+  const [editField, setEditField] = useState<string>("device_name")
+  const [editValue, setEditValue] = useState("")
+  const [editReason, setEditReason] = useState("")
   const [busy, setBusy] = useState(false)
   const [history, setHistory] = useState<CorrectionHistory[] | null>(null)
 
@@ -123,6 +127,37 @@ export function ScientificReviewPanel({
       })
       setExcludeTarget(null)
       setExcludeReason("")
+    } catch (err) {
+      notifications.show({
+        title: "Correction failed",
+        message: err instanceof Error ? err.message : String(err),
+        color: "red",
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const applyEdit = async () => {
+    if (!editTarget || !editValue.trim()) return
+    setBusy(true)
+    try {
+      await applyCorrection(result.id, {
+        measurement_id: editTarget.id,
+        operation: "edit",
+        field: editField,
+        value: editValue.trim(),
+        reason: editReason.trim() || "Researcher-applied metadata correction",
+      })
+      applyLocal({ ...editTarget, [editField]: editValue.trim() })
+      notifications.show({
+        title: "Metadata updated",
+        message: "Correction recorded.",
+        color: "green",
+      })
+      setEditTarget(null)
+      setEditReason("")
+      setEditValue("")
     } catch (err) {
       notifications.show({
         title: "Correction failed",
@@ -303,6 +338,18 @@ export function ScientificReviewPanel({
                     >
                       Scale
                     </Button>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => {
+                        setEditTarget(file)
+                        setEditField("device_name")
+                        setEditValue(file.deviceName ?? "")
+                        setEditReason("")
+                      }}
+                    >
+                      Edit metadata
+                    </Button>
                   </Group>
                 </Stack>
               </Accordion.Panel>
@@ -433,6 +480,48 @@ export function ScientificReviewPanel({
               Cancel
             </Button>
             <Button loading={busy} onClick={() => void applyScale()}>
+              Apply
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      {/* Metadata edit modal */}
+      <Modal
+        opened={editTarget !== null}
+        onClose={() => setEditTarget(null)}
+        title="Edit measurement metadata"
+        size="sm"
+      >
+        <Stack gap="md">
+          <Select
+            label="Field"
+            data={[
+              { value: "device_name", label: "Device name" },
+              { value: "cell", label: "Cell" },
+              { value: "pixel", label: "Pixel" },
+              { value: "measurement_date", label: "Measurement date" },
+              { value: "measurement_user", label: "Measurement user" },
+            ]}
+            value={editField}
+            onChange={(v) => setEditField(v ?? "device_name")}
+          />
+          <TextInput
+            label="New value"
+            value={editValue}
+            onChange={(e) => setEditValue(e.currentTarget.value)}
+          />
+          <TextInput
+            label="Reason"
+            placeholder="Why is this metadata being corrected?"
+            value={editReason}
+            onChange={(e) => setEditReason(e.currentTarget.value)}
+          />
+          <Group justify="flex-end" gap="sm">
+            <Button variant="outline" onClick={() => setEditTarget(null)}>
+              Cancel
+            </Button>
+            <Button loading={busy} onClick={() => void applyEdit()}>
               Apply
             </Button>
           </Group>

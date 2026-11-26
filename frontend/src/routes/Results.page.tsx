@@ -55,6 +55,7 @@ import type {
   NomadUploadResponse,
 } from "../client/types.gen"
 import { openDiscardUploadFlowConfirm } from "../components/UploadFlowStatus"
+import { MeasurementsView } from "../components/MeasurementsView"
 import { OriginalFilesSection } from "../components/OriginalFilesSection"
 import { ScientificReviewPanel } from "../components/ScientificReviewPanel"
 import { homeCollectionForEntity, useRevealForFlow } from "../lib/entityReveal"
@@ -3723,6 +3724,9 @@ function ResultsDetail({
                       </Paper>
                     )}
                     <OriginalFilesSection experimentId={experiment.id} />
+                    {results.files.length > 0 && (
+                      <MeasurementsView result={results} />
+                    )}
                     {results.files.length > 0 && (
                       <ScientificReviewPanel result={results} />
                     )}

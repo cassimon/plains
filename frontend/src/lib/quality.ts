@@ -51,12 +51,12 @@ export function qualityFindings(m: {
       add("invalid", metric, `${metric} is non-finite`, v)
   }
 
-  if (finite(voc) && voc < 0)
-    add("invalid", "Voc", "Negative open-circuit voltage", voc)
   if (finite(ff) && (ff < 0 || ff > 100))
     add("invalid", "FF", "Fill factor outside 0–100%", ff)
   if (finite(pce) && pce < 0) add("invalid", "PCE", "Negative efficiency", pce)
 
+  if (finite(voc) && voc < 0)
+    add("warning", "Voc", "Negative Voc — check sign convention", voc)
   if (finite(voc) && voc > VOC_MAX_TYPICAL)
     add(
       "warning",

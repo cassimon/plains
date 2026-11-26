@@ -201,6 +201,18 @@ def init_db(session: Session) -> None:
                 "excluded BOOLEAN NOT NULL DEFAULT FALSE"
             )
         )
+        # Additional instrument-reported JV metrics (WO-06).
+        for col in ("vmpp", "jmpp", "pmpp", "rs", "rsh"):
+            conn.execute(
+                text(
+                    f"ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS {col} DOUBLE PRECISION"
+                )
+            )
+        conn.execute(
+            text(
+                "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS curve JSONB"
+            )
+        )
 
     user = session.exec(
         select(User).where(User.email == settings.FIRST_SUPERUSER)

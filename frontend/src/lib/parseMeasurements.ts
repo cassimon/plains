@@ -22,6 +22,12 @@ export type ServerMeasurement = {
   jsc: number | null
   ff: number | null
   eff: number | null
+  vmpp?: number | null
+  jmpp?: number | null
+  pmpp?: number | null
+  rs?: number | null
+  rsh?: number | null
+  curve?: { v: number; j: number }[]
   source: string
   batch: string
   /** true = represented in a summary; false = additional; null = unknown. */
@@ -73,8 +79,7 @@ export type ParseResult = {
  */
 export function isChoseStructured(text: string): boolean {
   return (
-    text.includes("## Data ##") &&
-    text.toLowerCase().includes("stability (jv)")
+    text.includes("## Data ##") && text.toLowerCase().includes("stability (jv)")
   )
 }
 
@@ -96,9 +101,16 @@ export function serverMeasurementToFile(m: ServerMeasurement): MeasurementFile {
     voc: m.voc ?? undefined,
     jsc: m.jsc ?? undefined,
     ff: m.ff ?? undefined,
+    vmpp: m.vmpp ?? undefined,
+    jmpp: m.jmpp ?? undefined,
+    pmpp: m.pmpp ?? undefined,
+    rs: m.rs ?? undefined,
+    rsh: m.rsh ?? undefined,
+    curve: m.curve ?? undefined,
     measurementDate: m.date ?? undefined,
     user: m.user ?? undefined,
-    direction: m.direction === "FW" || m.direction === "RV" ? m.direction : undefined,
+    direction:
+      m.direction === "FW" || m.direction === "RV" ? m.direction : undefined,
     inSummary: m.in_summary,
     batch: m.batch || undefined,
     substrateGroup: m.substrate_group || undefined,
