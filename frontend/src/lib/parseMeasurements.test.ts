@@ -57,6 +57,11 @@ describe("serverMeasurementToFile", () => {
     expect(f.value).toBe(14.42)
     expect(f.notes).toContain("(FW)")
     expect(f.notes).toContain("Stability (JV)")
+    // Structured metadata is preserved, not flattened into notes.
+    expect(f.direction).toBe("FW")
+    expect(f.inSummary).toBe(true)
+    expect(f.batch).toBe("2026_01_22")
+    expect(f.substrateGroup).toBe("N 1 1")
   })
 
   test("FW and RV rows from the same file get distinct ids", () => {

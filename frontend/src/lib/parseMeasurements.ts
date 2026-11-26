@@ -81,6 +81,10 @@ export function serverMeasurementToFile(m: ServerMeasurement): MeasurementFile {
     ff: m.ff ?? undefined,
     measurementDate: m.date ?? undefined,
     user: m.user ?? undefined,
+    direction: m.direction === "FW" || m.direction === "RV" ? m.direction : undefined,
+    inSummary: m.in_summary,
+    batch: m.batch || undefined,
+    substrateGroup: m.substrate_group || undefined,
     notes: `Parsed from ${m.source}${m.direction ? ` (${m.direction})` : ""}${coverage}`,
   }
 }

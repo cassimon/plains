@@ -546,6 +546,16 @@ function getAutoUnmatchedGroupName(
   file: MeasurementFile,
   substrates: { id: string; name: string }[],
 ): string {
+  // Prefer the structured substrate_group metadata when available.
+  if (file.substrateGroup) {
+    const exact = substrates.find(
+      (s) => s.name.trim().toLowerCase() === file.substrateGroup!.trim().toLowerCase(),
+    )
+    if (exact) {
+      return exact.name
+    }
+  }
+
   const matches = findSubstrateNamesInFile(file.fileName, substrates)
   if (matches.length > 0) {
     return matches[0].name
@@ -570,12 +580,18 @@ function groupFilesBySubstrateMatch(
     { files: MeasurementFile[]; confidence: number }
   >()
 
-  // First pass: group files by substrate names found in them
+  // First pass: group files by substrate names found in them. Structured
+  // substrate_group metadata is preferred over re-deriving it from filenames.
   for (const file of files) {
-    const matchedSubstrates = findSubstrateNamesInFile(
-      file.fileName,
-      substrates,
-    )
+    const matchedSubstrates = file.substrateGroup
+      ? substrates
+          .filter(
+            (s) =>
+              s.name.trim().toLowerCase() ===
+              file.substrateGroup!.trim().toLowerCase(),
+          )
+          .map((s) => ({ ...s, confidence: 1.0 }))
+      : findSubstrateNamesInFile(file.fileName, substrates)
     if (matchedSubstrates.length > 0) {
       // Use the highest confidence match
       const best = matchedSubstrates[0]
@@ -732,6 +748,37 @@ function FileTypeBadge({ type }: { type: MeasurementType }) {
       {type}
     </Badge>
   )
+}
+
+/** FW / RV scan-direction badge for structured JV records. */
+function ScanDirectionBadge({ direction }: { direction?: "FW" | "RV" }) {
+  if (!direction) {
+    return <Text size="xs" c="dimmed">—</Text>
+  }
+  return (
+    <Badge size="xs" variant="filled" color={direction === "FW" ? "blue" : "violet"}>
+      {direction}
+    </Badge>
+  )
+}
+
+/** Summary-coverage badge: in summary / additional / unknown. */
+function SummaryCoverageBadge({ inSummary }: { inSummary?: boolean | null }) {
+  if (inSummary === true) {
+    return (
+      <Badge size="xs" variant="light" color="teal">
+        summary
+      </Badge>
+    )
+  }
+  if (inSummary === false) {
+    return (
+      <Badge size="xs" variant="light" color="orange">
+        additional
+      </Badge>
+    )
+  }
+  return <Text size="xs" c="dimmed">—</Text>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -892,9 +939,11 @@ function SubstrateCard({
                 <Table.Th style={{ width: 36 }} />
                 <Table.Th>File</Table.Th>
                 <Table.Th>Type</Table.Th>
+                <Table.Th>Scan</Table.Th>
                 <Table.Th>Cell</Table.Th>
                 <Table.Th>Pixel</Table.Th>
                 <Table.Th>Value</Table.Th>
+                <Table.Th>Summary</Table.Th>
                 <Table.Th style={{ width: 40 }} />
               </Table.Tr>
             </Table.Thead>
@@ -951,6 +1000,9 @@ function SubstrateCard({
                     <FileTypeBadge type={file.fileType} />
                   </Table.Td>
                   <Table.Td>
+                    <ScanDirectionBadge direction={file.direction} />
+                  </Table.Td>
+                  <Table.Td>
                     <Text size="xs">{file.cell || "—"}</Text>
                   </Table.Td>
                   <Table.Td>
@@ -962,6 +1014,9 @@ function SubstrateCard({
                         ? `${file.value.toFixed(2)}%`
                         : "—"}
                     </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <SummaryCoverageBadge inSummary={file.inSummary} />
                   </Table.Td>
                   <Table.Td>
                     <Tooltip label="Move to unmatched" withArrow>
@@ -1254,7 +1309,7 @@ function ResultsDetail({
   ] = useState<Record<string, Set<string>>>({})
   const [batchAssignTargetSubstrateId, setBatchAssignTargetSubstrateId] =
     useState<string | null>(null)
-  const seenUnmatchedGroupIdsRef = useRef<Set<string>>(new Set())
+
   const {
     processes,
     flushSave,
@@ -1694,7 +1749,9 @@ function ResultsDetail({
         }))
       }
 
-      // Fuzzy matching
+      // Matching: only an exact (case-insensitive, trimmed) name match is
+      // auto-assigned. Anything less is surfaced as a suggestion for review
+      // rather than silently accepted as a misleading fuzzy match.
       return groups.map((group) => {
         let bestMatch: { id: string; score: number } | null = null
 
@@ -1705,7 +1762,7 @@ function ResultsDetail({
           }
         }
 
-        const autoAssigned = bestMatch && bestMatch.score > 0.6
+        const autoAssigned = bestMatch !== null && bestMatch.score === 1
         return {
           ...group,
           assignedSubstrateId: autoAssigned ? bestMatch!.id : null,
@@ -2963,25 +3020,17 @@ function ResultsDetail({
   useEffect(() => {
     const currentUnmatchedIds = new Set(unmatchedGroups.map((g) => g.id))
 
+    // Only prune expansions for groups that are no longer unmatched; new
+    // groups start collapsed (the user expands them explicitly).
     setExpandedUnmatchedGroups((prev) => {
       const next = new Set<string>()
-
       for (const id of prev) {
         if (currentUnmatchedIds.has(id)) {
           next.add(id)
         }
       }
-
-      for (const id of currentUnmatchedIds) {
-        if (!seenUnmatchedGroupIdsRef.current.has(id)) {
-          next.add(id)
-        }
-      }
-
       return next
     })
-
-    seenUnmatchedGroupIdsRef.current = currentUnmatchedIds
 
     setSelectedUnmatchedFileIds((prev) => {
       const validFileIds = new Set<string>([
@@ -3034,6 +3083,27 @@ function ResultsDetail({
     (sum, g) => sum + g.files.length,
     0,
   )
+
+  // Compact overview of the loaded data (distinguishes original files from
+  // directional measurement records and surfaces structured metadata counts).
+  const reviewOverview = useMemo(() => {
+    const files = results.files
+    const uniqueFileNames = new Set(files.map((f) => f.fileName)).size
+    const types = new Set(files.map((f) => f.fileType).filter(Boolean))
+    const devices = new Set(files.map((f) => f.deviceName).filter(Boolean))
+    const directionalRecords = files.filter((f) => f.direction).length
+    const inSummary = files.filter((f) => f.inSummary === true).length
+    const additional = files.filter((f) => f.inSummary === false).length
+    return {
+      uniqueFileNames,
+      types,
+      devices,
+      directionalRecords,
+      inSummary,
+      additional,
+    }
+  }, [results.files])
+
   const allFilesMatched =
     results.files.length > 0 && unmatchedGroups.length === 0
   const canOpenUpload =
@@ -3561,6 +3631,57 @@ function ResultsDetail({
                         )}
                       </Stack>
                     )}
+                    {workflowStep === 2 && results.files.length > 0 && (
+                      <Paper withBorder radius="md" p="xs" mb="sm">
+                        <Group gap="sm" wrap="wrap">
+                          <Text size="xs" fw={600} c="dimmed">
+                            Loaded data
+                          </Text>
+                          <Badge size="xs" variant="light">
+                            {reviewOverview.uniqueFileNames} file
+                            {reviewOverview.uniqueFileNames === 1 ? "" : "s"}
+                          </Badge>
+                          <Badge size="xs" variant="light">
+                            {results.files.length} measurement record
+                            {results.files.length === 1 ? "" : "s"}
+                          </Badge>
+                          {reviewOverview.directionalRecords > 0 && (
+                            <Badge size="xs" variant="light" color="blue">
+                              {reviewOverview.directionalRecords} directional
+                              (FW/RV)
+                            </Badge>
+                          )}
+                          {[...reviewOverview.types].map((t) => (
+                            <FileTypeBadge key={t} type={t} />
+                          ))}
+                          <Badge size="xs" variant="light" color="grape">
+                            {reviewOverview.devices.size} device label
+                            {reviewOverview.devices.size === 1 ? "" : "s"}
+                          </Badge>
+                          <Badge size="xs" variant="light" color="cyan">
+                            {experiment.substrates.length} candidate substrate
+                            {experiment.substrates.length === 1 ? "" : "s"}
+                          </Badge>
+                          {reviewOverview.inSummary > 0 && (
+                            <Badge size="xs" variant="light" color="teal">
+                              {reviewOverview.inSummary} in summary
+                            </Badge>
+                          )}
+                          {reviewOverview.additional > 0 && (
+                            <Badge size="xs" variant="light" color="orange">
+                              {reviewOverview.additional} additional
+                            </Badge>
+                          )}
+                          <Badge
+                            size="xs"
+                            variant="light"
+                            color={totalUnmatchedFiles > 0 ? "red" : "green"}
+                          >
+                            {totalUnmatchedFiles} unresolved
+                          </Badge>
+                        </Group>
+                      </Paper>
+                    )}
                     <Group
                       align="flex-start"
                       wrap="nowrap"
@@ -3864,7 +3985,13 @@ function ResultsDetail({
                                                           Type
                                                         </Table.Th>
                                                         <Table.Th>
+                                                          Scan
+                                                        </Table.Th>
+                                                        <Table.Th>
                                                           Device
+                                                        </Table.Th>
+                                                        <Table.Th>
+                                                          Summary
                                                         </Table.Th>
                                                       </Table.Tr>
                                                     </Table.Thead>
@@ -3918,10 +4045,24 @@ function ResultsDetail({
                                                               />
                                                             </Table.Td>
                                                             <Table.Td>
+                                                              <ScanDirectionBadge
+                                                                direction={
+                                                                  file.direction
+                                                                }
+                                                              />
+                                                            </Table.Td>
+                                                            <Table.Td>
                                                               <Text size="xs">
                                                                 {file.deviceName ||
                                                                   "—"}
                                                               </Text>
+                                                            </Table.Td>
+                                                            <Table.Td>
+                                                              <SummaryCoverageBadge
+                                                                inSummary={
+                                                                  file.inSummary
+                                                                }
+                                                              />
                                                             </Table.Td>
                                                           </Table.Tr>
                                                         ),

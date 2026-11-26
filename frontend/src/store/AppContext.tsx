@@ -801,6 +801,14 @@ export type MeasurementFile = {
   measurementDate?: string
   /** User from measurement file */
   user?: string
+  /** Scan direction for structured JV records (FW / RV). */
+  direction?: "FW" | "RV"
+  /** Summary coverage: true = in summary, false = additional, null = unknown. */
+  inSummary?: boolean | null
+  /** Acquisition batch (parent directory of the source entry). */
+  batch?: string
+  /** Structured substrate-group identifier parsed from the device label. */
+  substrateGroup?: string
   /** Provenance note (e.g. "Imported from ZIP: <source> (<FW|RV>)") */
   notes?: string
 }
