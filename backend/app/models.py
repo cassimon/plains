@@ -1152,6 +1152,10 @@ class MeasurementFileBase(SQLModel):
     # Raw FW/RV voltage/current-density sweep points for this record's direction
     # (``[{"v": ..., "j": ...}, ...]``). Empty/absent when no curve was captured.
     curve: list[dict[str, Any]] | None = _jsonb_field()
+    # Fields whose value is authoritative after a researcher correction. Snapshot
+    # syncs (``replace_measurement_files``) never overwrite these with stale
+    # pre-correction values.
+    corrected_fields: list[str] | None = _jsonb_field()
     # mW/cm². The instrument files do not record the illumination, but NOMAD needs
     # it (it is what efficiency is measured against). Defaults to 1 sun, AM 1.5G.
     illumination_intensity: float | None = None
@@ -1369,6 +1373,7 @@ class MeasurementCorrectionBase(SQLModel):
     new_value: str | None = None
     reason: str = Field(max_length=500)
     actor_email: str = Field(max_length=255)
+    request_id: str | None = Field(default=None, max_length=100, index=True)
 
 
 class MeasurementCorrection(MeasurementCorrectionBase, table=True):

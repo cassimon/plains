@@ -98,6 +98,12 @@ def _basename(name: str) -> str:
     return name.replace("\\", "/").rstrip("/").split("/")[-1]
 
 
+# Conservative JV filename convention used only as a preview/classification hint:
+# e.g. "JV_0002_C.txt" (the authoritative recognition is the content signature
+# in ``zip_import.is_jv_signature``).
+_JV_BASENAME = re.compile(r"^jv[^a-z]", re.IGNORECASE)
+
+
 def classify_entry(name: str) -> str:
     """Classify an archive entry by filename convention only.
 
@@ -111,6 +117,8 @@ def classify_entry(name: str) -> str:
     low = base.lower()
     if low in SUMMARY_BASENAMES:
         return SUMMARY_BASENAMES[low]
+    if _JV_BASENAME.match(low):
+        return "stability-jv"
     for marker, kind in MARKER_TYPES:
         if marker in low:
             return kind

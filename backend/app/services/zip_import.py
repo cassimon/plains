@@ -82,6 +82,13 @@ def parse_device_identifier(device: str) -> dict[str, str]:
     return {"substrate": s, "cell": "", "pixel": ""}
 
 
+def is_jv_signature(text: str) -> bool:
+    """True when text carries the JV instrument signature: a ``## Data ##``
+    section AND a raw ``V_FW`` sweep header. Parameters/Tracking exports share
+    the header layout but never carry the sweep, so this is conservative."""
+    return "## Data ##" in text and "V_FW" in text
+
+
 def parse_jv_file(text: str) -> dict[str, Any] | None:
     """Parse an original JV instrument file (``## Header ##`` / ``## Data ##``).
 
@@ -333,8 +340,14 @@ def extract_importable_measurements(
     batches = _discover_batches(info)
     summary_refs = _summary_references(data, info, limits)
 
+    # Recognised JV files (by filename) plus any text entry whose *content*
+    # carries the JV instrument signature (## Data ## + V_FW sweep header). This
+    # recovers valid JV files with alternative instrument naming (e.g.
+    # "JV_0002_C.txt") without fixture-specific rules.
     jv_entries = [
-        e for e in info["entries"] if not e["directory"] and e["type"] == "stability-jv"
+        e
+        for e in info["entries"]
+        if not e["directory"] and e["type"] in ("stability-jv", "text")
     ]
 
     # Primary: original JV files.
@@ -343,7 +356,13 @@ def extract_importable_measurements(
     for entry in jv_entries:
         text = _read_text_entry(data, entry["name"], limits)
         if text is None:
-            skipped.append({"file": entry["name"], "reason": "JV file too large to parse."})
+            if entry["type"] == "stability-jv":
+                skipped.append(
+                    {"file": entry["name"], "reason": "JV file too large to parse."}
+                )
+            continue
+        # Ordinary text files (not JV) are not parse targets and not skipped.
+        if entry["type"] == "text" and not is_jv_signature(text):
             continue
         parsed = parse_jv_file(text)
         if not parsed:

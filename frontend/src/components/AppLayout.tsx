@@ -203,7 +203,7 @@ export function AppLayout() {
   return (
     <AppShell
       header={{ height: 60 }}
-      navbar={{ width: rem(112), breakpoint: "sm" }}
+      navbar={{ width: rem(208), breakpoint: "sm" }}
       padding="md"
     >
       <AppShell.Header>
@@ -504,7 +504,7 @@ export function AppLayout() {
       </AppShell.Header>
 
       <AppShell.Navbar>
-        <Stack align="center" justify="top" h="100%" py="md" gap="xs">
+        <Stack align="stretch" justify="top" h="100%" py="md" px="sm" gap={4}>
           {pageGroups.map((group, groupIndex) => (
             <Fragment key={group.label}>
               {groupIndex > 0 && <Divider my="sm" w="70%" size="sm" />}
@@ -513,9 +513,10 @@ export function AppLayout() {
                 fw={600}
                 c="dimmed"
                 tt="uppercase"
-                ta="center"
+                ta="left"
                 lh={1.2}
                 px="xs"
+                mb={2}
                 style={{ letterSpacing: 0.4, width: "100%" }}
               >
                 {group.label}
@@ -528,29 +529,31 @@ export function AppLayout() {
                 const hasContent =
                   litPaths?.has(page.value) && page.value !== "/organization"
                 return (
-                  <Tooltip label={page.label} position="right" key={page.value}>
-                    <ActionIcon
-                      variant={active ? "filled" : "subtle"}
-                      size="lg"
-                      radius="md"
-                      onClick={() => navigate({ to: page.value })}
-                      aria-label={page.label}
-                      style={{
-                        width: rem(48),
-                        height: rem(48),
-                        opacity: dimmed ? 0.25 : 1,
-                        transition: "opacity 150ms ease, background 150ms ease",
-                        background: active ? accentColor : undefined,
-                        color: active
-                          ? "white"
-                          : hasContent
-                            ? "var(--mantine-color-gray-7)"
-                            : "var(--mantine-color-gray-6)",
-                      }}
-                    >
-                      {Icon ? <Icon size={28} /> : null}
-                    </ActionIcon>
-                  </Tooltip>
+                  <UnstyledButton
+                    key={page.value}
+                    onClick={() => navigate({ to: page.value })}
+                    aria-label={page.label}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: rem(10),
+                      padding: `${rem(7)} ${rem(10)}`,
+                      borderRadius: rem(8),
+                      opacity: dimmed ? 0.25 : 1,
+                      transition: "opacity 150ms ease, background 150ms ease",
+                      background: active ? accentColor : undefined,
+                      color: active
+                        ? "white"
+                        : hasContent
+                          ? "var(--mantine-color-gray-7)"
+                          : "var(--mantine-color-gray-6)",
+                    }}
+                  >
+                    {Icon ? <Icon size={18} style={{ flexShrink: 0 }} /> : null}
+                    <Text size="sm" fw={active ? 600 : 400} truncate>
+                      {page.label}
+                    </Text>
+                  </UnstyledButton>
                 )
               })}
             </Fragment>

@@ -1,10 +1,13 @@
 import {
   Accordion,
+  Alert,
   Badge,
   Button,
   Group,
   Modal,
   NumberInput,
+  ScrollArea,
+  SegmentedControl,
   Select,
   Stack,
   Text,
@@ -14,6 +17,7 @@ import { notifications } from "@mantine/notifications"
 import {
   IconBan,
   IconHistory,
+  IconInfoCircle,
   IconRotateClockwise,
   IconScaleOutline,
 } from "@tabler/icons-react"
@@ -38,6 +42,23 @@ const SCALE_LABELS: Record<(typeof SCALEABLE)[number], string> = {
   jsc: "Jsc (mA/cm²)",
   ff: "FF (%)",
 }
+
+// API field name (snake_case, matches the backend column) → frontend field.
+const EDIT_FIELDS: {
+  value: string
+  label: string
+  frontend: keyof MeasurementFile
+}[] = [
+  { value: "device_name", label: "Device name", frontend: "deviceName" },
+  { value: "cell", label: "Cell", frontend: "cell" },
+  { value: "pixel_label", label: "Pixel", frontend: "pixel" },
+  {
+    value: "measurement_date",
+    label: "Measurement date",
+    frontend: "measurementDate",
+  },
+  { value: "measurement_user", label: "Measurement user", frontend: "user" },
+]
 
 function severityColor(s: QualityFinding["severity"]): string {
   return s === "invalid" ? "red" : s === "warning" ? "orange" : "gray"
@@ -64,6 +85,11 @@ export function ScientificReviewPanel({
   const [editReason, setEditReason] = useState("")
   const [busy, setBusy] = useState(false)
   const [history, setHistory] = useState<CorrectionHistory[] | null>(null)
+  const [requestId, setRequestId] = useState<string | null>(null)
+  const [reviewSearch, setReviewSearch] = useState("")
+  const [reviewFilter, setReviewFilter] = useState<
+    "all" | "findings" | "excluded"
+  >("all")
 
   const findingsByFile = useMemo(
     () =>
@@ -104,21 +130,35 @@ export function ScientificReviewPanel({
     )
   }
 
+  const refreshHistory = () => {
+    void listCorrections(result.id)
+      .then(setHistory)
+      .catch(() => setHistory([]))
+  }
+
+  const requireReason = (reason: string): boolean => {
+    if (reason.trim()) return true
+    notifications.show({
+      title: "Reason required",
+      message: "Provide an explicit scientific reason for this correction.",
+      color: "red",
+    })
+    return false
+  }
+
   const toggleExclude = async () => {
-    if (!excludeTarget) return
+    if (!excludeTarget || !requireReason(excludeReason)) return
     setBusy(true)
     try {
       const op = excludeTarget.excluded ? "restore" : "exclude"
       await applyCorrection(result.id, {
         measurement_id: excludeTarget.id,
         operation: op,
-        reason:
-          excludeReason.trim() ||
-          (op === "exclude"
-            ? "Excluded by researcher"
-            : "Restored by researcher"),
+        reason: excludeReason.trim(),
+        request_id: requestId ?? undefined,
       })
       applyLocal({ ...excludeTarget, excluded: !excludeTarget.excluded })
+      refreshHistory()
       notifications.show({
         title:
           op === "exclude" ? "Measurement excluded" : "Measurement restored",
@@ -127,6 +167,7 @@ export function ScientificReviewPanel({
       })
       setExcludeTarget(null)
       setExcludeReason("")
+      setRequestId(null)
     } catch (err) {
       notifications.show({
         title: "Correction failed",
@@ -139,7 +180,9 @@ export function ScientificReviewPanel({
   }
 
   const applyEdit = async () => {
-    if (!editTarget || !editValue.trim()) return
+    if (!editTarget || !editValue.trim() || !requireReason(editReason)) return
+    const field = EDIT_FIELDS.find((f) => f.value === editField)
+    if (!field) return
     setBusy(true)
     try {
       await applyCorrection(result.id, {
@@ -147,9 +190,11 @@ export function ScientificReviewPanel({
         operation: "edit",
         field: editField,
         value: editValue.trim(),
-        reason: editReason.trim() || "Researcher-applied metadata correction",
+        reason: editReason.trim(),
+        request_id: requestId ?? undefined,
       })
-      applyLocal({ ...editTarget, [editField]: editValue.trim() })
+      applyLocal({ ...editTarget, [field.frontend]: editValue.trim() })
+      refreshHistory()
       notifications.show({
         title: "Metadata updated",
         message: "Correction recorded.",
@@ -158,6 +203,7 @@ export function ScientificReviewPanel({
       setEditTarget(null)
       setEditReason("")
       setEditValue("")
+      setRequestId(null)
     } catch (err) {
       notifications.show({
         title: "Correction failed",
@@ -170,7 +216,7 @@ export function ScientificReviewPanel({
   }
 
   const applyScale = async () => {
-    if (!scaleTarget) return
+    if (!scaleTarget || !requireReason(scaleReason)) return
     const factor = Number(scaleFactor)
     if (!Number.isFinite(factor) || factor === 0) {
       notifications.show({ title: "Invalid factor", message: "", color: "red" })
@@ -192,9 +238,11 @@ export function ScientificReviewPanel({
         operation: "scale",
         field: scaleField,
         factor,
-        reason: scaleReason.trim() || "Researcher-applied scale factor",
+        reason: scaleReason.trim(),
+        request_id: requestId ?? undefined,
       })
       applyLocal({ ...scaleTarget, [scaleField]: old * factor })
+      refreshHistory()
       notifications.show({
         title: "Scaling applied",
         message: "Correction recorded.",
@@ -203,6 +251,7 @@ export function ScientificReviewPanel({
       setScaleTarget(null)
       setScaleReason("")
       setScaleFactor(1)
+      setRequestId(null)
     } catch (err) {
       notifications.show({
         title: "Correction failed",
@@ -228,13 +277,47 @@ export function ScientificReviewPanel({
     }
   }, [result.id])
 
-  const filesWithAttention = findingsByFile.filter(
-    ({ findings, file }) => findings.length > 0 || file.excluded,
-  )
+  // Every measurement is reviewable — including normal records without any
+  // automatic finding (correction/exclusion must be available for all).
+  const reviewableFiles = useMemo(() => {
+    const q = reviewSearch.trim().toLowerCase()
+    const filtered = findingsByFile.filter(({ file, findings }) => {
+      if (
+        reviewFilter === "findings" &&
+        findings.length === 0 &&
+        !file.excluded
+      )
+        return false
+      if (reviewFilter === "excluded" && !file.excluded) return false
+      if (!q) return true
+      return (
+        (file.deviceName || "").toLowerCase().includes(q) ||
+        (file.fileName || "").toLowerCase().includes(q)
+      )
+    })
+    // Prioritise records with findings/exclusions over clean records.
+    return filtered.sort((a, b) => {
+      const aScore = (a.findings.length > 0 ? 2 : 0) + (a.file.excluded ? 1 : 0)
+      const bScore = (b.findings.length > 0 ? 2 : 0) + (b.file.excluded ? 1 : 0)
+      return bScore - aScore
+    })
+  }, [findingsByFile, reviewSearch, reviewFilter])
 
   return (
     <Stack gap="sm">
       <SectionLabel>Scientific review</SectionLabel>
+      <Alert
+        variant="light"
+        color="gray"
+        icon={<IconInfoCircle size={16} />}
+        p="xs"
+      >
+        <Text size="xs">
+          Findings are advisory and never auto-exclude a measurement.
+          Corrections (scale, exclude/restore, metadata) are recorded with their
+          before and after values and an explicit reason.
+        </Text>
+      </Alert>
       <Group gap="xs" wrap="wrap">
         <Badge variant="light">{findingsByFile.length} records</Badge>
         {summary.invalid > 0 && (
@@ -259,103 +342,130 @@ export function ScientificReviewPanel({
         )}
       </Group>
 
-      {filesWithAttention.length === 0 ? (
+      <Group gap="xs" wrap="nowrap">
+        <TextInput
+          size="xs"
+          placeholder="Search device or file…"
+          value={reviewSearch}
+          onChange={(e) => setReviewSearch(e.currentTarget.value)}
+          style={{ flex: 1 }}
+        />
+        <SegmentedControl
+          size="xs"
+          value={reviewFilter}
+          onChange={(v) =>
+            setReviewFilter(v as "all" | "findings" | "excluded")
+          }
+          data={[
+            { label: "All", value: "all" },
+            { label: "Findings", value: "findings" },
+            { label: "Excluded", value: "excluded" },
+          ]}
+        />
+      </Group>
+
+      {reviewableFiles.length === 0 ? (
         <Text size="xs" c="dimmed">
-          No findings — all JV records are within typical ranges.
+          No measurements to review.
         </Text>
       ) : (
-        <Accordion variant="separated" multiple>
-          {filesWithAttention.map(({ file, findings }) => (
-            <Accordion.Item key={file.id} value={file.id}>
-              <Accordion.Control>
-                <Group gap="xs" wrap="nowrap">
-                  <Text size="xs" truncate style={{ flex: 1 }}>
-                    {file.deviceName || file.fileName}
-                    {file.direction ? ` (${file.direction})` : ""}
-                  </Text>
-                  {file.excluded && (
-                    <Badge size="xs" color="dark" variant="filled">
-                      excluded
-                    </Badge>
-                  )}
-                  {findings.map((f, i) => (
-                    <Badge
-                      key={i}
-                      size="xs"
-                      color={severityColor(f.severity)}
-                      variant="light"
-                    >
-                      {f.metric}
-                    </Badge>
-                  ))}
-                </Group>
-              </Accordion.Control>
-              <Accordion.Panel>
-                <Stack gap="xs">
-                  {findings.map((f, i) => (
-                    <Group key={i} gap="xs" wrap="nowrap">
+        <ScrollArea.Autosize mah={420}>
+          <Accordion variant="separated" multiple>
+            {reviewableFiles.map(({ file, findings }) => (
+              <Accordion.Item key={file.id} value={file.id}>
+                <Accordion.Control>
+                  <Group gap="xs" wrap="nowrap">
+                    <Text size="xs" truncate style={{ flex: 1 }}>
+                      {file.deviceName || file.fileName}
+                      {file.direction ? ` (${file.direction})` : ""}
+                    </Text>
+                    {file.excluded && (
+                      <Badge size="xs" color="dark" variant="filled">
+                        excluded
+                      </Badge>
+                    )}
+                    {findings.map((f, i) => (
                       <Badge
+                        key={i}
                         size="xs"
                         color={severityColor(f.severity)}
                         variant="light"
                       >
-                        {f.severity}
+                        {f.metric}
                       </Badge>
-                      <Text size="xs" c="dimmed" style={{ flex: 1 }}>
-                        {f.message}
-                      </Text>
-                    </Group>
-                  ))}
-                  <Group gap="xs">
-                    <Button
-                      size="xs"
-                      variant={file.excluded ? "light" : "outline"}
-                      color={file.excluded ? "gray" : "red"}
-                      leftSection={
-                        file.excluded ? (
-                          <IconRotateClockwise size={14} />
-                        ) : (
-                          <IconBan size={14} />
-                        )
-                      }
-                      onClick={() => {
-                        setExcludeTarget(file)
-                        setExcludeReason("")
-                      }}
-                    >
-                      {file.excluded ? "Restore" : "Exclude"}
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      leftSection={<IconScaleOutline size={14} />}
-                      onClick={() => {
-                        setScaleTarget(file)
-                        setScaleField("value")
-                        setScaleFactor(1)
-                        setScaleReason("")
-                      }}
-                    >
-                      Scale
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      onClick={() => {
-                        setEditTarget(file)
-                        setEditField("device_name")
-                        setEditValue(file.deviceName ?? "")
-                        setEditReason("")
-                      }}
-                    >
-                      Edit metadata
-                    </Button>
+                    ))}
                   </Group>
-                </Stack>
-              </Accordion.Panel>
-            </Accordion.Item>
-          ))}
-        </Accordion>
+                </Accordion.Control>
+                <Accordion.Panel>
+                  <Stack gap="xs">
+                    {findings.map((f, i) => (
+                      <Group key={i} gap="xs" wrap="nowrap">
+                        <Badge
+                          size="xs"
+                          color={severityColor(f.severity)}
+                          variant="light"
+                        >
+                          {f.severity}
+                        </Badge>
+                        <Text size="xs" c="dimmed" style={{ flex: 1 }}>
+                          {f.message}
+                        </Text>
+                      </Group>
+                    ))}
+                    <Group gap="xs">
+                      <Button
+                        size="xs"
+                        variant={file.excluded ? "light" : "outline"}
+                        color={file.excluded ? "gray" : "red"}
+                        leftSection={
+                          file.excluded ? (
+                            <IconRotateClockwise size={14} />
+                          ) : (
+                            <IconBan size={14} />
+                          )
+                        }
+                        onClick={() => {
+                          setExcludeTarget(file)
+                          setExcludeReason("")
+                          setRequestId(crypto.randomUUID())
+                        }}
+                      >
+                        {file.excluded ? "Restore" : "Exclude"}
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        leftSection={<IconScaleOutline size={14} />}
+                        onClick={() => {
+                          setScaleTarget(file)
+                          setScaleField("value")
+                          setScaleFactor(1)
+                          setScaleReason("")
+                          setRequestId(crypto.randomUUID())
+                        }}
+                      >
+                        Scale
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => {
+                          setEditTarget(file)
+                          setEditField("device_name")
+                          setEditValue(file.deviceName ?? "")
+                          setEditReason("")
+                          setRequestId(crypto.randomUUID())
+                        }}
+                      >
+                        Edit metadata
+                      </Button>
+                    </Group>
+                  </Stack>
+                </Accordion.Panel>
+              </Accordion.Item>
+            ))}
+          </Accordion>
+        </ScrollArea.Autosize>
       )}
 
       <Accordion variant="separated">
@@ -496,13 +606,7 @@ export function ScientificReviewPanel({
         <Stack gap="md">
           <Select
             label="Field"
-            data={[
-              { value: "device_name", label: "Device name" },
-              { value: "cell", label: "Cell" },
-              { value: "pixel", label: "Pixel" },
-              { value: "measurement_date", label: "Measurement date" },
-              { value: "measurement_user", label: "Measurement user" },
-            ]}
+            data={EDIT_FIELDS.map((f) => ({ value: f.value, label: f.label }))}
             value={editField}
             onChange={(v) => setEditField(v ?? "device_name")}
           />

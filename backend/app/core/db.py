@@ -213,6 +213,18 @@ def init_db(session: Session) -> None:
                 "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS curve JSONB"
             )
         )
+        conn.execute(
+            text(
+                "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS corrected_fields JSONB"
+            )
+        )
+        # Correction idempotency key (WO-07).
+        conn.execute(
+            text(
+                "ALTER TABLE measurement_correction ADD COLUMN IF NOT EXISTS "
+                "request_id VARCHAR(100)"
+            )
+        )
 
     user = session.exec(
         select(User).where(User.email == settings.FIRST_SUPERUSER)

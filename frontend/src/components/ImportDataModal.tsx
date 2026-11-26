@@ -14,6 +14,7 @@ import {
   Stack,
   Text,
   TextInput,
+  Tooltip,
 } from "@mantine/core"
 import { Dropzone, MIME_TYPES } from "@mantine/dropzone"
 import { modals } from "@mantine/modals"
@@ -46,6 +47,13 @@ import { syncResultRefsForExperiment } from "@/store/resultRefs"
 import { SectionLabel } from "./SectionLabel"
 
 type FileWithPath = File & { webkitRelativePath?: string }
+
+/** Wait for React to commit state updates (two animation frames) before
+ *  flushing, so the save snapshot always reflects the latest committed state. */
+const awaitCommit = () =>
+  new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  )
 
 function relativePaths(files: File[]): string[] {
   return files.map((f) => (f as FileWithPath).webkitRelativePath || f.name)
@@ -212,7 +220,7 @@ export function ImportDataModal({
             newExperimentName.trim() || "Imported Experiment",
           )
           setExperiments((prev) => [...prev, { ...exp, id: destination }])
-          await new Promise((resolve) => setTimeout(resolve, 0))
+          await awaitCommit()
           const expSaved = await flushSave()
           if (!expSaved) {
             notifications.show({
@@ -299,7 +307,7 @@ export function ImportDataModal({
           setEntityPlaneId,
         )
         // Let React commit the state update before flushing.
-        await new Promise((resolve) => setTimeout(resolve, 0))
+        await awaitCommit()
       }
 
       const saved = await flushSave()
@@ -467,40 +475,79 @@ export function ImportDataModal({
               </Alert>
             ) : (
               <Group gap="sm" wrap="wrap">
-                <Badge variant="light">
-                  {parseResult.original_file_count} original file
-                  {parseResult.original_file_count === 1 ? "" : "s"}
-                </Badge>
-                <Badge variant="light" color="grape">
-                  {parseResult.recognized_file_count} recognized
-                </Badge>
-                <Badge variant="light" color="blue">
-                  {measurements.length} measurement record
-                  {measurements.length === 1 ? "" : "s"}
-                </Badge>
-                <Badge variant="light" color="cyan">
-                  {fwCount} FW
-                </Badge>
-                <Badge variant="light" color="grape">
-                  {rvCount} RV
-                </Badge>
-                <Badge variant="light" color="teal">
-                  {inSummary} in summary
-                </Badge>
-                {additional > 0 && (
-                  <Badge variant="light" color="orange">
-                    {additional} additional
+                <Tooltip
+                  label="Physical files in the archive or selection."
+                  withArrow
+                >
+                  <Badge variant="light">
+                    {parseResult.original_file_count} original file
+                    {parseResult.original_file_count === 1 ? "" : "s"}
                   </Badge>
+                </Tooltip>
+                <Tooltip
+                  label="Files whose type was recognised (JV, summary, etc.)."
+                  withArrow
+                >
+                  <Badge variant="light" color="grape">
+                    {parseResult.recognized_file_count} recognized
+                  </Badge>
+                </Tooltip>
+                <Tooltip
+                  label="Parsed scientific records — one source file can produce several (FW + RV)."
+                  withArrow
+                >
+                  <Badge variant="light" color="blue">
+                    {measurements.length} measurement record
+                    {measurements.length === 1 ? "" : "s"}
+                  </Badge>
+                </Tooltip>
+                <Tooltip label="FW = forward scan records." withArrow>
+                  <Badge variant="light" color="cyan">
+                    {fwCount} FW
+                  </Badge>
+                </Tooltip>
+                <Tooltip label="RV = reverse scan records." withArrow>
+                  <Badge variant="light" color="grape">
+                    {rvCount} RV
+                  </Badge>
+                </Tooltip>
+                <Tooltip
+                  label="Records represented in a JV summary file."
+                  withArrow
+                >
+                  <Badge variant="light" color="teal">
+                    {inSummary} in summary
+                  </Badge>
+                </Tooltip>
+                {additional > 0 && (
+                  <Tooltip
+                    label="Records beyond the summary coverage."
+                    withArrow
+                  >
+                    <Badge variant="light" color="orange">
+                      {additional} additional
+                    </Badge>
+                  </Tooltip>
                 )}
                 {unknownCoverage > 0 && (
-                  <Badge variant="light" color="gray">
-                    {unknownCoverage} unknown coverage
-                  </Badge>
+                  <Tooltip
+                    label="Summary coverage could not be determined."
+                    withArrow
+                  >
+                    <Badge variant="light" color="gray">
+                      {unknownCoverage} unknown coverage
+                    </Badge>
+                  </Tooltip>
                 )}
-                <Badge variant="light" color="indigo">
-                  {candidateGroups.length} candidate device group
-                  {candidateGroups.length === 1 ? "" : "s"}
-                </Badge>
+                <Tooltip
+                  label="Candidate device groups are derived from labels only — not confirmed physical devices."
+                  withArrow
+                >
+                  <Badge variant="light" color="indigo">
+                    {candidateGroups.length} candidate device group
+                    {candidateGroups.length === 1 ? "" : "s"}
+                  </Badge>
+                </Tooltip>
               </Group>
             )}
 

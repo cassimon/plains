@@ -50,6 +50,7 @@ export function applyCorrection(
     factor?: number
     value?: string
     reason: string
+    request_id?: string
   },
 ): Promise<CorrectionHistory> {
   return request(`/results/${resultId}/corrections`, {

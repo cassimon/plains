@@ -10,9 +10,11 @@ import {
   Divider,
   Group,
   Loader,
+  Menu,
   NumberInput,
   Paper,
   ScrollArea,
+  SegmentedControl,
   Select,
   Stack,
   Table,
@@ -1369,6 +1371,9 @@ function ResultsDetail({
   const [lastArchivePath, setLastArchivePath] = useState<string | null>(null)
   const [workflowStep, setWorkflowStep] = useState<1 | 2 | 3>(1)
   const [isResultsCardOpen, setIsResultsCardOpen] = useState(false)
+  const [view, setView] = useState<"measurements" | "review" | "files" | "nomad">(
+    "nomad",
+  )
   const [reviewConfirmed, setReviewConfirmed] = useState(false)
   const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(
     null,
@@ -1562,6 +1567,9 @@ function ResultsDetail({
     if (autoOpenedReviewRef.current === experiment.id) return
     autoOpenedReviewRef.current = experiment.id
     setWorkflowStep(2)
+    // Measurements is the default view for imported datasets, regardless of
+    // fabrication completeness.
+    setView("measurements")
   }, [results, experiment.id])
 
   // One illumination for the whole set of measurements: a lab sets its solar
@@ -2478,14 +2486,28 @@ function ResultsDetail({
       })
       return
     }
-    onUpdateResults({
-      ...results,
-      files: [],
-      deviceGroups: [],
-      updatedAt: new Date().toISOString(),
+    modals.openConfirmModal({
+      title: "Clear all measurements?",
+      children: (
+        <Text size="sm">
+          This removes all {results.files.length} measurement records and their
+          group assignments from this experiment. The original imported source
+          files are not deleted.
+        </Text>
+      ),
+      labels: { confirm: "Clear measurements", cancel: "Cancel" },
+      confirmProps: { color: "red" },
+      onConfirm: () => {
+        onUpdateResults({
+          ...results,
+          files: [],
+          deviceGroups: [],
+          updatedAt: new Date().toISOString(),
+        })
+        resetLocalStaging()
+        void discardTemporaryArchive()
+      },
     })
-    resetLocalStaging()
-    void discardTemporaryArchive()
   }
 
   const substrates = experiment.substrates.map((s) => ({
@@ -3208,26 +3230,24 @@ function ResultsDetail({
       >
         <Group gap="sm">
           <Title order={4}>Results for {experiment.name}</Title>
-          <Badge color="blue" variant="light">
-            {experiment.substrates.length} substrates
-          </Badge>
-          <Badge
-            color={experimentFullySpecified ? "green" : "red"}
-            variant="dot"
-          >
-            {experimentFullySpecified ? "Complete" : "Incomplete"}
-          </Badge>
         </Group>
         {results.files.length > 0 && (
-          <Button
-            size="xs"
-            color="red"
-            variant="subtle"
-            leftSection={<IconTrash size={14} />}
-            onClick={handleClearAll}
-          >
-            Clear All
-          </Button>
+          <Menu shadow="md" width={220} position="bottom-end">
+            <Menu.Target>
+              <Button size="xs" variant="subtle" color="gray">
+                Data management
+              </Button>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Item
+                color="red"
+                leftSection={<IconTrash size={14} />}
+                onClick={handleClearAll}
+              >
+                Clear all measurements
+              </Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
         )}
       </Group>
 
@@ -3329,7 +3349,35 @@ function ResultsDetail({
               )
             })()}
 
-          {!isResultsCardOpen && (
+          {/* Four sibling views: local scientific inspection vs NOMAD prep. */}
+          <SegmentedControl
+            value={view}
+            onChange={(v) =>
+              setView(v as "measurements" | "review" | "files" | "nomad")
+            }
+            data={[
+              { label: "Measurements", value: "measurements" },
+              { label: "Scientific Review", value: "review" },
+              { label: "Original Files", value: "files" },
+              { label: "NOMAD Preparation", value: "nomad" },
+            ]}
+            mb="md"
+          />
+
+          {view === "measurements" && results.files.length > 0 && (
+            <MeasurementsView
+              result={results}
+              onOpenReview={() => setView("review")}
+            />
+          )}
+          {view === "review" && results.files.length > 0 && (
+            <ScientificReviewPanel result={results} />
+          )}
+          {view === "files" && (
+            <OriginalFilesSection experimentId={experiment.id} />
+          )}
+
+          {view === "nomad" && !isResultsCardOpen && (
             <Button
               color="blue"
               onClick={() => {
@@ -3341,7 +3389,7 @@ function ResultsDetail({
             </Button>
           )}
 
-          {isResultsCardOpen && (
+          {view === "nomad" && isResultsCardOpen && (
             <Paper withBorder radius="md" p="md">
               {isResultsCardOpen && (
                 <>
@@ -3722,13 +3770,6 @@ function ResultsDetail({
                           </Badge>
                         </Group>
                       </Paper>
-                    )}
-                    <OriginalFilesSection experimentId={experiment.id} />
-                    {results.files.length > 0 && (
-                      <MeasurementsView result={results} />
-                    )}
-                    {results.files.length > 0 && (
-                      <ScientificReviewPanel result={results} />
                     )}
                     <Group
                       align="flex-start"

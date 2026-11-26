@@ -192,7 +192,12 @@ def replace_measurement_files(
     for f_in in body:
         if f_in.id in existing_by_id:
             db_f = existing_by_id[f_in.id]
+            corrected = set(db_f.corrected_fields or [])
             for field, value in f_in.model_dump().items():
+                if field == "corrected_fields":
+                    continue  # server-authoritative, never overwritten by a snapshot
+                if field in corrected:
+                    continue  # corrected value wins over a stale pre-correction snapshot
                 setattr(db_f, field, value)
             upserted.append(db_f)
         else:
@@ -246,6 +251,15 @@ def replace_device_groups(
     return upserted
 
 
+def _mark_corrected(measurement: MeasurementFile, field: str) -> None:
+    """Record a field as authoritatively corrected so snapshot syncs never
+    revert it with a stale pre-correction value."""
+    fields = list(measurement.corrected_fields or [])
+    if field not in fields:
+        fields.append(field)
+        measurement.corrected_fields = fields
+
+
 class CorrectionIn(BaseModel):
     measurement_id: uuid.UUID
     # "scale" | "exclude" | "restore" | "edit"
@@ -256,10 +270,13 @@ class CorrectionIn(BaseModel):
     factor: float | None = None
     value: str | None = None
     reason: str = PydanticField(min_length=1, max_length=500)
+    # Client-supplied idempotency key: retrying the same correction intent with
+    # the same key is rejected instead of applying the factor a second time.
+    request_id: str | None = None
 
 
 _SCALEABLE = ("value", "voc", "jsc", "ff")
-_EDITABLE = ("device_name", "cell", "pixel", "measurement_date", "measurement_user")
+_EDITABLE = ("device_name", "cell", "pixel_label", "measurement_date", "measurement_user")
 
 
 @router.post("/{id}/corrections", response_model=MeasurementCorrectionPublic)
@@ -280,6 +297,19 @@ def apply_measurement_correction(
     if not measurement or measurement.results_id != result.id:
         raise HTTPException(status_code=404, detail="Measurement not found")
 
+    # Idempotency: a repeated request with the same key must not double-apply.
+    if body.request_id:
+        existing = session.exec(
+            select(MeasurementCorrection).where(
+                MeasurementCorrection.request_id == body.request_id
+            )
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail="Duplicate correction request (already applied)",
+            )
+
     previous: str | None = None
     new: str | None = None
     op = body.operation
@@ -293,9 +323,15 @@ def apply_measurement_correction(
         if old is None:
             raise HTTPException(status_code=400, detail="Nothing to scale: value is missing")
         new_val = old * body.factor
+        if not math.isfinite(new_val):
+            raise HTTPException(
+                status_code=400,
+                detail="Resulting value is non-finite — correction rejected",
+            )
         previous = str(old)
         new = str(new_val)
         setattr(measurement, body.field, new_val)
+        _mark_corrected(measurement, body.field)
 
     elif op == "edit":
         if body.field not in _EDITABLE:
@@ -305,6 +341,7 @@ def apply_measurement_correction(
         previous = str(getattr(measurement, body.field))
         new = body.value
         setattr(measurement, body.field, body.value)
+        _mark_corrected(measurement, body.field)
 
     elif op == "exclude":
         if measurement.excluded:
@@ -331,6 +368,7 @@ def apply_measurement_correction(
         new_value=new,
         reason=body.reason,
         actor_email=current_user.email,
+        request_id=body.request_id,
     )
     session.add(correction)
     session.add(measurement)
