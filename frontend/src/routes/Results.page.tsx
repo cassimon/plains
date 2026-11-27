@@ -119,8 +119,11 @@ type NomadUploadRequest = {
     voc?: number
     jsc?: number
     ff?: number
+    illuminationIntensity?: number
     user?: string
     measurementDate?: string
+    excluded?: boolean
+    localOnly?: boolean
   }>
   device_groups: Array<{
     id: string
@@ -139,6 +142,8 @@ type NomadUploadRequest = {
       illuminationIntensity?: number
       user?: string
       measurementDate?: string
+      excluded?: boolean
+      localOnly?: boolean
     }>
   }>
   notes?: string
@@ -2558,6 +2563,29 @@ function ResultsDetail({
         g.assignedSubstrateId !== GENERAL_INFO_SUBSTRATE_ID,
     )
 
+    // WO-09: excluded observations and local-only (never-uploaded, imported)
+    // measurements must never be deposited as accepted scientific results.
+    const isUploadable = (f: (typeof results.files)[number]) =>
+      f.excluded !== true && f.localOnly !== true
+
+    const toNomadFile = (f: (typeof results.files)[number]) => ({
+      fileName: f.fileName,
+      fileType: f.fileType,
+      deviceName: f.deviceName,
+      cell: f.cell,
+      pixel: f.pixel,
+      value: f.value,
+      voc: f.voc,
+      jsc: f.jsc,
+      ff: f.ff,
+      illuminationIntensity:
+        f.illuminationIntensity ?? DEFAULT_ILLUMINATION_INTENSITY,
+      user: f.user,
+      measurementDate: f.measurementDate,
+      excluded: f.excluded ?? false,
+      localOnly: f.localOnly ?? false,
+    })
+
     return {
       experiment_id: experiment.id,
       experiment_name: experiment.name,
@@ -2569,40 +2597,13 @@ function ResultsDetail({
       // General Info files stay in archive (not filtered here), only Ignore files removed
       measurement_files: results.files
         .filter((f) => !ignoredFileNames.has(f.fileName))
-        .map((f) => ({
-          fileName: f.fileName,
-          fileType: f.fileType,
-          deviceName: f.deviceName,
-          cell: f.cell,
-          pixel: f.pixel,
-          value: f.value,
-          voc: f.voc,
-          jsc: f.jsc,
-          ff: f.ff,
-          illuminationIntensity:
-            f.illuminationIntensity ?? DEFAULT_ILLUMINATION_INTENSITY,
-          user: f.user,
-          measurementDate: f.measurementDate,
-        })),
+        .filter(isUploadable)
+        .map(toNomadFile),
       device_groups: activeDeviceGroups.map((g) => ({
         id: g.id,
         deviceName: g.deviceName,
         assignedSubstrateId: g.assignedSubstrateId ?? undefined,
-        files: g.files.map((f) => ({
-          fileName: f.fileName,
-          fileType: f.fileType,
-          deviceName: f.deviceName,
-          cell: f.cell,
-          pixel: f.pixel,
-          value: f.value,
-          voc: f.voc,
-          jsc: f.jsc,
-          ff: f.ff,
-          illuminationIntensity:
-            f.illuminationIntensity ?? DEFAULT_ILLUMINATION_INTENSITY,
-          user: f.user,
-          measurementDate: f.measurementDate,
-        })),
+        files: g.files.filter(isUploadable).map(toNomadFile),
       })),
       ignored_files: Array.from(ignoredFileNames),
     }
@@ -3167,6 +3168,10 @@ function ResultsDetail({
     const inSummary = files.filter((f) => f.inSummary === true).length
     const additional = files.filter((f) => f.inSummary === false).length
     const localOnly = files.filter((f) => f.localOnly === true).length
+    const excluded = files.filter((f) => f.excluded === true).length
+    const uploadable = files.filter(
+      (f) => f.excluded !== true && f.localOnly !== true,
+    ).length
     return {
       uniqueFileNames,
       types,
@@ -3175,6 +3180,8 @@ function ResultsDetail({
       inSummary,
       additional,
       localOnly,
+      excluded,
+      uploadable,
     }
   }, [results.files])
 
@@ -3777,6 +3784,11 @@ function ResultsDetail({
                             <Badge size="xs" variant="light" color="yellow">
                               {reviewOverview.localOnly} local-only (not
                               uploaded)
+                            </Badge>
+                          )}
+                          {reviewOverview.excluded > 0 && (
+                            <Badge size="xs" variant="light" color="red">
+                              {reviewOverview.excluded} excluded (not uploaded)
                             </Badge>
                           )}
                           <Badge
@@ -4503,16 +4515,17 @@ function ResultsDetail({
                           {results.files.length > 0 && (
                             <Alert title="Unfinished Upload" color="blue">
                               <Text size="sm">
-                                You have {results.files.length} file
-                                {results.files.length !== 1 ? "s" : ""} ready to
-                                upload to NOMAD.
+                                You have {reviewOverview.uploadable} file
+                                {reviewOverview.uploadable !== 1 ? "s" : ""}{" "}
+                                ready to upload to NOMAD.
                               </Text>
                             </Alert>
                           )}
 
                           <Text size="sm">
-                            Ready to upload {results.files.length} file
-                            {results.files.length !== 1 ? "s" : ""} to NOMAD.
+                            Ready to upload {reviewOverview.uploadable} file
+                            {reviewOverview.uploadable !== 1 ? "s" : ""} to
+                            NOMAD.
                           </Text>
                           <Text size="xs" c="dimmed">
                             If needed, use Process Flow to go back and add more

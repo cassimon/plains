@@ -561,3 +561,124 @@ def test_create_nomad_metadata_yaml_generates_substrate_and_deposition_and_per_p
     assert deposition_data["samples"][0]["reference"] == substrate_ref
     assert len(deposition_data["steps"]) == 1
     assert deposition_data["steps"][0]["step_type"] == "Wet Deposition"
+
+
+def test_nomad_metadata_drops_excluded_and_local_only_measurements():
+    """WO-09: excluded and local-only measurements must never become accepted
+    scientific results in a NOMAD archive (no measurement entry, and the sample's
+    best-JV figure of merit must come only from uploadable files)."""
+    owner_id = uuid.uuid4()
+    experiment_id = str(uuid.uuid4())
+
+    experiment = SimpleNamespace(
+        id=uuid.UUID(experiment_id),
+        owner_id=owner_id,
+        name="Exclusion integrity",
+        description="",
+        architecture="n-i-p",
+        frontend_data=None,
+    )
+
+    user_state = SimpleNamespace(
+        data={
+            "materials": [
+                {
+                    "id": "mat-sub",
+                    "name": "Glass/ITO",
+                    "type": "substrate",
+                    "stateAtRt": "solid",
+                    "supplier": "Vendor",
+                    "supplierNumber": "S-1",
+                    "heightMm": "1.0",
+                }
+            ],
+            "solutions": [],
+            "processes": [],
+        }
+    )
+    session = _FakeSession(
+        [
+            experiment,
+            [_orm_material(m) for m in user_state.data["materials"]],
+            [_orm_solution(s) for s in user_state.data["solutions"]],
+        ]
+    )
+
+    process_snapshot = {
+        "id": "process-pixels",
+        "stages": [],
+        "generatedStacks": [
+            {
+                "combination": 1,
+                "numberOfPixels": "1",
+                "pixelAreaCm2": "0.16",
+                "layers": [
+                    {
+                        "id": "substrate-layer",
+                        "name": "Glass/ITO",
+                        "isSubstrate": True,
+                        "layerType": "",
+                        "thicknessNm": "",
+                        "bandgapEv": "",
+                        "perovskiteA": "",
+                        "perovskiteB": "",
+                        "perovskiteX": "",
+                    }
+                ],
+            }
+        ],
+        "deletedStackCombinations": [],
+    }
+
+    experiment_snapshot = {
+        "id": experiment_id,
+        "name": "Exclusion integrity",
+        "description": "",
+        "architecture": "n-i-p",
+        "substrateMaterial": "Glass/ITO",
+        "devicesPerSubstrate": 1,
+        "deviceArea": 0.09,
+        "substrates": [
+            {
+                "id": "sub-1",
+                "name": "sub-1",
+                "substrateMaterialId": "mat-sub",
+                "parameterValues": {},
+            }
+        ],
+    }
+
+    def _f(name, value, **extra):
+        return {"fileName": name, "fileType": "JV", "value": value, **extra}
+
+    device_groups = [
+        {
+            "id": "group-1",
+            "deviceName": "dev-1",
+            "assignedSubstrateId": "sub-1",
+            "files": [
+                _f("normal.txt", 20.0),
+                _f("excluded.txt", 25.0, excluded=True),
+                _f("localonly.txt", 30.0, localOnly=True),
+            ],
+        }
+    ]
+
+    archives = create_nomad_metadata_yaml(
+        experiment_id=experiment_id,
+        user_name="Tester",
+        session=session,
+        experiment_snapshot=experiment_snapshot,
+        process_snapshot=process_snapshot,
+        device_groups=device_groups,
+    )
+
+    # The uploadable measurement gets its archive; excluded/local-only do not.
+    assert "normal.txt.archive.yaml" in archives
+    assert "excluded.txt.archive.yaml" not in archives
+    assert "localonly.txt.archive.yaml" not in archives
+
+    # The sample's best-JV figure of merit is the uploadable value (20), not the
+    # higher excluded (25) or local-only (30) values.
+    sample = archives["sub-1_dev1_sample.archive.yaml"]["data"]
+    assert sample["jv"]["default_PCE"] == 20.0
