@@ -349,6 +349,7 @@ def apply_measurement_correction(
         previous = "false"
         new = "true"
         measurement.excluded = True
+        _mark_corrected(measurement, "excluded")
 
     elif op == "restore":
         if not measurement.excluded:
@@ -356,6 +357,7 @@ def apply_measurement_correction(
         previous = "true"
         new = "false"
         measurement.excluded = False
+        _mark_corrected(measurement, "excluded")
 
     else:
         raise HTTPException(status_code=400, detail="Unknown operation")

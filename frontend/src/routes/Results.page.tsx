@@ -56,16 +56,21 @@ import type {
   NomadConfigResponse,
   NomadUploadResponse,
 } from "../client/types.gen"
-import { openDiscardUploadFlowConfirm } from "../components/UploadFlowStatus"
 import { MeasurementsView } from "../components/MeasurementsView"
 import { OriginalFilesSection } from "../components/OriginalFilesSection"
 import { ScientificReviewPanel } from "../components/ScientificReviewPanel"
+import { openDiscardUploadFlowConfirm } from "../components/UploadFlowStatus"
 import { homeCollectionForEntity, useRevealForFlow } from "../lib/entityReveal"
 import {
   discardArchive,
   sessionArchiveKey,
   takeSessionArchivePath,
 } from "../lib/nomadArchive"
+import {
+  isChoseStructured,
+  parseMeasurementFiles,
+  serverMeasurementToFile,
+} from "../lib/parseMeasurements"
 import {
   getExperimentAllStepsDone,
   recognizeGroupName,
@@ -85,13 +90,12 @@ import {
   useAppContext,
   useEntityCollection,
 } from "../store/AppContext"
-import { reconcileGroupIds } from "../store/resultLifecycle"
-import { syncResultRefsForExperiment as syncResultRefs } from "../store/resultRefs"
 import {
-  isChoseStructured,
-  parseMeasurementFiles,
-  serverMeasurementToFile,
-} from "../lib/parseMeasurements"
+  isPersistableResult,
+  reconcileGroupIds,
+  staleResultIdsOf,
+} from "../store/resultLifecycle"
+import { syncResultRefsForExperiment as syncResultRefs } from "../store/resultRefs"
 
 // Reserved assignedSubstrateId values for special file categories
 const IGNORE_SUBSTRATE_ID = "__ignore__"
@@ -554,7 +558,9 @@ function getAutoUnmatchedGroupName(
   // Prefer the structured substrate_group metadata when available.
   if (file.substrateGroup) {
     const exact = substrates.find(
-      (s) => s.name.trim().toLowerCase() === file.substrateGroup!.trim().toLowerCase(),
+      (s) =>
+        s.name.trim().toLowerCase() ===
+        file.substrateGroup!.trim().toLowerCase(),
     )
     if (exact) {
       return exact.name
@@ -758,10 +764,18 @@ function FileTypeBadge({ type }: { type: MeasurementType }) {
 /** FW / RV scan-direction badge for structured JV records. */
 function ScanDirectionBadge({ direction }: { direction?: "FW" | "RV" }) {
   if (!direction) {
-    return <Text size="xs" c="dimmed">—</Text>
+    return (
+      <Text size="xs" c="dimmed">
+        —
+      </Text>
+    )
   }
   return (
-    <Badge size="xs" variant="filled" color={direction === "FW" ? "blue" : "violet"}>
+    <Badge
+      size="xs"
+      variant="filled"
+      color={direction === "FW" ? "blue" : "violet"}
+    >
       {direction}
     </Badge>
   )
@@ -783,7 +797,11 @@ function SummaryCoverageBadge({ inSummary }: { inSummary?: boolean | null }) {
       </Badge>
     )
   }
-  return <Text size="xs" c="dimmed">—</Text>
+  return (
+    <Text size="xs" c="dimmed">
+      —
+    </Text>
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1371,9 +1389,9 @@ function ResultsDetail({
   const [lastArchivePath, setLastArchivePath] = useState<string | null>(null)
   const [workflowStep, setWorkflowStep] = useState<1 | 2 | 3>(1)
   const [isResultsCardOpen, setIsResultsCardOpen] = useState(false)
-  const [view, setView] = useState<"measurements" | "review" | "files" | "nomad">(
-    "nomad",
-  )
+  const [view, setView] = useState<
+    "measurements" | "review" | "files" | "nomad"
+  >("nomad")
   const [reviewConfirmed, setReviewConfirmed] = useState(false)
   const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(
     null,
@@ -4601,6 +4619,7 @@ export function ResultsPage() {
     setActiveEntity,
     lastSelectedByKind,
     updateLastSelected,
+    trashEntity,
   } = useAppContext()
   const { getEntityColor, isEntityVisible } = useEntityCollection()
   const [selectedExperimentId, setSelectedExperimentId] = useState<
@@ -4623,8 +4642,12 @@ export function ResultsPage() {
   const getInProgressExperimentIds = useCallback((): string[] => {
     const inProgress = new Set<string>()
 
+    // Only transient NOMAD staging counts as "in progress". Persistent
+    // imported/uploaded results (which also have files) must never be treated
+    // as discardable pipelines.
+    const staleIds = staleResultIdsOf(results)
     for (const result of results) {
-      if (result.files.length > 0) {
+      if (staleIds.has(result.id)) {
         inProgress.add(result.experimentId)
       }
     }
@@ -4655,11 +4678,14 @@ export function ResultsPage() {
 
       if (experimentIds.length > 0) {
         const idSet = new Set(experimentIds)
+        const staleIds = new Set(staleResultIdsOf(results))
         const resultIdsToRemove = results
-          .filter((r) => idSet.has(r.experimentId))
+          .filter((r) => idSet.has(r.experimentId) && staleIds.has(r.id))
           .map((r) => r.id)
-        setResults((prev) => prev.filter((r) => !idSet.has(r.experimentId)))
         if (resultIdsToRemove.length > 0) {
+          setResults((prev) =>
+            prev.filter((r) => !resultIdsToRemove.includes(r.id)),
+          )
           removeCollectionRefs("result", resultIdsToRemove)
         }
       }
@@ -4701,24 +4727,23 @@ export function ResultsPage() {
         const activeResult = selectResultsRef.current.find(
           (r) => r.experimentId === prevId,
         )
-        const hasInProgressPipeline =
-          (!!activeResult && activeResult.files.length > 0) ||
-          (() => {
-            try {
-              return !!sessionStorage.getItem(`nomad_archive:${prevId}`)
-            } catch (_e) {
-              return false
-            }
-          })()
+        // Only discard a *transient* NOMAD staging. Persistent imported or
+        // uploaded results must survive switching experiments.
+        const hasInProgressPipeline = activeResult
+          ? !isPersistableResult(activeResult)
+          : (() => {
+              try {
+                return !!sessionStorage.getItem(`nomad_archive:${prevId}`)
+              } catch (_e) {
+                return false
+              }
+            })()
 
         if (hasInProgressPipeline) {
           void discardArchiveForExperiment(prevId)
-          const resultToRemove = selectResultsRef.current.find(
-            (r) => r.experimentId === prevId,
-          )
-          setResults((prev) => prev.filter((r) => r.experimentId !== prevId))
-          if (resultToRemove) {
-            removeCollectionRefs("result", [resultToRemove.id])
+          if (activeResult) {
+            setResults((prev) => prev.filter((r) => r.id !== activeResult.id))
+            removeCollectionRefs("result", [activeResult.id])
           }
         }
       }
@@ -4841,6 +4866,13 @@ export function ResultsPage() {
       }
       return [...prev, updatedResults]
     })
+
+    // Explicit deletion semantics: with result diff-delete disabled, an empty
+    // (cleared) result must be removed from the server too, otherwise it would
+    // reappear after reload. Soft-delete via the trash flow.
+    if (!shouldKeep && existingForExperiment) {
+      void trashEntity("result", existingForExperiment.id)
+    }
 
     // Keep experiment.hasResults in sync so the status propagates everywhere.
     // Treat "finished" as equivalent to all device groups assigned.

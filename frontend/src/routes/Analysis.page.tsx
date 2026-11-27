@@ -1,27 +1,8 @@
-import {
-  ActionIcon,
-  Box,
-  Button,
-  Divider,
-  Group,
-  MultiSelect,
-  Paper,
-  ScrollArea,
-  Select,
-  Stack,
-  Text,
-  useComputedColorScheme,
-} from "@mantine/core"
-import {
-  IconChartBar,
-  IconGripVertical,
-  IconPlus,
-  IconX,
-} from "@tabler/icons-react"
-import EChartsReact from "echarts-for-react"
-import type React from "react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ComingSoonGate } from "@/components/ComingSoonGate"
+import { Box, Group, Paper, ScrollArea, Stack, Text } from "@mantine/core"
+import { useLocation } from "@tanstack/react-router"
+import { useState } from "react"
+import { AnalysisCharts } from "@/components/AnalysisCharts"
+import { ScientificOverview } from "@/components/ScientificOverview"
 import type { Experiment } from "../store/AppContext"
 import { useAppContext } from "../store/AppContext"
 
@@ -29,336 +10,7 @@ import { useAppContext } from "../store/AppContext"
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-type DataSourceMode =
-  | "all-devices"
-  | "per-device"
-  | "per-substrate"
-  | "per-varied-parameter"
-
-type PlotWidget = {
-  id: string
-  type: "boxplot" | "jv-curve" | "scatter" | "bar"
-  title: string
-  x: number
-  y: number
-  width: number
-  height: number
-  experimentId?: string
-  layerIds?: string[]
-  parameterKey?: string
-}
-
-type DragState = {
-  widgetId: string
-  startX: number
-  startY: number
-  startWidgetX: number
-  startWidgetY: number
-} | null
-
-type ResizeState = {
-  widgetId: string
-  startX: number
-  startY: number
-  startWidth: number
-  startHeight: number
-} | null
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Plot Colors
-// ─────────────────────────────────────────────────────────────────────────────
-
-const PLOT_COLORS = {
-  primary: "#228be6",
-  secondary: "#fa5252",
-  tertiary: "#40c057",
-  quaternary: "#fab005",
-  quinary: "#7950f2",
-  senary: "#e64980",
-}
-
-const COLOR_ARRAY = Object.values(PLOT_COLORS)
-
-// Chart chrome (axis / grid / tooltip / text) colors. Light values are the
-// original design; dark values are the inverse so ECharts (canvas-rendered,
-// can't read CSS light-dark()) stays legible on a dark card.
-function chartChrome(isDark: boolean) {
-  return {
-    text: isDark ? "#c1c2c5" : "#333",
-    grid: isDark ? "#373a40" : "#e9ecef",
-    axisLine: isDark ? "#5c5f66" : "#868e96",
-    tooltipBg: isDark ? "rgba(36,37,38,0.95)" : "rgba(255,255,255,0.9)",
-    tooltipBorder: isDark ? "#5c5f66" : "#ccc",
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Example Plot Data Generators
-// ─────────────────────────────────────────────────────────────────────────────
-
 /** Generate example box plot data for PCE by layer parameter */
-function generateBoxPlotOption(paramName: string, isDark: boolean) {
-  const categories = ["100°C", "120°C", "140°C", "160°C"]
-
-  const data: number[][] = categories.map((_, idx) => {
-    const baseValue = 15 + idx * 1.5
-    return Array.from(
-      { length: 20 },
-      () => baseValue + (Math.random() - 0.5) * 4,
-    )
-  })
-
-  const c = chartChrome(isDark)
-  return {
-    darkMode: isDark,
-    textStyle: { color: c.text },
-    title: {
-      text: `PCE vs ${paramName}`,
-      left: "center",
-      textStyle: { fontSize: 14, color: c.text },
-    },
-    tooltip: {
-      trigger: "item",
-      borderColor: c.tooltipBorder,
-      backgroundColor: c.tooltipBg,
-      textStyle: { color: c.text },
-    },
-    grid: {
-      left: 50,
-      right: 20,
-      bottom: 50,
-      top: 60,
-      containLabel: true,
-    },
-    xAxis: {
-      type: "category",
-      data: categories,
-      name: paramName,
-    },
-    yAxis: {
-      type: "value",
-      name: "PCE (%)",
-      splitLine: { lineStyle: { color: c.grid } },
-    },
-    series: data.map((values, idx) => ({
-      name: categories[idx],
-      type: "boxplot",
-      data: [values],
-      itemStyle: {
-        color: COLOR_ARRAY[idx % COLOR_ARRAY.length],
-      },
-    })),
-  }
-}
-
-/** Generate example JV curve data */
-function generateJVCurveOption(isDark: boolean) {
-  const generateJVCurve = (
-    voc: number,
-    jsc: number,
-    name: string,
-    color: string,
-  ) => {
-    const voltages: number[] = []
-    const currents: number[] = []
-
-    for (let v = -0.1; v <= voc + 0.1; v += 0.01) {
-      voltages.push(parseFloat(v.toFixed(2)))
-      // Simplified diode equation
-      const j0 = 1e-10
-      const n = 1.5
-      const vt = 0.026 // thermal voltage at 300K
-      const current = jsc - j0 * (Math.exp(v / (n * vt)) - 1)
-      currents.push(
-        parseFloat(Math.max(-5, Math.min(current, jsc * 1.1)).toFixed(2)),
-      )
-    }
-
-    return {
-      name,
-      type: "line",
-      data: voltages.map((v, i) => [v, currents[i]]),
-      stroke: { width: 2 },
-      smooth: true,
-      itemStyle: { color },
-      lineStyle: { color },
-      symbol: "none",
-    }
-  }
-
-  const c = chartChrome(isDark)
-  return {
-    darkMode: isDark,
-    textStyle: { color: c.text },
-    title: {
-      text: "J-V Characteristics",
-      left: "center",
-      textStyle: { fontSize: 14, color: c.text },
-    },
-    tooltip: {
-      trigger: "axis",
-      borderColor: c.tooltipBorder,
-      backgroundColor: c.tooltipBg,
-      textStyle: { color: c.text },
-    },
-    legend: {
-      top: "bottom",
-      data: [
-        "Device A (PCE: 18.9%)",
-        "Device B (PCE: 16.9%)",
-        "Device C (PCE: 15.6%)",
-      ],
-    },
-    grid: {
-      left: 60,
-      right: 20,
-      bottom: 80,
-      top: 60,
-      containLabel: true,
-    },
-    xAxis: {
-      type: "value",
-      name: "Voltage (V)",
-      splitLine: { lineStyle: { color: c.grid } },
-      axisLine: { onZero: true, lineStyle: { color: c.axisLine } },
-    },
-    yAxis: {
-      type: "value",
-      name: "Current Density (mA/cm²)",
-      splitLine: { lineStyle: { color: c.grid } },
-      axisLine: { onZero: true, lineStyle: { color: c.axisLine } },
-    },
-    series: [
-      generateJVCurve(1.1, 22, "Device A (PCE: 18.9%)", PLOT_COLORS.primary),
-      generateJVCurve(
-        1.05,
-        21.5,
-        "Device B (PCE: 16.9%)",
-        PLOT_COLORS.secondary,
-      ),
-      generateJVCurve(1.08, 20, "Device C (PCE: 15.6%)", PLOT_COLORS.tertiary),
-    ] as any,
-  }
-}
-
-/** Generate example scatter plot for parameter correlation */
-function generateScatterPlotOption(isDark: boolean) {
-  const n = 30
-  const x = Array.from({ length: n }, () => 100 + Math.random() * 60)
-  const data = x.map((xi) => [
-    xi,
-    12 + (xi - 100) * 0.08 + (Math.random() - 0.5) * 3,
-  ])
-
-  const c = chartChrome(isDark)
-  return {
-    darkMode: isDark,
-    textStyle: { color: c.text },
-    title: {
-      text: "Annealing Temp vs PCE",
-      left: "center",
-      textStyle: { fontSize: 14, color: c.text },
-    },
-    tooltip: {
-      trigger: "item",
-      borderColor: c.tooltipBorder,
-      backgroundColor: c.tooltipBg,
-      textStyle: { color: c.text },
-    },
-    visualMap: {
-      min: Math.min(...data.map((d) => d[1])),
-      max: Math.max(...data.map((d) => d[1])),
-      splitNumber: 5,
-      inRange: {
-        color: ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"],
-      },
-      textStyle: { color: c.text },
-    },
-    grid: {
-      left: 50,
-      right: 60,
-      bottom: 50,
-      top: 60,
-      containLabel: true,
-    },
-    xAxis: {
-      type: "value",
-      name: "Annealing Temperature (°C)",
-      splitLine: { lineStyle: { color: c.grid } },
-    },
-    yAxis: {
-      type: "value",
-      name: "PCE (%)",
-      splitLine: { lineStyle: { color: c.grid } },
-    },
-    series: [
-      {
-        type: "scatter",
-        data,
-        symbolSize: 10,
-        itemStyle: {
-          opacity: 0.8,
-        },
-      },
-    ],
-  }
-}
-
-/** Generate example bar chart for layer comparison */
-function generateBarChartOption(isDark: boolean) {
-  const layers = ["ETL", "Perovskite", "HTL", "Metal"]
-  const pceContribution = [2.1, 12.5, 3.2, 0.8]
-
-  const c = chartChrome(isDark)
-  return {
-    darkMode: isDark,
-    textStyle: { color: c.text },
-    title: {
-      text: "Layer Contribution to PCE",
-      left: "center",
-      textStyle: { fontSize: 14, color: c.text },
-    },
-    tooltip: {
-      trigger: "axis",
-      borderColor: c.tooltipBorder,
-      backgroundColor: c.tooltipBg,
-      textStyle: { color: c.text },
-    },
-    grid: {
-      left: 50,
-      right: 20,
-      bottom: 50,
-      top: 60,
-      containLabel: true,
-    },
-    xAxis: {
-      type: "category",
-      data: layers,
-      name: "Layer",
-    },
-    yAxis: {
-      type: "value",
-      name: "PCE Contribution (%)",
-      splitLine: { lineStyle: { color: c.grid } },
-    },
-    series: [
-      {
-        type: "bar",
-        data: pceContribution.map((value, idx) => ({
-          value,
-          itemStyle: {
-            color: COLOR_ARRAY[idx % COLOR_ARRAY.length],
-          },
-        })),
-      },
-    ],
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Experiment List Item
-// ─────────────────────────────────────────────────────────────────────────────
-
 function ExperimentListItem({
   experiment,
   isSelected,
@@ -408,335 +60,21 @@ function ExperimentListItem({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Data Source Configuration Panel
-// ─────────────────────────────────────────────────────────────────────────────
-
-function DataSourceConfigPanel({
-  mode,
-  onModeChange,
-  experiment,
-  excludedDevices,
-  onExcludedDevicesChange,
-  excludedSubstrates,
-  onExcludedSubstratesChange,
-}: {
-  mode: DataSourceMode
-  onModeChange: (mode: DataSourceMode) => void
-  experiment: Experiment | null
-  excludedDevices: string[]
-  onExcludedDevicesChange: (devices: string[]) => void
-  excludedSubstrates: string[]
-  onExcludedSubstratesChange: (substrates: string[]) => void
-}) {
-  if (!experiment) {
-    return (
-      <Paper
-        withBorder
-        p="sm"
-        style={{
-          background:
-            "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
-        }}
-      >
-        <Text size="xs" c="dimmed" ta="center">
-          Select an experiment to configure data sources
-        </Text>
-      </Paper>
-    )
-  }
-
-  // Calculate device options
-  const deviceOptions = Array.from(
-    { length: experiment.devicesPerSubstrate * experiment.numSubstrates },
-    (_, i) => ({
-      value: `device-${i}`,
-      label: `Device ${i + 1}`,
-    }),
-  )
-
-  // Calculate substrate options
-  const substrateOptions = experiment.substrates.map((sub) => ({
-    value: sub.id,
-    label: sub.name,
-  }))
-
-  return (
-    <Paper
-      withBorder
-      p="sm"
-      style={{
-        background:
-          "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
-      }}
-    >
-      <Stack gap="xs">
-        <div>
-          <Text size="xs" fw={600} mb={6}>
-            Data Source
-          </Text>
-          <Select
-            size="xs"
-            value={mode}
-            onChange={(v) => onModeChange(v as DataSourceMode)}
-            data={[
-              { value: "all-devices", label: "All Devices" },
-              { value: "per-device", label: "Per Device" },
-              { value: "per-substrate", label: "Per Substrate" },
-              {
-                value: "per-varied-parameter",
-                label: "Per Varied Parameter",
-              },
-            ]}
-            searchable={false}
-          />
-        </div>
-
-        {mode === "per-device" && deviceOptions.length > 0 && (
-          <div>
-            <Text size="xs" fw={600} mb={6}>
-              Exclude Devices
-            </Text>
-            <MultiSelect
-              size="xs"
-              placeholder="Select devices to exclude..."
-              data={deviceOptions}
-              value={excludedDevices}
-              onChange={onExcludedDevicesChange}
-              searchable={false}
-              maxDropdownHeight={150}
-            />
-          </div>
-        )}
-
-        {mode === "per-substrate" && substrateOptions.length > 0 && (
-          <div>
-            <Text size="xs" fw={600} mb={6}>
-              Exclude Substrates
-            </Text>
-            <MultiSelect
-              size="xs"
-              placeholder="Select substrates to exclude..."
-              data={substrateOptions}
-              value={excludedSubstrates}
-              onChange={onExcludedSubstratesChange}
-              searchable={false}
-              maxDropdownHeight={150}
-            />
-          </div>
-        )}
-
-        <Text size="xs" c="dimmed">
-          {mode === "all-devices" &&
-            `Analyzing ${experiment.devicesPerSubstrate * experiment.numSubstrates} total devices`}
-          {mode === "per-device" &&
-            `Analyzing ${deviceOptions.length - excludedDevices.length} devices`}
-          {mode === "per-substrate" &&
-            `Analyzing ${experiment.substrates.length - excludedSubstrates.length} substrates`}
-          {mode === "per-varied-parameter" &&
-            "Analyzing data grouped by varied parameters"}
-        </Text>
-      </Stack>
-    </Paper>
-  )
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Plot Widget Component
-// ─────────────────────────────────────────────────────────────────────────────
-
-function PlotWidgetComponent({
-  widget,
-  onMouseDownDrag,
-  onMouseDownResize,
-  onDelete,
-  isSelected,
-  onSelect,
-}: {
-  widget: PlotWidget
-  onMouseDownDrag: (e: React.MouseEvent) => void
-  onMouseDownResize: (e: React.MouseEvent) => void
-  onDelete: () => void
-  isSelected: boolean
-  onSelect: () => void
-}) {
-  const chartRef = useRef<EChartsReact>(null)
-
-  const isDark = useComputedColorScheme("light") === "dark"
-
-  // Generate plot data based on type
-  const chartOption = useMemo(() => {
-    switch (widget.type) {
-      case "boxplot":
-        return generateBoxPlotOption("Annealing Temp", isDark)
-      case "jv-curve":
-        return generateJVCurveOption(isDark)
-      case "scatter":
-        return generateScatterPlotOption(isDark)
-      case "bar":
-        return generateBarChartOption(isDark)
-      default:
-        return generateBoxPlotOption("Parameter", isDark)
-    }
-  }, [widget.type, isDark])
-
-  useEffect(() => {
-    // Resize chart when widget dimensions change
-    chartRef.current?.getEchartsInstance().resize()
-  }, [])
-
-  return (
-    <Paper
-      withBorder
-      shadow={isSelected ? "md" : "xs"}
-      style={{
-        position: "absolute",
-        left: widget.x,
-        top: widget.y,
-        width: widget.width,
-        height: widget.height,
-        cursor: "default",
-        borderColor: isSelected ? "var(--mantine-color-blue-5)" : undefined,
-        borderWidth: isSelected ? 2 : 1,
-        overflow: "hidden",
-        background: "light-dark(white, var(--mantine-color-dark-6))",
-        display: "flex",
-        flexDirection: "column",
-      }}
-      onClick={(e) => {
-        e.stopPropagation()
-        onSelect()
-      }}
-    >
-      {/* Header */}
-      <Group
-        justify="space-between"
-        px="xs"
-        py={4}
-        style={{
-          background:
-            "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
-          borderBottom:
-            "1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))",
-          cursor: "grab",
-          flexShrink: 0,
-        }}
-        onMouseDown={onMouseDownDrag}
-      >
-        <Group gap="xs">
-          <IconGripVertical size={14} color="var(--mantine-color-gray-5)" />
-          <Text
-            size="xs"
-            fw={500}
-            truncate
-            style={{ maxWidth: widget.width - 80 }}
-          >
-            {widget.title}
-          </Text>
-        </Group>
-        <ActionIcon
-          size="xs"
-          variant="subtle"
-          color="red"
-          onClick={(e) => {
-            e.stopPropagation()
-            onDelete()
-          }}
-        >
-          <IconX size={12} />
-        </ActionIcon>
-      </Group>
-
-      {/* Chart */}
-      <Box style={{ flex: 1, width: "100%", minHeight: 0 }}>
-        <EChartsReact
-          ref={chartRef}
-          option={chartOption}
-          style={{ width: "100%", height: "100%" }}
-          opts={{ renderer: "canvas" }}
-        />
-      </Box>
-
-      {/* Resize Handle */}
-      <Box
-        style={{
-          position: "absolute",
-          right: 0,
-          bottom: 0,
-          width: 16,
-          height: 16,
-          cursor: "se-resize",
-          background:
-            "linear-gradient(135deg, transparent 50%, var(--mantine-color-gray-4) 50%)",
-          pointerEvents: "auto",
-        }}
-        onMouseDown={onMouseDownResize}
-      />
-    </Paper>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Main Page
-// ─────────────────────────────────────────────────────────────────────────────
-
-const GRID_SIZE = 20 // snap grid size
-const MIN_WIDGET_SIZE = 200
 
 export function AnalysisPage() {
-  const { experiments, lastSelectedByKind, updateLastSelected } =
+  const { experiments, results, lastSelectedByKind, updateLastSelected } =
     useAppContext()
+  const location = useLocation()
+  const experimentId = (location.search as Record<string, unknown>)
+    .experimentId as string | undefined
+  // Single selection mechanism: the experimentId URL query parameter (set by
+  // the Results "Analyze" action) is authoritative and survives reload; the
+  // last-selected experiment is the fallback for plain navigation.
   const [selectedExperimentId, setSelectedExperimentId] = useState<
     string | null
-  >(() => lastSelectedByKind.experiment ?? null)
-  const [dataSourceMode, setDataSourceMode] =
-    useState<DataSourceMode>("all-devices")
-  const [excludedDevices, setExcludedDevices] = useState<string[]>([])
-  const [excludedSubstrates, setExcludedSubstrates] = useState<string[]>([])
-
-  const [widgets, setWidgets] = useState<PlotWidget[]>(() => [
-    // Initial example widgets
-    {
-      id: crypto.randomUUID(),
-      type: "boxplot",
-      title: "PCE Distribution by Annealing Temp",
-      x: 20,
-      y: 20,
-      width: 400,
-      height: 320,
-    },
-    {
-      id: crypto.randomUUID(),
-      type: "jv-curve",
-      title: "J-V Characteristics",
-      x: 440,
-      y: 20,
-      width: 450,
-      height: 320,
-    },
-    {
-      id: crypto.randomUUID(),
-      type: "scatter",
-      title: "Annealing Temp vs PCE",
-      x: 20,
-      y: 360,
-      width: 380,
-      height: 300,
-    },
-    {
-      id: crypto.randomUUID(),
-      type: "bar",
-      title: "Layer Contributions",
-      x: 420,
-      y: 360,
-      width: 350,
-      height: 300,
-    },
-  ])
-
-  const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null)
-  const [dragState, setDragState] = useState<DragState>(null)
-  const [resizeState, setResizeState] = useState<ResizeState>(null)
-  const planeRef = useRef<HTMLDivElement>(null)
+  >(() => experimentId ?? lastSelectedByKind.experiment ?? null)
 
   const selectExperiment = (id: string | null) => {
     setSelectedExperimentId(id)
@@ -746,346 +84,124 @@ export function AnalysisPage() {
   const selectedExperiment = experiments.find(
     (e) => e.id === selectedExperimentId,
   )
+  const selectedResult = selectedExperiment
+    ? (results.find((r) => r.experimentId === selectedExperiment.id) ?? null)
+    : null
 
   // Snap to grid helper
-  const snapToGrid = useCallback(
-    (value: number): number => Math.round(value / GRID_SIZE) * GRID_SIZE,
-    [],
-  )
 
   // Handle drag start
-  const handleDragStart = (widgetId: string, e: React.MouseEvent) => {
-    e.preventDefault()
-    const widget = widgets.find((w) => w.id === widgetId)
-    if (!widget) {
-      return
-    }
-
-    setDragState({
-      widgetId,
-      startX: e.clientX,
-      startY: e.clientY,
-      startWidgetX: widget.x,
-      startWidgetY: widget.y,
-    })
-    setSelectedWidgetId(widgetId)
-  }
-
   // Handle resize start
-  const handleResizeStart = (widgetId: string, e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const widget = widgets.find((w) => w.id === widgetId)
-    if (!widget) {
-      return
-    }
-
-    setResizeState({
-      widgetId,
-      startX: e.clientX,
-      startY: e.clientY,
-      startWidth: widget.width,
-      startHeight: widget.height,
-    })
-    setSelectedWidgetId(widgetId)
-  }
-
-  // Handle mouse move for drag/resize
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (dragState) {
-        const deltaX = e.clientX - dragState.startX
-        const deltaY = e.clientY - dragState.startY
-
-        setWidgets((prev) =>
-          prev.map((w) => {
-            if (w.id !== dragState.widgetId) {
-              return w
-            }
-            return {
-              ...w,
-              x: snapToGrid(Math.max(0, dragState.startWidgetX + deltaX)),
-              y: snapToGrid(Math.max(0, dragState.startWidgetY + deltaY)),
-            }
-          }),
-        )
-      }
-
-      if (resizeState) {
-        const deltaX = e.clientX - resizeState.startX
-        const deltaY = e.clientY - resizeState.startY
-
-        setWidgets((prev) =>
-          prev.map((w) => {
-            if (w.id !== resizeState.widgetId) {
-              return w
-            }
-            return {
-              ...w,
-              width: snapToGrid(
-                Math.max(MIN_WIDGET_SIZE, resizeState.startWidth + deltaX),
-              ),
-              height: snapToGrid(
-                Math.max(MIN_WIDGET_SIZE, resizeState.startHeight + deltaY),
-              ),
-            }
-          }),
-        )
-      }
-    }
-
-    const handleMouseUp = () => {
-      setDragState(null)
-      setResizeState(null)
-    }
-
-    if (dragState || resizeState) {
-      document.addEventListener("mousemove", handleMouseMove)
-      document.addEventListener("mouseup", handleMouseUp)
-    }
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove)
-      document.removeEventListener("mouseup", handleMouseUp)
-    }
-  }, [dragState, resizeState, snapToGrid])
-
-  // Add new widget
-  const addWidget = (type: PlotWidget["type"]) => {
-    const newWidget: PlotWidget = {
-      id: crypto.randomUUID(),
-      type,
-      title:
-        type === "boxplot"
-          ? "Box Plot"
-          : type === "jv-curve"
-            ? "J-V Curve"
-            : type === "scatter"
-              ? "Scatter Plot"
-              : "Bar Chart",
-      x: snapToGrid(20 + widgets.length * 20),
-      y: snapToGrid(20 + widgets.length * 20),
-      width: 400,
-      height: 300,
-    }
-    setWidgets((prev) => [...prev, newWidget])
-    setSelectedWidgetId(newWidget.id)
-  }
-
   // Delete widget
-  const deleteWidget = (widgetId: string) => {
-    setWidgets((prev) => prev.filter((w) => w.id !== widgetId))
-    if (selectedWidgetId === widgetId) {
-      setSelectedWidgetId(null)
-    }
-  }
 
   return (
-    <ComingSoonGate featureName="Analysis">
-      <Box
-        style={{
-          display: "flex",
-          height: "calc(100vh - 60px)",
-          flexDirection: "column",
-        }}
-      >
-        <Box style={{ display: "flex", flex: 1, minHeight: 0 }}>
-          {/* Main: Plot Plane */}
-          <Box
+    <Box
+      style={{
+        display: "flex",
+        height: "calc(100vh - 60px)",
+        flexDirection: "column",
+      }}
+    >
+      <Box style={{ display: "flex", flex: 1, minHeight: 0 }}>
+        {/* Main: Plot Plane */}
+        <ScrollArea style={{ flex: 1 }} p="md">
+          {selectedResult ? (
+            <Stack gap="md">
+              <ScientificOverview result={selectedResult} />
+              <AnalysisCharts result={selectedResult} />
+            </Stack>
+          ) : (
+            <Text size="sm" c="dimmed" ta="center" mt="xl">
+              Select an experiment with imported measurements to see scientific
+              analysis.
+            </Text>
+          )}
+        </ScrollArea>
+
+        {/* Right Sidebar: Experiment & Configuration */}
+        <Box
+          style={{
+            width: 300,
+            borderLeft: "1px solid var(--mantine-color-default-border)",
+            display: "flex",
+            flexDirection: "column",
+            background: "light-dark(white, var(--mantine-color-dark-6))",
+            minHeight: 0,
+          }}
+        >
+          {/* Experiment List Header */}
+          <Group
+            justify="space-between"
+            p="md"
+            style={{
+              borderBottom: "1px solid var(--mantine-color-default-border)",
+              flexShrink: 0,
+            }}
+          >
+            <Text size="sm" fw={600}>
+              Experiments
+            </Text>
+          </Group>
+
+          {/* Experiment List */}
+          <ScrollArea
             style={{
               flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-            }}
-          >
-            {/* Toolbar */}
-            <Group
-              p="sm"
-              style={{
-                borderBottom: "1px solid var(--mantine-color-default-border)",
-                background: "light-dark(white, var(--mantine-color-dark-6))",
-              }}
-            >
-              <Text size="sm" fw={500}>
-                Add Plot:
-              </Text>
-              <Button
-                size="xs"
-                variant="light"
-                leftSection={<IconPlus size={14} />}
-                onClick={() => addWidget("boxplot")}
-              >
-                Box Plot
-              </Button>
-              <Button
-                size="xs"
-                variant="light"
-                leftSection={<IconPlus size={14} />}
-                onClick={() => addWidget("jv-curve")}
-              >
-                J-V Curve
-              </Button>
-              <Button
-                size="xs"
-                variant="light"
-                leftSection={<IconPlus size={14} />}
-                onClick={() => addWidget("scatter")}
-              >
-                Scatter
-              </Button>
-              <Button
-                size="xs"
-                variant="light"
-                leftSection={<IconPlus size={14} />}
-                onClick={() => addWidget("bar")}
-              >
-                Bar Chart
-              </Button>
-              <Divider orientation="vertical" />
-              <Text size="xs" c="dimmed">
-                {widgets.length} plot{widgets.length !== 1 ? "s" : ""} • Drag to
-                move, corner to resize
-              </Text>
-            </Group>
-
-            {/* Plot Plane */}
-            <Box
-              ref={planeRef}
-              style={{
-                flex: 1,
-                position: "relative",
-                overflow: "auto",
-                background: `
-                linear-gradient(to right, light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4)) 1px, transparent 1px),
-                linear-gradient(to bottom, light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4)) 1px, transparent 1px)
-              `,
-                backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
-                backgroundColor:
-                  "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
-              }}
-              onClick={() => setSelectedWidgetId(null)}
-            >
-              {/* Widgets */}
-              {widgets.map((widget) => (
-                <PlotWidgetComponent
-                  key={widget.id}
-                  widget={widget}
-                  onMouseDownDrag={(e) => handleDragStart(widget.id, e)}
-                  onMouseDownResize={(e) => handleResizeStart(widget.id, e)}
-                  onDelete={() => deleteWidget(widget.id)}
-                  isSelected={selectedWidgetId === widget.id}
-                  onSelect={() => setSelectedWidgetId(widget.id)}
-                />
-              ))}
-
-              {/* Empty state */}
-              {widgets.length === 0 && (
-                <Box
-                  style={{
-                    position: "absolute",
-                    top: "50%",
-                    left: "50%",
-                    transform: "translate(-50%, -50%)",
-                    textAlign: "center",
-                  }}
-                >
-                  <IconChartBar size={64} color="var(--mantine-color-gray-4)" />
-                  <Text size="lg" c="dimmed" mt="md">
-                    No plots yet
-                  </Text>
-                  <Text size="sm" c="dimmed" mt="xs">
-                    Use the toolbar above to add plots
-                  </Text>
-                </Box>
-              )}
-            </Box>
-          </Box>
-
-          {/* Right Sidebar: Experiment & Configuration */}
-          <Box
-            style={{
-              width: 300,
-              borderLeft: "1px solid var(--mantine-color-default-border)",
-              display: "flex",
-              flexDirection: "column",
-              background: "light-dark(white, var(--mantine-color-dark-6))",
+              borderBottom: "1px solid var(--mantine-color-default-border)",
               minHeight: 0,
             }}
+            p="sm"
           >
-            {/* Experiment List Header */}
-            <Group
-              justify="space-between"
-              p="md"
-              style={{
-                borderBottom: "1px solid var(--mantine-color-default-border)",
-                flexShrink: 0,
-              }}
-            >
-              <Text size="sm" fw={600}>
-                Experiments
+            <Stack gap="sm">
+              {experiments.length === 0 ? (
+                <Paper
+                  p="lg"
+                  ta="center"
+                  style={{
+                    background:
+                      "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
+                  }}
+                >
+                  <Text size="sm" c="dimmed">
+                    No experiments
+                  </Text>
+                </Paper>
+              ) : (
+                experiments.map((exp) => (
+                  <ExperimentListItem
+                    key={exp.id}
+                    experiment={exp}
+                    isSelected={selectedExperimentId === exp.id}
+                    onSelect={() => selectExperiment(exp.id)}
+                  />
+                ))
+              )}
+            </Stack>
+          </ScrollArea>
+
+          {/* Data Source Configuration */}
+          <Box
+            style={{
+              flexShrink: 0,
+              borderTop: "1px solid var(--mantine-color-default-border)",
+              overflow: "auto",
+              maxHeight: "40%",
+            }}
+            p="sm"
+          >
+            <Stack gap="xs">
+              <Text size="xs" fw={600}>
+                Data source
               </Text>
-            </Group>
-
-            {/* Experiment List */}
-            <ScrollArea
-              style={{
-                flex: 1,
-                borderBottom: "1px solid var(--mantine-color-default-border)",
-                minHeight: 0,
-              }}
-              p="sm"
-            >
-              <Stack gap="sm">
-                {experiments.length === 0 ? (
-                  <Paper
-                    p="lg"
-                    ta="center"
-                    style={{
-                      background:
-                        "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))",
-                    }}
-                  >
-                    <Text size="sm" c="dimmed">
-                      No experiments
-                    </Text>
-                  </Paper>
-                ) : (
-                  experiments.map((exp) => (
-                    <ExperimentListItem
-                      key={exp.id}
-                      experiment={exp}
-                      isSelected={selectedExperimentId === exp.id}
-                      onSelect={() => selectExperiment(exp.id)}
-                    />
-                  ))
-                )}
-              </Stack>
-            </ScrollArea>
-
-            {/* Data Source Configuration */}
-            <Box
-              style={{
-                flexShrink: 0,
-                borderTop: "1px solid var(--mantine-color-default-border)",
-                overflow: "auto",
-                maxHeight: "40%",
-              }}
-              p="sm"
-            >
-              <DataSourceConfigPanel
-                mode={dataSourceMode}
-                onModeChange={setDataSourceMode}
-                experiment={selectedExperiment ?? null}
-                excludedDevices={excludedDevices}
-                onExcludedDevicesChange={setExcludedDevices}
-                excludedSubstrates={excludedSubstrates}
-                onExcludedSubstratesChange={setExcludedSubstrates}
-              />
-            </Box>
+              <Text size="xs" c="dimmed">
+                Analysis uses the experiment's imported measurements (corrected
+                effective values). Fabrication-aware comparisons are not shown
+                when confirmed device/substrate relationships are unavailable.
+              </Text>
+            </Stack>
           </Box>
         </Box>
       </Box>
-    </ComingSoonGate>
+    </Box>
   )
 }

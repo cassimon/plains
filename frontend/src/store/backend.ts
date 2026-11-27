@@ -989,10 +989,10 @@ export class HttpBackend implements BackendAdapter {
     }
 
     // 5. Deletions, in reverse dependency order.
-    await this.deleteRemoved(
-      "results",
-      s.results.map((r) => r.id),
-    )
+    // Results are NEVER diff-deleted: imported measurement results are durable
+    // user data, and a save snapshot that transiently lacks a result (import
+    // ordering, multi-experiment sync) must not trash it. Results are removed
+    // only by explicit trash/delete actions.
     await this.deleteRemoved(
       "experiments",
       s.experiments.map((e) => e.id),

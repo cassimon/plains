@@ -14,13 +14,18 @@ import {
 } from "@mantine/core"
 import {
   IconArrowsMaximize,
+  IconChartBar,
   IconInfoCircle,
   IconPlus,
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
 import EChartsReact from "echarts-for-react"
 import { useMemo, useState } from "react"
-import type { ExperimentResults, MeasurementFile } from "@/store/AppContext"
+import {
+  type ExperimentResults,
+  type MeasurementFile,
+  useAppContext,
+} from "@/store/AppContext"
 import { SectionLabel } from "./SectionLabel"
 
 function fmt(v: number | undefined | null): string {
@@ -77,6 +82,7 @@ export function MeasurementsView({
   onOpenReview?: () => void
 }) {
   const navigate = useNavigate()
+  const { setActiveEntity, updateLastSelected } = useAppContext()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [chartExpanded, setChartExpanded] = useState(false)
@@ -249,9 +255,26 @@ export function MeasurementsView({
           size="xs"
           variant="light"
           leftSection={<IconPlus size={14} />}
-          onClick={() => void navigate({ to: "/experiments" })}
+          onClick={() => {
+            setActiveEntity({ kind: "experiment", id: result.experimentId })
+            updateLastSelected("experiment", result.experimentId)
+            void navigate({ to: "/experiments" })
+          }}
         >
           Add Data
+        </Button>
+        <Button
+          size="xs"
+          variant="light"
+          leftSection={<IconChartBar size={14} />}
+          onClick={() => {
+            void navigate({
+              to: "/analysis",
+              search: { experimentId: result.experimentId },
+            })
+          }}
+        >
+          Analyze
         </Button>
         <TextInput
           size="xs"

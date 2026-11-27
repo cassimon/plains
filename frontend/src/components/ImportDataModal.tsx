@@ -27,7 +27,7 @@ import {
   IconUpload,
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   importMeasurementSources,
   type ParseResult,
@@ -99,6 +99,7 @@ export function ImportDataModal({
     flushSave,
     setActiveEntity,
     updateLastSelected,
+    lastSelectedByKind,
   } = useAppContext()
   const [files, setFiles] = useState<File[]>([])
   const [paths, setPaths] = useState<string[]>([])
@@ -114,6 +115,17 @@ export function ImportDataModal({
   const previewRequestIdRef = useRef(0)
   const importIdRef = useRef<string | null>(null)
   const createdExperimentIdRef = useRef<string | null>(null)
+
+  // Preselect the current experiment as the import destination when opened
+  // (e.g. via the Results "Add Data" action).
+  useEffect(() => {
+    if (!opened) return
+    const last = lastSelectedByKind.experiment
+    if (last && experiments.some((e) => e.id === last)) {
+      setDestinationMode("existing")
+      setDestinationId(last)
+    }
+  }, [opened, lastSelectedByKind.experiment, experiments])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dirInputRef = useRef<HTMLInputElement>(null)
 
