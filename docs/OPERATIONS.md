@@ -44,8 +44,17 @@ uv run prek run --all-files
 
 `compose.yml` defines the full stack (frontend, backend, db, adminer, mailcatcher, traefik).
 Overrides specialize environments: `compose.prod.yml` (production), `compose.test.yml`
-(integration tests — no Traefik, deterministic localhost ports, mock NOMAD, JWT test auth),
+(integration tests — deterministic localhost ports, mock NOMAD, JWT test auth),
 `compose.override.yml`, `compose.traefik.yml`, `compose.localproxy.yml`.
+
+**Test-stack Traefik isolation.** `compose.yml` gives `frontend`, `backend` and `adminer`
+Traefik routing labels keyed on the same `STACK_NAME`/`DOMAIN` as the normal stack. A test
+stack built on top of `compose.yml` inherits those labels; if left enabled, a Traefik instance
+running against the normal stack discovers the test containers through the identical routers
+and tries to route to both at once, causing HTTP 504s and a blank frontend. `compose.test.yml`
+therefore sets `traefik.enable: "false"` on those three services. Test containers remain
+reachable through their direct localhost ports (`db` 5433, `backend` 8001, `frontend` 5174).
+Keep this override in place when changing the test stack.
 
 Durable named volumes:
 

@@ -1,13 +1,27 @@
 # Integration test overrides — no Traefik, deterministic localhost ports,
 # frontend proxies API so VITE_API_URL can be relative (empty = same origin).
+#
+# The services below inherit Traefik routing labels from compose.yml (same
+# STACK_NAME/DOMAIN/routers as the dev stack). If left enabled, a Traefik
+# instance running against the normal stack would discover these test
+# containers through the identical labels and try to route to both at once,
+# causing HTTP 504s and a blank frontend. `traefik.enable: "false"` keeps the
+# test containers out of every Traefik routing table; they stay reachable
+# through their direct localhost ports instead.
 services:
   db:
     ports:
       - "127.0.0.1:5433:5432"
 
+  adminer:
+    labels:
+      traefik.enable: "false"
+
   backend:
     ports:
       - "127.0.0.1:8001:8000"
+    labels:
+      traefik.enable: "false"
     environment:
       - NOMAD_OAUTH_ENABLED=false
       - NOMAD_MOCK_MODE=true
@@ -24,6 +38,8 @@ services:
   frontend:
     ports:
       - "127.0.0.1:5174:80"
+    labels:
+      traefik.enable: "false"
     build:
       context: .
       dockerfile: frontend/Dockerfile
