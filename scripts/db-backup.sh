@@ -13,10 +13,9 @@
 # A database dump alone is NOT enough: it would leave the imported_source_file
 # rows pointing at bytes that no longer exist. Restore all three, in step.
 #
-# The pg_dump and the two volume tars are separate snapshots: they are only
-# mutually consistent when the application is QUIESCENT (stopped, or guaranteed
-# not to be writing) while this script runs. Take the backup immediately before
-# the `down` that this snapshot is meant to protect against.
+# The application is STOPPED for the duration of the snapshot so nothing can
+# write to the database or the durable volumes while the dump/tars run — this is
+# what keeps the three snapshots mutually consistent.
 #
 # See AGENTS.md → "Protecting the dev database during tests".
 
@@ -29,10 +28,13 @@ cd "$ROOT_DIR"
 BACKUP_DIR="$ROOT_DIR/db_backups"
 mkdir -p "$BACKUP_DIR"
 
-# `up -d --wait` is a no-op if already up; otherwise starts db + backend so both
-# the pg_dump and the volume tars (via the backend's mounts) can run.
-echo "[db-backup] ensuring db + backend are up"
-docker compose up -d --wait db backend
+# Quiesce the application — no writes may happen during the snapshot.
+echo "[db-backup] stopping the application (backend + frontend)"
+docker compose stop backend frontend
+
+# Start only the database (for pg_dump); the app stays stopped.
+echo "[db-backup] ensuring db is up"
+docker compose up -d --wait db
 
 POSTGRES_USER="$(docker compose exec -T db printenv POSTGRES_USER | tr -d '\r')"
 POSTGRES_DB="$(docker compose exec -T db printenv POSTGRES_DB | tr -d '\r')"
@@ -52,15 +54,15 @@ if [ ! -s "$DUMP" ]; then
     rm -f "$DUMP"
     exit 1
 fi
+gzip -t "$DUMP" || { echo "[db-backup] ERROR: dump failed gzip validation" >&2; exit 1; }
 
-# 2. Durable original source files (imported experiment evidence).
+# 2/3. Durable volumes via a one-off container (the app stays stopped).
 echo "[db-backup] archiving source-files -> ${SOURCES#"$ROOT_DIR"/}"
-docker compose exec -T backend \
+docker compose run --rm --no-deps backend \
     tar -czf - -C /var/lib/plains/source_files . > "$SOURCES"
 
-# 3. Stashed NOMAD upload archives.
 echo "[db-backup] archiving nomad-stash -> ${STASH#"$ROOT_DIR"/}"
-docker compose exec -T backend \
+docker compose run --rm --no-deps backend \
     tar -czf - -C /var/lib/plains/nomad_stash . > "$STASH"
 
 # `latest.*` are the pointers db-restore.sh reads.

@@ -35,9 +35,9 @@ test("import a JV dataset and inspect a measurement curve", async ({
   await authedPage.getByRole("button", { name: "Create & import" }).click()
 
   await expect(authedPage).toHaveURL(/results/, { timeout: 30_000 })
-  await expect(authedPage.getByText("Measurements")).toBeVisible({
-    timeout: 20_000,
-  })
+  await expect(
+    authedPage.getByText("Measurements", { exact: true }).first(),
+  ).toBeVisible({ timeout: 20_000 })
 
   // Selecting a measurement with a captured curve shows the JV chart.
   await authedPage.getByText("ADDITIVE-1A", { exact: true }).first().click()

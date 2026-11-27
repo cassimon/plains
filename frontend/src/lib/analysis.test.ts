@@ -2,13 +2,16 @@ import { describe, expect, test } from "bun:test"
 import type { MeasurementFile } from "@/store/AppContext"
 import {
   descriptiveStats,
+  groupKey,
   histogram,
   hysteresisPct,
+  isMetricValid,
   pairedDifferences,
   pairedValues,
   pairFwRv,
   pearson,
   selectMetricValues,
+  selectMetricValuesByGroup,
 } from "./analysis"
 
 function mf(over: Partial<MeasurementFile> = {}): MeasurementFile {
@@ -138,6 +141,23 @@ describe("pairFwRv / pairedDifferences", () => {
     ]
     expect(pairFwRv(files).length).toBe(0)
   })
+
+  test("a source with one FW and two RV candidates stays ambiguous even when one RV is excluded", () => {
+    const files = [
+      mf({ id: "fw1", sourceFileId: "S1", direction: "FW", value: 10 }),
+      mf({ id: "rv1", sourceFileId: "S1", direction: "RV", value: 12 }),
+      mf({
+        id: "rv2",
+        sourceFileId: "S1",
+        direction: "RV",
+        value: 14,
+        excluded: true,
+      }),
+    ]
+    // Excluding rv2 leaves exactly one FW + one RV, but the source had two RV
+    // candidates — ambiguity is determined before exclusions, so no pair forms.
+    expect(pairFwRv(files).length).toBe(0)
+  })
 })
 
 describe("pairedValues + pearson (same-observation pairs)", () => {
@@ -177,5 +197,100 @@ describe("histogram", () => {
     const h = histogram([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 5)
     expect(h!.binCount).toBe(5)
     expect(h!.counts.reduce((a, b) => a + b, 0)).toBe(10)
+  })
+})
+
+describe("metric-specific scientific validity", () => {
+  test("negative PCE and FF outside 0–100% never contribute to their metric", () => {
+    const files = [
+      mf({ value: -1, ff: 50 }),
+      mf({ value: 10, ff: 120 }),
+      mf({ value: 20, ff: 80 }),
+    ]
+    const pce = selectMetricValues(files, "value")
+    expect(pce.values).toEqual([10, 20])
+    expect(pce.invalidCount).toBe(1)
+    const ff = selectMetricValues(files, "ff")
+    expect(ff.values).toEqual([50, 80])
+    expect(ff.invalidCount).toBe(1)
+  })
+
+  test("legitimate zeros are preserved for PCE and FF", () => {
+    expect(isMetricValid("value", 0)).toBe(true)
+    expect(isMetricValid("ff", 0)).toBe(true)
+    expect(
+      selectMetricValues([mf({ value: 0 }), mf({ ff: 0 })], "value").values,
+    ).toEqual([0])
+  })
+
+  test("an invalid value in one metric does not invalidate unrelated metrics", () => {
+    const files = [mf({ value: -5, voc: 1.1, ff: 78 })]
+    expect(selectMetricValues(files, "value").values).toEqual([])
+    expect(selectMetricValues(files, "voc").values).toEqual([1.1])
+    expect(selectMetricValues(files, "ff").values).toEqual([78])
+  })
+
+  test("correlation drops metric-invalid pairs but keeps valid ones", () => {
+    const files = [
+      mf({ value: 1, voc: 1 }),
+      mf({ value: -2, voc: 2 }),
+      mf({ value: 3, voc: 3 }),
+    ]
+    expect(pairedValues(files, "value", "voc")).toEqual([
+      [1, 1],
+      [3, 3],
+    ])
+  })
+})
+
+describe("groupKey / selectMetricValuesByGroup", () => {
+  test("prefers the reliable device-group id over labels", () => {
+    expect(
+      groupKey(mf({ groupId: "g-1", substrateGroup: "A", deviceName: "B" })),
+    ).toBe("g-1")
+    expect(groupKey(mf({ substrateGroup: "A", deviceName: "B" }))).toBe("A")
+  })
+
+  test("groups by reliable id and applies the same validity rules", () => {
+    const files = [
+      mf({ groupId: "g1", value: 10 }),
+      mf({ groupId: "g1", value: 20 }),
+      mf({ groupId: "g2", value: -5 }),
+      mf({ groupId: "g2", value: 30 }),
+    ]
+    const byGroup = selectMetricValuesByGroup(files, "value")
+    const g1 = byGroup.find((g) => g.group === "g1")!
+    const g2 = byGroup.find((g) => g.group === "g2")!
+    expect(g1.selection.values).toEqual([10, 20])
+    expect(g2.selection.values).toEqual([30])
+    expect(g2.selection.invalidCount).toBe(1)
+  })
+})
+
+describe("pairFwRv / pairedDifferences — JV-only and accurate counts", () => {
+  test("non-JV records never participate in FW/RV pairing", () => {
+    const files = [
+      mf({ id: "fw", sourceFileId: "S1", direction: "FW", value: 10 }),
+      mf({
+        id: "rv",
+        fileType: "UV-Vis",
+        sourceFileId: "S1",
+        direction: "RV",
+        value: 12,
+      }),
+    ]
+    expect(pairFwRv(files).length).toBe(0)
+  })
+
+  test("pairedDifferences count reflects valid pairs only", () => {
+    const files = [
+      mf({ id: "fw1", sourceFileId: "S1", direction: "FW", value: 10 }),
+      mf({ id: "rv1", sourceFileId: "S1", direction: "RV", value: 12 }),
+      mf({ id: "fw2", sourceFileId: "S2", direction: "FW", value: 5 }),
+      mf({ id: "rv2", sourceFileId: "S2", direction: "RV" }), // missing value
+    ]
+    const d = pairedDifferences(files, "value")
+    expect(d.count).toBe(1)
+    expect(d.values).toEqual([2])
   })
 })

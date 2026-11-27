@@ -47,6 +47,33 @@ function finite(v: number | null | undefined): v is number {
   return v != null && Number.isFinite(v)
 }
 
+function isJv(f: MeasurementFile): boolean {
+  return (f.fileType ?? "").toUpperCase() === "JV"
+}
+
+/** Metric-specific scientific validity (mirrors quality.ts "invalid" rules).
+ *  A contextual warning never invalidates; physically-impossible values do.
+ *  Legitimate zeros are preserved. Non-finite values are invalid for every
+ *  metric. */
+export function isMetricValid(
+  metric: MetricKey,
+  v: number | null | undefined,
+): v is number {
+  if (!finite(v)) return false
+  if (metric === "value") return v >= 0 // negative PCE is invalid
+  if (metric === "ff") return v >= 0 && v <= 100 // FF outside 0–100% is invalid
+  return true
+}
+
+/** Reliable group identifier: the persistent device-group id when available,
+ *  otherwise the parsed substrate group / device label. Never merges unrelated
+ *  groups on a matching label alone. */
+export function groupKey(f: MeasurementFile): string {
+  return (
+    f.groupId || f.substrateGroup || f.deviceName || f.fileName || "unassigned"
+  )
+}
+
 /** Linear-interpolation percentile over a sorted array (LabFlow convention). */
 export function percentile(sorted: number[], p: number): number {
   const n = sorted.length
@@ -125,7 +152,8 @@ export type MetricSelection = {
   values: number[]
   /** Records dropped because explicitly excluded. */
   excludedCount: number
-  /** Records dropped because the metric is missing or non-finite. */
+  /** Records dropped because the metric is missing/non-finite or physically
+   *  impossible (e.g. negative PCE, FF outside 0–100%). */
   invalidCount: number
   /** Records dropped because they are not JV measurements. */
   nonJvCount: number
@@ -133,8 +161,9 @@ export type MetricSelection = {
 }
 
 /** Select effective JV metric values for analysis. Only JV records contribute;
- *  excluded observations and non-finite values are counted but dropped.
- *  Contextual warnings do NOT exclude anything here. */
+ *  excluded observations, non-JV records and metric-invalid (missing/non-finite
+ *  or physically-impossible) values are counted but dropped. Contextual
+ *  warnings do NOT exclude anything here. */
 export function selectMetricValues(
   files: MeasurementFile[],
   metric: MetricKey,
@@ -148,12 +177,12 @@ export function selectMetricValues(
       excludedCount += 1
       continue
     }
-    if ((f.fileType ?? "").toUpperCase() !== "JV") {
+    if (!isJv(f)) {
       nonJvCount += 1
       continue
     }
     const v = f[metric]
-    if (finite(v)) values.push(v)
+    if (isMetricValid(metric, v)) values.push(v)
     else invalidCount += 1
   }
   return {
@@ -165,16 +194,37 @@ export function selectMetricValues(
   }
 }
 
+/** Per-group metric selection (reliable group identifiers), for box plots and
+ *  other group comparisons. */
+export function selectMetricValuesByGroup(
+  files: MeasurementFile[],
+  metric: MetricKey,
+): { group: string; selection: MetricSelection }[] {
+  const byGroup = new Map<string, MeasurementFile[]>()
+  for (const f of files) {
+    const key = groupKey(f)
+    const arr = byGroup.get(key) ?? []
+    arr.push(f)
+    byGroup.set(key, arr)
+  }
+  return Array.from(byGroup.entries()).map(([group, gfiles]) => ({
+    group,
+    selection: selectMetricValues(gfiles, metric),
+  }))
+}
+
 export type FwRvPair = { id: string; fw: MeasurementFile; rv: MeasurementFile }
 
-/** Pair FW/RV records by durable source identity. Requires exactly one
- *  eligible FW and one eligible RV per source (never resolves ambiguity by
- *  array order); explicitly excluded observations never pair. */
+/** Pair FW/RV records by durable source identity. Ambiguity is determined
+ *  *before* exclusions: a source must carry exactly one FW and one RV candidate
+ *  (regardless of exclusion) to be unambiguous — excluding one of several
+ *  candidates does not resolve the ambiguity. Only unambiguous, non-excluded
+ *  pairs are returned. */
 export function pairFwRv(files: MeasurementFile[]): FwRvPair[] {
-  const eligible = files.filter((f) => !f.excluded)
+  const jv = files.filter(isJv)
   const fwBySource = new Map<string, MeasurementFile[]>()
   const rvBySource = new Map<string, MeasurementFile[]>()
-  for (const f of eligible) {
+  for (const f of jv) {
     if (!f.sourceFileId) continue
     if (f.direction === "FW") {
       const arr = fwBySource.get(f.sourceFileId) ?? []
@@ -190,14 +240,19 @@ export function pairFwRv(files: MeasurementFile[]): FwRvPair[] {
   for (const [sourceId, fwList] of fwBySource) {
     const rvList = rvBySource.get(sourceId) ?? []
     if (fwList.length === 1 && rvList.length === 1) {
-      pairs.push({ id: sourceId, fw: fwList[0], rv: rvList[0] })
+      const fw = fwList[0]
+      const rv = rvList[0]
+      if (!fw.excluded && !rv.excluded) {
+        pairs.push({ id: sourceId, fw, rv })
+      }
     }
   }
   return pairs
 }
 
-/** Complete X/Y pairs from the same observation, for two JV metrics. Missing
- *  or non-finite values, non-JV records and excluded records are dropped. */
+/** Complete X/Y pairs from the same observation, for two JV metrics. Missing or
+ *  non-finite values, non-JV records, excluded records and metric-invalid
+ *  values are dropped. */
 export function pairedValues(
   files: MeasurementFile[],
   xMetric: MetricKey,
@@ -206,15 +261,18 @@ export function pairedValues(
   const pairs: [number, number][] = []
   for (const f of files) {
     if (f.excluded) continue
-    if ((f.fileType ?? "").toUpperCase() !== "JV") continue
+    if (!isJv(f)) continue
     const x = f[xMetric]
     const y = f[yMetric]
-    if (finite(x) && finite(y)) pairs.push([x, y])
+    if (isMetricValid(xMetric, x) && isMetricValid(yMetric, y))
+      pairs.push([x, y])
   }
   return pairs
 }
 
-/** Paired FW/RV differences (RV − FW) for a metric, over unambiguous pairs. */
+/** Paired FW/RV differences (RV − FW) for a metric, over unambiguous JV pairs
+ *  with valid values on both sides. `count` is the number of pairs that
+ *  actually contributed a difference. */
 export function pairedDifferences(
   files: MeasurementFile[],
   metric: MetricKey,
@@ -224,9 +282,9 @@ export function pairedDifferences(
   for (const { fw, rv } of pairs) {
     const a = fw[metric]
     const b = rv[metric]
-    if (finite(a) && finite(b)) values.push(b - a)
+    if (isMetricValid(metric, a) && isMetricValid(metric, b)) values.push(b - a)
   }
-  return { count: pairs.length, values }
+  return { count: values.length, values }
 }
 
 /** Fixed-width histogram. Returns bin edges + counts. */

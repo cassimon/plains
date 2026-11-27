@@ -4,6 +4,8 @@ import { useMemo } from "react"
 import {
   descriptiveStats,
   hysteresisPct,
+  METRIC_LABELS,
+  type MetricKey,
   pairedValues,
   pairFwRv,
   pearson,
@@ -12,52 +14,54 @@ import {
 import type { ExperimentResults } from "@/store/AppContext"
 import { SectionLabel } from "./SectionLabel"
 
+const METRICS: MetricKey[] = ["value", "voc", "jsc", "ff"]
+
+type Row = {
+  label: string
+  fw: ReturnType<typeof descriptiveStats>
+  rv: ReturnType<typeof descriptiveStats>
+}
+
 /** Compact deterministic scientific overview for one experiment's results.
- *  Uses only authoritative corrected/effective values; excluded observations
- *  are dropped and counted. */
+ *  FW and RV are reported separately — never silently pooled — using only the
+ *  authoritative corrected/effective values; excluded observations are dropped
+ *  and counted. */
 export function ScientificOverview({ result }: { result: ExperimentResults }) {
   const overview = useMemo(() => {
+    const fwFiles = result.files.filter((f) => f.direction === "FW")
+    const rvFiles = result.files.filter((f) => f.direction === "RV")
+
+    const rows: Row[] = METRICS.map((metric) => ({
+      label: METRIC_LABELS[metric],
+      fw: descriptiveStats(selectMetricValues(fwFiles, metric).values),
+      rv: descriptiveStats(selectMetricValues(rvFiles, metric).values),
+    }))
+
     const pce = selectMetricValues(result.files, "value")
-    const voc = selectMetricValues(result.files, "voc")
-    const jsc = selectMetricValues(result.files, "jsc")
-    const ff = selectMetricValues(result.files, "ff")
 
-    const pceStats = descriptiveStats(pce.values)
-    const vocStats = descriptiveStats(voc.values)
-    const jscStats = descriptiveStats(jsc.values)
-    const ffStats = descriptiveStats(ff.values)
-
+    // Hysteresis is inherently cross-direction (RV − FW over unambiguous pairs).
     const pairs = pairFwRv(result.files)
     const hyst = pairs
       .map(({ fw, rv }) => hysteresisPct(fw.value, rv.value))
       .filter((v): v is number => v !== null)
     const hystStats = descriptiveStats(hyst)
 
-    // Pearson from complete pairs of the SAME observation.
-    const pceVoc = pairedValues(result.files, "value", "voc")
-    const pceJsc = pairedValues(result.files, "value", "jsc")
-    const pceFf = pairedValues(result.files, "value", "ff")
+    // Pearson from complete pairs of the SAME observation (whole-experiment).
     const corrPceVoc = pearson(
-      pceVoc.map((p) => p[0]),
-      pceVoc.map((p) => p[1]),
+      ...splitPairs(pairedValues(result.files, "value", "voc")),
     )
     const corrPceJsc = pearson(
-      pceJsc.map((p) => p[0]),
-      pceJsc.map((p) => p[1]),
+      ...splitPairs(pairedValues(result.files, "value", "jsc")),
     )
     const corrPceFf = pearson(
-      pceFf.map((p) => p[0]),
-      pceFf.map((p) => p[1]),
+      ...splitPairs(pairedValues(result.files, "value", "ff")),
     )
 
     return {
-      pce,
+      rows,
       excluded: pce.excludedCount,
       invalid: pce.invalidCount,
-      pceStats,
-      vocStats,
-      jscStats,
-      ffStats,
+      total: pce.total,
       hystStats,
       pairCount: pairs.length,
       corrPceVoc,
@@ -66,14 +70,7 @@ export function ScientificOverview({ result }: { result: ExperimentResults }) {
     }
   }, [result.files])
 
-  const metricRows: [string, ReturnType<typeof descriptiveStats>][] = [
-    ["PCE (%)", overview.pceStats],
-    ["Voc (V)", overview.vocStats],
-    ["Jsc (mA/cm²)", overview.jscStats],
-    ["FF (%)", overview.ffStats],
-  ]
-
-  if (!overview.pceStats && !overview.hystStats) {
+  if (overview.rows.every((r) => !r.fw && !r.rv) && !overview.hystStats) {
     return (
       <Alert
         icon={<IconInfoCircle size={16} />}
@@ -89,7 +86,7 @@ export function ScientificOverview({ result }: { result: ExperimentResults }) {
     <Paper withBorder p="sm" radius="md">
       <Group gap="xs" mb="xs">
         <SectionLabel>Scientific overview</SectionLabel>
-        <Badge variant="light">{overview.pce.total} records</Badge>
+        <Badge variant="light">{overview.total} records</Badge>
         {overview.excluded > 0 && (
           <Badge variant="light" color="dark">
             {overview.excluded} excluded
@@ -97,7 +94,7 @@ export function ScientificOverview({ result }: { result: ExperimentResults }) {
         )}
         {overview.invalid > 0 && (
           <Badge variant="light" color="gray">
-            {overview.invalid} missing/non-finite
+            {overview.invalid} invalid (missing/non-finite/out-of-range)
           </Badge>
         )}
         <Badge variant="light" color="indigo">
@@ -109,6 +106,7 @@ export function ScientificOverview({ result }: { result: ExperimentResults }) {
         <Table.Thead>
           <Table.Tr>
             <Table.Th>Metric</Table.Th>
+            <Table.Th>Scan</Table.Th>
             <Table.Th>n</Table.Th>
             <Table.Th>Mean</Table.Th>
             <Table.Th>Median</Table.Th>
@@ -118,19 +116,29 @@ export function ScientificOverview({ result }: { result: ExperimentResults }) {
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {metricRows.map(([label, s]) => (
-            <Table.Tr key={label}>
-              <Table.Td>
-                <Text size="xs">{label}</Text>
-              </Table.Td>
-              <Table.Td>{s ? s.n : "—"}</Table.Td>
-              <Table.Td>{s ? s.mean.toFixed(3) : "—"}</Table.Td>
-              <Table.Td>{s ? s.median.toFixed(3) : "—"}</Table.Td>
-              <Table.Td>{s?.std != null ? s.std.toFixed(3) : "—"}</Table.Td>
-              <Table.Td>{s ? s.min.toFixed(3) : "—"}</Table.Td>
-              <Table.Td>{s ? s.max.toFixed(3) : "—"}</Table.Td>
-            </Table.Tr>
-          ))}
+          {overview.rows.flatMap((row) =>
+            (["FW", "RV"] as const).map((dir) => {
+              const s = dir === "FW" ? row.fw : row.rv
+              return (
+                <Table.Tr key={`${row.label}-${dir}`}>
+                  <Table.Td>
+                    <Text size="xs">{row.label}</Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="xs" c="dimmed">
+                      {dir}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>{s ? s.n : "—"}</Table.Td>
+                  <Table.Td>{s ? s.mean.toFixed(3) : "—"}</Table.Td>
+                  <Table.Td>{s ? s.median.toFixed(3) : "—"}</Table.Td>
+                  <Table.Td>{s?.std != null ? s.std.toFixed(3) : "—"}</Table.Td>
+                  <Table.Td>{s ? s.min.toFixed(3) : "—"}</Table.Td>
+                  <Table.Td>{s ? s.max.toFixed(3) : "—"}</Table.Td>
+                </Table.Tr>
+              )
+            }),
+          )}
         </Table.Tbody>
       </Table>
 
@@ -174,4 +182,8 @@ export function ScientificOverview({ result }: { result: ExperimentResults }) {
       </Stack>
     </Paper>
   )
+}
+
+function splitPairs(pairs: [number, number][]): [number[], number[]] {
+  return [pairs.map((p) => p[0]), pairs.map((p) => p[1])]
 }

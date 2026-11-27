@@ -14,14 +14,17 @@ import EChartsReact from "echarts-for-react"
 import { useMemo, useState } from "react"
 import {
   descriptiveStats,
+  groupKey,
   histogram,
   hysteresisPct,
+  isMetricValid,
   METRIC_LABELS,
   type MetricKey,
   pairedValues,
   pairFwRv,
   pearson,
   selectMetricValues,
+  selectMetricValuesByGroup,
 } from "@/lib/analysis"
 import type { ExperimentResults } from "@/store/AppContext"
 import { SectionLabel } from "./SectionLabel"
@@ -45,20 +48,30 @@ export function AnalysisCharts({ result }: { result: ExperimentResults }) {
   const groups = useMemo(() => {
     const s = new Set<string>()
     for (const f of result.files) {
-      if (!f.excluded) s.add(f.substrateGroup || f.deviceName || f.fileName)
+      if (!f.excluded) s.add(groupKey(f))
     }
     return Array.from(s).sort()
   }, [result.files])
 
-  const files = useMemo(() => {
-    return result.files.filter(
-      (f) =>
-        !f.excluded &&
-        f.direction === direction &&
-        (group === "__all__" ||
-          (f.substrateGroup || f.deviceName || f.fileName) === group),
-    )
-  }, [result.files, direction, group])
+  // Map a reliable group key (device-group id) back to its display name.
+  const groupLabel = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const g of result.deviceGroups) byId.set(g.id, g.deviceName || g.id)
+    return (key: string) => byId.get(key) ?? key
+  }, [result.deviceGroups])
+
+  const groupFiles = useMemo(
+    () =>
+      result.files.filter(
+        (f) => !f.excluded && (group === "__all__" || groupKey(f) === group),
+      ),
+    [result.files, group],
+  )
+
+  const files = useMemo(
+    () => groupFiles.filter((f) => f.direction === direction),
+    [groupFiles, direction],
+  )
 
   const selection = useMemo(
     () => selectMetricValues(files, metric),
@@ -82,28 +95,28 @@ export function AnalysisCharts({ result }: { result: ExperimentResults }) {
       curveIds.length > 0
         ? curveIds
         : curveOptions.slice(0, 6).map((c) => c.value)
-    return result.files.filter((f) => ids.includes(f.id))
+    // Re-filter on every render: a selected curve that became excluded (or lost
+    // its curve) must drop out of the overlay.
+    return result.files.filter(
+      (f) => !f.excluded && (f.curve?.length ?? 0) > 0 && ids.includes(f.id),
+    )
   }, [curveIds, curveOptions, result.files])
 
-  const boxByGroup = useMemo(() => {
-    const map = new Map<string, number[]>()
-    for (const f of files) {
-      const v = f[metric]
-      if (v == null || !Number.isFinite(v)) continue
-      const key = f.substrateGroup || f.deviceName || f.fileName
-      const arr = map.get(key) ?? []
-      arr.push(v)
-      map.set(key, arr)
-    }
-    return Array.from(map.entries())
-      .map(([name, values]) => {
-        const s = descriptiveStats(values)
-        return s
-          ? { name, box: [s.min, s.q1, s.median, s.q3, s.max] as number[] }
-          : null
-      })
-      .filter((x): x is { name: string; box: number[] } => x !== null)
-  }, [files, metric])
+  const boxByGroup = useMemo(
+    () =>
+      selectMetricValuesByGroup(files, metric)
+        .map(({ group: g, selection }) => {
+          const s = descriptiveStats(selection.values)
+          return s
+            ? {
+                name: groupLabel(g),
+                box: [s.min, s.q1, s.median, s.q3, s.max] as number[],
+              }
+            : null
+        })
+        .filter((x): x is { name: string; box: number[] } => x !== null),
+    [files, metric, groupLabel],
+  )
 
   const histogramOption = useMemo(
     () => ({
@@ -167,7 +180,7 @@ export function AnalysisCharts({ result }: { result: ExperimentResults }) {
 
   const hystData = useMemo(
     () =>
-      pairFwRv(result.files)
+      pairFwRv(groupFiles)
         .map(({ fw, rv }) => ({
           pceFw: fw.value,
           hi: hysteresisPct(fw.value, rv.value),
@@ -176,7 +189,7 @@ export function AnalysisCharts({ result }: { result: ExperimentResults }) {
           (d): d is { pceFw: number; hi: number } =>
             d.hi !== null && Number.isFinite(d.pceFw ?? NaN),
         ),
-    [result.files],
+    [groupFiles],
   )
 
   const hystOption = useMemo(
@@ -216,13 +229,11 @@ export function AnalysisCharts({ result }: { result: ExperimentResults }) {
   }, [files, xMetric, yMetric])
 
   const ranking = useMemo(() => {
-    const dir = direction === "FW" ? "FW" : "RV"
     return files
-      .filter((f) => f.fileType === "JV" && f.direction === dir)
-      .filter((f) => Number.isFinite(f[metric] ?? NaN))
+      .filter((f) => isMetricValid(metric, f[metric]))
       .sort((a, b) => (b[metric] as number) - (a[metric] as number))
       .slice(0, 12)
-  }, [files, metric, direction])
+  }, [files, metric])
 
   return (
     <Stack gap="sm">
@@ -250,7 +261,7 @@ export function AnalysisCharts({ result }: { result: ExperimentResults }) {
           label="Candidate group"
           data={[
             { value: "__all__", label: "All groups" },
-            ...groups.map((g) => ({ value: g, label: g })),
+            ...groups.map((g) => ({ value: g, label: groupLabel(g) })),
           ]}
           value={group}
           onChange={(v) => setGroup(v ?? "__all__")}
@@ -258,7 +269,7 @@ export function AnalysisCharts({ result }: { result: ExperimentResults }) {
         />
         <Text size="xs" c="dimmed">
           n={selection.values.length} · excluded {selection.excludedCount} ·
-          missing {selection.invalidCount}
+          invalid {selection.invalidCount}
           {stats?.std != null ? ` · mean ${stats.mean.toFixed(3)}` : ""}
         </Text>
       </Group>

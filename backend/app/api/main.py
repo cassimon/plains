@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.routes import (
     analyses,
     experiments,
+    export,
     login,
     materials,
     nomad,
@@ -36,6 +37,7 @@ api_router.include_router(state.router)
 api_router.include_router(trash.router)
 api_router.include_router(nomad.router)
 api_router.include_router(zip_explorer.router)
+api_router.include_router(export.router)
 
 
 if settings.ENVIRONMENT == "local":

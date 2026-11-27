@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.core.limiter import limiter
 from app.core.security import get_password_hash, verify_password
 from app.models import (
+    Experiment,
     Message,
     UpdatePassword,
     User,
@@ -24,6 +25,7 @@ from app.models import (
     UserUpdate,
     UserUpdateMe,
 )
+from app.services import source_store
 from app.utils import generate_new_account_email, send_email
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -250,6 +252,14 @@ def delete_user(
         raise HTTPException(
             status_code=403, detail="Super users are not allowed to delete themselves"
         )
+    # The user's experiments cascade to their imported_source_file rows (a DB
+    # cascade that never fires ORM per-row events); collect those source ids
+    # before the delete and remove their bytes only after the commit succeeds.
+    experiment_ids = session.exec(
+        select(Experiment.id).where(Experiment.owner_id == user_id)
+    ).all()
+    source_ids = source_store.collect_source_ids(session, experiment_ids)
     session.delete(user)
     session.commit()
+    source_store.remove_sources(source_ids)
     return Message(message="User deleted successfully")

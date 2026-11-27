@@ -393,6 +393,9 @@ def apply_measurement_correction(
         new = str(new_val)
         setattr(measurement, body.field, new_val)
         _mark_corrected(measurement, body.field)
+        # The effective value now differs from anything previously deposited:
+        # mark it as not-yet-published (local).
+        measurement.local_only = True
 
     elif op == "edit":
         if body.field not in _EDITABLE:
@@ -403,6 +406,7 @@ def apply_measurement_correction(
         new = body.value
         setattr(measurement, body.field, body.value)
         _mark_corrected(measurement, body.field)
+        measurement.local_only = True
 
     elif op == "exclude":
         if measurement.excluded:

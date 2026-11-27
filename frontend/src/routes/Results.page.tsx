@@ -1636,12 +1636,6 @@ function ResultsDetail({
         const current = resultsRef.current
         if (!current) return
 
-        console.debug("[NOMAD][poll] status response", {
-          uploadId,
-          response: statusResult,
-          previousStatus: current.nomad?.status,
-        })
-
         let newStatus: string
         if (statusResult.error) {
           // Treat HTTP 404 responses as the upload having been deleted externally
@@ -1664,13 +1658,6 @@ function ResultsDetail({
           } else {
             newStatus = statusResult.status ?? status ?? "PENDING"
           }
-
-          console.debug("[NOMAD][poll] status normalized", {
-            uploadId,
-            rawStatus: statusResult.status,
-            rawLastStatusMessage: rawStatusMessage,
-            normalizedStatus: newStatus,
-          })
         }
 
         // NOMAD diagnostics (present on both progressing and terminal states) —
@@ -1692,12 +1679,6 @@ function ResultsDetail({
             JSON.stringify(current.nomad?.warnings)
 
         if (newStatus !== current.nomad?.status || diagnosticsChanged) {
-          console.info("[NOMAD][poll] status changed", {
-            uploadId,
-            from: current.nomad?.status,
-            to: newStatus,
-          })
-
           // NOMAD now returns entries as a count (int), not entry_ids
           onUpdateResults({
             ...current,
@@ -1713,11 +1694,6 @@ function ResultsDetail({
               warnings: nextWarnings,
             },
             updatedAt: new Date().toISOString(),
-          })
-        } else {
-          console.debug("[NOMAD][poll] status unchanged", {
-            uploadId,
-            status: newStatus,
           })
         }
       } catch (err) {
@@ -1990,10 +1966,6 @@ function ResultsDetail({
             // Persist archive path so it survives reloads this session
             if (data?.archive_path) {
               applyArchivePath(data.archive_path)
-              console.log("[handleDrop] server archive updated", {
-                archivePath: data.archive_path,
-                fileCount: data.file_count,
-              })
             } else {
               console.warn(
                 "[handleDrop] server returned 2xx but no archive_path — " +
@@ -2588,6 +2560,11 @@ function ResultsDetail({
         .filter((g) => g.assignedSubstrateId === IGNORE_SUBSTRATE_ID)
         .flatMap((g) => g.files.map((f) => f.fileName)),
     )
+    // Excluded observations' raw files are removed too, so the NOMAD raw-file
+    // parser cannot silently recover them as accepted observations.
+    for (const f of results.files) {
+      if (f.excluded) ignoredFileNames.add(f.fileName)
+    }
 
     // Active device groups: exclude Ignore and General Info (no substrate metadata)
     const activeDeviceGroups = results.deviceGroups.filter(
@@ -2597,10 +2574,10 @@ function ResultsDetail({
         g.assignedSubstrateId !== GENERAL_INFO_SUBSTRATE_ID,
     )
 
-    // Excluded observations and local-only (never-uploaded, imported)
-    // measurements must never be deposited as accepted scientific results.
+    // Excluded observations must never be deposited as accepted scientific
+    // results. localOnly ("not yet deposited") does NOT affect eligibility.
     const isUploadable = (f: (typeof results.files)[number]) =>
-      f.excluded !== true && f.localOnly !== true
+      f.excluded !== true
 
     const toNomadFile = (f: (typeof results.files)[number]) => ({
       fileName: f.fileName,
@@ -2644,13 +2621,6 @@ function ResultsDetail({
   }, [experiment, processes, results.deviceGroups, results.files, substrates])
 
   const handlePrepareUpload = useCallback(async (): Promise<boolean> => {
-    console.log("[handlePrepareUpload] called", {
-      lastArchivePath,
-      filesCount: results.files.length,
-      deviceGroupsCount: results.deviceGroups.length,
-      uploadedFilesCount: uploadedFiles.length,
-    })
-
     setPreparingUpload(true)
     try {
       // Metadata generation reads the experiment/process from the database —
@@ -2667,136 +2637,178 @@ function ResultsDetail({
         // The drop-time upload may have failed (e.g. too many multipart fields).
         // Retry it here so the button is the reliable trigger.
         if (uploadedFiles.length === 0) {
-          console.warn(
-            "[handlePrepareUpload] no archive and no files to upload",
-          )
-          notifications.show({
-            title: "No Files",
-            message: "Please drop your result files first, then try again",
-            color: "orange",
-          })
-          return false
+          if (isImportedResult(results)) {
+            // Imported measurements: resolve original sources server-side.
+            try {
+              const token =
+                typeof OpenAPI.TOKEN === "function"
+                  ? await OpenAPI.TOKEN({} as any)
+                  : (OpenAPI.TOKEN ?? undefined)
+              const prepForm = new FormData()
+              prepForm.append("experiment_id", experiment.id)
+              const prepRes = await fetch(
+                `${OpenAPI.BASE}/api/v1/nomad/imported/prepare`,
+                {
+                  method: "POST",
+                  headers: { Authorization: `Bearer ${token}` },
+                  body: prepForm,
+                },
+              )
+              if (!prepRes.ok) {
+                const text = await prepRes.text()
+                let detail = text
+                try {
+                  detail = JSON.parse(text).detail ?? text
+                } catch {
+                  /* keep raw text */
+                }
+                notifications.show({
+                  title: "Preparation Error",
+                  message: detail,
+                  color: "red",
+                })
+                return false
+              }
+              const prepData = (await prepRes.json()) as {
+                archive_path?: string
+              }
+              if (!prepData?.archive_path) {
+                notifications.show({
+                  title: "Preparation Error",
+                  message: "Server did not return an archive path",
+                  color: "red",
+                })
+                return false
+              }
+              archivePath = prepData.archive_path
+              applyArchivePath(archivePath)
+            } catch (err) {
+              notifications.show({
+                title: "Preparation Error",
+                message: err instanceof Error ? err.message : String(err),
+                color: "red",
+              })
+              return false
+            }
+          } else {
+            console.warn(
+              "[handlePrepareUpload] no archive and no files to upload",
+            )
+            notifications.show({
+              title: "No Files",
+              message: "Please drop your result files first, then try again",
+              color: "orange",
+            })
+            return false
+          }
         }
 
-        console.log(
-          "[handlePrepareUpload] no existing archive — uploading files now",
-          {
-            fileCount: uploadedFiles.length,
-          },
-        )
-        const form = new FormData()
-        form.append("experiment_id", experiment.id)
-        form.append("experiment_name", experiment.name)
-        for (const f of uploadedFiles) {
-          form.append("files", f)
-        }
-        const uploadToken =
-          typeof OpenAPI.TOKEN === "function"
-            ? await OpenAPI.TOKEN({} as any)
-            : (OpenAPI.TOKEN ?? undefined)
-        const uploadRes = await fetch(
-          `${OpenAPI.BASE}/api/v1/nomad/upload/files`,
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${uploadToken}` },
-            body: form,
-          },
-        )
-        if (!uploadRes.ok) {
-          const text = await uploadRes.text()
-          console.error(
-            "[handlePrepareUpload] file upload failed",
-            uploadRes.status,
-            text,
+        if (uploadedFiles.length > 0) {
+          const form = new FormData()
+          form.append("experiment_id", experiment.id)
+          form.append("experiment_name", experiment.name)
+          for (const f of uploadedFiles) {
+            form.append("files", f)
+          }
+          const uploadToken =
+            typeof OpenAPI.TOKEN === "function"
+              ? await OpenAPI.TOKEN({} as any)
+              : (OpenAPI.TOKEN ?? undefined)
+          const uploadRes = await fetch(
+            `${OpenAPI.BASE}/api/v1/nomad/upload/files`,
+            {
+              method: "POST",
+              headers: { Authorization: `Bearer ${uploadToken}` },
+              body: form,
+            },
           )
-          notifications.show({
-            title: "Upload Error",
-            message: `File upload failed: ${uploadRes.status} — ${text}`,
-            color: "red",
-          })
-          return false
+          if (!uploadRes.ok) {
+            const text = await uploadRes.text()
+            console.error(
+              "[handlePrepareUpload] file upload failed",
+              uploadRes.status,
+              text,
+            )
+            notifications.show({
+              title: "Upload Error",
+              message: `File upload failed: ${uploadRes.status} — ${text}`,
+              color: "red",
+            })
+            return false
+          }
+          const uploadData = (await uploadRes.json()) as {
+            archive_path?: string
+          }
+          if (!uploadData?.archive_path) {
+            console.warn(
+              "[handlePrepareUpload] file upload returned no archive_path",
+              uploadData,
+            )
+            notifications.show({
+              title: "Upload Error",
+              message: "Server did not return an archive path",
+              color: "red",
+            })
+            return false
+          }
+          archivePath = uploadData.archive_path
+          applyArchivePath(archivePath)
         }
-        const uploadData = (await uploadRes.json()) as {
-          archive_path?: string
-        }
-        if (!uploadData?.archive_path) {
-          console.warn(
-            "[handlePrepareUpload] file upload returned no archive_path",
-            uploadData,
-          )
-          notifications.show({
-            title: "Upload Error",
-            message: "Server did not return an archive path",
-            color: "red",
-          })
-          return false
-        }
-        archivePath = uploadData.archive_path
-        applyArchivePath(archivePath)
-        console.log("[handlePrepareUpload] archive created", { archivePath })
       }
 
-      // Add YAML metadata to the archive
-      const requestData = buildNomadUploadRequest()
-      console.log("[handlePrepareUpload] sending metadata request", {
-        archivePath,
-        measurementFiles: requestData.measurement_files.length,
-        deviceGroups: requestData.device_groups.length,
-        ignoredFiles: requestData.ignored_files?.length ?? 0,
-      })
-
-      const formData = new FormData()
-      formData.append("archive_path", archivePath)
-      formData.append("request_json", JSON.stringify(requestData))
-
-      const token =
-        typeof OpenAPI.TOKEN === "function"
-          ? await OpenAPI.TOKEN({} as any)
-          : (OpenAPI.TOKEN ?? undefined)
-
-      const res = await fetch(`${OpenAPI.BASE}/api/v1/nomad/upload/metadata`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      })
-
-      console.log("[handlePrepareUpload] metadata response", {
-        status: res.status,
-        ok: res.ok,
-      })
-
-      if (!res.ok) {
-        const text = await res.text()
-        console.error(
-          "[handlePrepareUpload] metadata endpoint error",
-          res.status,
-          text,
-        )
-        notifications.show({
-          title: "Preparation Error",
-          message: `Failed to prepare upload: ${res.status} ${text}`,
-          color: "red",
-        })
+      if (!archivePath) {
         return false
       }
 
-      let metadataFileCount = 0
-      try {
-        const data = (await res.json()) as { metadata_file_count?: number }
-        metadataFileCount = data.metadata_file_count || 0
-      } catch (_err) {
-        // Treat 2xx as authoritative even if body is not JSON.
+      // Add YAML metadata only for the designed-experiment (browser-upload)
+      // path. The imported path already carries server-authoritative metadata
+      // from /nomad/imported/prepare; re-submitting the stale client snapshot
+      // here would overwrite it.
+      if (!isImportedResult(results)) {
+        const requestData = buildNomadUploadRequest()
+
+        const formData = new FormData()
+        formData.append("archive_path", archivePath)
+        formData.append("request_json", JSON.stringify(requestData))
+
+        const token =
+          typeof OpenAPI.TOKEN === "function"
+            ? await OpenAPI.TOKEN({} as any)
+            : (OpenAPI.TOKEN ?? undefined)
+
+        const res = await fetch(
+          `${OpenAPI.BASE}/api/v1/nomad/upload/metadata`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            body: formData,
+          },
+        )
+
+        if (!res.ok) {
+          const text = await res.text()
+          console.error(
+            "[handlePrepareUpload] metadata endpoint error",
+            res.status,
+            text,
+          )
+          notifications.show({
+            title: "Preparation Error",
+            message: `Failed to prepare upload: ${res.status} ${text}`,
+            color: "red",
+          })
+          return false
+        }
       }
 
-      console.log("[handlePrepareUpload] success", { metadataFileCount })
       setReviewConfirmed(true)
       setWorkflowStep(3)
 
       notifications.show({
         title: "Upload Prepared",
-        message: `Archive ready with ${metadataFileCount} YAML metadata files`,
+        message: "Archive ready for NOMAD upload",
         color: "green",
       })
       return true
@@ -2818,6 +2830,7 @@ function ResultsDetail({
     experiment.name,
     flushSave,
     lastArchivePath,
+    results,
     results.deviceGroups.length,
     results.files.length,
     uploadedFiles,
@@ -3203,9 +3216,9 @@ function ResultsDetail({
     const additional = files.filter((f) => f.inSummary === false).length
     const localOnly = files.filter((f) => f.localOnly === true).length
     const excluded = files.filter((f) => f.excluded === true).length
-    const uploadable = files.filter(
-      (f) => f.excluded !== true && f.localOnly !== true,
-    ).length
+    // localOnly ("not yet deposited") is not an eligibility restriction — only
+    // explicit exclusions remove a measurement from the uploadable count.
+    const uploadable = files.filter((f) => f.excluded !== true).length
     return {
       uniqueFileNames,
       types,
@@ -4884,8 +4897,8 @@ export function ResultsPage() {
     )
   }
 
-  const updateResults = (updatedResults: ExperimentResults) => {
-    updatedResults = reconcileGroupIds(updatedResults)
+  const updateResults = (incoming: ExperimentResults) => {
+    const updatedResults = reconcileGroupIds(incoming)
     const hasFiles = updatedResults.files.length > 0
     const hasNomadUpload = !!updatedResults.nomad?.upload_id
     const shouldKeep = hasFiles || hasNomadUpload

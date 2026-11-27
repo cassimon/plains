@@ -270,8 +270,11 @@ async function createCompleteProcessInGui(page: Page, name: string) {
 }
 
 /**
- * Complete the currently selected experiment on /experiments:
- * two named substrates (Step 2) and date + description (Step 3).
+ * Complete the currently selected experiment on /experiments: two named
+ * substrates and their processing times (Step 2), then the summary (Step 3).
+ * The start/end dates are now *derived* from the Processing table's times (the
+ * Summary shows them read-only), so the times must be filled here for the date
+ * to resolve to 2026-07-01.
  */
 async function completeExperimentInGui(page: Page) {
   // Step 2 — Processing: add and rename substrates
@@ -284,64 +287,94 @@ async function completeExperimentInGui(page: Page) {
       .click()
     await page.waitForTimeout(250)
   }
-  const nameInputs = page.locator("table input[value^='substrate']")
+  // Substrate name inputs are now controlled by `value={substrate.name}` with an
+  // empty default (the old "substrate"-prefixed default value no longer exists),
+  // so identify them by their "Name Substrate..." placeholder instead.
+  const nameInputs = page.locator('table input[placeholder="Name Substrate..."]')
   await expect(nameInputs).toHaveCount(SUBSTRATE_NAMES.length, {
     timeout: 5_000,
   })
-  // Rename in order. Renaming changes the value attribute, so the selector
-  // drops renamed rows — always take the FIRST still-default-named input and
-  // stay keyboard-only after the click (locator re-resolution breaks once the
-  // value changes).
-  for (const name of SUBSTRATE_NAMES) {
-    await page.locator("table input[value^='substrate']").first().click()
+  // Rename in order, keyboard-only after the click (the Enter on the last row
+  // appends a fresh empty substrate via commitNameAndAddSubstrate).
+  for (let i = 0; i < SUBSTRATE_NAMES.length; i++) {
+    await nameInputs.nth(i).click()
     await page.keyboard.press("ControlOrMeta+a")
-    await page.keyboard.type(name)
+    await page.keyboard.type(SUBSTRATE_NAMES[i])
     await page.keyboard.press("Enter") // commits (handleSubstrateNameChange)
     await page.waitForTimeout(300)
   }
 
-  // Step 3 — Summary: date + description
+  // Processing times (sub-box 2): give the first step its date and every step a
+  // time. The later cells inherit the date automatically, so only the first
+  // date needs filling; each cell still needs its own time to count as done.
+  const dateInput = page.locator('input[type="date"]').first()
+  await expect(dateInput).toBeVisible({ timeout: 8_000 })
+  await dateInput.fill("2026-07-01")
+  await dateInput.blur()
+  await page.waitForTimeout(400)
+  const timeInputs = page.locator('input[type="time"]')
+  const timeCount = await timeInputs.count()
+  for (let i = 0; i < timeCount; i++) {
+    const hh = String(8 + i).padStart(2, "0")
+    await timeInputs.nth(i).fill(`${hh}:00`)
+    await timeInputs.nth(i).blur()
+    await page.waitForTimeout(400)
+  }
+
+  // Parameter variation (sub-box 3): answer "No" to complete Step 2.
+  await page
+    .getByRole("button", {
+      name: "No, all substrates used the same parameters",
+    })
+    .click()
+  await page.waitForTimeout(400)
+
+  // Step 3 — Summary: the description is the only editable required field
+  // (start/end dates are derived from the Processing times above).
   await page.getByText("Summary", { exact: true }).first().click()
   await page.waitForTimeout(300)
-  await page.locator('input[type="date"]').first().fill("2026-07-01")
   await page
     .getByPlaceholder("What is the purpose of this experiment?")
     .fill("Full NOMAD upload cycle integration test")
   await page.getByPlaceholder("What is the purpose of this experiment?").blur()
   await page.waitForTimeout(300)
+  await page.getByRole("button", { name: "Confirm summary" }).click()
+  await page.waitForTimeout(500)
 }
 
 /**
  * Drive the header "File Upload" popover picker: select the process (by name),
  * select the first available experiment, then click "Go to results & upload".
- * Every step re-opens the popover if a portal click closed it.
+ * The process/experiment may already be associated (their buttons then show the
+ * entity name instead of the "Select …" placeholder), in which case the
+ * selection is skipped.
  */
 async function pickInUploadPickerAndGo(page: Page, processName: string) {
-  const openPopoverWith = async (probe: () => ReturnType<Page["locator"]>) => {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      if (
-        await probe()
-          .isVisible()
-          .catch(() => false)
-      )
-        return
-      await page
-        .getByText(/File Upload/)
-        .first()
-        .click()
-      await page.waitForTimeout(500)
-    }
-    await probe().waitFor({ state: "visible", timeout: 4_000 })
+  // Open the popover: the "Delete upload permanently" button is a stable marker
+  // that the panel is open (the process/experiment buttons change label once
+  // selected, so they can't be used to detect the open state).
+  const panelOpen = () =>
+    page.getByRole("button", { name: "Delete upload permanently" }).first()
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (
+      await panelOpen()
+        .isVisible()
+        .catch(() => false)
+    )
+      break
+    await page
+      .getByText(/File Upload/)
+      .first()
+      .click()
+    await page.waitForTimeout(500)
   }
+  await panelOpen().waitFor({ state: "visible", timeout: 4_000 })
 
-  // 1. Process
-  const procSelect = () => page.getByPlaceholder("Select a process")
-  await openPopoverWith(procSelect)
-  const already = await procSelect()
-    .inputValue()
-    .catch(() => "")
-  if (!already) {
-    await procSelect().click()
+  // 1. Process — a button-combobox whose placeholder text is "Select a process"
+  // (the Select input with that placeholder was replaced by InputBase-as-button).
+  const procBtn = () => page.getByRole("button", { name: "Select a process" })
+  if ((await procBtn().count()) > 0) {
+    await procBtn().click()
     await page
       .getByRole("option", { name: new RegExp(processName) })
       .first()
@@ -350,13 +383,9 @@ async function pickInUploadPickerAndGo(page: Page, processName: string) {
   }
 
   // 2. Experiment (enabled once a process is chosen)
-  const expSelect = () => page.getByPlaceholder("Select an experiment")
-  await openPopoverWith(expSelect)
-  const alreadyExp = await expSelect()
-    .inputValue()
-    .catch(() => "")
-  if (!alreadyExp) {
-    await expSelect().click()
+  const expBtn = () => page.getByRole("button", { name: "Select an experiment" })
+  if ((await expBtn().count()) > 0) {
+    await expBtn().click()
     await page.getByRole("option").first().click()
     await page.waitForTimeout(400)
   }
@@ -364,23 +393,49 @@ async function pickInUploadPickerAndGo(page: Page, processName: string) {
   // 3. Go to results & upload
   const goBtn = () =>
     page.getByRole("button", { name: "Go to results & upload" })
-  await openPopoverWith(goBtn)
   await goBtn().click()
   await page.waitForURL("**/results", { timeout: 8_000 })
   await page.waitForTimeout(1_000)
 }
 
-/** Drop staged files onto the Organization canvas to start an upload flow. */
-async function dropFilesOnOrganization(page: Page, fileNames: string[]) {
+/** Select a seeded experiment and confirm its summary. The `summaryConfirmed`
+ *  flag is frontend-only (not persisted by the API), so it must be set through
+ *  the GUI even for an API-seeded experiment. */
+async function confirmExperimentSummary(page: Page, experimentName: string) {
+  await page.goto(`${FRONTEND_BASE_URL}/experiments`, {
+    waitUntil: "domcontentloaded",
+  })
+  await page.waitForTimeout(1_500)
+  const card = page
+    .locator("main .mantine-Paper-root")
+    .filter({ hasText: experimentName })
+    .last()
+  await expect(card).toBeVisible({ timeout: 10_000 })
+  await card.click()
+  await page.waitForTimeout(500)
+  await page.getByText("Summary", { exact: true }).first().click()
+  await page.waitForTimeout(300)
+  await page.getByRole("button", { name: "Confirm summary" }).click()
+  await page.waitForTimeout(500)
+}
+
+/** Drop files (with their real content) onto the Organization canvas to start an
+ *  upload flow. Content matters: the YAML verification below reads the JV values
+ *  back out of the staged files. */
+async function dropFilesOnOrganization(
+  page: Page,
+  files: Array<{ name: string; mimeType: string; buffer: Buffer }>,
+) {
   await page.goto(`${FRONTEND_BASE_URL}/organization`, {
     waitUntil: "domcontentloaded",
   })
   await page.waitForTimeout(1_500)
   await page.evaluate(
-    ([names]) => {
+    (specs) => {
       const dt = new DataTransfer()
-      for (const n of names) {
-        dt.items.add(new File(["placeholder"], n, { type: "text/plain" }))
+      for (const s of specs) {
+        const bytes = Uint8Array.from(atob(s.base64), (c) => c.charCodeAt(0))
+        dt.items.add(new File([bytes], s.name, { type: s.mimeType }))
       }
       const el = document.elementFromPoint(
         Math.floor(innerWidth / 2),
@@ -399,7 +454,11 @@ async function dropFilesOnOrganization(page: Page, fileNames: string[]) {
         )
       }
     },
-    [fileNames] as const,
+    files.map((f) => ({
+      name: f.name,
+      mimeType: f.mimeType,
+      base64: f.buffer.toString("base64"),
+    })),
   )
   await page.waitForTimeout(800)
   await page.keyboard.press("Escape")
@@ -412,12 +471,16 @@ async function dropFilesOnOrganization(page: Page, fileNames: string[]) {
 // Upload workflow (Results page) + YAML verification
 // ─────────────────────────────────────────────────────────────────────────────
 
+// `ff` is the fill-factor *fraction* (0–1), matching the NOMAD JV schema
+// (`default_FF` is "the ratio between Vmp*Jmp/(Voc*Jsc)", a value between 0 and
+// 1 — see nomad-perovskite-solar-cells-database schema_sections/jv.py). The app
+// normalizes the percent it carries into this fraction on export.
 const EXPECTED_JV: Record<
   string,
   { pce: number; voc: number; jsc: number; ff: number }
 > = {
-  AB41: { pce: 18.5, voc: 1.12, jsc: 22.4, ff: 79.0 },
-  AB42: { pce: 17.1, voc: 1.08, jsc: 21.9, ff: 75.0 },
+  AB41: { pce: 18.5, voc: 1.12, jsc: 22.4, ff: 0.79 },
+  AB42: { pce: 17.1, voc: 1.08, jsc: 21.9, ff: 0.75 },
 }
 
 /**
@@ -503,7 +566,10 @@ async function verifyYamlMetadata(
     expect(sample.jv.light_spectra).toBe("AM 1.5G")
 
     // ── LabJVMeasurement archive for the dropped file ─────────────────────
-    const measName = `${opts.filePrefix}_${sub}_JV.archive.yaml`
+    // The archive sits beside the raw file under its *full* name
+    // (`<raw>.archive.yaml`), so NOMAD's ChoseParser skips the raw file and the
+    // app's richer entry is the only one parsed for that measurement.
+    const measName = `${dataFile}.archive.yaml`
     const meas = yamlFiles[measName]?.data
     expect(meas, `measurement archive ${measName}`).toBeTruthy()
     expect(meas.m_def).toContain("LabJVMeasurement")
@@ -546,8 +612,12 @@ async function verifyYamlMetadata(
     expect(dep.m_def).toContain("DepositionRoutine")
     expect(dep.name).toContain("deposition")
     allDepRefs.push(...dep.samples.map((x: any) => String(x.reference)))
+    // The deposition *method* (UV/Ozone, Spin Coating, …) is carried on
+    // `deposition_method`; `name` is the step's own (possibly generic) name.
     allStepNames.push(
-      ...dep.steps.map((st: any) => `${st.step_type}:${st.name}`),
+      ...dep.steps.map(
+        (st: any) => `${st.step_type}:${st.deposition_method ?? st.name}`,
+      ),
     )
   }
   // Every substrate is covered by exactly one routine
@@ -594,15 +664,19 @@ async function runUploadWorkflow(
     stackPattern?: RegExp
     expectAlternatives?: boolean
   } = {},
+  archive?: { get: () => string | null },
 ): Promise<void> {
-  const archive = captureArchivePath(page)
+  const arch = archive ?? captureArchivePath(page)
 
-  // Step 1 — drop the files (react-dropzone hidden input)
+  // Step 1 — drop the files (react-dropzone hidden input). Skip when the
+  // workflow is already past step 1 (files were staged by an earlier
+  // Organization drop, so the Dropzone is no longer rendered).
   const dropInput = page.locator(".mantine-Dropzone-root input[type='file']")
-  await expect(dropInput).toBeAttached({ timeout: 10_000 })
-  await dropInput.setInputFiles(files)
+  if ((await dropInput.count()) > 0) {
+    await dropInput.setInputFiles(files)
+  }
   await expect
-    .poll(() => archive.get(), {
+    .poll(() => arch.get(), {
       timeout: 15_000,
       message: "archive_path from POST /nomad/upload/files",
     })
@@ -627,7 +701,7 @@ async function runUploadWorkflow(
   ).toBeVisible({ timeout: 30_000 })
 
   // Field-by-field YAML verification while the archive still exists
-  const archivePath = archive.get() as string
+  const archivePath = arch.get() as string
   await verifyYamlMetadata(token, archivePath, { filePrefix, ...yamlOpts })
 
   // Step 3 — upload to (mock) NOMAD
@@ -739,9 +813,19 @@ async function seedCompleteProcessAndExperiment(
     id: eid,
     name: experimentName,
     description: "Seeded NOMAD flow 3 experiment",
-    date: "2026-07-01",
+    date: "2026-07-01T08:00",
+    end_date: "2026-07-01T10:00",
     architecture: "n-i-p",
     process_id: pid,
+    // A complete Processing table (shared row: two stages + end-of-experiment
+    // cell) and the variation "No" answer, so only the summary confirmation
+    // remains for `getExperimentAllStepsDone`.
+    processing_times: {
+      "stage:0": "2026-07-01T08:00",
+      "stage:1": "2026-07-01T09:00",
+      "stage:2": "2026-07-01T10:00",
+      __variationChoice: "no",
+    },
   })
   await api.put(`/experiments/${eid}/substrates`, [
     { id: crypto.randomUUID(), name: SUBSTRATE_NAMES[0] },
@@ -809,8 +893,11 @@ test("flow 1: GUI-created process (with alternative step) + experiment, then NOM
 
     await completeExperimentInGui(page)
 
-    // "Add Results" appears once the experiment is fully specified
-    const addResults = page.getByRole("button", { name: "Add Results" }).first()
+    // "Add Results" appears (as a green download ActionIcon on the experiment
+    // card) once the experiment is fully specified.
+    const addResults = page
+      .locator("main button:has(.tabler-icon-download):visible")
+      .first()
     await expect(addResults).toBeVisible({ timeout: 8_000 })
     await addResults.click()
     await page.waitForURL("**/results", { timeout: 8_000 })
@@ -837,13 +924,13 @@ test("flow 2: drop files first, then create process + experiment, then upload", 
   const processName = `NomadFlow2-${Date.now()}`
   const errors = collectGuiErrors(page)
   const files = measurementFiles("flow2")
+  // The archive is created as soon as the staged files reach the Results page
+  // (before runUploadWorkflow runs), so capture it up front.
+  const archive = captureArchivePath(page)
 
   try {
     // 1. Drop the files on the Organization canvas → starts the upload flow
-    await dropFilesOnOrganization(
-      page,
-      files.map((f) => f.name),
-    )
+    await dropFilesOnOrganization(page, files)
 
     // 2. Create + complete the process in the GUI (client-side navigation
     //    keeps the ephemeral upload flow alive)
@@ -865,7 +952,7 @@ test("flow 2: drop files first, then create process + experiment, then upload", 
     //    associate the process + just-created experiment, then jump to Results.
     await pickInUploadPickerAndGo(page, processName)
 
-    await runUploadWorkflow(page, authToken, files, "flow2")
+    await runUploadWorkflow(page, authToken, files, "flow2", {}, archive)
 
     await assertNoGuiErrors(page, errors)
   } finally {
@@ -886,15 +973,18 @@ test("flow 3: drop files and associate an existing process + experiment, then up
   const experimentName = `NomadFlow3Exp-${Date.now()}`
   const errors = collectGuiErrors(page)
   const files = measurementFiles("flow3")
+  // The archive is created as soon as the staged files reach the Results page
+  // (before runUploadWorkflow runs), so capture it up front.
+  const archive = captureArchivePath(page)
 
   await seedCompleteProcessAndExperiment(authToken, processName, experimentName)
 
   try {
+    // 0. Confirm the seeded experiment's summary (frontend-only flag).
+    await confirmExperimentSummary(page, experimentName)
+
     // 1. Drop files on Organization → upload flow starts
-    await dropFilesOnOrganization(
-      page,
-      files.map((f) => f.name),
-    )
+    await dropFilesOnOrganization(page, files)
 
     // 2./3. Associate the existing process + experiment via the header picker
     //        and jump to Results (from the Processes page — client-side nav
@@ -903,11 +993,18 @@ test("flow 3: drop files and associate an existing process + experiment, then up
     await pickInUploadPickerAndGo(page, processName)
 
     // 4. Drop the files into the experiment's results and run the full cycle
-    await runUploadWorkflow(page, authToken, files, "flow3", {
-      description: "Seeded NOMAD flow 3 experiment",
-      stackPattern: /Perovskite/,
-      expectAlternatives: false,
-    })
+    await runUploadWorkflow(
+      page,
+      authToken,
+      files,
+      "flow3",
+      {
+        description: "Seeded NOMAD flow 3 experiment",
+        stackPattern: /Perovskite/,
+        expectAlternatives: false,
+      },
+      archive,
+    )
     await assertNoGuiErrors(page, errors)
   } finally {
     await cleanupEntities(authToken, processName)
@@ -936,86 +1033,76 @@ test("auto-create substrates from recognized groups, with deletion of misrecogni
 
   try {
     // 1. Drop the files first (flow 2 shape) → upload flow with staged files
-    await dropFilesOnOrganization(page, stagedNames)
+    await dropFilesOnOrganization(
+      page,
+      stagedNames.map((n) => ({
+        name: n,
+        mimeType: "text/plain",
+        buffer: Buffer.from(""),
+      })),
+    )
 
     // 2. Create + complete a process
     await navigateTo(page, "Processes", "/processes")
     await createCompleteProcessInGui(page, processName)
 
-    // 3. In the header picker: select the process, enable the auto-create
-    //    option, then create the experiment from the picker.
-    const openPopoverWith = async (
-      probe: () => ReturnType<Page["locator"]>,
-    ) => {
-      for (let attempt = 0; attempt < 5; attempt++) {
-        if (
-          await probe()
-            .isVisible()
-            .catch(() => false)
-        )
-          return
-        await page
-          .getByText(/File Upload/)
-          .first()
-          .click()
-        await page.waitForTimeout(500)
-      }
-      await probe().waitFor({ state: "visible", timeout: 4_000 })
+    // 3. In the header picker: select the process, then create the experiment
+    //    via the combobox's "New experiment" option. The auto-import effect
+    //    creates the substrate names from the staged file names automatically.
+    const panelOpen = () =>
+      page.getByRole("button", { name: "Delete upload permanently" }).first()
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (
+        await panelOpen()
+          .isVisible()
+          .catch(() => false)
+      )
+        break
+      await page
+        .getByText(/File Upload/)
+        .first()
+        .click()
+      await page.waitForTimeout(500)
+    }
+    await panelOpen().waitFor({ state: "visible", timeout: 4_000 })
+
+    const procBtn = page.getByRole("button", { name: "Select a process" })
+    if ((await procBtn.count()) > 0) {
+      await procBtn.click()
+      await page
+        .getByRole("option", { name: new RegExp(processName) })
+        .first()
+        .click()
+      await page.waitForTimeout(400)
     }
 
-    const procSelect = () => page.getByPlaceholder("Select a process")
-    await openPopoverWith(procSelect)
-    await procSelect().click()
+    const expBtn = page.getByRole("button", { name: "Select an experiment" })
+    await expBtn.click()
     await page
-      .getByRole("option", { name: new RegExp(processName) })
-      .first()
+      .getByRole("option", { name: "New experiment" })
+      .last()
       .click()
-    await page.waitForTimeout(400)
-
-    const autoCheckbox = () =>
-      page.getByText(/Auto-create substrate names from recognized groups/)
-    await openPopoverWith(autoCheckbox)
-    // The label lists the recognized groups
-    await expect(autoCheckbox().first()).toContainText("AB41")
-    await expect(autoCheckbox().first()).toContainText("AB42")
-    await expect(autoCheckbox().first()).toContainText("README1")
-    await autoCheckbox().first().click()
-    await page.waitForTimeout(300)
-
-    // exact:true — the page behind the popover has a "Create Experiment from
-    // Process" button that a substring match would hit first.
-    const createBtn = () =>
-      page.getByRole("button", { name: "Create experiment", exact: true })
-    await openPopoverWith(createBtn)
-    await expect(createBtn().first()).toBeEnabled()
-    await createBtn().first().click()
     await page.waitForURL("**/experiments", { timeout: 8_000 })
-    await page.waitForTimeout(800)
+    await page.waitForTimeout(1_000)
 
-    // 4. The picker lists the auto-created substrates as removable chips —
-    //    delete the misrecognized "README1".
-    const chips = () => page.getByText("Auto-created:", { exact: true })
-    await openPopoverWith(chips)
-    for (const name of ["AB41", "AB42", "README1"]) {
-      await expect(
-        page.getByLabel(`Delete substrate ${name}`).first(),
-      ).toBeVisible({ timeout: 5_000 })
-    }
-    await page.getByLabel("Delete substrate README1").first().click()
-    await page.waitForTimeout(400)
-    await expect(page.getByLabel("Delete substrate README1")).toHaveCount(0)
-
-    // Close the popover and check the experiment's substrate table
-    await page.keyboard.press("Escape")
+    // 4. The auto-import created the three recognized names in the Processing
+    //    table — delete the misrecognized "README1" via its row's Remove button.
     await page.getByText("Processing", { exact: true }).first().click()
     await page.waitForTimeout(500)
-    await expect(page.locator("table input[value='AB41']").first()).toBeVisible(
-      { timeout: 8_000 },
-    )
-    await expect(
-      page.locator("table input[value='AB42']").first(),
-    ).toBeVisible()
+    for (const name of ["AB41", "AB42", "README1"]) {
+      await expect(
+        page.locator(`table input[value='${name}']`).first(),
+      ).toBeVisible({ timeout: 8_000 })
+    }
+    const readmeRow = page
+      .locator("main tr")
+      .filter({ has: page.locator("input[value='README1']") })
+      .first()
+    await readmeRow.locator("button:has(.tabler-icon-trash)").first().click()
+    await page.waitForTimeout(500)
     await expect(page.locator("table input[value='README1']")).toHaveCount(0)
+    await expect(page.locator("table input[value='AB41']").first()).toBeVisible()
+    await expect(page.locator("table input[value='AB42']").first()).toBeVisible()
 
     // 5. The names persist to the backend (flush window)
     await page.waitForTimeout(4_000)

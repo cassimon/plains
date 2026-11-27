@@ -10,7 +10,7 @@ import { useAppContext } from "../store/AppContext"
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Generate example box plot data for PCE by layer parameter */
+/** One selectable experiment row in the Analysis sidebar. */
 function ExperimentListItem({
   experiment,
   isSelected,
@@ -87,12 +87,6 @@ export function AnalysisPage() {
   const selectedResult = selectedExperiment
     ? (results.find((r) => r.experimentId === selectedExperiment.id) ?? null)
     : null
-
-  // Snap to grid helper
-
-  // Handle drag start
-  // Handle resize start
-  // Delete widget
 
   return (
     <Box

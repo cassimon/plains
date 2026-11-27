@@ -127,3 +127,24 @@ def test_concurrent_duplicate_request_id_applies_once(
     assert len(corrections) == 1
     data = client.get(f"{BASE}/{result_id}", headers=normal_user_token_headers).json()
     assert data["measurement_files"][0]["value"] == 5.0
+
+
+def test_correction_marks_measurement_local(
+    client: TestClient, normal_user_token_headers: dict
+) -> None:
+    result_id, fid = _setup(client, normal_user_token_headers)
+    r = client.post(
+        f"{BASE}/{result_id}/corrections",
+        json={
+            "measurement_id": fid,
+            "operation": "scale",
+            "field": "value",
+            "factor": 0.5,
+            "reason": "calibration",
+        },
+        headers=normal_user_token_headers,
+    )
+    assert r.status_code == 200, r.text
+    data = client.get(f"{BASE}/{result_id}", headers=normal_user_token_headers).json()
+    # A corrected value is no longer the deposited form → local (unpublished).
+    assert data["measurement_files"][0]["local_only"] is True

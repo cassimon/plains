@@ -1,23 +1,10 @@
 import path from "node:path"
 import { test, expect } from "./fixtures"
-import { login } from "./utils/api"
-
-const FRONTEND_BASE_URL =
-  process.env.FRONTEND_BASE_URL ?? "http://localhost:5174"
-
-const EMAIL = process.env.SMOKE_TEST_EMAIL ?? "smoke@test.plains"
-const PASSWORD = process.env.SMOKE_TEST_PASSWORD ?? "SmokePass1!"
 
 test("import ZIP → new process-free experiment → results → reload → download → append", async ({
-  page,
+  authedPage: page,
 }) => {
-  const token = await login(EMAIL, PASSWORD)
-  await page.addInitScript(
-    ([key, value]) => window.localStorage.setItem(key, value),
-    ["__plains_test_token", token] as const,
-  )
-
-  await page.goto(FRONTEND_BASE_URL)
+  await page.goto("/")
   await expect(page).not.toHaveURL(/login/, { timeout: 20_000 })
 
   // Navigate to Experiments via the sidebar.
@@ -52,6 +39,7 @@ test("import ZIP → new process-free experiment → results → reload → down
 
   // Lands on Results with the imported experiment selected.
   await expect(page).toHaveURL(/results/, { timeout: 30_000 })
+  await page.getByText("Original Files", { exact: true }).click()
   await expect(page.getByText("Original files")).toBeVisible({ timeout: 20_000 })
 
   // The experiment name appears in the breadcrumb/header.
@@ -65,6 +53,7 @@ test("import ZIP → new process-free experiment → results → reload → down
   // to see experiment names.
   await page.getByRole("button", { name: "Expand sidebar" }).click()
   await page.getByText(name, { exact: true }).first().click()
+  await page.getByText("Original Files", { exact: true }).click()
   await expect(page.getByText("Original files")).toBeVisible({ timeout: 20_000 })
 
   // Retrieve (download) an original file.
@@ -89,10 +78,13 @@ test("import ZIP → new process-free experiment → results → reload → down
   await page.getByPlaceholder("Choose an experiment…").click()
   await page.getByRole("option", { name }).click()
   await page.getByRole("button", { name: "Import measurements" }).click()
+  // Re-importing the same fixture triggers the duplicate-confirmation dialog.
+  await page.getByRole("button", { name: "Append anyway" }).click()
 
-  // Returns to Results; the new local-only records are flagged.
+  // Returns to Results; the appended records are local-only (not uploaded).
   await expect(page).toHaveURL(/results/, { timeout: 30_000 })
-  await expect(page.getByText("local-only", { exact: false })).toBeVisible({
+  await page.getByText("NOMAD Preparation", { exact: true }).click()
+  await expect(page.getByText(/local-only \(not uploaded\)/)).toBeVisible({
     timeout: 20_000,
   })
 })

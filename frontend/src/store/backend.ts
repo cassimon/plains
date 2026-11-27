@@ -600,17 +600,6 @@ export class HttpBackend implements BackendAdapter {
       const bulk = await this.request("GET", "/state/bulk")
       this.data = M.bulkToSnapshot(bulk ?? {})
       this.captureServerIds(this.data)
-      console.log(
-        "[HttpBackend] loaded from /state/bulk:",
-        "processes:",
-        this.data.processes.length,
-        "experiments:",
-        this.data.experiments.length,
-        "results:",
-        this.data.results.length,
-        "planes:",
-        this.data.planes.length,
-      )
       // An emergency backup written by the beforeunload watchdog represents work
       // not yet pushed to the server; restore it over the loaded state and
       // re-sync on the next save.
@@ -649,15 +638,8 @@ export class HttpBackend implements BackendAdapter {
         // Do NOT delete expired backup data: it may be the only recoverable copy
         // of unsaved research changes. Skip automatic restoration (to avoid
         // replaying stale data) but keep the data for manual recovery.
-        console.log(
-          "[HttpBackend] not auto-restoring stale unload backup (kept)",
-        )
         return false
       }
-      console.log(
-        "[HttpBackend] restoring emergency unload backup from",
-        new Date(backup.savedAt).toISOString(),
-      )
       this.data = backup.snapshot
       // Re-push the CURRENT state, not the snapshot captured at restore time:
       // if a newer snapshot is saved before the timer fires, `this.data` already
@@ -700,7 +682,6 @@ export class HttpBackend implements BackendAdapter {
     }
     try {
       await this.syncToBackend(snapshot)
-      console.log("[HttpBackend] save succeeded")
       // Drop the emergency backup only when its contents are demonstrably the
       // same as the snapshot just synchronized. Re-read the backup here so a
       // replacement written during this async save (e.g. by another tab) is the

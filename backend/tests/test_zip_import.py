@@ -37,8 +37,13 @@ def test_parse_jv_summary_extracts_supported_metrics() -> None:
     assert len(rows) == 2
     assert rows[0] == {
         "file": "sample_A_01",
-        "voc": 1.10,
+        "voc": 1.1,
         "jsc": 22.5,
+        "vmpp": 0.9,
+        "jmpp": 21.0,
+        "pmpp": 18.9,
+        "rs": 1.2,
+        "rsh": 3000.0,
         "ff": 76.4,
         "eff": 18.9,
     }

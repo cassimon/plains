@@ -17,13 +17,11 @@ export function getKeycloak(): Keycloak | null {
 
 /** Store the initialised Keycloak instance and register the token-expiry handler. */
 export function setKeycloak(kc: Keycloak): void {
-  console.log("[Keycloak] setKeycloak called, authenticated:", kc.authenticated)
   _keycloak = kc
 
   // Keycloak-js fires onTokenExpired at the exact moment the access token expires.
   // We refresh here so that the next API call never receives a stale token.
   kc.onTokenExpired = () => {
-    console.log("[Keycloak] Token expired, refreshing")
     kc.updateToken(30).catch(() => {
       console.error(
         "[Keycloak] Token refresh failed, clearing and redirecting to login",
@@ -36,7 +34,6 @@ export function setKeycloak(kc: Keycloak): void {
 
 /** Clear the instance and remove the expiry handler. */
 export function clearKeycloak(): void {
-  console.log("[Keycloak] clearKeycloak called")
   if (_keycloak) {
     _keycloak.onTokenExpired = undefined
   }
@@ -76,14 +73,9 @@ export function getTokenSubject(): string | null {
  * gets a valid, non-expired value.  Used by the OpenAPI client interceptor.
  */
 export async function getTokenAsync(): Promise<string> {
-  console.log(
-    "[Keycloak] getTokenAsync called, authenticated:",
-    _keycloak?.authenticated,
-  )
   if (_keycloak?.authenticated) {
     try {
       await _keycloak.updateToken(30)
-      console.log("[Keycloak] Token refreshed/validated, returning token")
     } catch {
       console.error("[Keycloak] Token update failed in getTokenAsync, clearing")
       clearKeycloak()
@@ -92,15 +84,12 @@ export async function getTokenAsync(): Promise<string> {
     }
     return _keycloak.token ?? ""
   }
-  console.log("[Keycloak] Not authenticated, returning empty token")
   return ""
 }
 
 /** True when a Keycloak session is active. */
 export function isAuthenticated(): boolean {
-  const result = _keycloak?.authenticated === true
-  console.log("[Keycloak] isAuthenticated() called, result:", result)
-  return result
+  return _keycloak?.authenticated === true
 }
 
 /**

@@ -222,26 +222,13 @@ test.describe("File Upload flow picker (real backend)", () => {
     const errors = collectLoopErrors(page)
 
     const pickerCreate = async () => {
-      // Select the process if none chosen yet, then Create experiment.
-      const procSelect = page.getByPlaceholder("Select a process")
-      const already = await procSelect.inputValue().catch(() => "")
-      if (!already && (await procSelect.isVisible().catch(() => false))) {
-        await procSelect.click()
-        await page
-          .getByRole("option", { name: new RegExp(name) })
-          .first()
-          .click()
-        await page.waitForTimeout(300)
-      }
-      const enabledCreate = () =>
-        page
-          .locator("button:not([disabled])", { hasText: "Create experiment" })
-          .first()
-      // Portal clicks may close the popover — toggle the badge until the
-      // enabled Create button is on screen.
+      // Ensure the popover is open (its "Delete upload permanently" button is a
+      // stable marker).
+      const panelOpen = () =>
+        page.getByRole("button", { name: "Delete upload permanently" }).first()
       for (let attempt = 0; attempt < 4; attempt++) {
         if (
-          await enabledCreate()
+          await panelOpen()
             .isVisible()
             .catch(() => false)
         )
@@ -252,7 +239,30 @@ test.describe("File Upload flow picker (real backend)", () => {
           .click()
         await page.waitForTimeout(500)
       }
-      await enabledCreate().click({ timeout: 10_000 })
+
+      // Select the process if none chosen yet.
+      const procBtn = page.getByRole("button", { name: "Select a process" })
+      if ((await procBtn.count()) > 0) {
+        await procBtn.click()
+        await page
+          .getByRole("option", { name: new RegExp(name) })
+          .first()
+          .click()
+        await page.waitForTimeout(300)
+      }
+
+      // Create a new experiment via the experiment combobox's "New experiment"
+      // option (the last option in its dropdown).
+      const expTrigger = page
+        .getByRole("button", { name: /Select an experiment|New Experiment/ })
+        .first()
+      await expTrigger.click()
+      await page
+        .getByRole("option", { name: "New experiment" })
+        .last()
+        .click()
+      await page.waitForTimeout(300)
+
       await page
         .waitForURL("**/experiments", { timeout: 8_000 })
         .catch(() => {})

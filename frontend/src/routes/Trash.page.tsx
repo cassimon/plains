@@ -183,7 +183,11 @@ export function TrashPage() {
                 selected = v ?? selected
               }}
               allowDeselect={false}
-              comboboxProps={{ withinPortal: true }}
+              // The confirm modal sits at z-index 1000 (`_gui.tsx`), but a
+              // Combobox dropdown defaults to 300 — rendered in a portal it would
+              // end up *behind* the modal overlay, its options unclickable. Raise
+              // the dropdown above the modal so the destination picker is usable.
+              comboboxProps={{ withinPortal: true, zIndex: 1100 }}
             />
           </Stack>
         ),

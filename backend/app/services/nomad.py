@@ -2253,15 +2253,12 @@ def create_nomad_metadata_yaml(
         )
 
     def _fill_factor_fraction(raw: Any) -> float:
-        """The database states FF as a fraction; the app carries it as a percent.
+        """The app carries FF as a percent; NOMAD's schema wants a fraction.
 
-        The GUI normalises whatever the file said up to a percent (Results.page's
-        `ff = raw <= 1 ? raw * 100 : raw`), so a 25.38 % fill factor arrives here
-        as 25.38 — and was passed straight into `default_FF`, a hundred times the
-        value NOMAD expects.
+        Always divide by 100 — a magnitude heuristic would misinterpret a
+        legitimate low fill factor (≤ 1%) as an already-fractional value.
         """
-        value = float(raw)
-        return value / 100.0 if value > 1.0 else value
+        return float(raw) / 100.0
 
     def _jv_section(
         jv_file: dict[str, Any] | None,
@@ -4253,16 +4250,13 @@ def create_nomad_metadata_yaml(
     unassigned_groups: list[dict[str, Any]] = []
     if device_groups:
         for group in device_groups:
-            # Excluded observations and local-only (never-uploaded,
-            # imported) measurements must never be deposited as accepted
-            # scientific results. Drop them from the group's file list before
-            # any sample/measurement archive is built.
+            # Explicitly excluded observations must never be deposited as
+            # accepted scientific results — drop them from the group's file list
+            # before any sample/measurement archive is built. `localOnly` means
+            # "not yet deposited", NOT "ineligible", so it is NOT an exclusion
+            # here.
             files = group.get("files") or []
-            group["files"] = [
-                f
-                for f in files
-                if not (f.get("excluded") is True or f.get("localOnly") is True)
-            ]
+            group["files"] = [f for f in files if f.get("excluded") is not True]
             sub_id = str(group.get("assignedSubstrateId") or "")
             if sub_id:
                 groups_by_substrate.setdefault(sub_id, []).append(group)

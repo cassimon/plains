@@ -300,6 +300,15 @@ def test_the_sample_states_the_fill_factor_as_a_fraction():
     assert jv["default_PCE"] == pytest.approx(3.67)
 
 
+def test_low_fill_factor_percent_is_not_misinterpreted_as_a_fraction():
+    """A legitimate low fill factor (≤ 1%) is carried as a percent and must be
+    divided by 100 — a magnitude heuristic would treat 0.8 % as 80 %."""
+    archives = _archives(
+        [{"fileName": "scan.txt", "fileType": "JV", "value": 1.0, "ff": 0.8}]
+    )
+    assert _sample_jv(archives)["default_FF"] == pytest.approx(0.008)
+
+
 def test_the_sample_jv_states_the_illumination_it_was_measured_under():
     """A PCE with no illumination beside it cannot be interpreted."""
     files = [{"fileName": "scan.txt", "fileType": "JV", "value": 3.67}]

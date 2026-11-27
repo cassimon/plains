@@ -563,10 +563,9 @@ def test_create_nomad_metadata_yaml_generates_substrate_and_deposition_and_per_p
     assert deposition_data["steps"][0]["step_type"] == "Wet Deposition"
 
 
-def test_nomad_metadata_drops_excluded_and_local_only_measurements():
-    """Excluded and local-only measurements must never become accepted
-    scientific results in a NOMAD archive (no measurement entry, and the sample's
-    best-JV figure of merit must come only from uploadable files)."""
+def test_nomad_metadata_drops_excluded_but_keeps_local_only_measurements():
+    """Excluded observations never enter a NOMAD archive; local-only
+    measurements ("not yet deposited") remain eligible and are included."""
     owner_id = uuid.uuid4()
     experiment_id = str(uuid.uuid4())
 
@@ -673,12 +672,12 @@ def test_nomad_metadata_drops_excluded_and_local_only_measurements():
         device_groups=device_groups,
     )
 
-    # The uploadable measurement gets its archive; excluded/local-only do not.
+    # Excluded observations get no archive; local-only (eligible) do.
     assert "normal.txt.archive.yaml" in archives
     assert "excluded.txt.archive.yaml" not in archives
-    assert "localonly.txt.archive.yaml" not in archives
+    assert "localonly.txt.archive.yaml" in archives
 
-    # The sample's best-JV figure of merit is the uploadable value (20), not the
-    # higher excluded (25) or local-only (30) values.
+    # The sample's best-JV figure of merit ignores the excluded (25) value but
+    # includes the eligible local-only (30) value.
     sample = archives["sub-1_dev1_sample.archive.yaml"]["data"]
-    assert sample["jv"]["default_PCE"] == 20.0
+    assert sample["jv"]["default_PCE"] == 30.0

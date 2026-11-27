@@ -40,11 +40,13 @@ from app.core.config import settings
 from app.models import (
     Experiment,
     ExperimentResults,
+    ImportedSourceFile,
     NomadUploadLog,
     NomadUploadLogPublic,
     NomadUploadLogsPublic,
     User,
 )
+from app.services import source_store
 from app.services.chemicals_materialization import materialize_experiment_chemicals
 from app.services.nomad import (
     TEMP_UPLOAD_DIR,
@@ -62,6 +64,7 @@ from app.services.nomad import (
     get_upload_entries,
     get_upload_status,
     purge_stash_file,
+    sanitize_upload_filename,
     stash_archive,
     upload_to_nomad,
 )
@@ -105,6 +108,24 @@ def _represent_list_flow_if_flat(dumper: yaml.Dumper, data: list) -> yaml.Sequen
 _QuotedDumper.add_representer(str, _represent_str_quoted)
 _QuotedDumper.add_representer(float, _represent_float_safe)
 _QuotedDumper.add_representer(list, _represent_list_flow_if_flat)
+
+
+def _serialize_archives(archives: dict[str, dict[str, Any]]) -> list[tuple[str, str]]:
+    """Serialize each archive dict to its own YAML string (quoted-dumper)."""
+    return [
+        (
+            filename,
+            yaml.dump(
+                content,
+                Dumper=_QuotedDumper,
+                default_flow_style=False,
+                allow_unicode=True,
+                sort_keys=False,
+            ),
+        )
+        for filename, content in archives.items()
+    ]
+
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +206,199 @@ def _require_owned_experiment(
     if not current_user.is_superuser and experiment.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not enough permissions")
     return experiment
+
+
+_SCALAR_CORRECTION_FIELDS = frozenset(
+    {"value", "voc", "jsc", "ff", "vmpp", "jmpp", "pmpp", "rs", "rsh"}
+)
+
+
+def _file_to_nomad_dict(m: Any) -> dict[str, Any]:
+    return {
+        "fileName": m.filename,
+        "fileType": m.file_type,
+        "deviceName": m.device_name,
+        "cell": m.cell,
+        "pixel": m.pixel_label,
+        "value": m.value,
+        "voc": m.voc,
+        "jsc": m.jsc,
+        "ff": m.ff,
+        "illuminationIntensity": m.illumination_intensity,
+        "user": m.measurement_user,
+        "measurementDate": m.measurement_date,
+        "excluded": bool(m.excluded),
+        "localOnly": bool(m.local_only),
+    }
+
+
+@router.post("/imported/prepare")
+def prepare_imported_archive(
+    session: SessionDep,
+    current_user: CurrentUser,
+    experiment_id: str = Form(...),
+) -> dict[str, Any]:
+    """Build a NOMAD archive for imported measurements from authoritative
+    database state — effective values, exclusions and group membership — and
+    resolve original source bytes server-side (no manual re-upload).
+
+    Blocks (with a clear explanation) when a deposition cannot be represented
+    safely: a partial FW/RV exclusion sharing one source, or a corrected scalar
+    that would disagree with the unchanged raw file.
+    """
+    _require_nomad_upload_authorized(current_user)
+    experiment = _require_owned_experiment(session, current_user, experiment_id)
+
+    results = session.exec(
+        select(ExperimentResults).where(ExperimentResults.experiment_id == experiment.id)
+    ).all()
+    if not results:
+        raise HTTPException(status_code=404, detail="No results to prepare")
+
+    measurements: list[Any] = []
+    for r in results:
+        measurements.extend(r.measurement_files)
+    if not measurements:
+        raise HTTPException(status_code=404, detail="No measurements to prepare")
+
+    # Partial FW/RV exclusion: one source carrying both directions must not have
+    # one direction excluded and the other accepted (the raw file re-derives both).
+    by_source: dict[str, list[Any]] = {}
+    for m in measurements:
+        if m.source_file_id is not None:
+            by_source.setdefault(str(m.source_file_id), []).append(m)
+    for source_id, files in by_source.items():
+        fw = [f for f in files if f.direction == "FW"]
+        rv = [f for f in files if f.direction == "RV"]
+        if fw and rv:
+            states = {f.excluded for f in fw + rv}
+            if True in states and False in states:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Cannot represent partial FW/RV exclusion: source "
+                        f"{source_id} has one scan direction excluded and the "
+                        "other accepted."
+                    ),
+                )
+
+    # Corrected scalars: the corrected value would disagree with the raw file.
+    for m in measurements:
+        if set(m.corrected_fields or []) & _SCALAR_CORRECTION_FIELDS:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Measurement {m.id} has corrected scalar metrics that "
+                    "cannot be reconciled with its unchanged raw file."
+                ),
+            )
+
+    accepted = [m for m in measurements if not m.excluded]
+
+    # Resolve original source bytes for accepted measurements (hash-verified).
+    source_ids = {m.source_file_id for m in accepted if m.source_file_id is not None}
+    source_rows = (
+        session.exec(
+            select(ImportedSourceFile).where(ImportedSourceFile.id.in_(source_ids))
+        ).all()
+        if source_ids
+        else []
+    )
+    source_by_id = {s.id: s for s in source_rows}
+
+    raw_files: list[tuple[str, bytes]] = []
+    seen: set[str] = set()
+    for m in accepted:
+        if m.source_file_id is None:
+            continue
+        source = source_by_id.get(m.source_file_id)
+        if source is None:
+            raise HTTPException(status_code=409, detail="Source file not found")
+        if not source_store.source_exists(str(m.source_file_id)):
+            raise HTTPException(
+                status_code=409, detail=f"Source bytes missing for {m.filename}"
+            )
+        # Resolve by durable source identity, never by sanitized filename: two
+        # distinct sources must not be silently merged because their names
+        # sanitize identically.
+        sid = str(m.source_file_id)
+        if sid in seen:
+            continue
+        seen.add(sid)
+        data = source_store.read_source(str(m.source_file_id))
+        if source_store.sha256_hex(data) != source.sha256:
+            raise HTTPException(
+                status_code=409, detail=f"Source bytes corrupted for {m.filename}"
+            )
+        raw_files.append((sanitize_upload_filename(m.filename), data))
+
+    device_groups: list[dict[str, Any]] = []
+    for r in results:
+        for g in r.device_groups:
+            device_groups.append(
+                {
+                    "id": str(g.id),
+                    "deviceName": g.name,
+                    "assignedSubstrateId": str(g.assigned_substrate_id)
+                    if g.assigned_substrate_id
+                    else None,
+                    "files": [_file_to_nomad_dict(f) for f in g.measurement_files],
+                }
+            )
+
+    experiment_snapshot = {
+        "id": str(experiment.id),
+        "name": experiment.name,
+        "description": experiment.description or "",
+        "architecture": experiment.architecture or "n-i-p",
+        "substrateMaterial": experiment.substrate_material or "Unknown",
+        "devicesPerSubstrate": experiment.devices_per_substrate or 1,
+        "deviceArea": experiment.device_area or 0.09,
+        "substrates": [
+            {
+                "id": str(s.id),
+                "name": s.name,
+                "substrateMaterialId": str(s.substrate_material_id)
+                if s.substrate_material_id
+                else None,
+                "parameterValues": s.parameter_values or {},
+            }
+            for s in experiment.substrates
+        ],
+    }
+
+    _materialize_chemicals(session, experiment_id)
+
+    archive_name = (
+        f"{experiment_id[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.zip"
+    )
+    # For a linked experiment, let the builder load the real process from the DB
+    # (steps/stacks); only a genuinely process-free experiment uses an empty one.
+    process_snapshot = None
+    if experiment.process_id is None:
+        process_snapshot = {
+            "id": "process-free",
+            "name": "",
+            "stages": [],
+            "generatedStacks": [],
+        }
+    archives = create_nomad_metadata_yaml(
+        experiment_id=experiment_id,
+        user_name=current_user.full_name or current_user.email,
+        session=session,
+        upload_archive_basename=Path(archive_name).stem,
+        experiment_snapshot=experiment_snapshot,
+        process_snapshot=process_snapshot,
+        device_groups=device_groups,
+    )
+    archive_yaml_files = _serialize_archives(archives)
+    zip_path = create_secure_zip(
+        files=raw_files,
+        metadata_files=archive_yaml_files,
+        archive_name=archive_name,
+        target_dir=_user_upload_dir(current_user.id),
+    )
+    return {"success": True, "archive_path": str(zip_path)}
 
 
 def _user_upload_dir(user_id: uuid.UUID) -> Path:
@@ -330,9 +544,9 @@ class MeasurementFileInfo(BaseModel):
     illuminationIntensity: float | None = None  # mW/cm² (1 sun = 100)
     user: str | None = None  # Operator / user from file header
     measurementDate: str | None = None  # Date from file header
-    # Scientific review state. ``excluded`` observations and
-    # ``localOnly`` (never-uploaded, imported) measurements must never be
-    # deposited as accepted scientific results.
+    # Scientific review state. ``excluded`` observations are never deposited as
+    # accepted scientific results. ``localOnly`` marks content that has not yet
+    # been deposited (it remains eligible — not an exclusion).
     excluded: bool = False
     localOnly: bool = False
 
@@ -520,19 +734,7 @@ async def upload_files_for_nomad(
             archives_for_guard = archives
 
             # Serialise each archive dict to its own YAML string
-            archive_yaml_files = [
-                (
-                    filename,
-                    yaml.dump(
-                        content,
-                        Dumper=_QuotedDumper,
-                        default_flow_style=False,
-                        allow_unicode=True,
-                        sort_keys=False,
-                    ),
-                )
-                for filename, content in archives.items()
-            ]
+            archive_yaml_files = _serialize_archives(archives)
 
             logger.info(
                 f"Generated {len(archive_yaml_files)} YAML metadata files for archive"
@@ -701,19 +903,7 @@ async def add_metadata_to_archive(
         )
 
         # Serialize each archive dict to its own YAML string
-        archive_yaml_files: list[tuple[str, str]] = [
-            (
-                filename,
-                yaml.dump(
-                    content,
-                    Dumper=_QuotedDumper,
-                    default_flow_style=False,
-                    allow_unicode=True,
-                    sort_keys=False,
-                ),
-            )
-            for filename, content in archives.items()
-        ]
+        archive_yaml_files: list[tuple[str, str]] = _serialize_archives(archives)
 
         # Add metadata to the existing archive, removing any ignored files
         add_metadata_to_zip(
@@ -907,6 +1097,21 @@ async def upload_to_nomad_endpoint(
     # materialization, metadata generation or any external NOMAD upload happens.
     _require_owned_experiment(session, current_user, request.experiment_id)
 
+    # A pre-existing upload id (resume/append) must reference this caller's own
+    # experiment — never an unrelated or foreign upload.
+    if existing_upload_id:
+        existing_log = crud.get_nomad_upload_log_by_upload_id(
+            session=session, upload_id=existing_upload_id
+        )
+        if existing_log is not None and (
+            existing_log.user_id != current_user.id
+            or str(existing_log.experiment_id) != request.experiment_id
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="existing_upload_id does not belong to this experiment",
+            )
+
     try:
         experiment_snapshot = None
         process_snapshot = None
@@ -936,19 +1141,7 @@ async def upload_to_nomad_endpoint(
         )
 
         # Serialise each archive dict to its own YAML string
-        archive_yaml_files: list[tuple[str, str]] = [
-            (
-                filename,
-                yaml.dump(
-                    content,
-                    Dumper=_QuotedDumper,
-                    default_flow_style=False,
-                    allow_unicode=True,
-                    sort_keys=False,
-                ),
-            )
-            for filename, content in archives.items()
-        ]
+        archive_yaml_files: list[tuple[str, str]] = _serialize_archives(archives)
 
         # Use pre-created archive or create a new one
         if archive_path:

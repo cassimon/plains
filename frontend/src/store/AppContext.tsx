@@ -1650,19 +1650,11 @@ export function AppProvider({
   // from the server can abort instead of discarding unsaved edits.
   const persistDirtyState = useCallback(async (): Promise<boolean> => {
     if (!loaded || !dirtyRef.current) {
-      console.log(
-        "[AppContext] persistDirtyState skipped: loaded=",
-        loaded,
-        "dirty=",
-        dirtyRef.current,
-      )
       return !dirtyRef.current
     }
     dirtyRef.current = false
-    console.log("[AppContext] persistDirtyState: saving state...")
     try {
       await backend.save(stateRef.current)
-      console.log("[AppContext] persistDirtyState: save complete")
       return true
     } catch (err) {
       // A failed save must not discard pending modifications: restore the dirty
@@ -1679,7 +1671,6 @@ export function AppProvider({
       return
     }
     dirtyRef.current = true
-    console.log("[AppContext] scheduleSave: marked dirty, debouncing...")
     if (saveTimeoutRef.current !== null) {
       window.clearTimeout(saveTimeoutRef.current)
     }
@@ -1972,6 +1963,20 @@ export function AppProvider({
         destinationPlaneId,
       )
 
+      // 2b. Discard the emergency unload backup before adopting the server
+      // snapshot. A backup written by `beforeunload` during the navigation that
+      // led here (e.g. a full-page jump to the Trash page) still holds the
+      // pre-restore state; `HttpBackend.load()` would otherwise re-apply it over
+      // the freshly restored branch and its delayed re-push would re-trash the
+      // restored items. The restore is authoritative — any pending edits were
+      // already flushed in step 1 — so the backup is stale and safe to drop.
+      try {
+        const backupKey = unloadBackupKey()
+        if (backupKey) localStorage.removeItem(backupKey)
+      } catch {
+        // Storage unavailable — ignore; load() simply finds no backup to replay.
+      }
+
       // 3. Adopt the server snapshot without flushing over it.
       await reloadFromBackend({ flush: false })
       await refreshTrash()
@@ -2047,25 +2052,10 @@ export function AppProvider({
 
   useEffect(() => {
     let cancelled = false
-    console.log(
-      "[AppContext] loading state from backend...",
-      backend.constructor.name,
-    )
     backend.load().then((snapshot) => {
       if (cancelled) {
         return
       }
-      console.log(
-        "[AppContext] loaded snapshot:",
-        "experiments:",
-        snapshot.experiments.length,
-        "processes:",
-        snapshot.processes.length,
-        "results:",
-        snapshot.results.length,
-        "planes:",
-        snapshot.planes.length,
-      )
       if (snapshot.experiments.length > 0) {
         setExperiments(snapshot.experiments)
       }
@@ -2676,11 +2666,8 @@ export function AppProvider({
         lastSelectedByKind,
         updateLastSelected,
         flushSave: async () => {
-          console.log("[AppContext] flushSave called (e.g. before logout)")
           dirtyRef.current = true
-          const ok = await persistDirtyState()
-          console.log("[AppContext] flushSave complete:", ok)
-          return ok
+          return await persistDirtyState()
         },
         trashEntries,
         trashCount,
