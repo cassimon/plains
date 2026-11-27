@@ -1,11 +1,11 @@
-0# Mark your user as a super-user in adminers and then click on user options, "Admin". 
-
-
-1# Debugging NOMAD Uploads
+# Debugging NOMAD Uploads
 
 Every NOMAD upload is logged, and any upload that doesn't succeed keeps its file
 archive for **one week** so it can be re-examined. Admins get a central log;
 uploaders see the failure reason on the Results page.
+
+> To see the admin log, mark your account as superuser (via the database/Adminer), then open
+> **Admin → NOMAD Uploads**.
 
 ## Quick reference
 
@@ -65,7 +65,8 @@ only while still stashed).
   `nomad-stash` Docker volume (survives restarts).
 - Retention: `NOMAD_STASH_MAX_AGE_S` (default 7 days); swept opportunistically on
   NOMAD endpoint activity — no cron.
-- Table `nomad_upload_log`; apply with `alembic upgrade head`.
+- Table `nomad_upload_log` (the `NomadUploadLog` model in `app/models.py`; created by
+  `init_db` at startup, like the rest of the schema).
 - Code: routes in `app/api/routes/nomad.py`, helpers in `app/services/nomad.py`
   + `app/crud.py`; admin UI in `frontend/src/routes/_layout/admin.tsx` +
   `components/Admin/nomadUploadColumns.tsx`.

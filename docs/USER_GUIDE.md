@@ -22,8 +22,8 @@ The app has a vertical icon bar on the left. The main sections are:
 - **Processes** — define fabrication steps.
 - **Experiments** — experiments generated from processes (or imported).
 - **Results** — measurement files and their values.
-- **Analysis** — plots (coming soon).
-- **Export** — export/upload (coming soon).
+- **Analysis** — descriptive statistics, group comparisons, correlation and hysteresis plots.
+- **Export** — download an experiment's data locally, or prepare/upload it to NOMAD.
 
 ## 3. Importing existing experimental data
 
@@ -72,5 +72,5 @@ UV-Vis) are also recognized.
 ## 8. Where to find further help
 
 - In-app: the **Help** entry in the user menu (top-right).
-- For data mapping and limits, see the technical docs in the repository
-  (`docs/`, `workbench/reports/`).
+- For data mapping, scientific conventions and limits, see the technical docs in the repository
+  (`docs/ARCHITECTURE.md`, `docs/SCIENTIFIC.md`, `docs/NOMAD.md`).
