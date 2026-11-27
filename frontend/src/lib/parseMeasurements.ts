@@ -37,7 +37,7 @@ export type ServerMeasurement = {
   substrate_group: string
   date?: string
   user?: string
-  /** Durable provenance (WO-04): id of the stored original source file. */
+  /** Durable provenance: id of the stored original source file. */
   source_file_id?: string | null
   /** Record-level locator within the source file. */
   source_record_locator?: string | null

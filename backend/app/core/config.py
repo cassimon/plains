@@ -187,7 +187,7 @@ class Settings(BaseSettings):
     NOMAD_STASH_DIR: str = "/var/lib/plains/nomad_stash"
     NOMAD_STASH_MAX_AGE_S: int = 7 * 24 * 60 * 60
 
-    # Durable original source files for confirmed imports (WO-04). Mounted as a
+    # Durable original source files for confirmed imports. Mounted as a
     # persistent Docker volume (see compose.yml). Files are stored under
     # internal ids; original paths/names/hashes live in the `imported_source_file`
     # table.

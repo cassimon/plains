@@ -564,7 +564,7 @@ def test_create_nomad_metadata_yaml_generates_substrate_and_deposition_and_per_p
 
 
 def test_nomad_metadata_drops_excluded_and_local_only_measurements():
-    """WO-09: excluded and local-only measurements must never become accepted
+    """Excluded and local-only measurements must never become accepted
     scientific results in a NOMAD archive (no measurement entry, and the sample's
     best-JV figure of merit must come only from uploadable files)."""
     owner_id = uuid.uuid4()

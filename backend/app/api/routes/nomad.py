@@ -330,7 +330,7 @@ class MeasurementFileInfo(BaseModel):
     illuminationIntensity: float | None = None  # mW/cm² (1 sun = 100)
     user: str | None = None  # Operator / user from file header
     measurementDate: str | None = None  # Date from file header
-    # Scientific review state (WO-05/09). ``excluded`` observations and
+    # Scientific review state. ``excluded`` observations and
     # ``localOnly`` (never-uploaded, imported) measurements must never be
     # deposited as accepted scientific results.
     excluded: bool = False

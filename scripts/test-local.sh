@@ -1,24 +1,28 @@
 #! /usr/bin/env bash
 
-# Exit in case of error
-set -e
+# Isolated full-stack test run (local variant).
+#
+# Same isolation contract as scripts/test.sh: a dedicated Compose project so the
+# `down -v` teardown never touches the development database or the durable
+# source-files / nomad-stash volumes. See AGENTS.md and scripts/test.sh.
+
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$ROOT_DIR"
 
-# This suite runs against the dev Compose project and calls `down -v`, which
-# deletes the dev database volume. Snapshot it first and guarantee it is
-# reinstated no matter how the run exits. See CLAUDE.md → "Protecting the dev
-# database during tests".
-bash "$SCRIPT_DIR/db-backup.sh"
-trap 'bash "$SCRIPT_DIR/db-restore.sh"' EXIT
+# Dedicated test project, selected explicitly with `-p` so an inherited
+# COMPOSE_PROJECT_NAME can never redirect `down -v` at development volumes.
+COMPOSE=(docker compose -p plains-test -f compose.yml -f compose.test.yml)
 
-docker-compose down -v --remove-orphans # Remove possibly previous broken stacks left hanging after an error
+"${COMPOSE[@]}" down -v --remove-orphans   # only the isolated test project
 
-if [ $(uname -s) = "Linux" ]; then
+if [ "$(uname -s)" = "Linux" ]; then
     echo "Remove __pycache__ files"
-    sudo find . -type d -name __pycache__ -exec rm -r {} \+
+    find . -type d -name __pycache__ -exec rm -r {} + 2>/dev/null || true
 fi
 
-docker-compose build
-docker-compose up -d
-docker-compose exec -T backend bash scripts/tests-start.sh "$@"
+"${COMPOSE[@]}" build
+"${COMPOSE[@]}" up -d --wait
+"${COMPOSE[@]}" exec -T backend bash scripts/tests-start.sh "$@"

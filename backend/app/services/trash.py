@@ -35,6 +35,7 @@ from app.models import (
     TrashRootPublic,
     User,
 )
+from app.services import source_store
 
 # entity_type → table model. Analysis is registry-ready but the UI keeps it
 # disabled for now (see docs/plans/trash-soft-delete.md).
@@ -503,15 +504,23 @@ def purge(session: Session, user: User, entity_type: str, entity_id: uuid.UUID) 
 
     Deleting the root entity cascades to its children via DB FKs; we also drop
     every trash row in the batch so no orphaned flags remain.
+
+    Stored source bytes are removed only *after* the commit succeeds (cascade
+    deletes do not fire ORM per-row events), so a rolled-back purge never leaves
+    a database row without its bytes.
     """
     batch = _batch_entries(session, user, entity_type, entity_id)
     model = MODEL_BY_TYPE.get(entity_type)
     obj = session.get(model, entity_id) if model else None
+    source_ids: list[str] = []
+    if isinstance(obj, Experiment):
+        source_ids = source_store.collect_source_ids(session, [obj.id])
     if obj is not None:
         session.delete(obj)
     for entry in batch:
         session.delete(entry)
     session.commit()
+    source_store.remove_sources(source_ids)
 
 
 def empty(session: Session, user: User) -> int:
@@ -520,15 +529,19 @@ def empty(session: Session, user: User) -> int:
         select(TrashEntry).where(TrashEntry.owner_id == user.id)
     ).all()
     count = 0
+    source_ids: list[str] = []
     for entry in entries:
         model = MODEL_BY_TYPE.get(entry.entity_type)
         obj = session.get(model, entry.entity_id) if model else None
+        if isinstance(obj, Experiment):
+            source_ids.extend(source_store.collect_source_ids(session, [obj.id]))
         if obj is not None:
             session.delete(obj)
         session.delete(entry)
         count += 1
     if count:
         session.commit()
+        source_store.remove_sources(source_ids)
     return count
 
 
@@ -547,15 +560,19 @@ def sweep_expired_trash(session: Session, user: User) -> int:
         )
     ).all()
     swept = 0
+    source_ids: list[str] = []
     for entry in stale:
         model = MODEL_BY_TYPE.get(entry.entity_type)
         obj = session.get(model, entry.entity_id) if model else None
+        if isinstance(obj, Experiment):
+            source_ids.extend(source_store.collect_source_ids(session, [obj.id]))
         if obj is not None:
             session.delete(obj)
         session.delete(entry)
         swept += 1
     if swept:
         session.commit()
+        source_store.remove_sources(source_ids)
     return swept
 
 

@@ -14,6 +14,7 @@ import uuid
 import zipfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -21,13 +22,13 @@ from sqlmodel import select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.models import Experiment, ImportedSourceFile
+from app.services import source_store
 from app.services.nomad import (
     TEMP_UPLOAD_DIR,
     RawFileConflictError,
     append_files_to_zip,
     create_secure_zip,
 )
-from app.services import source_store
 from app.services.zip_explorer import (
     DEFAULT_LIMITS,
     InvalidZipError,
@@ -322,12 +323,14 @@ async def import_measurement_sources(
             if is_zip:
                 extracted_sources = _zip_source_files(content)
                 sources.extend(extracted_sources)
+                incoming_bytes = sum(len(data) for _, _, data in extracted_sources)
                 extracted = extract_importable_measurements(content)
                 measurements.extend(extracted["measurements"])
                 skipped.extend(extracted["skipped"])
                 warnings.extend(extracted["warnings"])
             else:
                 sources.append((source_name, _basename(source_name), content))
+                incoming_bytes = len(content)
                 rows = measurements_from_jv_file(content, source_name)
                 if rows:
                     measurements.extend(rows)
@@ -335,14 +338,21 @@ async def import_measurement_sources(
                     skipped.append(
                         {"file": source_name, "reason": "Not a supported CHOSE JV file."}
                     )
+            # Bound the cumulative total as files arrive, so a multi-file import
+            # can never accumulate unboundedly in memory before being rejected.
+            cumulative_bytes += incoming_bytes
+            if cumulative_bytes > limits.max_total_uncompressed:
+                raise HTTPException(
+                    status_code=413,
+                    detail="Import expands beyond the safe total size.",
+                )
         except (InvalidZipError, UnsafeZipError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except ResourceLimitError as exc:
             raise HTTPException(status_code=413, detail=str(exc)) from exc
 
-    # Cumulative limits + cross-archive duplicate exact-path rejection.
-    for rel, _name, data in sources:
-        cumulative_bytes += len(data)
+    # Cross-archive duplicate exact-path rejection + file-count cap.
+    for rel, _name, _data in sources:
         if rel in seen_relative_paths:
             raise HTTPException(
                 status_code=409,
@@ -356,11 +366,6 @@ async def import_measurement_sources(
         raise HTTPException(
             status_code=413,
             detail=f"Import contains too many files ({len(sources)} > {limits.max_files}).",
-        )
-    if cumulative_bytes > limits.max_total_uncompressed:
-        raise HTTPException(
-            status_code=413,
-            detail="Import expands beyond the safe total size.",
         )
 
     incoming = {
@@ -399,31 +404,38 @@ async def import_measurement_sources(
                     status_code=409,
                     detail=f"Import operation reused with different bytes for {rel!r}.",
                 )
-            if not source_store.source_exists(str(s.id)):
+            if not source_store.source_is_intact(str(s.id), s.sha256):
                 raise HTTPException(
                     status_code=409,
-                    detail=f"Stored source bytes are missing for {rel!r}.",
+                    detail=f"Stored source bytes are missing or corrupted for {rel!r}.",
                 )
         stored = list(existing)
     else:
         stored = []
-        for rel, (name, size, digest) in incoming.items():
-            data = next(d for r, _n, d in sources if r == rel)
-            sid = uuid.uuid4()
-            source_store.write_source(str(sid), data)
-            row = ImportedSourceFile(
-                id=sid,
-                experiment_id=experiment_id,
-                import_id=import_id,
-                original_filename=name,
-                relative_path=rel,
-                size=size,
-                sha256=digest,
-                file_type=classify_entry(rel),
-            )
-            session.add(row)
-            stored.append(row)
-        session.commit()
+        written_ids: list[str] = []
+        try:
+            for rel, (name, size, digest) in incoming.items():
+                data = next(d for r, _n, d in sources if r == rel)
+                sid = uuid.uuid4()
+                source_store.write_source(str(sid), data)
+                written_ids.append(str(sid))
+                row = ImportedSourceFile(
+                    id=sid,
+                    experiment_id=experiment_id,
+                    import_id=import_id,
+                    original_filename=name,
+                    relative_path=rel,
+                    size=size,
+                    sha256=digest,
+                    file_type=classify_entry(rel),
+                )
+                session.add(row)
+                stored.append(row)
+            session.commit()
+        except Exception:
+            # A failed transaction must not leave orphan physical files behind.
+            source_store.remove_sources(written_ids)
+            raise
         for row in stored:
             session.refresh(row)
 
@@ -515,17 +527,26 @@ async def download_source_file(
     if not source_store.source_exists(str(source_id)):
         raise HTTPException(status_code=404, detail="Source bytes are missing")
     data = source_store.read_source(str(source_id))
-    safe_name = source.original_filename.replace('"', "").replace("\\", "_").strip()
-    if not safe_name:
-        safe_name = str(source_id)
-    # Remove control chars (CR/LF) that could break the header.
-    safe_name = "".join(c for c in safe_name if ord(c) >= 32)
+    # Detect corruption: the stored bytes must match the recorded SHA-256.
+    if source_store.sha256_hex(data) != source.sha256:
+        raise HTTPException(status_code=409, detail="Source bytes are corrupted")
+    # Content-Disposition must be ASCII-safe. Keep an ASCII fallback (stripping
+    # quotes/backslashes/control chars) and carry the real Unicode name via
+    # RFC 5987 filename* so non-ASCII filenames round-trip without breaking the
+    # header encoding.
+    raw_name = source.original_filename or str(source_id)
+    ascii_name = raw_name.encode("ascii", "ignore").decode("ascii")
+    ascii_name = ascii_name.replace('"', "").replace("\\", "_").strip()
+    ascii_name = "".join(c for c in ascii_name if ord(c) >= 32)
+    if not ascii_name:
+        ascii_name = str(source_id)
+    encoded = quote(raw_name, safe="")
     return Response(
         content=data,
         media_type="application/octet-stream",
         headers={
             "Content-Disposition": (
-                f'attachment; filename="{safe_name}"'
+                f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded}'
             )
         },
     )

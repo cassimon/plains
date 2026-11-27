@@ -60,6 +60,7 @@ import { MeasurementsView } from "../components/MeasurementsView"
 import { OriginalFilesSection } from "../components/OriginalFilesSection"
 import { ScientificReviewPanel } from "../components/ScientificReviewPanel"
 import { openDiscardUploadFlowConfirm } from "../components/UploadFlowStatus"
+import { deleteMeasurement } from "../lib/corrections"
 import { homeCollectionForEntity, useRevealForFlow } from "../lib/entityReveal"
 import {
   discardArchive,
@@ -2356,7 +2357,7 @@ function ResultsDetail({
   }, [applyArchivePath])
 
   const handleDeleteFiles = useCallback(
-    (fileIds: string[]) => {
+    async (fileIds: string[]) => {
       if (fileIds.length === 0) {
         return
       }
@@ -2386,6 +2387,21 @@ function ResultsDetail({
             void discardUploadFlow()
             resetLocalStaging()
           },
+        })
+        return
+      }
+
+      // Snapshot replace is upsert-only, so explicitly delete server-side first;
+      // otherwise the removed measurements would reappear after reload.
+      try {
+        await Promise.all(
+          fileIds.map((fid) => deleteMeasurement(results.id, fid)),
+        )
+      } catch (err) {
+        notifications.show({
+          title: "Could not delete measurements",
+          message: err instanceof Error ? err.message : String(err),
+          color: "red",
         })
         return
       }
@@ -2520,7 +2536,25 @@ function ResultsDetail({
       ),
       labels: { confirm: "Clear measurements", cancel: "Cancel" },
       confirmProps: { color: "red" },
-      onConfirm: () => {
+      onConfirm: async () => {
+        const fileIds = results.files.map((f) => f.id)
+        if (fileIds.length > 0) {
+          // Snapshot replace is upsert-only, so delete server-side first. The
+          // result row (and its NOMAD upload history, and the original source
+          // files) are preserved — only the measurements are removed.
+          try {
+            await Promise.all(
+              fileIds.map((fid) => deleteMeasurement(results.id, fid)),
+            )
+          } catch (err) {
+            notifications.show({
+              title: "Could not clear measurements",
+              message: err instanceof Error ? err.message : String(err),
+              color: "red",
+            })
+            return
+          }
+        }
         onUpdateResults({
           ...results,
           files: [],
@@ -2563,7 +2597,7 @@ function ResultsDetail({
         g.assignedSubstrateId !== GENERAL_INFO_SUBSTRATE_ID,
     )
 
-    // WO-09: excluded observations and local-only (never-uploaded, imported)
+    // Excluded observations and local-only (never-uploaded, imported)
     // measurements must never be deposited as accepted scientific results.
     const isUploadable = (f: (typeof results.files)[number]) =>
       f.excluded !== true && f.localOnly !== true

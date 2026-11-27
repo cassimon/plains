@@ -149,7 +149,7 @@ def init_db(session: Session) -> None:
         )
         if not column_exists:
             backfill_device_group_ids(conn)
-        # Structured import metadata (exploratory import, WO-03). Additive only;
+        # Structured import metadata (exploratory import). Additive only;
         # existing rows keep NULL/unknown values. `file_path` carries the
         # original source-relative path where available.
         conn.execute(
@@ -177,7 +177,7 @@ def init_db(session: Session) -> None:
                 "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS file_path VARCHAR(512)"
             )
         )
-        # Durable provenance (WO-04).
+        # Durable provenance.
         conn.execute(
             text(
                 "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS "
@@ -201,7 +201,7 @@ def init_db(session: Session) -> None:
                 "excluded BOOLEAN NOT NULL DEFAULT FALSE"
             )
         )
-        # Additional instrument-reported JV metrics (WO-06).
+        # Additional instrument-reported JV metrics.
         for col in ("vmpp", "jmpp", "pmpp", "rs", "rsh"):
             conn.execute(
                 text(
@@ -218,11 +218,21 @@ def init_db(session: Session) -> None:
                 "ALTER TABLE measurementfile ADD COLUMN IF NOT EXISTS corrected_fields JSONB"
             )
         )
-        # Correction idempotency key (WO-07).
+        # Correction idempotency key.
         conn.execute(
             text(
                 "ALTER TABLE measurement_correction ADD COLUMN IF NOT EXISTS "
                 "request_id VARCHAR(100)"
+            )
+        )
+        # Idempotency constraint: a repeated correction intent (same request_id)
+        # must never double-apply, including under concurrency. Multiple NULLs
+        # are allowed (requests without an explicit key are not deduplicated).
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "ux_measurement_correction_request_id "
+                "ON measurement_correction (request_id) WHERE request_id IS NOT NULL"
             )
         )
 

@@ -111,7 +111,7 @@ services:
       # Durable stash for failed / not-yet-succeeded NOMAD upload archives.
       # Survives container recreation so the one-week retention actually holds.
       - nomad-stash:/var/lib/plains/nomad_stash
-      # Durable original source files for confirmed imports (WO-04).
+      # Durable original source files for confirmed imports.
       - source-files:/var/lib/plains/source_files
 
     healthcheck:

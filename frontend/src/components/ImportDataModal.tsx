@@ -28,6 +28,7 @@ import {
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
+import { flushSync } from "react-dom"
 import {
   importMeasurementSources,
   type ParseResult,
@@ -47,13 +48,6 @@ import { syncResultRefsForExperiment } from "@/store/resultRefs"
 import { SectionLabel } from "./SectionLabel"
 
 type FileWithPath = File & { webkitRelativePath?: string }
-
-/** Wait for React to commit state updates (two animation frames) before
- *  flushing, so the save snapshot always reflects the latest committed state. */
-const awaitCommit = () =>
-  new Promise<void>((resolve) =>
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-  )
 
 function relativePaths(files: File[]): string[] {
   return files.map((f) => (f as FileWithPath).webkitRelativePath || f.name)
@@ -231,8 +225,11 @@ export function ImportDataModal({
           const exp = newImportedExperiment(
             newExperimentName.trim() || "Imported Experiment",
           )
-          setExperiments((prev) => [...prev, { ...exp, id: destination }])
-          await awaitCommit()
+          // Flush the state commit synchronously so the destination experiment
+          // is persisted before sources are bound to it (no frame-timing race).
+          flushSync(() => {
+            setExperiments((prev) => [...prev, { ...exp, id: destination }])
+          })
           const expSaved = await flushSave()
           if (!expSaved) {
             notifications.show({
@@ -296,30 +293,33 @@ export function ImportDataModal({
       const reconciled = reconcileGroupIds(updated)
 
       if (newFiles.length > 0) {
-        setResults((prev) => {
-          const idx = prev.findIndex((r) => r.experimentId === destination)
-          if (idx >= 0) {
-            return prev.map((r, i) => (i === idx ? reconciled : r))
-          }
-          return [...prev, reconciled]
+        // Commit all result/experiment/collection-ref state synchronously before
+        // flushing, so the persisted snapshot reflects the import (deterministic
+        // persistence completion, not an animation-frame timing heuristic).
+        flushSync(() => {
+          setResults((prev) => {
+            const idx = prev.findIndex((r) => r.experimentId === destination)
+            if (idx >= 0) {
+              return prev.map((r, i) => (i === idx ? reconciled : r))
+            }
+            return [...prev, reconciled]
+          })
+          setExperiments((prev) =>
+            prev.map((e) =>
+              e.id === destination ? { ...e, hasResults: true } : e,
+            ),
+          )
+          // Keep Collection result-refs consistent with the persisted result
+          // (same shared helper the Results page uses).
+          syncResultRefsForExperiment(
+            destination,
+            [reconciled.id],
+            reconciled.id,
+            planes,
+            updateElement,
+            setEntityPlaneId,
+          )
         })
-        setExperiments((prev) =>
-          prev.map((e) =>
-            e.id === destination ? { ...e, hasResults: true } : e,
-          ),
-        )
-        // Keep Collection result-refs consistent with the persisted result
-        // (same shared helper the Results page uses).
-        syncResultRefsForExperiment(
-          destination,
-          [reconciled.id],
-          reconciled.id,
-          planes,
-          updateElement,
-          setEntityPlaneId,
-        )
-        // Let React commit the state update before flushing.
-        await awaitCommit()
       }
 
       const saved = await flushSave()

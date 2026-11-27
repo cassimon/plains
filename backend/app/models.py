@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from pydantic import ConfigDict, EmailStr
-from sqlalchemy import Column, DateTime, Index, UniqueConstraint, event, text
+from sqlalchemy import Column, DateTime, Index, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -1173,7 +1173,7 @@ class MeasurementFileBase(SQLModel):
     in_summary: bool | None = None  # None = unknown, True = in summary, False = additional
     batch: str | None = Field(default=None, max_length=255)
     substrate_group: str | None = Field(default=None, max_length=255)
-    # Durable provenance (WO-04). ``source_file_id`` links a measurement to its
+    # Durable provenance. ``source_file_id`` links a measurement to its
     # stored original source file; ``source_record_locator`` distinguishes
     # multiple measurements extracted from the same source (e.g. FW/RV rows or
     # summary rows). Null = no durable provenance (historical records).
@@ -1308,7 +1308,7 @@ class ExperimentResultsListPublic(SQLModel):
 
 
 # ============================================================================
-# Durable imported source files (WO-04)
+# Durable imported source files
 # ============================================================================
 # Original bytes of files included in a confirmed import, stored on disk under
 # an internal id and described here. ``experiment_id`` ties each source to its
@@ -1341,22 +1341,15 @@ class ImportedSourceFilePublic(ImportedSourceFileBase):
     created_at: datetime | None = None
 
 
-def _remove_imported_source_bytes(mapper, connection, target) -> None:
-    """Best-effort cleanup of stored bytes when a source row is deleted
-    (permanent experiment/trash deletion cascades here). Never raises."""
-    try:
-        from app.services import source_store
-
-        source_store.remove_source(str(target.id))
-    except Exception:  # pragma: no cover - cleanup must never break a delete
-        pass
-
-
-event.listens_for(ImportedSourceFile, "after_delete")(_remove_imported_source_bytes)
+# Physical source bytes are removed by the caller (``source_store.remove_sources``)
+# only *after* the delete transaction commits. No ORM delete event is used: a
+# DB-level cascade delete (experiment → imported_source_file) does not fire
+# per-row events, and an ``after_delete`` on flush would remove bytes before the
+# transaction is guaranteed to succeed.
 
 
 # ============================================================================
-# Measurement correction history (WO-05)
+# Measurement correction history
 # ============================================================================
 # Append-only, traceable record of every researcher-applied correction: the
 # measurement, the affected field/operation, the previous and resulting value,

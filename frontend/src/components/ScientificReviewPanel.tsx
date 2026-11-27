@@ -124,6 +124,14 @@ export function ScientificReviewPanel({
               files: r.files.map((f) =>
                 f.id === updatedFile.id ? updatedFile : f,
               ),
+              // The same measurement also lives in the grouped copy; keep it in
+              // sync so every consumer sees the authoritative corrected value.
+              deviceGroups: r.deviceGroups.map((g) => ({
+                ...g,
+                files: g.files.map((f) =>
+                  f.id === updatedFile.id ? updatedFile : f,
+                ),
+              })),
             }
           : r,
       ),
@@ -151,13 +159,17 @@ export function ScientificReviewPanel({
     setBusy(true)
     try {
       const op = excludeTarget.excluded ? "restore" : "exclude"
-      await applyCorrection(result.id, {
+      const correction = await applyCorrection(result.id, {
         measurement_id: excludeTarget.id,
         operation: op,
         reason: excludeReason.trim(),
         request_id: requestId ?? undefined,
       })
-      applyLocal({ ...excludeTarget, excluded: !excludeTarget.excluded })
+      // Use the server-confirmed exclusion state, not a local toggle.
+      applyLocal({
+        ...excludeTarget,
+        excluded: correction.new_value === "true",
+      })
       refreshHistory()
       notifications.show({
         title:
@@ -185,7 +197,7 @@ export function ScientificReviewPanel({
     if (!field) return
     setBusy(true)
     try {
-      await applyCorrection(result.id, {
+      const correction = await applyCorrection(result.id, {
         measurement_id: editTarget.id,
         operation: "edit",
         field: editField,
@@ -193,7 +205,11 @@ export function ScientificReviewPanel({
         reason: editReason.trim(),
         request_id: requestId ?? undefined,
       })
-      applyLocal({ ...editTarget, [field.frontend]: editValue.trim() })
+      // Use the server-confirmed value for the edited field.
+      applyLocal({
+        ...editTarget,
+        [field.frontend]: correction.new_value ?? "",
+      })
       refreshHistory()
       notifications.show({
         title: "Metadata updated",
@@ -233,7 +249,7 @@ export function ScientificReviewPanel({
     }
     setBusy(true)
     try {
-      await applyCorrection(result.id, {
+      const correction = await applyCorrection(result.id, {
         measurement_id: scaleTarget.id,
         operation: "scale",
         field: scaleField,
@@ -241,7 +257,11 @@ export function ScientificReviewPanel({
         reason: scaleReason.trim(),
         request_id: requestId ?? undefined,
       })
-      applyLocal({ ...scaleTarget, [scaleField]: old * factor })
+      // Use the server-confirmed effective value rather than a local recompute.
+      applyLocal({
+        ...scaleTarget,
+        [scaleField]: Number(correction.new_value),
+      })
       refreshHistory()
       notifications.show({
         title: "Scaling applied",

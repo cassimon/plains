@@ -20,6 +20,7 @@ from app.models import (
     LabSubstrateCreate,
     LabSubstratePublic,
 )
+from app.services import source_store
 
 router = APIRouter(prefix="/experiments", tags=["experiments"])
 
@@ -102,8 +103,12 @@ def delete_experiment(
         raise HTTPException(status_code=404, detail="Experiment not found")
     if not current_user.is_superuser and (experiment.owner_id != current_user.id):
         raise HTTPException(status_code=403, detail="Not enough permissions")
+    # Collect stored source ids before the cascade delete (which does not fire
+    # ORM per-row events), and remove their bytes only after the commit succeeds.
+    source_ids = source_store.collect_source_ids(session, [id])
     session.delete(experiment)
     session.commit()
+    source_store.remove_sources(source_ids)
     return {"ok": True}
 
 

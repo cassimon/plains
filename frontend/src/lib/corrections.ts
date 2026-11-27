@@ -1,4 +1,4 @@
-// Client helpers for measurement corrections (WO-05). The backend endpoint is
+// Client helpers for measurement corrections. The backend endpoint is
 // authoritative and atomic: it applies the change and records the traceable
 // history in one transaction.
 
@@ -63,4 +63,17 @@ export function listCorrections(
   resultId: string,
 ): Promise<CorrectionHistory[]> {
   return request(`/results/${resultId}/corrections`)
+}
+
+/**
+ * Explicitly delete one measurement. The snapshot replace is upsert-only (never
+ * deletes), so individual removal uses this dedicated, authorized endpoint.
+ */
+export function deleteMeasurement(
+  resultId: string,
+  measurementId: string,
+): Promise<void> {
+  return request(`/results/${resultId}/measurement-files/${measurementId}`, {
+    method: "DELETE",
+  })
 }

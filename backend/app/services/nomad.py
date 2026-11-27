@@ -4253,7 +4253,7 @@ def create_nomad_metadata_yaml(
     unassigned_groups: list[dict[str, Any]] = []
     if device_groups:
         for group in device_groups:
-            # WO-09: excluded observations and local-only (never-uploaded,
+            # Excluded observations and local-only (never-uploaded,
             # imported) measurements must never be deposited as accepted
             # scientific results. Drop them from the group's file list before
             # any sample/measurement archive is built.
